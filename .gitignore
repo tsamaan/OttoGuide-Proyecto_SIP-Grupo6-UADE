@@ -52,6 +52,11 @@ libs/
 Thumbs.db
 desktop.ini
 
+# ===== Documentacion web y PDFs (no versionables) =====
+*.pdf
+*.mhtml
+*.html
+
 # ===== Datos y recursos locales (no versionables) =====
 data/
 resources/
