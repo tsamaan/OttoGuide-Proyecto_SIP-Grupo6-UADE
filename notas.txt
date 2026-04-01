@@ -1,0 +1,7 @@
+Proximos Testeos:
+
+Diseñar protocolos de prueba  
+Realizar relevamientos en campo  
+Observar el comportamiento del robot en el entorno real  
+Detectar errores y oportunidades de mejora  
+Ejecutar pruebas piloto 
