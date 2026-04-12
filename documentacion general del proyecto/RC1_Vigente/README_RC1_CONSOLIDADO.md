@@ -14,6 +14,7 @@ Este directorio consolida la documentacion operativa y arquitectonica vigente de
 | AUDITORIA_DOCUMENTAL_RC1.md | Inventario auditado, vigencia y obsolescencia por archivo |
 | ARQUITECTURA_OPERATIVA_RC1.md | Contrato tecnico de arquitectura y flujo E2E vigente |
 | RUNBOOK_STARTUP_RC1.md | Secuencia de arranque y criterios GO/NO-GO |
+| RUNBOOK_DEMO_LOCAL.md | Procedimiento offline/mock para demo local de interaccion y dashboard WS |
 
 ## Politica de uso
 

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     """
 
     # --- Hardware ---
-    ROBOT_MODE: Literal["real", "sim", "mock"] = "mock"
+    ROBOT_MODE: Literal["real", "sim", "mock", "demo"] = "mock"
     ROBOT_NETWORK_INTERFACE: str = ""
 
     # --- NLP / LLM ---
@@ -102,16 +102,19 @@ def get_hardware_adapter():
         from hardware.sim_adapter import UnitreeG1SimAdapter
         return UnitreeG1SimAdapter()
 
-    if settings.ROBOT_MODE == "mock":
-        # STEP 4: Modo mock (default)
-        LOGGER.info("[CONFIG] ROBOT_MODE=mock. Cargando MockRobotAdapter.")
-        from hardware.mock_adapter import MockRobotAdapter
-        return MockRobotAdapter()
+    if settings.ROBOT_MODE in ("mock", "demo"):
+        # STEP 4: Modo mock/demo (default)
+        LOGGER.info(
+            "[CONFIG] ROBOT_MODE=%s. Cargando MockHardwareAPI.",
+            settings.ROBOT_MODE,
+        )
+        from hardware.mock_adapter import MockHardwareAPI
+        return MockHardwareAPI()
 
     # STEP 5: Modo no reconocido
     raise ValueError(
         f"ROBOT_MODE='{settings.ROBOT_MODE}' no es valido. "
-        "Valores validos: 'real', 'sim', 'mock'."
+        "Valores validos: 'real', 'sim', 'mock', 'demo'."
     )
 
 
