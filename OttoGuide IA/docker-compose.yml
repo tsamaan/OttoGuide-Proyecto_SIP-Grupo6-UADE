@@ -1,0 +1,17 @@
+
+
+services:
+
+  llm:
+    image: ollama/ollama:latest
+    container_name: ottoguide-llm
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+
+volumes:
+    ollama_data:
