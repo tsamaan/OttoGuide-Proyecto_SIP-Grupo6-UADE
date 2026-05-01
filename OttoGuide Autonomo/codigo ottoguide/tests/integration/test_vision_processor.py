@@ -45,7 +45,8 @@ async def test_vision_processor_synthetic_frame_non_blocking() -> None:
     vision_processor = VisionProcessor(
         camera_model=camera_model,
         tag_size_m=0.16,
-        executor_workers=1,
+        device_index=0,
+        target_fps=10.0,
     )
 
     frame: NDArray[np.uint8] = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -61,7 +62,7 @@ async def test_vision_processor_synthetic_frame_non_blocking() -> None:
 
     ticker_task = asyncio.create_task(ticker())
     try:
-        result: Optional[PoseEstimate] = await vision_processor.process_frame(frame)
+        result: Optional[PoseEstimate] = await vision_processor.get_next_estimate(timeout_s=0.01)
     finally:
         stop_event.set()
         await ticker_task

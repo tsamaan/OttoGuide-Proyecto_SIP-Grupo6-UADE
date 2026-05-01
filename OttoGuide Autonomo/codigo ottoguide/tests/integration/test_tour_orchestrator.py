@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import sys
 from typing import AsyncIterator, Callable
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -25,9 +26,17 @@ for loaded_module in list(sys.modules):
     if loaded_module == "src" or loaded_module.startswith("src."):
         del sys.modules[loaded_module]
 
+from tests.mocks.mock_nav2_bridge import MockNav2Bridge
+from tests.mocks.mock_ros2 import install_mocks
+from tests.mocks.mock_vision_processor import MockVisionProcessor
+
+install_mocks(sys.modules)
+
 from src.core import TourOrchestrator
+from src.core import TourPlan
 from src.hardware import RobotHardwareAPI
-from src.interaction import CloudNLPPipeline, ConversationManager, LocalNLPPipeline
+from src.interaction import ConversationManager, ConversationResponse
+from src.navigation import NavWaypoint
 from tests.mocks.mock_unitree_sdk import MockHighLevelClient
 
 
@@ -37,6 +46,8 @@ class OrchestratorBundle:
     hardware_api: RobotHardwareAPI
     mock_client: MockHighLevelClient
     conversation_manager: ConversationManager
+    nav_bridge: MockNav2Bridge
+    vision_processor: MockVisionProcessor
 
 
 @pytest_asyncio.fixture
@@ -59,18 +70,39 @@ async def orchestrator_bundle() -> AsyncIterator[OrchestratorBundle]:
         executor_workers=1,
     )
 
-    conversation_manager = ConversationManager(
-        cloud_strategy=CloudNLPPipeline(
-            timeout_s=0.25,
-            simulated_latency_s=0.005,
-            provider_name="test-cloud",
-        ),
-        local_strategy=LocalNLPPipeline(model_name="test-local"),
+    local_strategy = MagicMock()
+    local_strategy.generate = AsyncMock(
+        return_value=ConversationResponse(
+            answer_text="respuesta local",
+            source_pipeline="local",
+            audio_stream_ready=False,
+        )
     )
+    local_strategy.close = MagicMock()
+
+    cloud_strategy = MagicMock()
+    cloud_strategy.generate = AsyncMock(
+        return_value=ConversationResponse(
+            answer_text="respuesta cloud",
+            source_pipeline="cloud",
+            audio_stream_ready=False,
+        )
+    )
+    cloud_strategy.close = MagicMock()
+
+    conversation_manager = ConversationManager(
+        local_strategy=local_strategy,
+        cloud_strategy=cloud_strategy,
+    )
+
+    nav_bridge = MockNav2Bridge(navigation_delay_s=0.1)
+    vision_processor = MockVisionProcessor()
 
     orchestrator = TourOrchestrator(
         hardware_api=hardware_api,
+        nav_bridge=nav_bridge,
         conversation_manager=conversation_manager,
+        vision_processor=vision_processor,
     )
     await orchestrator.activate_initial_state()
 
@@ -79,6 +111,8 @@ async def orchestrator_bundle() -> AsyncIterator[OrchestratorBundle]:
         hardware_api=hardware_api,
         mock_client=mock_client,
         conversation_manager=conversation_manager,
+        nav_bridge=nav_bridge,
+        vision_processor=vision_processor,
     )
 
     hardware_api.close()
@@ -86,85 +120,64 @@ async def orchestrator_bundle() -> AsyncIterator[OrchestratorBundle]:
 
 
 @pytest.mark.asyncio
-async def test_standard_tour_flow(orchestrator_bundle: OrchestratorBundle) -> None:
-    # @TASK: Validar flujo estandar
+async def test_dispatch_tour_enters_navigating(orchestrator_bundle: OrchestratorBundle) -> None:
+    # @TASK: Validar despacho nominal
     # @INPUT: orchestrator_bundle
-    # @OUTPUT: Transiciones IDLE->NAVIGATING->GUIDING->INTERACTING->IDLE correctas
-    # @CONTEXT: Prueba de integracion principal del TourOrchestrator
-    # STEP 1: Ejecutar transiciones nominales del recorrido
-    # STEP 2: Asertar estado esperado en cada etapa
-    # @SECURITY: Garantiza comportamiento determinista base
-    # @AI_CONTEXT: Cobertura minima del happy path del state machine
+    # @OUTPUT: dispatch_tour completa y el estado pasa a navigating
+    # @CONTEXT: Cobertura del contrato publico actual del orquestador
+    # STEP 1: Despachar un plan con un waypoint
+    # STEP 2: Validar persistencia de contexto y llamada al bridge
+    # @SECURITY: No usa hardware real ni ROS2 real
+    # @AI_CONTEXT: Verifica la ruta activa usada por FastAPI
     orchestrator = orchestrator_bundle.orchestrator
+    plan = TourPlan(
+        waypoints=[NavWaypoint(x=0.0, y=0.0, yaw_rad=0.0)],
+        tour_id="tour-001",
+    )
 
-    assert orchestrator.state_id == "idle"
-    await orchestrator.start_tour("wp-001")
+    await orchestrator.dispatch_tour(plan)
+    await asyncio.sleep(0.05)
+
     assert orchestrator.state_id == "navigating"
-
-    await orchestrator.mark_waypoint_reached("wp-001")
-    assert orchestrator.state_id == "guiding"
-
-    await orchestrator.start_guided_interaction()
-    assert orchestrator.state_id == "interacting"
-
-    await orchestrator.complete_tour()
-    assert orchestrator.state_id == "idle"
+    assert orchestrator.context.tour_id == "tour-001"
+    assert orchestrator_bundle.nav_bridge.navigation_calls
 
 
 @pytest.mark.asyncio
-async def test_error_recovery_triggers_damp(orchestrator_bundle: OrchestratorBundle) -> None:
-    # @TASK: Validar recovery con Damp
+async def test_emergency_stop_triggers_damp(orchestrator_bundle: OrchestratorBundle) -> None:
+    # @TASK: Validar emergencia con Damp
     # @INPUT: orchestrator_bundle
     # @OUTPUT: Registro de comando Damp en historial mock
-    # @CONTEXT: Verifica rutina de seguridad al entrar ERROR_RECOVERY
-    # STEP 1: Forzar evento de fallo del orquestador
-    # STEP 2: Asertar estado y comando Damp ejecutado
-    # @SECURITY: Prueba comportamiento failsafe critico
-    # @AI_CONTEXT: Asegura acion de postura segura ante errores
+    # @CONTEXT: Verifica rutina de seguridad en estado final EMERGENCY
+    # STEP 1: Forzar emergencia
+    # STEP 2: Asertar estado final y Damp ejecutado
+    # @SECURITY: Ruta failsafe critica
+    # @AI_CONTEXT: Cubre la transicion de maxima prioridad
     orchestrator = orchestrator_bundle.orchestrator
     mock_client = orchestrator_bundle.mock_client
 
-    await orchestrator.trigger_error_recovery("forced-test-error")
+    await orchestrator.emergency_stop("forced-test-error")
 
-    assert orchestrator.state_id == "error_recovery"
+    assert orchestrator.state_id == "emergency"
     assert any(record.command == "Damp" for record in mock_client.history)
 
 
 @pytest.mark.asyncio
-async def test_nlp_hot_swap_fallback(orchestrator_bundle: OrchestratorBundle) -> None:
-    # @TASK: Validar hot-swap NLP
+async def test_handle_user_question_returns_response(orchestrator_bundle: OrchestratorBundle) -> None:
+    # @TASK: Validar question path
     # @INPUT: orchestrator_bundle
-    # @OUTPUT: Fallback cloud->local sin bloqueo en INTERACTING
-    # @CONTEXT: Prueba resiliencia del ConversationManager bajo timeout cloud
-    # STEP 1: Reconfigurar manager con cloud que provoca TimeoutError
-    # STEP 2: Ejecutar pregunta y validar respuesta local y continuidad
-    # @SECURITY: Evita degradacion por latencias cloud en runtime
-    # @AI_CONTEXT: Cobertura de estrategia de contingencia conversacional
-    mock_client = orchestrator_bundle.mock_client
-
-    timeout_conversation_manager = ConversationManager(
-        cloud_strategy=CloudNLPPipeline(
-            timeout_s=0.01,
-            simulated_latency_s=0.05,
-            provider_name="timeout-cloud",
-        ),
-        local_strategy=LocalNLPPipeline(model_name="fallback-local"),
-    )
-    timeout_orchestrator = TourOrchestrator(
-        hardware_api=orchestrator_bundle.hardware_api,
-        conversation_manager=timeout_conversation_manager,
-    )
-    await timeout_orchestrator.activate_initial_state()
-
-    await timeout_orchestrator.start_tour("wp-hot-swap")
-    await timeout_orchestrator.mark_waypoint_reached("wp-hot-swap")
-    await timeout_orchestrator.start_guided_interaction()
+    # @OUTPUT: Response de ConversationManager y contexto actualizado
+    # @CONTEXT: Cobertura de compatibilidad para la API de texto directa
+    # STEP 1: Enviar pregunta de texto
+    # STEP 2: Asertar que se registra la ultima interaccion
+    # @SECURITY: Sin dependencia de voz ni hardware
+    # @AI_CONTEXT: Conserva contrato usado por endpoints de soporte
+    orchestrator = orchestrator_bundle.orchestrator
 
     response_obj = await asyncio.wait_for(
-        timeout_orchestrator.handle_user_question("¿Dónde está la salida?"),
-        timeout=0.3,
+        orchestrator.handle_user_question("¿Dónde está la salida?"),
+        timeout=0.5,
     )
 
-    assert timeout_orchestrator.state_id == "interacting"
-    assert response_obj.source_pipeline == "local"
-    assert timeout_conversation_manager.active_strategy_name == "LocalNLPPipeline"
+    assert response_obj.answer_text
+    assert orchestrator.context.last_interaction is response_obj

@@ -1,0 +1,413 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.tabs{display:flex;gap:4px;border-bottom:0.5px solid var(--color-border-tertiary);margin-bottom:1.5rem;padding:1rem 1.25rem 0;overflow-x:auto}
+.tab{padding:8px 14px;font-size:13px;cursor:pointer;border-radius:6px 6px 0 0;color:var(--color-text-secondary);border:none;background:none;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;flex-shrink:0}
+.tab.active{color:var(--color-text-primary);border-bottom:2px solid var(--color-text-primary);font-weight:500}
+.tab:hover:not(.active){background:var(--color-background-secondary)}
+.panel{display:none;padding:0 1.25rem 1.25rem}
+.panel.active{display:block}
+
+.phase{margin-bottom:1.1rem;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden}
+.phase-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--color-background-secondary)}
+.phase-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.phase-title{font-size:13px;font-weight:500;color:var(--color-text-primary);flex:1}
+.phase-badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500}
+.phase-items{padding:10px 14px;display:flex;flex-direction:column;gap:5px}
+.phase-item{font-size:12px;color:var(--color-text-secondary);display:flex;align-items:flex-start;gap:8px;line-height:1.5}
+.phase-item::before{content:"";width:4px;height:4px;border-radius:50%;background:var(--color-border-secondary);flex-shrink:0;margin-top:6px}
+.phase-owner{font-size:10px;padding:1px 6px;border-radius:10px;border:0.5px solid var(--color-border-tertiary);color:var(--color-text-tertiary);margin-left:auto;flex-shrink:0;white-space:nowrap}
+
+.backlog-filters{display:flex;gap:5px;margin-bottom:.9rem;flex-wrap:wrap}
+.filter-btn{padding:3px 10px;font-size:11px;border:0.5px solid var(--color-border-tertiary);border-radius:20px;cursor:pointer;background:none;color:var(--color-text-secondary);transition:all .15s}
+.filter-btn.active{background:var(--color-text-primary);color:var(--color-background-primary);border-color:var(--color-text-primary)}
+.task-list{display:flex;flex-direction:column;gap:5px}
+.task{display:flex;align-items:center;gap:9px;padding:9px 11px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);cursor:pointer;transition:background .1s}
+.task:hover{background:var(--color-background-secondary)}
+.task.done .task-title{text-decoration:line-through;color:var(--color-text-tertiary)}
+.task-check{width:15px;height:15px;border-radius:3px;border:0.5px solid var(--color-border-secondary);flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.task.done .task-check{background:var(--color-text-primary);border-color:var(--color-text-primary)}
+.check-mark{display:none;color:var(--color-background-primary);font-size:9px}
+.task.done .check-mark{display:block}
+.task-title{font-size:12px;color:var(--color-text-primary);flex:1}
+.task-area{font-size:10px;padding:1px 6px;border-radius:10px;font-weight:500;flex-shrink:0}
+.task-who{font-size:10px;flex-shrink:0;padding:1px 6px;border-radius:10px;border:0.5px solid var(--color-border-tertiary);color:var(--color-text-tertiary)}
+.prog-wrap{margin-bottom:.9rem;background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:10px 12px}
+.prog-label{display:flex;justify-content:space-between;font-size:11px;color:var(--color-text-secondary);margin-bottom:5px}
+.prog-track{height:5px;background:var(--color-border-tertiary);border-radius:3px;overflow:hidden}
+.prog-fill{height:100%;background:var(--color-text-primary);border-radius:3px;transition:width .3s}
+
+.team-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:9px;margin-bottom:1.1rem}
+.member-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:12px}
+.avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;margin-bottom:8px}
+.member-name{font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:1px}
+.member-role{font-size:11px;color:var(--color-text-secondary);margin-bottom:4px;line-height:1.4}
+.member-tags{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px}
+.tag{font-size:10px;padding:1px 5px;border-radius:8px;border:0.5px solid var(--color-border-tertiary);color:var(--color-text-secondary)}
+.collab-badge{font-size:10px;padding:1px 6px;border-radius:8px;display:inline-block;margin-top:4px}
+
+.arch-section{margin-bottom:1.1rem}
+.arch-title{font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+.arch-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:8px}
+.arch-card{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 12px}
+.arch-card-title{font-size:12px;font-weight:500;color:var(--color-text-primary);margin-bottom:4px}
+.arch-card-body{font-size:11px;color:var(--color-text-secondary);line-height:1.5}
+.arch-flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}
+.arch-node{font-size:11px;padding:5px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);color:var(--color-text-secondary);text-align:center;line-height:1.4}
+.arch-arrow{font-size:13px;color:var(--color-text-tertiary);flex-shrink:0}
+
+.metrics-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:1.1rem}
+.metric-card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px;text-align:center}
+.metric-value{font-size:24px;font-weight:500;color:var(--color-text-primary)}
+.metric-label{font-size:10px;color:var(--color-text-secondary);margin-top:3px}
+.scope-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.scope-block{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 12px}
+.scope-block.in{border-color:#22c55e33}
+.scope-block.out{border-color:#ef444433}
+.scope-header{font-size:10px;font-weight:500;margin-bottom:5px}
+.scope-header.in{color:#16a34a}
+.scope-header.out{color:#dc2626}
+.scope-item{font-size:11px;color:var(--color-text-secondary);padding:2px 0}
+</style>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('roadmap',event)">Roadmap</button>
+  <button class="tab" onclick="switchTab('backlog',event)">Backlog</button>
+  <button class="tab" onclick="switchTab('equipo',event)">Equipo</button>
+  <button class="tab" onclick="switchTab('arquitectura',event)">Arquitectura</button>
+  <button class="tab" onclick="switchTab('alcance',event)">Alcance & métricas</button>
+</div>
+
+<!-- ROADMAP -->
+<div class="panel active" id="panel-roadmap">
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-dot" style="background:#a855f7"></div>
+      <div class="phase-title">Fase 1 — Setup y diseño</div>
+      <div class="phase-badge" style="background:#f3e8ff;color:#7e22ce">Semanas 1–2</div>
+    </div>
+    <div class="phase-items">
+      <div class="phase-item">Configurar conexiones de red en UADE y acceso WiFi para el robot<span class="phase-owner">Teo</span></div>
+      <div class="phase-item">Relevamiento del recorrido físico: entrada, planta baja, patio<span class="phase-owner">Jorge</span></div>
+      <div class="phase-item">Diseño del protocolo de pruebas con y sin robot<span class="phase-owner">Jorge</span></div>
+      <div class="phase-item">Instalar unitree_sdk2_python y probar comunicación DDS<span class="phase-owner">Lucas</span></div>
+      <div class="phase-item">Redacción del guión predefinido para el recorrido<span class="phase-owner">Erika</span></div>
+      <div class="phase-item">Mapeo y redacción de FAQ de UADE<span class="phase-owner">Erika</span></div>
+      <div class="phase-item">Elaboración de instrumentos de testing (encuesta, entrevista, observación)<span class="phase-owner">Martina + Jorge</span></div>
+    </div>
+  </div>
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-dot" style="background:#3b82f6"></div>
+      <div class="phase-title">Fase 2 — Backend y comunicación</div>
+      <div class="phase-badge" style="background:#eff6ff;color:#1d4ed8">Semanas 3–5</div>
+    </div>
+    <div class="phase-items">
+      <div class="phase-item">Configurar integración LLM ↔ backend (API keys, endpoints, red)<span class="phase-owner">Teo</span></div>
+      <div class="phase-item">Configurar integración TTS/STT ↔ backend<span class="phase-owner">Teo</span></div>
+      <div class="phase-item">Diseño de encuesta Likert y guía de entrevista<span class="phase-owner">Martina + Jorge</span></div>
+      <div class="phase-item">Definir textos, tono y personalidad del robot para la visita<span class="phase-owner">Erika</span></div>
+      <div class="phase-item">Guión de interacción: bienvenida, explicaciones por zona, despedida<span class="phase-owner">Erika</span></div>
+      <div class="phase-item">Código del backend (API REST/WebSocket, rutas, lógica)<span class="phase-owner">Lucas</span></div>
+      <div class="phase-item">Código del cliente Python en el robot (suscripción DDS, comandos)<span class="phase-owner">Lucas</span></div>
+      <div class="phase-item">Pipeline conversación: STT → LLM → TTS → robot<span class="phase-owner">Lucas + Teo</span></div>
+    </div>
+  </div>
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-dot" style="background:#f59e0b"></div>
+      <div class="phase-title">Fase 3 — Integración y pruebas internas</div>
+      <div class="phase-badge" style="background:#fffbeb;color:#b45309">Semanas 6–7</div>
+    </div>
+    <div class="phase-items">
+      <div class="phase-item">Integración completa: robot navega los 3 puntos recibiendo guión del backend<span class="phase-owner">Lucas + Teo</span></div>
+      <div class="phase-item">Prueba del ciclo de conversación en tiempo real<span class="phase-owner">Lucas + Teo</span></div>
+      <div class="phase-item">Pruebas de navegación, colisiones y obstacle avoidance<span class="phase-owner">Jorge</span></div>
+      <div class="phase-item">Validar que tono, voz e interacciones sean adecuados para secundaria<span class="phase-owner">Erika</span></div>
+      <div class="phase-item">Ajuste fino del guión según feedback interno<span class="phase-owner">Erika</span></div>
+      <div class="phase-item">Preparar materiales y espacio para el piloto<span class="phase-owner">Martina + Jorge</span></div>
+    </div>
+  </div>
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-dot" style="background:#ef4444"></div>
+      <div class="phase-title">Fase 4 — Piloto con usuarios</div>
+      <div class="phase-badge" style="background:#fef2f2;color:#b91c1c">Semanas 8–9</div>
+    </div>
+    <div class="phase-items">
+      <div class="phase-item">Ejecutar visita Grupo A: sin robot (línea base)<span class="phase-owner">Jorge</span></div>
+      <div class="phase-item">Ejecutar visita Grupo B: con Ottoman co-guía<span class="phase-owner">Jorge + equipo</span></div>
+      <div class="phase-item">Aplicar encuesta Likert post-visita a ambos grupos<span class="phase-owner">Martina</span></div>
+      <div class="phase-item">Conducir entrevistas breves a participantes seleccionados<span class="phase-owner">Martina</span></div>
+      <div class="phase-item">Registro de observación estructurada e incidencias<span class="phase-owner">Jorge</span></div>
+    </div>
+  </div>
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-dot" style="background:#10b981"></div>
+      <div class="phase-title">Fase 5 — Análisis y entrega</div>
+      <div class="phase-badge" style="background:#ecfdf5;color:#065f46">Semana 10</div>
+    </div>
+    <div class="phase-items">
+      <div class="phase-item">Análisis comparativo de resultados con/sin robot<span class="phase-owner">Martina + Jorge</span></div>
+      <div class="phase-item">Contraste contra criterios de éxito del MVP<span class="phase-owner">Teo</span></div>
+      <div class="phase-item">Documentación técnica y del proyecto<span class="phase-owner">Todo el equipo</span></div>
+      <div class="phase-item">Presentación final a stakeholders de UADE<span class="phase-owner">Teo</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- BACKLOG -->
+<div class="panel" id="panel-backlog">
+  <div class="prog-wrap">
+    <div class="prog-label"><span>Progreso general del MVP</span><span id="prog-pct">0%</span></div>
+    <div class="prog-track"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
+  </div>
+  <div class="backlog-filters">
+    <button class="filter-btn active" onclick="filterTasks('all',this)">Todas</button>
+    <button class="filter-btn" onclick="filterTasks('teo',this)">Teo</button>
+    <button class="filter-btn" onclick="filterTasks('lucas',this)">Lucas</button>
+    <button class="filter-btn" onclick="filterTasks('erika',this)">Erika</button>
+    <button class="filter-btn" onclick="filterTasks('jorge',this)">Jorge</button>
+    <button class="filter-btn" onclick="filterTasks('martina',this)">Martina</button>
+  </div>
+  <div class="task-list" id="task-list"></div>
+</div>
+
+<!-- EQUIPO -->
+<div class="panel" id="panel-equipo">
+  <div class="team-grid" id="team-grid"></div>
+  <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 12px;margin-bottom:10px">
+    <div style="font-size:11px;font-weight:500;color:var(--color-text-secondary);margin-bottom:8px">Colaboraciones entre roles</div>
+    <div style="display:flex;flex-direction:column;gap:5px">
+      <div style="font-size:11px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px">
+        <span style="padding:1px 7px;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:10px">Teo + Lucas</span>
+        <span>Desarrollo del pipeline de conexiones e integración Python</span>
+      </div>
+      <div style="font-size:11px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px">
+        <span style="padding:1px 7px;border-radius:8px;background:#ecfdf5;color:#065f46;font-size:10px">Jorge + Martina</span>
+        <span>Testing, relevamiento, encuestas y análisis de resultados</span>
+      </div>
+    </div>
+  </div>
+  <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 12px">
+    <div style="font-size:11px;font-weight:500;color:var(--color-text-secondary);margin-bottom:7px">Usuarios del sistema</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <div style="font-size:11px;padding:3px 9px;border:0.5px solid var(--color-border-tertiary);border-radius:20px;color:var(--color-text-secondary)">Estudiantes de secundaria (primarios)</div>
+      <div style="font-size:11px;padding:3px 9px;border:0.5px solid var(--color-border-tertiary);border-radius:20px;color:var(--color-text-secondary)">Personal de admisiones</div>
+      <div style="font-size:11px;padding:3px 9px;border:0.5px solid var(--color-border-tertiary);border-radius:20px;color:var(--color-text-secondary)">Guías actuales</div>
+    </div>
+  </div>
+</div>
+
+<!-- ARQUITECTURA -->
+<div class="panel" id="panel-arquitectura">
+  <div class="arch-section">
+    <div class="arch-title">Flujo de comunicación</div>
+    <div class="arch-flow">
+      <div class="arch-node" style="background:var(--color-background-info);border-color:var(--color-border-info);color:var(--color-text-info)">Red WiFi UADE<br><span style="font-size:9px;opacity:.8">Teo — conexiones</span></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="background:var(--color-background-secondary)">Backend Python<br><span style="font-size:9px;opacity:.7">Lucas — código</span></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="background:var(--color-background-secondary)">LLM API<br><span style="font-size:9px;opacity:.7">Teo — integración</span></div>
+    </div>
+    <div style="margin:4px 0 4px 0;font-size:12px;color:var(--color-text-tertiary);padding-left:2px">↓ respuesta del LLM</div>
+    <div class="arch-flow">
+      <div class="arch-node" style="background:var(--color-background-secondary)">TTS Engine<br><span style="font-size:9px;opacity:.7">Teo — integración</span></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="background:var(--color-background-secondary)">DDS Publisher<br><span style="font-size:9px;opacity:.7">Lucas — código</span></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="background:#ecfdf5;border-color:#22c55e44;color:#065f46">G1 EDU 8<br><span style="font-size:9px;opacity:.8">Lucas — SDK Python</span></div>
+    </div>
+  </div>
+  <div class="arch-section">
+    <div class="arch-title">Capas del sistema</div>
+    <div class="arch-grid">
+      <div class="arch-card">
+        <div class="arch-card-title">Conexiones (Teo)</div>
+        <div class="arch-card-body">Acceso WiFi UADE, API keys del LLM, credenciales TTS/STT, configuración de red entre backend y robot.</div>
+      </div>
+      <div class="arch-card">
+        <div class="arch-card-title">Código Python (Lucas)</div>
+        <div class="arch-card-body">Backend FastAPI/Flask, cliente SDK en el robot, DDS publisher/subscriber, pipeline STT→LLM→TTS→robot.</div>
+      </div>
+      <div class="arch-card">
+        <div class="arch-card-title">Voz e interacción (Erika)</div>
+        <div class="arch-card-body">Guión completo del recorrido, textos por zona, tono y personalidad del robot, respuestas FAQ y mensajes de bienvenida y despedida.</div>
+      </div>
+      <div class="arch-card">
+        <div class="arch-card-title">Testing (Jorge + Martina)</div>
+        <div class="arch-card-body">Relevamiento físico, protocolo con/sin robot, instrumentos de medición, ejecución del piloto y análisis de resultados.</div>
+      </div>
+    </div>
+  </div>
+  <div class="arch-section">
+    <div class="arch-title">SDK — capacidades disponibles (unitree_sdk2_python)</div>
+    <div class="arch-grid">
+      <div class="arch-card" style="border-color:#eff6ff">
+        <div class="arch-card-title" style="color:var(--color-text-info)">SportClient</div>
+        <div class="arch-card-body">StandUp, VelocityMove, TrajectoryFollow, SpecialMotions. Control de movimiento de alto nivel.</div>
+      </div>
+      <div class="arch-card" style="border-color:#f3e8ff">
+        <div class="arch-card-title" style="color:#7e22ce">VuiClient</div>
+        <div class="arch-card-body">Control de volumen y brillo de luces. Útil para feedback visual y auditivo durante el recorrido.</div>
+      </div>
+      <div class="arch-card" style="border-color:#ecfdf5">
+        <div class="arch-card-title" style="color:#065f46">Cámara frontal</div>
+        <div class="arch-card-body">Acceso vía OpenCV. Puede usarse para detectar personas o capturar contexto para el LLM.</div>
+      </div>
+      <div class="arch-card" style="border-color:#fff7ed">
+        <div class="arch-card-title" style="color:#c2410c">Obstacle avoidance</div>
+        <div class="arch-card-body">Activable por código. Recomendado tenerlo encendido durante todo el recorrido del MVP.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ALCANCE -->
+<div class="panel" id="panel-alcance">
+  <div class="metrics-grid">
+    <div class="metric-card"><div class="metric-value">≥80%</div><div class="metric-label">Percepción de innovación</div></div>
+    <div class="metric-card"><div class="metric-value">≥70%</div><div class="metric-label">Satisfacción del usuario</div></div>
+    <div class="metric-card"><div class="metric-value">≥90%</div><div class="metric-label">Ejecución autónoma</div></div>
+  </div>
+  <div style="margin-bottom:1rem">
+    <div style="font-size:12px;font-weight:500;color:var(--color-text-primary);margin-bottom:7px">Áreas del recorrido MVP</div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap">
+      <div style="border:0.5px solid #22c55e44;border-radius:var(--border-radius-md);padding:7px 12px;font-size:12px;color:var(--color-text-secondary)">Entrada</div>
+      <div style="border:0.5px solid #22c55e44;border-radius:var(--border-radius-md);padding:7px 12px;font-size:12px;color:var(--color-text-secondary)">Planta baja</div>
+      <div style="border:0.5px solid #22c55e44;border-radius:var(--border-radius-md);padding:7px 12px;font-size:12px;color:var(--color-text-secondary)">Patio</div>
+    </div>
+  </div>
+  <div style="font-size:12px;font-weight:500;color:var(--color-text-primary);margin-bottom:7px">Límites del MVP</div>
+  <div class="scope-grid">
+    <div class="scope-block in">
+      <div class="scope-header in">✓ Incluye</div>
+      <div class="scope-item">Guión predefinido con TTS</div>
+      <div class="scope-item">Navegación autónoma en 3 puntos</div>
+      <div class="scope-item">Respuestas vía LLM conectado</div>
+      <div class="scope-item">Conversación en tiempo real</div>
+      <div class="scope-item">Testing con/sin robot + encuestas</div>
+    </div>
+    <div class="scope-block out">
+      <div class="scope-header out">✗ No incluye</div>
+      <div class="scope-item">Recorrido completo del campus</div>
+      <div class="scope-item">Personalización de visitas</div>
+      <div class="scope-item">Multidioma</div>
+      <div class="scope-item">Integraciones con sistemas UADE</div>
+      <div class="scope-item">Funcionamiento offline</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const personColors={
+  teo:    {bg:"#1d4ed8",color:"#fff"},
+  lucas:  {bg:"#eff6ff",color:"#1d4ed8"},
+  erika:  {bg:"#fff7ed",color:"#c2410c"},
+  jorge:  {bg:"#ecfdf5",color:"#065f46"},
+  martina:{bg:"#f5f3ff",color:"#6d28d9"},
+};
+
+const tasks=[
+  // Teo
+  {id:1,title:"Gestionar acceso WiFi de UADE para el robot",who:"teo",done:false},
+  {id:2,title:"Configurar API keys y endpoints del LLM",who:"teo",done:false},
+  {id:3,title:"Configurar integración TTS/STT con el backend",who:"teo",done:false},
+  {id:4,title:"Validar conectividad backend ↔ robot en red UADE",who:"teo",done:false},
+  {id:5,title:"Definir arquitectura general y stack tecnológico",who:"teo",done:false},
+  {id:6,title:"Coordinar fechas del piloto con UADE",who:"teo",done:false},
+  {id:7,title:"Presentación final a stakeholders",who:"teo",done:false},
+  // Lucas
+  {id:8,title:"Instalar unitree_sdk2_python y CycloneDDS",who:"lucas",done:false},
+  {id:9,title:"Probar conexión DDS con G1 EDU 8 en red local",who:"lucas",done:false},
+  {id:10,title:"Implementar SportClient: stand, move, trajectory",who:"lucas",done:false},
+  {id:11,title:"Activar obstacle avoidance por código",who:"lucas",done:false},
+  {id:12,title:"Desarrollar backend (FastAPI/Flask): rutas y lógica",who:"lucas",done:false},
+  {id:13,title:"Desarrollar cliente Python en el robot (DDS subscriber)",who:"lucas",done:false},
+  {id:14,title:"Pipeline conversación: STT → LLM → TTS → robot",who:"lucas",done:false},
+  {id:15,title:"DDS Publisher: enviar comandos al robot desde backend",who:"lucas",done:false},
+  {id:16,title:"Pruebas de integración completa end-to-end",who:"lucas",done:false},
+  // Erika
+  {id:17,title:"Redactar guión predefinido del recorrido (3 zonas)",who:"erika",done:false},
+  {id:18,title:"Definir tono y personalidad del robot para secundaria",who:"erika",done:false},
+  {id:19,title:"Redactar textos de bienvenida, zonas y despedida",who:"erika",done:false},
+  {id:20,title:"Mapeo y redacción de FAQ de UADE",who:"erika",done:false},
+  {id:21,title:"Validar que voz e interacciones sean adecuadas tras prueba interna",who:"erika",done:false},
+  {id:22,title:"Ajuste del guión según feedback del piloto",who:"erika",done:false},
+  // Jorge
+  {id:23,title:"Relevamiento físico del recorrido (entrada, planta baja, patio)",who:"jorge",done:false},
+  {id:24,title:"Diseñar protocolo de pruebas con y sin robot",who:"jorge",done:false},
+  {id:25,title:"Pruebas de navegación y colisiones en espacio real",who:"jorge",done:false},
+  {id:26,title:"Ejecutar visita Grupo A: sin robot (línea base)",who:"jorge",done:false},
+  {id:27,title:"Ejecutar visita Grupo B: con Ottoman co-guía",who:"jorge",done:false},
+  {id:28,title:"Registro de observación estructurada e incidencias",who:"jorge",done:false},
+  // Martina
+  {id:29,title:"Diseñar encuesta post-visita (escala Likert)",who:"martina",done:false},
+  {id:30,title:"Diseñar guía de entrevista breve (5–8 preguntas)",who:"martina",done:false},
+  {id:31,title:"Elaborar guía de observación estructurada",who:"martina",done:false},
+  {id:32,title:"Aplicar encuesta Likert a ambos grupos post-piloto",who:"martina",done:false},
+  {id:33,title:"Conducir entrevistas breves a participantes",who:"martina",done:false},
+  {id:34,title:"Análisis comparativo de resultados con/sin robot",who:"martina",done:false},
+  {id:35,title:"Documentación final del proyecto",who:"martina",done:false},
+];
+
+let activeFilter="all";
+
+function renderTasks(){
+  const list=document.getElementById("task-list");
+  const filtered=activeFilter==="all"?tasks:tasks.filter(t=>t.who===activeFilter);
+  list.innerHTML=filtered.map(t=>{
+    const pc=personColors[t.who];
+    return`<div class="task${t.done?" done":""}" onclick="toggleTask(${t.id})">
+      <div class="task-check"><span class="check-mark">✓</span></div>
+      <div class="task-title">${t.title}</div>
+      <span class="task-who" style="background:${pc.bg};color:${pc.color};border-color:transparent">${t.who.charAt(0).toUpperCase()+t.who.slice(1)}</span>
+    </div>`;
+  }).join("");
+  const done=tasks.filter(t=>t.done).length;
+  const pct=Math.round(done/tasks.length*100);
+  document.getElementById("prog-fill").style.width=pct+"%";
+  document.getElementById("prog-pct").textContent=pct+"%";
+}
+
+function toggleTask(id){
+  const t=tasks.find(t=>t.id===id);
+  if(t)t.done=!t.done;
+  renderTasks();
+}
+
+function filterTasks(area,btn){
+  activeFilter=area;
+  document.querySelectorAll(".filter-btn").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  renderTasks();
+}
+
+const members=[
+  {key:"teo",    initials:"TE",name:"Teo",         role:"Líder + Conexiones e integraciones",   tags:["WiFi / red","API keys","LLM","TTS/STT","Arquitectura"]},
+  {key:"lucas",  initials:"LU",name:"Lucas",        role:"Desarrollo Python e integración SDK",  tags:["Backend","SDK robot","DDS","Pipeline","SportClient"]},
+  {key:"erika",  initials:"ER",name:"Erika",        role:"Voz, texto e interacciones del robot", tags:["Guión","Tono/personalidad","FAQ","Textos por zona"]},
+  {key:"jorge",  initials:"JO",name:"Jorge",        role:"Testing y relevamiento",               tags:["Protocolo pruebas","Relevamiento","Observación","Piloto"]},
+  {key:"martina",initials:"MA",name:"Martina",      role:"Instrumentos de medición y análisis",  tags:["Encuesta Likert","Entrevistas","Análisis","Documentación"]},
+];
+
+document.getElementById("team-grid").innerHTML=members.map(m=>{
+  const pc=personColors[m.key];
+  return`<div class="member-card">
+    <div class="avatar" style="background:${pc.bg};color:${pc.color}">${m.initials}</div>
+    <div class="member-name">${m.name}</div>
+    <div class="member-role">${m.role}</div>
+    <div class="member-tags">${m.tags.map(t=>`<span class="tag">${t}</span>`).join("")}</div>
+  </div>`;
+}).join("");
+
+function switchTab(name,e){
+  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+  document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active"));
+  e.target.classList.add("active");
+  document.getElementById("panel-"+name).classList.add("active");
+}
+
+renderTasks();
+</script>

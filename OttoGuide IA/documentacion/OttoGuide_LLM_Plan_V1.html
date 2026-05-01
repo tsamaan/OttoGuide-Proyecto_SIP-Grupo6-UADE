@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OttoGuide — Plan Técnico LLM</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0a0c10;
+    --bg2:       #111318;
+    --bg3:       #181c24;
+    --border:    rgba(255,255,255,0.07);
+    --text:      #e8eaf0;
+    --muted:     #8890a4;
+    --accent:    #5b8af5;
+    --accent2:   #38d9a9;
+    --accent3:   #f5a623;
+    --accent4:   #e05c7a;
+    --accent5:   #a78bfa;
+
+    --wake:      #38d9a9;
+    --stt:       #5b8af5;
+    --llm:       #a78bfa;
+    --tts:       #f5a623;
+    --core:      #e05c7a;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 16px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* ─── NOISE OVERLAY ─── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: .5;
+  }
+
+  /* ─── HERO ─── */
+  .hero {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 6rem 4rem 4rem;
+    overflow: hidden;
+  }
+
+  .hero-glow {
+    position: absolute;
+    width: 700px; height: 700px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(91,138,245,0.18) 0%, transparent 70%);
+    top: -150px; left: -100px;
+    pointer-events: none;
+  }
+  .hero-glow2 {
+    position: absolute;
+    width: 500px; height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(56,217,169,0.12) 0%, transparent 70%);
+    bottom: -100px; right: -100px;
+    pointer-events: none;
+  }
+
+  .hero-tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent2);
+    background: rgba(56,217,169,0.1);
+    border: 1px solid rgba(56,217,169,0.25);
+    display: inline-block;
+    padding: 0.35rem 0.9rem;
+    border-radius: 2rem;
+    margin-bottom: 2rem;
+    position: relative;
+  }
+
+  .hero h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: clamp(3rem, 7vw, 6rem);
+    line-height: 1.05;
+    color: #fff;
+    position: relative;
+    max-width: 900px;
+  }
+
+  .hero h1 em {
+    font-style: italic;
+    color: var(--accent);
+  }
+
+  .hero-sub {
+    margin-top: 1.5rem;
+    font-size: 1.15rem;
+    color: var(--muted);
+    max-width: 560px;
+    position: relative;
+  }
+
+  .hero-meta {
+    display: flex;
+    gap: 2.5rem;
+    margin-top: 3rem;
+    position: relative;
+  }
+
+  .hero-meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .hero-meta-item span:first-child {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .hero-meta-item span:last-child {
+    font-size: 0.95rem;
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .scroll-hint {
+    position: absolute;
+    bottom: 2.5rem;
+    left: 4rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.1em;
+  }
+
+  .scroll-hint::before {
+    content: '';
+    width: 1px;
+    height: 40px;
+    background: linear-gradient(to bottom, transparent, var(--muted));
+    animation: scrollLine 2s ease-in-out infinite;
+  }
+
+  @keyframes scrollLine {
+    0%, 100% { opacity: 0.3; transform: scaleY(0.8); }
+    50% { opacity: 1; transform: scaleY(1.2); }
+  }
+
+  /* ─── LAYOUT ─── */
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 4rem;
+  }
+
+  section {
+    padding: 6rem 0;
+    position: relative;
+  }
+
+  .section-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.75rem;
+  }
+
+  .section-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+    color: #fff;
+    line-height: 1.15;
+    margin-bottom: 1.25rem;
+  }
+
+  .section-intro {
+    color: var(--muted);
+    font-size: 1.05rem;
+    max-width: 620px;
+    margin-bottom: 3rem;
+  }
+
+  /* ─── DIVIDER ─── */
+  .divider {
+    width: 100%;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ─── PIPELINE ─── */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: relative;
+    padding-left: 2.5rem;
+  }
+
+  .pipeline::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 24px;
+    bottom: 24px;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--wake), var(--stt), var(--llm), var(--tts), var(--core));
+    opacity: 0.4;
+  }
+
+  .pipeline-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.5rem;
+    padding: 1.5rem 0;
+    position: relative;
+    animation: fadeUp 0.5s ease both;
+  }
+
+  .pipeline-step:nth-child(1) { animation-delay: 0.1s; }
+  .pipeline-step:nth-child(2) { animation-delay: 0.2s; }
+  .pipeline-step:nth-child(3) { animation-delay: 0.3s; }
+  .pipeline-step:nth-child(4) { animation-delay: 0.4s; }
+  .pipeline-step:nth-child(5) { animation-delay: 0.5s; }
+
+  .pipeline-dot {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 3px;
+    position: relative;
+    left: -2.5rem;
+    margin-right: -24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    font-weight: 700;
+    border: 2px solid currentColor;
+  }
+
+  .pipeline-body {
+    flex: 1;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    transition: border-color 0.2s;
+  }
+
+  .pipeline-body:hover {
+    border-color: rgba(255,255,255,0.15);
+  }
+
+  .pipeline-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .pipeline-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.6rem;
+    border-radius: 1rem;
+    font-weight: 500;
+  }
+
+  .pipeline-name {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .pipeline-tech {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-left: auto;
+  }
+
+  .pipeline-desc {
+    font-size: 0.9rem;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  /* ─── CONTAINERS TABLE ─── */
+  .containers-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.25rem;
+  }
+
+  .container-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.5rem;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, border-color 0.2s;
+    animation: fadeUp 0.5s ease both;
+  }
+
+  .container-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(255,255,255,0.15);
+  }
+
+  .container-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 14px 14px 0 0;
+  }
+
+  .container-card.wake::before  { background: var(--wake); }
+  .container-card.stt::before   { background: var(--stt); }
+  .container-card.llm::before   { background: var(--llm); }
+  .container-card.tts::before   { background: var(--tts); }
+  .container-card.core::before  { background: var(--core); }
+
+  .cc-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    margin-bottom: 0.75rem;
+  }
+
+  .cc-name {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0.25rem;
+  }
+
+  .cc-tech {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    margin-bottom: 0.75rem;
+    padding: 0.2rem 0;
+  }
+
+  .cc-desc {
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  /* ─── LLM KNOWLEDGE ─── */
+  .knowledge-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+  }
+
+  .knowledge-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.75rem;
+    animation: fadeUp 0.5s ease both;
+  }
+
+  .kc-icon {
+    font-size: 1.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .kc-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0.5rem;
+  }
+
+  .kc-sub {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--accent2);
+    margin-bottom: 1rem;
+    letter-spacing: 0.08em;
+  }
+
+  .kc-desc {
+    font-size: 0.88rem;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 1.25rem;
+  }
+
+  .kc-example {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    color: #a8c4ff;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* ─── ROADMAP ─── */
+  .roadmap {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .roadmap-phase {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.5rem 1.75rem;
+    display: grid;
+    grid-template-columns: 80px 1fr auto;
+    align-items: start;
+    gap: 1.5rem;
+    animation: fadeUp 0.5s ease both;
+    transition: border-color 0.2s;
+  }
+
+  .roadmap-phase:hover {
+    border-color: rgba(255,255,255,0.15);
+  }
+
+  .rp-num {
+    font-family: 'DM Serif Display', serif;
+    font-size: 2.5rem;
+    line-height: 1;
+    color: var(--border);
+    user-select: none;
+    margin-top: 2px;
+  }
+
+  .rp-body {}
+
+  .rp-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0.3rem;
+  }
+
+  .rp-sub {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 0.75rem;
+  }
+
+  .rp-tasks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .rp-task {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 0.2rem 0.65rem;
+    border-radius: 1rem;
+  }
+
+  .rp-status {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.3rem;
+  }
+
+  .status-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.25rem 0.7rem;
+    border-radius: 1rem;
+    white-space: nowrap;
+  }
+
+  .status-pending  { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid var(--border); }
+  .status-active   { background: rgba(56,217,169,0.1);   color: var(--accent2); border: 1px solid rgba(56,217,169,0.3); }
+  .status-done     { background: rgba(91,138,245,0.1);   color: var(--accent);  border: 1px solid rgba(91,138,245,0.3); }
+
+  .rp-who {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* ─── VOICE TABLE ─── */
+  .voice-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+  }
+
+  .voice-table th {
+    text-align: left;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .voice-table td {
+    padding: 0.9rem 1rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+
+  .voice-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .voice-table tr:hover td {
+    background: rgba(255,255,255,0.02);
+  }
+
+  .voice-name {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--accent);
+  }
+
+  .voice-rec {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(56,217,169,0.1);
+    border: 1px solid rgba(56,217,169,0.3);
+    color: var(--accent2);
+    font-size: 0.65rem;
+    font-family: 'DM Mono', monospace;
+    padding: 0.15rem 0.6rem;
+    border-radius: 1rem;
+    letter-spacing: 0.08em;
+  }
+
+  /* ─── DECISIONS ─── */
+  .decisions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+  }
+
+  .decision-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.5rem;
+    animation: fadeUp 0.5s ease both;
+  }
+
+  .dc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+
+  .dc-topic {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .dc-verdict {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    padding: 0.2rem 0.6rem;
+    border-radius: 1rem;
+  }
+
+  .verdict-yes  { background: rgba(56,217,169,0.12); color: var(--accent2); border: 1px solid rgba(56,217,169,0.3); }
+  .verdict-no   { background: rgba(224,92,122,0.12); color: var(--accent4); border: 1px solid rgba(224,92,122,0.3); }
+  .verdict-mod  { background: rgba(245,166,35,0.12); color: var(--accent3); border: 1px solid rgba(245,166,35,0.3); }
+
+  .dc-from {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 0.3rem;
+    line-height: 1.4;
+  }
+
+  .dc-reason {
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.55;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+    margin-top: 0.75rem;
+  }
+
+  /* ─── FLOW DIAGRAM ─── */
+  .flow-diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    position: relative;
+  }
+
+  .flow-node {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.9rem 1.5rem;
+    border-radius: 10px;
+    width: 100%;
+    max-width: 500px;
+    border: 1px solid var(--border);
+  }
+
+  .flow-arrow {
+    width: 2px;
+    height: 28px;
+    position: relative;
+    display: flex;
+    justify-content: center;
+  }
+
+  .flow-arrow::before {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+
+  .flow-arrow::after {
+    content: '▼';
+    position: absolute;
+    bottom: -6px;
+    font-size: 0.55rem;
+    color: var(--muted);
+  }
+
+  .flow-arrow.trigger::before { background: var(--accent2); opacity: 0.5; }
+  .flow-arrow.trigger::after  { color: var(--accent2); }
+
+  .fn-icon {
+    font-size: 1.1rem;
+    width: 32px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .fn-content {}
+
+  .fn-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .fn-note {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+  }
+
+  .fn-tag {
+    margin-left: auto;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    padding: 0.15rem 0.55rem;
+    border-radius: 1rem;
+    text-transform: uppercase;
+  }
+
+  /* ─── FOOTER ─── */
+  footer {
+    padding: 3rem 4rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* ─── ANIMATIONS ─── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(18px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .fade-in { animation: fadeUp 0.6s ease both; }
+  .delay-1 { animation-delay: 0.1s; }
+  .delay-2 { animation-delay: 0.2s; }
+  .delay-3 { animation-delay: 0.3s; }
+
+  /* ─── NAV ─── */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 4rem;
+    background: rgba(10,12,16,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-logo {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.85rem;
+    letter-spacing: 0.08em;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .nav-logo span {
+    color: var(--accent2);
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 2rem;
+    list-style: none;
+  }
+
+  .nav-links a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.8rem;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.05em;
+    transition: color 0.2s;
+  }
+
+  .nav-links a:hover { color: var(--text); }
+
+  /* ─── INLINE CODE ─── */
+  code {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.82em;
+    background: rgba(91,138,245,0.12);
+    color: var(--accent);
+    padding: 0.15em 0.5em;
+    border-radius: 4px;
+  }
+
+  /* ─── RESPONSIVE ─── */
+  @media (max-width: 768px) {
+    .hero, .container, footer { padding-left: 1.5rem; padding-right: 1.5rem; }
+    nav { padding: 1rem 1.5rem; }
+    .nav-links { display: none; }
+    .knowledge-split { grid-template-columns: 1fr; }
+    .roadmap-phase { grid-template-columns: 1fr; }
+    .rp-num { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">otto<span>guide</span> / llm-plan</div>
+  <ul class="nav-links">
+    <li><a href="#pipeline">Pipeline</a></li>
+    <li><a href="#contenedores">Contenedores</a></li>
+    <li><a href="#conocimiento">Conocimiento</a></li>
+    <li><a href="#voces">Voces</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#decisiones">Decisiones</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-glow"></div>
+  <div class="hero-glow2"></div>
+
+  <div class="hero-tag">OttoGuide — Plan Técnico LLM</div>
+
+  <h1>
+    Cómo <em>piensa</em><br>y habla Ottoman
+  </h1>
+
+  <p class="hero-sub">
+    Arquitectura completa del stack de inteligencia artificial local para el robot guía del campus Monserrat de UADE. Todo corre dentro del robot, sin internet.
+  </p>
+
+  <div class="hero-meta">
+    <div class="hero-meta-item">
+      <span>Hardware</span>
+      <span>Jetson Orin NX · 16GB</span>
+    </div>
+    <div class="hero-meta-item">
+      <span>Modelo LLM</span>
+      <span>Gemma4:e4b (local)</span>
+    </div>
+    <div class="hero-meta-item">
+      <span>Contenedores</span>
+      <span>5 · Docker Compose</span>
+    </div>
+    <div class="hero-meta-item">
+      <span>Wake Word</span>
+      <span>"Oye Otto"</span>
+    </div>
+  </div>
+
+  <div class="scroll-hint">scroll</div>
+</section>
+
+<div class="divider"></div>
+
+<!-- PIPELINE DE VOZ -->
+<section id="pipeline">
+  <div class="container">
+    <div class="section-label">Arquitectura</div>
+    <h2 class="section-title">Pipeline completo de voz</h2>
+    <p class="section-intro">
+      El flujo desde que un visitante habla hasta que Otto responde en voz. Todo ocurre localmente en el robot, sin ninguna llamada a servicios externos.
+    </p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:3rem;align-items:start;">
+
+      <!-- LEFT: pipeline steps -->
+      <div class="pipeline">
+
+        <div class="pipeline-step">
+          <div class="pipeline-dot" style="color:var(--wake);background:rgba(56,217,169,0.1);">1</div>
+          <div class="pipeline-body">
+            <div class="pipeline-header">
+              <span class="pipeline-badge" style="background:rgba(56,217,169,0.1);color:var(--wake);">Siempre activo</span>
+              <span class="pipeline-name">Wake Word</span>
+              <span class="pipeline-tech">OpenWakeWord</span>
+            </div>
+            <div class="pipeline-desc">
+              Proceso ultraliviano (~50MB RAM) que escucha el micrófono 24/7. No consume GPU. Solo espera escuchar <strong style="color:#fff">"Oye Otto"</strong> y se activa al detectarlo.
+            </div>
+          </div>
+        </div>
+
+        <div class="pipeline-step">
+          <div class="pipeline-dot" style="color:var(--stt);background:rgba(91,138,245,0.1);">2</div>
+          <div class="pipeline-body">
+            <div class="pipeline-header">
+              <span class="pipeline-badge" style="background:rgba(91,138,245,0.1);color:var(--stt);">Se activa</span>
+              <span class="pipeline-name">STT — Whisper</span>
+              <span class="pipeline-tech">faster-whisper</span>
+            </div>
+            <div class="pipeline-desc">
+              Una vez detectado el wake word, Whisper transcribe el audio del visitante a texto. Escucha hasta detectar silencio y envía la transcripción al orquestador.
+            </div>
+          </div>
+        </div>
+
+        <div class="pipeline-step">
+          <div class="pipeline-dot" style="color:var(--llm);background:rgba(167,139,250,0.1);">3</div>
+          <div class="pipeline-body">
+            <div class="pipeline-header">
+              <span class="pipeline-badge" style="background:rgba(167,139,250,0.1);color:var(--llm);">LLM Local</span>
+              <span class="pipeline-name">LLM — Gemma4</span>
+              <span class="pipeline-tech">Ollama · e4b</span>
+            </div>
+            <div class="pipeline-desc">
+              Gemma4:e4b recibe el texto + contexto del RAG y genera la respuesta como Otto. Usa la GPU Ampere del Jetson. Conoce todo sobre UADE gracias al Modelfile y ChromaDB.
+            </div>
+          </div>
+        </div>
+
+        <div class="pipeline-step">
+          <div class="pipeline-dot" style="color:var(--tts);background:rgba(245,166,35,0.1);">4</div>
+          <div class="pipeline-body">
+            <div class="pipeline-header">
+              <span class="pipeline-badge" style="background:rgba(245,166,35,0.1);color:var(--tts);">Voz</span>
+              <span class="pipeline-name">TTS — Piper</span>
+              <span class="pipeline-tech">es_ES-carlfm-high</span>
+            </div>
+            <div class="pipeline-desc">
+              Convierte la respuesta de texto a audio con voz masculina en español. El audio se envía al parlante de 5W del robot. Todo local, sin latencia de red.
+            </div>
+          </div>
+        </div>
+
+        <div class="pipeline-step">
+          <div class="pipeline-dot" style="color:var(--core);background:rgba(224,92,122,0.1);">↩</div>
+          <div class="pipeline-body">
+            <div class="pipeline-header">
+              <span class="pipeline-badge" style="background:rgba(224,92,122,0.1);color:var(--core);">Loop</span>
+              <span class="pipeline-name">Vuelve a escuchar</span>
+              <span class="pipeline-tech">ottoguid-core</span>
+            </div>
+            <div class="pipeline-desc">
+              Después de responder, el sistema vuelve automáticamente al estado de escucha del wake word. El ciclo completo tarda entre 2 y 4 segundos.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT: flow visual -->
+      <div class="flow-diagram">
+
+        <div class="flow-node" style="background:rgba(56,217,169,0.06);border-color:rgba(56,217,169,0.2);">
+          <div class="fn-icon">🎤</div>
+          <div class="fn-content">
+            <div class="fn-label">Micrófono activo</div>
+            <div class="fn-note">array de 4 micrófonos</div>
+          </div>
+          <div class="fn-tag" style="background:rgba(56,217,169,0.1);color:var(--wake);">24/7</div>
+        </div>
+
+        <div class="flow-arrow"></div>
+
+        <div class="flow-node" style="background:rgba(56,217,169,0.06);border-color:rgba(56,217,169,0.2);">
+          <div class="fn-icon">👂</div>
+          <div class="fn-content">
+            <div class="fn-label">"Oye Otto…"</div>
+            <div class="fn-note">OpenWakeWord detecta</div>
+          </div>
+        </div>
+
+        <div class="flow-arrow trigger"></div>
+
+        <div class="flow-node" style="background:rgba(91,138,245,0.06);border-color:rgba(91,138,245,0.2);">
+          <div class="fn-icon">📝</div>
+          <div class="fn-content">
+            <div class="fn-label">Whisper transcribe</div>
+            <div class="fn-note">"¿qué carreras tiene UADE?"</div>
+          </div>
+          <div class="fn-tag" style="background:rgba(91,138,245,0.1);color:var(--stt);">STT</div>
+        </div>
+
+        <div class="flow-arrow"></div>
+
+        <div class="flow-node" style="background:rgba(56,217,169,0.04);border-color:rgba(56,217,169,0.15);">
+          <div class="fn-icon">🔍</div>
+          <div class="fn-content">
+            <div class="fn-label">ChromaDB busca contexto</div>
+            <div class="fn-note">documentos de UADE locales</div>
+          </div>
+          <div class="fn-tag" style="background:rgba(56,217,169,0.1);color:var(--accent2);">RAG</div>
+        </div>
+
+        <div class="flow-arrow"></div>
+
+        <div class="flow-node" style="background:rgba(167,139,250,0.06);border-color:rgba(167,139,250,0.2);">
+          <div class="fn-icon">🧠</div>
+          <div class="fn-content">
+            <div class="fn-label">Gemma4 genera respuesta</div>
+            <div class="fn-note">con personalidad de Otto</div>
+          </div>
+          <div class="fn-tag" style="background:rgba(167,139,250,0.1);color:var(--llm);">LLM</div>
+        </div>
+
+        <div class="flow-arrow"></div>
+
+        <div class="flow-node" style="background:rgba(245,166,35,0.06);border-color:rgba(245,166,35,0.2);">
+          <div class="fn-icon">🔊</div>
+          <div class="fn-content">
+            <div class="fn-label">Piper habla la respuesta</div>
+            <div class="fn-note">voz masculina · es_ES</div>
+          </div>
+          <div class="fn-tag" style="background:rgba(245,166,35,0.1);color:var(--tts);">TTS</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- CONTENEDORES -->
+<section id="contenedores">
+  <div class="container">
+    <div class="section-label">Docker Stack</div>
+    <h2 class="section-title">Los 5 contenedores</h2>
+    <p class="section-intro">
+      Todo el sistema corre en Docker Compose. Un único <code>docker compose up</code> levanta el stack completo. Al arrancar el robot, systemd ejecuta este comando automáticamente.
+    </p>
+
+    <div class="containers-grid">
+
+      <div class="container-card wake fade-in">
+        <div class="cc-num">CONTENEDOR 01</div>
+        <div class="cc-name">wake-word</div>
+        <div class="cc-tech" style="color:var(--wake);">OpenWakeWord</div>
+        <div class="cc-desc">Escucha el micrófono las 24 horas. Ultraliviano, no usa GPU. Cuando detecta "Oye Otto", notifica al orquestador vía socket. Es el guardián del sistema.</div>
+      </div>
+
+      <div class="container-card stt fade-in delay-1">
+        <div class="cc-num">CONTENEDOR 02</div>
+        <div class="cc-name">stt</div>
+        <div class="cc-tech" style="color:var(--stt);">faster-whisper · base / small</div>
+        <div class="cc-desc">Transcripción de voz a texto. Solo se activa cuando el orquestador lo llama. Usa el modelo <code>small</code> en español para mayor velocidad en el Jetson.</div>
+      </div>
+
+      <div class="container-card llm fade-in delay-2">
+        <div class="cc-num">CONTENEDOR 03</div>
+        <div class="cc-name">llm</div>
+        <div class="cc-tech" style="color:var(--llm);">Ollama · Gemma4:e4b + ChromaDB</div>
+        <div class="cc-desc">El cerebro de Otto. Gemma4 con Modelfile personalizado conoce UADE, tiene la personalidad de Otto y accede a documentos institucionales vía RAG con ChromaDB.</div>
+      </div>
+
+      <div class="container-card tts fade-in">
+        <div class="cc-num">CONTENEDOR 04</div>
+        <div class="cc-name">tts</div>
+        <div class="cc-tech" style="color:var(--tts);">Piper · es_ES-carlfm-high</div>
+        <div class="cc-desc">Texto a voz con modelo de alta calidad (22kHz). Voz masculina en español de España. Offline total, genera audio WAV que se reproduce por el parlante del robot.</div>
+      </div>
+
+      <div class="container-card core fade-in delay-1">
+        <div class="cc-num">CONTENEDOR 05</div>
+        <div class="cc-name">ottoguid-core</div>
+        <div class="cc-tech" style="color:var(--core);">Python · orquestador</div>
+        <div class="cc-desc">El cerebro del flujo. Coordina los 4 contenedores, gestiona los estados del tour (INICIO, parada 1-3, FIN), maneja los diálogos pre-configurados y la sesión de LLM libre al final.</div>
+      </div>
+
+    </div>
+
+    <div style="margin-top:2rem;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:1.5rem 1.75rem;">
+      <div class="section-label" style="margin-bottom:0.75rem;">Auto-start en el robot</div>
+      <div style="font-size:0.88rem;color:var(--muted);line-height:1.6;margin-bottom:1rem;">
+        En el robot, un servicio <code>systemd</code> ejecuta <code>docker compose up</code> automáticamente al encender. Si algo falla, systemd reinicia el stack. El script de deploy crea y registra este servicio.
+      </div>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:1rem 1.25rem;font-family:'DM Mono',monospace;font-size:0.75rem;color:#a8c4ff;line-height:1.8;">
+        <span style="color:var(--muted)"># /etc/systemd/system/ottoguide.service</span><br>
+        [Unit]<br>
+        Description=OttoGuide AI Stack<br>
+        After=docker.service<br><br>
+        [Service]<br>
+        ExecStart=docker compose -f /opt/ottoguide/docker-compose.yml up<br>
+        Restart=on-failure<br><br>
+        [Install]<br>
+        WantedBy=multi-user.target
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- CONOCIMIENTO OFFLINE -->
+<section id="conocimiento">
+  <div class="container">
+    <div class="section-label">Sin Internet</div>
+    <h2 class="section-title">¿De dónde saca la información?</h2>
+    <p class="section-intro">
+      El robot no necesita internet para responder. El conocimiento de Otto vive dentro del robot desde antes de salir a dar el tour. Dos capas trabajan en conjunto.
+    </p>
+
+    <div class="knowledge-split">
+
+      <div class="knowledge-card">
+        <div class="kc-icon">🧬</div>
+        <div class="kc-title">Capa 1 — Modelfile</div>
+        <div class="kc-sub">Personalidad + conocimiento base</div>
+        <div class="kc-desc">
+          Un archivo de texto que le dice a Gemma4 quién es Otto: su nombre, su función, cómo habla, qué sabe sobre UADE. Se carga una sola vez y queda guardado en el robot para siempre. No requiere re-entrenar ni internet para actualizarse.
+        </div>
+        <div class="kc-example">FROM gemma4:e4b
+
+SYSTEM """
+Sos Otto, robot guía del campus Monserrat
+de la Universidad Argentina de la Empresa.
+
+Tu rol: guiar a estudiantes secundarios
+en visitas al campus.
+
+Tono: amigable, entusiasta, claro.
+Respuestas: máximo 3 oraciones.
+Idioma: español rioplatense.
+
+Si no sabés algo, referís al stand de
+informes al final del recorrido.
+"""</div>
+      </div>
+
+      <div class="knowledge-card">
+        <div class="kc-icon">📚</div>
+        <div class="kc-title">Capa 2 — RAG con ChromaDB</div>
+        <div class="kc-sub">Conocimiento detallado y actualizable</div>
+        <div class="kc-desc">
+          Para información específica (carreras, aranceles, fechas de inscripción, datos del campus), se usa una base de datos vectorial local. Cargamos los documentos de UADE una vez, y cuando algo cambia, solo actualizamos ese archivo de texto. Sin re-entrenar nada.
+        </div>
+        <div class="kc-example">Visitante: "¿Cuánto cuesta la carrera?"
+
+1. ChromaDB busca en docs de UADE
+   → encuentra info de aranceles
+
+2. Pasa el contexto a Gemma4:
+   "Según la info de UADE: [datos]
+   Responde como Otto..."
+
+3. Gemma4 genera:
+   "Las cuotas dependen de la carrera.
+   Te recomiendo consultar en el stand
+   de informes al final del tour."</div>
+      </div>
+
+    </div>
+
+    <div style="margin-top:1.25rem;background:var(--bg2);border:1px solid rgba(56,217,169,0.2);border-radius:14px;padding:1.75rem;display:flex;gap:1.5rem;align-items:flex-start;">
+      <div style="font-size:1.5rem;flex-shrink:0;">✅</div>
+      <div>
+        <div style="font-size:0.95rem;font-weight:600;color:#fff;margin-bottom:0.4rem;">¿Qué pasa cuando UADE actualiza información?</div>
+        <div style="font-size:0.88rem;color:var(--muted);line-height:1.6;">
+          Solo editamos el archivo de texto con los documentos institucionales y ejecutamos un script para recargar ChromaDB. No hay que re-entrenar el modelo, no hay que reconstruir los contenedores. El cambio se aplica en minutos.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- VOCES -->
+<section id="voces">
+  <div class="container">
+    <div class="section-label">Text-to-Speech</div>
+    <h2 class="section-title">Voces de Piper en español</h2>
+    <p class="section-intro">
+      Piper corre 100% offline. Estas son las voces disponibles para español. Para Otto necesitamos voz <strong style="color:#fff">masculina</strong>. Las voces están disponibles en Hugging Face y se descargan una sola vez.
+    </p>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:1.5rem;">
+      <table class="voice-table">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Variante</th>
+            <th>Género</th>
+            <th>Calidad</th>
+            <th>Sample Rate</th>
+            <th>Recomendación</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="voice-name">es_ES-carlfm-high</span></td>
+            <td>España</td>
+            <td>♂ Masculino</td>
+            <td>high (22kHz)</td>
+            <td>22,050 Hz</td>
+            <td><span class="voice-rec">⭐ Primera opción</span></td>
+          </tr>
+          <tr>
+            <td><span class="voice-name">es_ES-davefx-medium</span></td>
+            <td>España</td>
+            <td>♂ Masculino</td>
+            <td>medium (22kHz)</td>
+            <td>22,050 Hz</td>
+            <td><span style="color:var(--muted);font-size:0.78rem;">alternativa</span></td>
+          </tr>
+          <tr>
+            <td><span class="voice-name">es_MX-cortana-high</span></td>
+            <td>México</td>
+            <td>♀ Femenino</td>
+            <td>high (22kHz)</td>
+            <td>22,050 Hz</td>
+            <td><span style="color:var(--accent4);font-size:0.78rem;">✗ descartada</span></td>
+          </tr>
+          <tr>
+            <td><span class="voice-name">es_AR-daniela-high</span></td>
+            <td>Argentina</td>
+            <td>♀ Femenino</td>
+            <td>high (22kHz)</td>
+            <td>22,050 Hz</td>
+            <td><span style="color:var(--accent4);font-size:0.78rem;">✗ femenina</span></td>
+          </tr>
+          <tr>
+            <td><span class="voice-name">es_ES-sharvard-medium</span></td>
+            <td>España</td>
+            <td>Multi-speaker</td>
+            <td>medium</td>
+            <td>22,050 Hz</td>
+            <td><span style="color:var(--muted);font-size:0.78rem;">a evaluar</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="background:rgba(245,166,35,0.06);border:1px solid rgba(245,166,35,0.2);border-radius:12px;padding:1.25rem 1.5rem;font-size:0.88rem;color:var(--muted);line-height:1.6;">
+      <strong style="color:var(--accent3);">Nota para Erika (voz e interacciones):</strong> Las voces <code>carlfm</code> y <code>davefx</code> son la primera y segunda opción. Erika debería escuchar ambas y elegir la que mejor represente la personalidad de Otto antes de definir el Modelfile final.
+    </div>
+
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ROADMAP -->
+<section id="roadmap">
+  <div class="container">
+    <div class="section-label">Fases de implementación</div>
+    <h2 class="section-title">Roadmap técnico</h2>
+    <p class="section-intro">
+      El desarrollo se divide en 5 fases. Todo se desarrolla primero en la notebook de Teo (Linux Mint, 32GB RAM, Docker) y luego se despliega al robot con un script automatizado.
+    </p>
+
+    <div class="roadmap">
+
+      <div class="roadmap-phase" style="animation-delay:0.1s">
+        <div class="rp-num">01</div>
+        <div class="rp-body">
+          <div class="rp-title">Ollama + Gemma4 corriendo localmente</div>
+          <div class="rp-sub">El primer contenedor. Verificar que el LLM responde preguntas en español desde la notebook.</div>
+          <div class="rp-tasks">
+            <span class="rp-task">docker compose version</span>
+            <span class="rp-task">contenedor ollama</span>
+            <span class="rp-task">pull gemma4:e4b</span>
+            <span class="rp-task">test API REST</span>
+            <span class="rp-task">Modelfile Otto base</span>
+          </div>
+        </div>
+        <div class="rp-status">
+          <span class="status-badge status-active">Siguiente paso</span>
+          <span class="rp-who">Teo + Lucas</span>
+        </div>
+      </div>
+
+      <div class="roadmap-phase" style="animation-delay:0.2s">
+        <div class="rp-num">02</div>
+        <div class="rp-body">
+          <div class="rp-title">Piper TTS — Otto tiene voz</div>
+          <div class="rp-sub">Segundo contenedor. Texto entra, audio en español sale. Probar las voces masculinas y elegir la definitiva con Erika.</div>
+          <div class="rp-tasks">
+            <span class="rp-task">contenedor piper</span>
+            <span class="rp-task">descargar es_ES-carlfm-high</span>
+            <span class="rp-task">test síntesis de voz</span>
+            <span class="rp-task">comparar voces con Erika</span>
+          </div>
+        </div>
+        <div class="rp-status">
+          <span class="status-badge status-pending">Pendiente</span>
+          <span class="rp-who">Teo + Erika</span>
+        </div>
+      </div>
+
+      <div class="roadmap-phase" style="animation-delay:0.3s">
+        <div class="rp-num">03</div>
+        <div class="rp-body">
+          <div class="rp-title">Whisper STT + Wake Word</div>
+          <div class="rp-sub">Tercero y cuarto contenedor. Otto escucha "Oye Otto" y transcribe lo que dice el visitante.</div>
+          <div class="rp-tasks">
+            <span class="rp-task">contenedor whisper</span>
+            <span class="rp-task">contenedor openwakeword</span>
+            <span class="rp-task">test wake word</span>
+            <span class="rp-task">test transcripción español</span>
+          </div>
+        </div>
+        <div class="rp-status">
+          <span class="status-badge status-pending">Pendiente</span>
+          <span class="rp-who">Teo + Lucas</span>
+        </div>
+      </div>
+
+      <div class="roadmap-phase" style="animation-delay:0.4s">
+        <div class="rp-num">04</div>
+        <div class="rp-body">
+          <div class="rp-title">RAG con ChromaDB + Orquestador</div>
+          <div class="rp-sub">El quinto contenedor y el cerebro del sistema. Cargar los documentos de UADE y conectar todo el pipeline de extremo a extremo.</div>
+          <div class="rp-tasks">
+            <span class="rp-task">chromadb local</span>
+            <span class="rp-task">cargar docs UADE</span>
+            <span class="rp-task">ottoguid-core Python</span>
+            <span class="rp-task">flujo completo e2e</span>
+          </div>
+        </div>
+        <div class="rp-status">
+          <span class="status-badge status-pending">Pendiente</span>
+          <span class="rp-who">Teo + Lucas</span>
+        </div>
+      </div>
+
+      <div class="roadmap-phase" style="animation-delay:0.5s">
+        <div class="rp-num">05</div>
+        <div class="rp-body">
+          <div class="rp-title">Deploy al robot + systemd</div>
+          <div class="rp-sub">Script de despliegue automatizado para el Jetson Orin NX. Una sola ejecución instala todo, configura Docker y registra el servicio de arranque automático.</div>
+          <div class="rp-tasks">
+            <span class="rp-task">script deploy.sh</span>
+            <span class="rp-task">imágenes ARM64</span>
+            <span class="rp-task">GPU flags Jetson</span>
+            <span class="rp-task">systemd service</span>
+            <span class="rp-task">test en robot real</span>
+          </div>
+        </div>
+        <div class="rp-status">
+          <span class="status-badge status-pending">Pendiente</span>
+          <span class="rp-who">Teo + Jorge</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- DECISIONES -->
+<section id="decisiones">
+  <div class="container">
+    <div class="section-label">Análisis</div>
+    <h2 class="section-title">Decisiones tomadas</h2>
+    <p class="section-intro">
+      Sugerencias analizadas y veredictos definitivos para el proyecto.
+    </p>
+
+    <div class="decisions-grid">
+
+      <div class="decision-card">
+        <div class="dc-header">
+          <div class="dc-topic">Modelo LLM: Gemma4:e4b</div>
+          <span class="dc-verdict verdict-yes">✓ Adoptado</span>
+        </div>
+        <div class="dc-from">Sugerido por amigo del equipo. Reemplaza Gemma2 que estaba en el plan original.</div>
+        <div class="dc-reason">Gemma4 es más reciente y más capaz. La variante <code>e4b</code> es eficiente para el hardware del Jetson. Con 16GB de RAM y GPU Ampere, el robot puede correrlo con aceleración GPU.</div>
+      </div>
+
+      <div class="decision-card">
+        <div class="dc-header">
+          <div class="dc-topic">TTS: Piper (no EdgeTTS)</div>
+          <span class="dc-verdict verdict-no">✗ Descartado EdgeTTS</span>
+        </div>
+        <div class="dc-from">EdgeTTS (voz Tomas Neural de Microsoft) sugerido por calidad de voz superior.</div>
+        <div class="dc-reason">EdgeTTS requiere internet para cada respuesta. Si el WiFi del campus falla durante una visita, Otto queda mudo. Piper es 100% offline y confiable. La calidad de voz es secundaria frente a la estabilidad del sistema.</div>
+      </div>
+
+      <div class="decision-card">
+        <div class="dc-header">
+          <div class="dc-topic">Fine-tuning con Unsloth</div>
+          <span class="dc-verdict verdict-no">✗ No aplica</span>
+        </div>
+        <div class="dc-from">Propuesto para "entrenar" al modelo con datos de UADE.</div>
+        <div class="dc-reason">Fine-tuning modifica pesos permanentemente, requiere GPU CUDA (que la notebook no tiene) y es difícil de actualizar. Para datos factuales de una institución, Modelfile + RAG es más correcto, rápido y mantenible. Actualizar info = editar un archivo de texto.</div>
+      </div>
+
+      <div class="decision-card">
+        <div class="dc-header">
+          <div class="dc-topic">Wake Word: OpenWakeWord</div>
+          <span class="dc-verdict verdict-yes">✓ Confirmado</span>
+        </div>
+        <div class="dc-from">Enfoque B elegido por el equipo: wake word dedicado en lugar de Whisper siempre activo.</div>
+        <div class="dc-reason">OpenWakeWord es ultraliviano (~50MB RAM), no usa GPU y corre en segundo plano sin impacto. Solo activa el pipeline pesado (Whisper + LLM + TTS) cuando detecta "Oye Otto". Ahorra recursos críticos del Jetson.</div>
+      </div>
+
+      <div class="decision-card">
+        <div class="dc-header">
+          <div class="dc-topic">Voz: es_ES-carlfm-high</div>
+          <span class="dc-verdict verdict-mod">⚠ A confirmar con Erika</span>
+        </div>
+        <div class="dc-from">Otto es un guía hombre. Cortana (es_MX) descartada por ser voz femenina.</div>
+        <div class="dc-reason">La voz <code>carlfm-high</code> es la mejor opción masculina en español disponible en Piper (calidad high, 22kHz). Erika debe escuchar las opciones (<code>carlfm</code> y <code>davefx</code>) antes de la decisión final.</div>
+      </div>
+
+      <div class="decision-card">
+        <div class="dc-header">
+          <div class="dc-topic">Todo en Docker Compose</div>
+          <span class="dc-verdict verdict-yes">✓ Confirmado</span>
+        </div>
+        <div class="dc-from">Decisión del equipo desde el inicio del diseño del stack.</div>
+        <div class="dc-reason">Un solo <code>docker compose up</code> levanta los 5 contenedores. El mismo <code>docker-compose.yml</code> funciona en la notebook (CPU) y en el robot (GPU), solo cambian los flags de hardware. Facilita testing, actualizaciones y rollback.</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- FOOTER -->
+<footer>
+  <div>OttoGuide · Plan Técnico LLM · V1</div>
+  <div style="display:flex;gap:2rem;">
+    <span>Robot: Unitree G1-EDU · Jetson Orin NX 16GB</span>
+    <span>UADE · Campus Monserrat</span>
+  </div>
+</footer>
+
+<script>
+  // Intersection Observer para animaciones al scroll
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.style.opacity = '1';
+        entry.target.style.transform = 'translateY(0)';
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.container-card, .roadmap-phase, .knowledge-card, .decision-card, .pipeline-step').forEach(el => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(20px)';
+    el.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+    observer.observe(el);
+  });
+</script>
+
+</body>
+</html>

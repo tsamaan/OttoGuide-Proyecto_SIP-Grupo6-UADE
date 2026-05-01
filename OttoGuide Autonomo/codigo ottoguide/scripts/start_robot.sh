@@ -19,7 +19,7 @@ VENV_ACTIVATE="${PROJECT_ROOT}/.venv/bin/activate"
 CYCLONEDDS_CONFIG="${PROJECT_ROOT}/config/cyclonedds.xml"
 SRC_PATH="${PROJECT_ROOT}/src"
 SDK_PATH="${PROJECT_ROOT}/libs/unitree_sdk2_python-master"
-ENTRYPOINT="${PROJECT_ROOT}/src/main.py"
+ENTRYPOINT="${PROJECT_ROOT}/main.py"
 
 # ----------------------------------------------------------------------------
 # FASE 0 — Validacion de prerequisitos locales del script supervisor
@@ -37,7 +37,47 @@ _require_file "${VERIFY_SCRIPT}"       "Script de validacion HIL"
 _require_file "${ROS_SETUP}"           "ROS 2 Humble setup.bash"
 _require_file "${VENV_ACTIVATE}"       "Activador de entorno virtual"
 _require_file "${CYCLONEDDS_CONFIG}"   "Configuracion CycloneDDS XML"
-_require_file "${ENTRYPOINT}"          "Entrypoint Python (src/main.py)"
+_require_file "${ENTRYPOINT}"          "Entrypoint Python (main.py)"
+
+# ----------------------------------------------------------------------------
+# FASE 0.5 — Pre-vuelo SRE: validacion de precondiciones del entorno
+# @TASK: Ejecutar preflight_check.sh antes de cualquier inicializacion de hardware
+# @INPUT: .env del proyecto; estado del sistema (red, puertos, Ollama)
+# @OUTPUT: Exit 0 = precondiciones OK; exit 1 = arranque bloqueado
+# @CONTEXT: Barrera obligatoria antes de cargar ROS 2 o activar DDS
+# @SECURITY: Ningun recurso de hardware se toca antes de este gate
+# STEP 1: Ejecutar preflight_check.sh desde el directorio del proyecto
+# STEP 2: Bloquear arranque si preflight retorna exit != 0
+# ----------------------------------------------------------------------------
+PREFLIGHT_SCRIPT="${SCRIPT_DIR}/preflight_check.sh"
+
+if [[ ! -f "${PREFLIGHT_SCRIPT}" ]]; then
+  echo "[FATAL] preflight_check.sh no encontrado: ${PREFLIGHT_SCRIPT}" >&2
+  echo "        El script de pre-vuelo es obligatorio. Abortando." >&2
+  exit 1
+fi
+
+echo "[PRE-VUELO] Iniciando validacion de precondiciones del entorno..." >&2
+echo "─────────────────────────────────────────────────────────────────" >&2
+
+set +e
+bash "${PREFLIGHT_SCRIPT}"
+PREFLIGHT_EXIT=$?
+set -e
+
+if [[ "${PREFLIGHT_EXIT}" -ne 0 ]]; then
+  echo "" >&2
+  echo "════════════════════════════════════════════════════════" >&2
+  echo "  [NO-GO] preflight_check.sh retorno exit ${PREFLIGHT_EXIT}." >&2
+  echo "  El sistema NO esta autorizado para arrancar." >&2
+  echo "  Corregir los errores marcados con [FAIL] y reintentar." >&2
+  echo "════════════════════════════════════════════════════════" >&2
+  exit 1
+fi
+
+echo "─────────────────────────────────────────────────────────────────" >&2
+echo "[PRE-VUELO] GO — Precondiciones verificadas. Continuando..." >&2
+echo "" >&2
 
 # ----------------------------------------------------------------------------
 # FASE 1 — Pre-Ejecucion: validacion del entorno remoto HIL

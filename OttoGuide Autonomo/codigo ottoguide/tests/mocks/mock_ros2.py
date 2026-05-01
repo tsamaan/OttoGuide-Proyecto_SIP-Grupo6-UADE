@@ -245,6 +245,13 @@ class _MockOrientation:
 
 
 @dataclass(slots=True)
+class _MockVector3:
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+
+
+@dataclass(slots=True)
 class _MockPose:
     position: _MockPosition = field(default_factory=_MockPosition)
     orientation: _MockOrientation = field(default_factory=_MockOrientation)
@@ -282,6 +289,12 @@ class PoseStamped:
         # @AI_CONTEXT: Suficiente para followWaypoints mock
         self.header = _MockHeader()
         self.pose = _MockPose()
+
+
+class Twist:
+    def __init__(self) -> None:
+        self.linear = _MockVector3()
+        self.angular = _MockVector3()
 
 
 class BasicNavigator:
@@ -348,6 +361,7 @@ def install_mocks(target: Dict[str, Any]) -> None:
     geometry_msgs_msg_module = types.ModuleType("geometry_msgs.msg")
     geometry_msgs_msg_module.PoseWithCovarianceStamped = PoseWithCovarianceStamped
     geometry_msgs_msg_module.PoseStamped = PoseStamped
+    geometry_msgs_msg_module.Twist = Twist
 
     nav2_module = types.ModuleType("nav2_simple_commander")
     nav2_robot_navigator_module = types.ModuleType("nav2_simple_commander.robot_navigator")
@@ -368,6 +382,7 @@ __all__ = [
     "MultiThreadedExecutor",
     "PoseStamped",
     "PoseWithCovarianceStamped",
+    "Twist",
     "init",
     "install_mocks",
     "ok",

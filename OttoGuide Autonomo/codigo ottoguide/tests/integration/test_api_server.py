@@ -9,6 +9,7 @@ from typing import AsyncIterator, Callable
 import httpx
 import pytest
 import pytest_asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 # @TASK: Priorizar src local
 # @INPUT: Ruta actual del test
@@ -26,10 +27,17 @@ for loaded_module in list(sys.modules):
     if loaded_module == "src" or loaded_module.startswith("src."):
         del sys.modules[loaded_module]
 
+from tests.mocks.mock_nav2_bridge import MockNav2Bridge
+from tests.mocks.mock_ros2 import install_mocks
+from tests.mocks.mock_vision_processor import MockVisionProcessor
+
+install_mocks(sys.modules)
+
 from src.api import create_app
-from src.core import TourOrchestrator
+from src.core import TourOrchestrator, TourPlan
+from src.navigation import NavWaypoint
 from src.hardware import RobotHardwareAPI
-from src.interaction import CloudNLPPipeline, ConversationManager, LocalNLPPipeline
+from src.interaction import ConversationManager, ConversationResponse
 from tests.mocks.mock_unitree_sdk import MockHighLevelClient
 
 
@@ -38,6 +46,8 @@ class ApiBundle:
     app: object
     orchestrator: TourOrchestrator
     hardware_api: RobotHardwareAPI
+    nav_bridge: MockNav2Bridge
+    vision_processor: MockVisionProcessor
     mock_client: MockHighLevelClient
 
 
@@ -60,27 +70,48 @@ async def api_bundle() -> AsyncIterator[ApiBundle]:
         call_timeout_s=0.2,
         executor_workers=1,
     )
-    conversation_manager = ConversationManager(
-        cloud_strategy=CloudNLPPipeline(
-            timeout_s=0.25,
-            simulated_latency_s=0.005,
-            provider_name="api-test-cloud",
-        ),
-        local_strategy=LocalNLPPipeline(model_name="api-test-local"),
+    local_strategy = MagicMock()
+    local_strategy.generate = AsyncMock(
+        return_value=ConversationResponse(
+            answer_text="respuesta local",
+            source_pipeline="local",
+            audio_stream_ready=False,
+        )
     )
+    local_strategy.close = MagicMock()
+
+    cloud_strategy = MagicMock()
+    cloud_strategy.generate = AsyncMock(
+        return_value=ConversationResponse(
+            answer_text="respuesta cloud",
+            source_pipeline="cloud",
+            audio_stream_ready=False,
+        )
+    )
+    cloud_strategy.close = MagicMock()
+
+    conversation_manager = ConversationManager(
+        local_strategy=local_strategy,
+        cloud_strategy=cloud_strategy,
+    )
+    nav_bridge = MockNav2Bridge(navigation_delay_s=0.1)
+    vision_processor = MockVisionProcessor()
     orchestrator = TourOrchestrator(
         hardware_api=hardware_api,
+        nav_bridge=nav_bridge,
         conversation_manager=conversation_manager,
+        vision_processor=vision_processor,
     )
     await orchestrator.activate_initial_state()
 
     app = create_app(orchestrator)
-    app.state.tour_orchestrator = orchestrator
 
     yield ApiBundle(
         app=app,
         orchestrator=orchestrator,
         hardware_api=hardware_api,
+        nav_bridge=nav_bridge,
+        vision_processor=vision_processor,
         mock_client=mock_client,
     )
 
@@ -111,12 +142,12 @@ async def test_get_status_idle(async_client: httpx.AsyncClient) -> None:
     # @TASK: Validar status inicial
     # @INPUT: async_client
     # @OUTPUT: HTTP 200 con estado idle
-    # @CONTEXT: Verifica endpoint GET /tour/status
+    # @CONTEXT: Verifica endpoint GET /status
     # STEP 1: Ejecutar solicitud GET al endpoint de estado
     # STEP 2: Validar codigo de respuesta y payload JSON
     # @SECURITY: Comprueba endpoint de solo lectura
     # @AI_CONTEXT: Asegura contrato inicial para panel de control
-    response = await async_client.get("/tour/status")
+    response = await async_client.get("/status")
     assert response.status_code == 200
 
     payload = response.json()
@@ -129,24 +160,30 @@ async def test_post_start_tour(async_client: httpx.AsyncClient) -> None:
     # @INPUT: async_client
     # @OUTPUT: HTTP 202 Accepted
     # @CONTEXT: Verifica trigger POST /tour/start
-    # STEP 1: Enviar payload valido con waypoint_id
+    # STEP 1: Enviar payload valido con waypoints
     # STEP 2: Asertar codigo de respuesta 202 estricto
     # @SECURITY: Confirma desacople request/ejecucion de fondo
     # @AI_CONTEXT: Contrato clave para disparo remoto del recorrido
     response = await async_client.post(
         "/tour/start",
-        json={"waypoint_id": "wp-api-001"},
+        json={
+            "tour_id": "tour-api-001",
+            "waypoints": [
+                {"x": 0.0, "y": 0.0, "yaw_rad": 0.0, "frame_id": "map"},
+            ],
+        },
     )
     assert response.status_code == 202
 
 
 @pytest.mark.asyncio
 async def test_post_start_tour_triggers_state_change(
+    api_bundle: ApiBundle,
     async_client: httpx.AsyncClient,
 ) -> None:
     # @TASK: Validar cambio estado
     # @INPUT: async_client
-    # @OUTPUT: Estado navigating o superior tras POST /tour/start
+    # @OUTPUT: Estado navigating tras POST /tour/start
     # @CONTEXT: Verifica ejecucion diferida de BackgroundTasks
     # STEP 1: Lanzar POST /tour/start y esperar breve ventana de ejecucion
     # STEP 2: Consultar /tour/status y validar transicion de estado
@@ -154,13 +191,20 @@ async def test_post_start_tour_triggers_state_change(
     # @AI_CONTEXT: Cubre comportamiento async de trigger API
     response = await async_client.post(
         "/tour/start",
-        json={"waypoint_id": "wp-api-002"},
+        json={
+            "tour_id": "tour-api-002",
+            "waypoints": [
+                {"x": 1.0, "y": 0.0, "yaw_rad": 0.0, "frame_id": "map"},
+            ],
+        },
     )
     assert response.status_code == 202
 
     await asyncio.sleep(0.05)
 
-    status_response = await async_client.get("/tour/status")
+    status_response = await async_client.get("/status")
     assert status_response.status_code == 200
     payload = status_response.json()
-    assert payload["state"] in {"navigating", "guiding", "interacting", "error_recovery"}
+    assert payload["state"] in {"navigating", "idle"}
+    assert payload["tour_id"] == "tour-api-002"
+    assert len(api_bundle.nav_bridge.navigation_calls) == 1

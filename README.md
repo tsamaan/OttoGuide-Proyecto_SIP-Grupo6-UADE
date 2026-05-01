@@ -1,288 +1,243 @@
-# MVP Robot Guía Autónomo — Unitree G1 EDU
+# OttoGuide MVP - RC1_LOCKED
 
-Sistema de software autónomo para navegación, interacción conversacional e integración sensorial del robot humanoide Unitree G1 EDU.
-
----
-
-## Objetivo: MVP Robot Guia Autonomo sobre Unitree G1 EDU
-
-Implementar un sistema de guiado autónomo que integre:
-- Navegación autonomizada mediante ROS 2 Nav2 + AMCL + localización visual.
-- Interacción conversacional bidireccional con pipeline NLP híbrido (Edge + Cloud para fallback).
-- Orquestación de comportamiento mediante máquina de estados asíncrona.
-- Operación en entorno air-gapped (sin conexión internet) con topología de red aislada.
+Documento maestro de operacion y lectura rapida del proyecto.
 
 ---
 
-## Arquitectura del Sistema
+## 1) Resumen Ejecutivo
 
-### Paradigma de Ejecución: Event Loop Asíncrono No Bloqueante
+OttoGuide es un sistema de guiado autonomo para recorridos en campus universitario.
+En esta etapa MVP, el objetivo es operar en entorno real con robot fisico, no en simulacion.
 
-El sistema prioriza operaciones no bloqueantes sobre el bucle de eventos de `asyncio` para preservar la telemetría de equilibrio dinámico del robot.
+El flujo E2E es simple de entender:
+usuario da una orden -> el backend decide -> el stack de navegacion mueve al robot -> el sistema responde por voz y telemetria.
 
-- **Contexto:** Toda operación potencialmente bloqueante (I/O de red, cálculos pesados, DDS) se ejecuta en `ThreadPoolExecutor` dedicados.
-- **Beneficio:** El hilo principal puede servir callbacks de sensores y cambios de estado sin latencia acumulada.
-- **Patrón Principal:** `asyncio.run_in_executor()` + `asyncio.wait_for(timeout)` para timeouts de seguridad.
-
-### Máquina de Estados Orquestadora
-
-**Clase:** `TourOrchestrator` (python-statemachine AsyncEngine).
-
-**Estados Principales:**
-
-| Estado | Actividad | Transición |
-|--------|-----------|-----------|
-| `IDLE` | Esperando activación via API FastAPI | → `NAVIGATING` |
-| `NAVIGATING` | Ejecución de waypoints via Nav2 (`followWaypoints`) | → `INTERACTING` (pausa NLP) o → `IDLE` (plan completado) |
-| `INTERACTING` | Pipeline conversacional bidireccional (STT→LLM→TTS) | → `NAVIGATING` (fin diálogo) |
-| `EMERGENCY` | Parada de emergencia perentoria (`Damp()` + cancelación de tareas) | Estado final (sin transición de salida) |
-
-**Integración de Dependencias:**
-- `hardware_api`: Instancia singleton `RobotHardwareAPI` para comandos cinemáticos.
-- `nav_bridge`: Instancia `AsyncNav2Bridge` para despacho de waypoints y corrección AMCL.
-- `conversation_manager`: Instancia `ConversationManager` para diálogos.
-- `vision_processor`: Instancia `VisionProcessor` para odometría visual.
-- Callback `on_enter_emergency`: Ejecuta `await damp()` con timeout de seguridad.
+| Item | Definicion clara |
+|---|---|
+| Estado de release | RC1_LOCKED (freeze funcional activo) |
+| Objetivo del MVP | Ejecutar tours autonomos con interaccion conversacional en hardware real |
+| Plataforma fisica | Unitree G1 EDU 8 (HIL: Hardware In the Loop) |
+| Backend de control | FastAPI asincrono |
+| Middleware robotico | ROS 2 + CycloneDDS en modo unicast |
+| Interfaz de operacion | Dashboard web SPA en Vanilla JS |
+| Enfoque de seguridad | Preflight obligatorio + parada de emergencia API + parada manual |
 
 ---
 
-## Stack de Navegación y Visión
+## 2) Topologia de Directorios Actualizada
 
-### Localización y Navegación (ROS 2)
+### 2.1 Arbol ASCII del repositorio
 
-**Middleware:** Eclipse CycloneDDS 0.10.2 (no bloqueante, basado en eventos).
-
-**Nodo Principal:** `nav2_simple_commander.BasicNavigator`
-- Método: `followWaypoints(poses: List[PoseStamped])` para recorridos waypoint-a-waypoint.
-- Monitorización: Bucle async `while not navigator.isTaskComplete()` con `await asyncio.sleep(0.1)`.
-- Inyección de pose: `setInitialPose(initial_pose)` para corrección AMCL basada en visión.
-
-**Parámetro de Seguridad:** Velocidad lineal máxima capada a **0.3 m/s** (override sobre límite teórico de 2 m/s).
-
-### Corrección Odométrica Visual
-
-**Fuente:** Cámara de profundidad VIPCAM D435i integrada en cabeza del G1.
-
-**Método:** Detector de AprilTags (`tag36h11`) + `cv2.solvePnP` para pose absoluta.
-
-**Matemática:**
-- Entrada: Puntos 3D conocidos (esquinas del tag), proyección 2D en imagen, matriz intrínseca K, coeficientes de distorsión.
-- Salida: Vector de rotación compacta (`rvec` Rodrigues) + vector de traslación (`tvec`).
-- Transformación: $R_{mat} = cv2.Rodrigues(rvec)$; $P_{cam} = -R_{mat}^T \times tvec$.
-
-**Integración:**
-- Publicación en nodo ROS 2 mediante publisher en `/initialpose`.
-- AMCL reinicializa con covarianza conservadora (0.15 xy, 0.4 theta).
-
----
-
-## Hardware y Topologia de Red
-
-### Definicion Arquitectonica de Conectividad (Auditada)
-
-La conectividad de campo del MVP queda definida como **obligatoriamente cableada por RJ45 en el robot y desacoplada por un Access Point externo en modo puente inalambrico (Wireless Bridge)**.
-
-Justificacion tecnica:
-- El puerto RJ45 del robot mantiene el plano de datos del controlador de locomocion en una interfaz Ethernet estable y determinista para DDS.
-- El AP en modo puente absorbe cambios del medio radio (roaming, RSSI variable, reconexiones 802.11) sin desmontar el enlace logico Ethernet visto por la pila DDS del robot.
-- Esta separacion evita que CycloneDDS pierda participantes por eventos de down/up de interfaz inalambrica del host de control.
-- El resultado es continuidad del flujo asincrono de telemetria y comandos, preservando el event loop sin bloqueos por renegociaciones de red.
-
-Evidencia en base de codigo:
-- `config/cyclonedds.xml`: multicast deshabilitado y descubrimiento unicast por pares estaticos.
-- `scripts/start_robot.sh`: forzado de `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` y `CYCLONEDDS_URI` para arranque determinista.
-
-### Topologia Air-Gapped
-
-### Configuracion DDS Unicast
-
-**Razón:** El multicast UDP estándar genera pérdida severa de paquetes sobre IEEE 802.11 (WLAN).
-
-**Solución:** Desactivación de SPDP multicast + resolución estática de pares (peers) en XML.
-
-**Archivo de Configuración:** `config/cyclonedds.xml`
-
-```xml
-<CycloneDDS>
-  <Domain id="any">
-    <General>
-      <Interfaces>
-        <NetworkInterface name="eth0" />
-      </Interfaces>
-      <AllowMulticast>false</AllowMulticast>
-    </General>
-    <Discovery>
-      <ParticipantIndex>auto</ParticipantIndex>
-      <Peers>
-        <Peer address="192.168.123.161" />
-      </Peers>
-    </Discovery>
-  </Domain>
-</CycloneDDS>
+```text
+OttoGuide-Proyecto_SIP-Grupo6-UADE/
+|-- README.md
+|-- codigo ottoguide/
+|   |-- api/
+|   |   |-- router.py
+|   |   `-- schemas.py
+|   |-- config/
+|   |   |-- cyclonedds.xml
+|   |   |-- nav2_params_g1.yaml
+|   |   `-- settings.py
+|   |-- data/
+|   |   `-- mvp_tour_script.json
+|   |-- deploy/
+|   |   `-- ottoguide_mvp.service
+|   |-- hardware/
+|   |-- libs/
+|   |-- logs/
+|   |-- maps/
+|   |-- resources/
+|   |-- scripts/
+|   |   |-- pre_deploy_cleanup.sh
+|   |   |-- freeze_dependencies.sh
+|   |   |-- cut_release.sh
+|   |   |-- deploy_to_companion.sh
+|   |   |-- bootstrap_target.sh
+|   |   |-- sre_health_check.py
+|   |   |-- preflight_check.sh
+|   |   |-- verify_remote_env.sh
+|   |   |-- start_robot.sh
+|   |   `-- mvp_master_run.sh
+|   |-- src/
+|   |   |-- api/
+|   |   |-- common/
+|   |   |-- core/
+|   |   |-- hardware/
+|   |   |-- interaction/
+|   |   |-- navigation/
+|   |   `-- vision/
+|   |-- static/
+|   |   `-- dashboard.html
+|   |-- tests/
+|   |   |-- integration/
+|   |   |-- mocks/
+|   |   `-- unit/
+|   |-- docker-compose.yml
+|   |-- Dockerfile
+|   |-- main.py
+|   |-- pyproject.toml
+|   `-- requirements_prod.txt
+|-- documentacion general del proyecto/
+|   |-- RC1_Vigente/
+|   |   |-- ARQUITECTURA_OPERATIVA_RC1.md
+|   |   |-- AUDITORIA_DOCUMENTAL_RC1.md
+|   |   |-- RUNBOOK_STARTUP_RC1.md
+|   |   |-- RUNBOOK_DEPLOY.md
+|   |   |-- ROS2_INTEGRATION.md
+|   |   `-- HIL_TESTING_PROTOCOL.md
+|   |-- Historico_SITL/
+|   |   |-- README_SITL_3D.md
+|   |   `-- README_simulation.md
+|   `-- Investigacion_y_Memorias/
+|       |-- Investigacion.md
+|       |-- MEMORIA_ARQUITECTONICA_MVP.md
+|       |-- MEMORIA_TECNICA_EXPORT.txt
+|       `-- G1-Manual-de-usuario-Transcripcion.md
+`-- planificacion/
+    |-- V2/
+    `-- V3/
 ```
 
-**Inyección de Entorno:**
-```bash
-export CYCLONEDDS_URI="file://$(pwd)/config/cyclonedds.xml"
-export RMW_IMPLEMENTATION="rmw_cyclonedds_cpp"
-```
+### 2.2 Responsabilidad estricta por directorio
 
-### Topologia Fisica
-
-- **Robot G1 (módulo locomoción):** IP `192.168.123.161:7890` (DDS).
-- **Companion PC (si existe):** IP `192.168.123.164`.
-- **Enlace obligatorio:** Access Point 802.11ac externo conectado al puerto RJ45 del robot y configurado como Wireless Bridge.
-- **Sin:** Gateway a Internet (air-gapped deliberado).
-
----
-
-## Seguridad Operacional
-
-### Overrides Mecanicos Implementados
-
-- `Damp()` por software en rutas de error y shutdown controlado.
-- Override hardware inmediato `L1 + A` en control remoto.
-- Clamping cinematico estricto de velocidad lineal maxima a `0.3 m/s`.
-
-### Restricción Cinemática (Clamping Obligatorio)
-
-**Constante:** `MAX_LINEAR_VELOCITY = 0.3 m/s`.
-
-**Aplicación:**
-- En `RobotHardwareAPI.move(vx, vy, wz)`: método `_clamp_linear_velocity()` limita cada componente y norma vectorial.
-- En `AsyncNav2Bridge`: `setSpeedLimit(0.3, False)` configura BasicNavigator + subscriber `/cmd_vel` como doble barrera.
-
-**Rationale:** Minimiza riesgo de caídas del robot sobre superficies lisas (vidrio, cerámica).
-
-### Comando de Emergencia Hardware
-
-**Override:** `L1 + A` en control remoto.
-
-**Acción:** Fuerza ejecución inmediata de `Damp()` a nivel de firmware (desacoplamiento elástico de actuadores).
-
-**Tiempo de Respuesta:** <50 ms (independiente del software).
-
-### Punto de Fallo Seguro
-
-**En `TourOrchestrator.on_enter_emergency()`:**
-```python
-try:
-    await asyncio.wait_for(self._hardware_api.damp(), timeout=1.5)
-except TimeoutError:
-    log.error("Damp timeout en EMERGENCY")
-```
-
-**Resultado:** Robot entra en amortiguación pasiva incluso ante fallos de comunicación. Estado EMERGENCY es terminal; requiere reinicio del proceso.
-
-### Prohibiciones de Operación
-
-- **No simultaneidad:** Control remoto manual + API orchestrator al mismo tiempo.
-- **No de pie sin soporte:** Apagado permite solo `IDLE` (sentado) o suspendido.
-- **No I/O de red sin autorización:** Confirmación manual obligatoria (`CONFIRMAR` en prompt).
+| Directorio | Responsabilidad estricta (1 frase) |
+|---|---|
+| codigo ottoguide | Contiene el sistema ejecutable (API, logica, hardware y scripts de operacion). |
+| codigo ottoguide/api | Expone contratos HTTP/WS para operar el tour y la seguridad del robot. |
+| codigo ottoguide/config | Centraliza configuraciones de red robotica y parametros de navegacion. |
+| codigo ottoguide/data | Guarda insumos funcionales del tour sin tocar codigo. |
+| codigo ottoguide/deploy | Aloja artefactos de despliegue para companion/servicio. |
+| codigo ottoguide/hardware | Abstrae la capa de control del robot real, mock y sim. |
+| codigo ottoguide/scripts | Define la secuencia operativa y verificaciones de campo. |
+| codigo ottoguide/src | Implementa el nucleo de negocio y los modulos E2E. |
+| codigo ottoguide/static | Provee la interfaz web de monitoreo y control del operador. |
+| codigo ottoguide/tests | Organiza validaciones unitarias, de integracion y dobles de prueba. |
+| documentacion general del proyecto/RC1_Vigente | Es la unica base documental operativa para ejecutar RC1 en hardware. |
+| documentacion general del proyecto/Historico_SITL | Conserva evidencia de simulacion previa como referencia historica. |
+| documentacion general del proyecto/Investigacion_y_Memorias | Reune material academico, investigacion y anexos de contexto. |
+| planificacion | Mantiene cronogramas y entregables de gestion del proyecto. |
 
 ---
 
-## Estructura de Fases del Proyecto
+## 3) Diccionario de Componentes
 
-### Fase 1: Diseño Arquitectónico (Completado)
+### 3.1 Mapeo tecnico -> funcion en mundo real
 
-- Especificación `Investigacion.md` con análisis de requerimientos.
-- Definición de máquina de estados, patrones (Singleton, Strategy), topología DDS.
+| Componente tecnico | Ubicacion principal | Rol en mundo real |
+|---|---|---|
+| FastAPI | codigo ottoguide/main.py + codigo ottoguide/api/router.py | Cerebro de decisiones y puerta de entrada de comandos. |
+| CycloneDDS | codigo ottoguide/config/cyclonedds.xml | Red de mensajeria robotica que conecta procesos de control. |
+| Nav2_bridge | codigo ottoguide/src/navigation/nav2_bridge.py | Control de movimiento seguro entre orden de ruta y locomocion real. |
+| Vanilla JS (SPA) | codigo ottoguide/static/dashboard.html | Cabina del operador para observar estado y emitir acciones. |
+| TourOrchestrator (FSM) | codigo ottoguide/src/core/tour_orchestrator.py | Director de la mision: decide cuando navegar, hablar o frenar. |
+| ConversationManager | codigo ottoguide/src/interaction/conversation_manager.py | Asistente conversacional que transforma preguntas en respuestas audibles. |
+| MissionAuditLogger | codigo ottoguide/src/core/mission_audit.py | Caja negra de operacion para trazabilidad y auditoria post-mision. |
 
-### Fase 2: Codificación Modular (Completado)
+### 3.2 Relacion con perfiles de lectura
 
-Módulos implementados:
-
-| Módulo | Ubicación | Responsabilidad |
-|--------|-----------|-----------------|
-| `RobotHardwareAPI` | `src/hardware/` | Singleton wrapper para SDK Unitree (Move, Euler, Damp). |
-| `ConversationManager` | `src/interaction/` | Strategy para STT/LLM/TTS con fallback cloud→local. |
-| `TourOrchestrator` | `src/core/` | Máquina de estados async (AsyncEngine). |
-| `VisionProcessor` | `src/vision/` | Detector AprilTag + pose via solvePnP. |
-| `AsyncNav2Bridge` | `src/navigation/` | Interfaz asíncrona Nav2 + clamping /cmd_vel + inyección AMCL. |
-| `APIServer` | `src/api/` | FastAPI endpoints para /tour/start, /tour/status. |
-| `main.py` | `./` | Bootstrap con DI, signal handling, graceful shutdown. |
-
-### Fase 3: Testing e Integración (Completado)
-
-- **SITL Mocks:** `tests/mocks/{mock_unitree_sdk.py, mock_ros2.py}`.
-- **Suites de Integración:** `tests/integration/{test_tour_orchestrator.py, test_hardware_api.py, test_vision_processor.py, test_api_server.py}`.
-- **Estado:** 7/7 tests SITL + 3/3 tests API passing.
-
-### Fase 4: HIL Testing (en Ejecución)
-
-- **Preparación:** Protocolo `docs/HIL_TESTING_PROTOCOL.md` con 6 fases (Fase -1, Fase -0 y Fase 0 a Fase 4).
-- **Scripts de Despliegue:**
-  - `scripts/deploy.sh` (air-gapped rsync-over-SSH).
-  - `scripts/test_kinematics.py` (smoke test: damp→euler→damp).
-  - `scripts/test_audio.py` (validación TTS local).
-- **Operación:** `scripts/start_robot.sh` con confirmación obligatoria (L2+R2, L2+A, CONFIRMAR).
+| Perfil | Que debe mirar primero | Para que sirve |
+|---|---|---|
+| Gestion | Resumen Ejecutivo + Estado del Sistema | Entender valor, alcance y madurez RC1. |
+| Operaciones | Roadmap de Ejecucion | Arrancar y operar el robot con criterio GO/NO-GO. |
+| Tecnico | Diccionario + Matriz E2E | Diagnosticar flujo de datos y responsabilidades de modulo. |
 
 ---
 
-## Pipeline NLP Híbrido (Edge + Cloud Fallback)
+## 4) Matriz de Interaccion E2E
 
-### Arquitectura
+### 4.1 Flujo de datos desde comando hasta accion fisica
 
-**Patrón Strategy:** Tres interfaces (`ISTTStrategy`, `ILLMStrategy`, `ITTSStrategy`) intercambiables.
+| Paso | Origen | Modulo que actua | Canal | Salida observable |
+|---|---|---|---|---|
+| 1 | Operador (dashboard o API) | FastAPI Router | HTTP (ej. POST /tour/start) | Solicitud de mision aceptada/rechazada. |
+| 2 | FastAPI Router | TourOrchestrator | Llamada asincrona interna | Estado pasa a NAVIGATING si valida precondiciones. |
+| 3 | TourOrchestrator | Nav2_bridge | Corrutina + mensajes ROS 2 | Objetivos de navegacion publicados (waypoints). |
+| 4 | Nav2/AMCL | Nav2_bridge | Topics ROS 2 | Planeamiento y velocidad calculada. |
+| 5 | Nav2_bridge | Adaptador de hardware | Comando interno con limites | Velocidad clampeda y segura para locomocion. |
+| 6 | Adaptador hardware | Unitree G1 EDU 8 | SDK + DDS unicast | Robot se mueve fisicamente segun ruta. |
+| 7 | TourOrchestrator | ConversationManager | Corrutina (evento contextual) | Se genera respuesta textual/voz al usuario. |
+| 8 | ConversationManager | Audio de salida | TTS local | Robot responde en voz durante o entre tramos. |
+| 9 | TourOrchestrator | Dashboard | WebSocket (/ws/telemetry) | Operador ve estado, progreso y alertas en tiempo real. |
+| 10 | TourOrchestrator | MissionAuditLogger | Registro JSON atomico | Evidencia completa para analisis posterior. |
 
-### Componentes Locales (Edge)
+### 4.2 Flujo de emergencia (siempre prioritario)
 
-- **STT:** `faster-whisper` con modelo cuantizado int8 + CTranslate2.
-- **LLM:** `Ollama` con modelos estratégicos (Llama-3.2, Qwen2.5).
-- **TTS:** `piper-tts` con modelos ONNX (ARM-compatible, 22050 Hz mono).
-
-### Cloud (Fallback)
-
-- **Activación:** Timeout en operación local (`asyncio.wait_for` + `TimeoutError`).
-- **Hot-swap:** `ConversationManager` muta internamente a `CloudNLPPipeline`.
-- **Retorno:** Reintentos posteriores regresan a local si cloud está disponible.
-
-**Justificación:** Latencia de ruta hacia São Paulo (Brasil) provoca picos de 37-40 ms; hot-swap del núcleo de inferencia permite transparencia operativa.
-
----
-
-## Entorno Virtual y Dependencias
-
-### Setup Local
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Dependencias Críticas
-
-- `python-statemachine` (>=2.3.0): AsyncEngine para orquestador.
-- `fastapi`, `uvicorn`: API REST + background tasks.
-- `opencv-python`, `numpy`: Visión y álgebra.
-- `pytest`, `pytest-asyncio`: Testing SITL.
-- `sounddevice`, `faster-whisper`, `piper-tts`: NLP local.
-
-**Nota:** `unitree_sdk2_python` (repo; paquete importable: `unitree_sdk2py`) y `rclpy` no están en `requirements.txt` (compilación local requerida post-deploy).
+| Trigger | Ruta | Efecto inmediato |
+|---|---|---|
+| API de emergencia | POST /emergency | FSM pasa a EMERGENCY y aplica parada segura. |
+| Control manual | Comando L1+A | Detencion manual de seguridad del hardware. |
 
 ---
 
-## Checklist Pre-Deployment
+## 5) Roadmap de Ejecucion (Startup Runbook)
 
-- [ ] Despliegue `scripts/deploy.sh` ejecutado sin errores.
-- [ ] Compilación `unitree_sdk2_python` verificada en robot (`import unitree_sdk2py`).
-- [ ] Prueba acústica (`scripts/test_audio.py`) pasada.
-- [ ] Smoke cinemático (`scripts/test_kinematics.py`) en marco protector exitoso.
-- [ ] Control remoto: baterías confirmadas, vinculación verificada.
-- [ ] Zona de pruebas: delimitada, sin obstáculos, persona de seguridad asignada.
-- [ ] Confirmación manual (CONFIRMAR) lista para `scripts/start_robot.sh`.
+Secuencia oficial para encender y operar el sistema fisico en RC1.
+
+| # | Fase | Script/Accion | Criterio de salida |
+|---|---|---|---|
+| 1 | Preparacion de release | codigo ottoguide/scripts/pre_deploy_cleanup.sh | Workspace limpio y listo para congelar. |
+| 2 | Congelado de dependencias | codigo ottoguide/scripts/freeze_dependencies.sh | Dependencias estabilizadas para target. |
+| 3 | Corte de release | codigo ottoguide/scripts/cut_release.sh | Version candidata empaquetada. |
+| 4 | Transferencia al companion | codigo ottoguide/scripts/deploy_to_companion.sh | Artefactos sincronizados en target. |
+| 5 | Bootstrap de target | codigo ottoguide/scripts/bootstrap_target.sh | Entorno base operativo en companion PC. |
+| 6 | Health check tecnico | codigo ottoguide/scripts/sre_health_check.py | Conectividad, modelo local y mapa en estado valido. |
+| 7 | Gate preflight | codigo ottoguide/scripts/preflight_check.sh | Exit 0 para continuar; fallo critico bloquea. |
+| 8 | Verificacion remota extendida | codigo ottoguide/scripts/verify_remote_env.sh | Exit 0 continua; Exit 1 bloqueo; Exit 2 solo con override. |
+| 9 | Confirmacion de seguridad manual | Develop Mode + Position Mode en control del robot | Sin confirmacion manual no se autoriza arranque. |
+| 10 | Arranque principal | codigo ottoguide/scripts/start_robot.sh | Sistema levantado con barreras de seguridad. |
+| 11 | Orquestacion E2E (si aplica) | codigo ottoguide/scripts/mvp_master_run.sh | Stack completo para demo/operacion. |
+| 12 | Verificacion post-arranque | GET /status + /ws/telemetry + dashboard | Operacion visible y trazable en tiempo real. |
+
+### 5.1 GO / NO-GO operativo
+
+| Control | GO | NO-GO |
+|---|---|---|
+| preflight_check.sh | Exit 0 | Cualquier error critico |
+| verify_remote_env.sh | Exit 0 (o Exit 2 con autorizacion explicita) | Exit 1 |
+| Estado de navegacion | ROS 2/Nav2 estables | Topics inestables o sin localizacion |
+| Estado conversacional | Motor local disponible | Timeout o servicio no disponible |
+| Seguridad del robot | Modos manuales confirmados | Confirmacion ausente |
 
 ---
 
-## Documentación Complementaria
+## 6) Estado del Sistema (RC1 vs Expansion)
 
-- **Especificación Técnica:** [`docs/Investigacion.md`](docs/Investigacion.md)
-- **Protocolo HIL:** [`docs/HIL_TESTING_PROTOCOL.md`](docs/HIL_TESTING_PROTOCOL.md)
+Leyenda: ✅ implementado y estable en RC1 | 🟡 en estabilizacion | ⏳ expansion futura
+
+| Dominio | RC1 (Done) | Expansion futura (To-Do) |
+|---|---|---|
+| Operacion HIL en Unitree G1 | ✅ Flujo operativo activo con hardware real | ⏳ Ensayos de mayor duracion y carga operativa |
+| Orquestacion de estados | ✅ FSM IDLE/NAVIGATING/INTERACTING/EMERGENCY activa | ⏳ KPIs avanzados por estado y alertas predictivas |
+| Seguridad y parada | ✅ Parada por API + parada manual + barrera preflight | ⏳ Medicion formal de latencia de parada por escenario |
+| Navegacion | ✅ Integracion Nav2/AMCL con bridge asincrono | ⏳ Automatizar pruebas de regresion de rutas |
+| Interaccion conversacional | ✅ Pipeline local operativo para respuesta de guia | ⏳ Mejoras de contexto conversacional por zona del campus |
+| Observabilidad | ✅ Estado por endpoint, telemetria WS y auditoria JSON | ⏳ Tablero de indicadores agregados para direccion |
+| Documentacion estructural | ✅ Migracion a documentacion general del proyecto completada | ⏳ Curado periodico de historicos y anexos academicos |
 
 ---
 
-**Última Actualización:** Marzo 2026  
-**Versión:** 1.0 MVP — Unitree G1 EDU  
-**Estado:** Listo para HIL en campo.
+## 7) Mapa de Documentos Vigentes
+
+Solo se consideran vigentes para operacion RC1 los documentos bajo RC1_Vigente.
+
+| Tipo | Ruta |
+|---|---|
+| Arquitectura vigente | documentacion general del proyecto/RC1_Vigente/ARQUITECTURA_OPERATIVA_RC1.md |
+| Auditoria documental | documentacion general del proyecto/RC1_Vigente/AUDITORIA_DOCUMENTAL_RC1.md |
+| Runbook de startup | documentacion general del proyecto/RC1_Vigente/RUNBOOK_STARTUP_RC1.md |
+| Runbook de deploy | documentacion general del proyecto/RC1_Vigente/RUNBOOK_DEPLOY.md |
+| Protocolo HIL | documentacion general del proyecto/RC1_Vigente/HIL_TESTING_PROTOCOL.md |
+| Integracion ROS2 | documentacion general del proyecto/RC1_Vigente/ROS2_INTEGRATION.md |
+
+Documentos en Historico_SITL e Investigacion_y_Memorias permanecen como soporte historico y academico, no como base operativa primaria.
+
+---
+
+## 8) Alcance y Restricciones RC1_LOCKED
+
+| Regla | Aplicacion |
+|---|---|
+| Freeze funcional | No introducir cambios de codigo durante operacion RC1_LOCKED. |
+| Cambios permitidos | Actualizaciones de documentacion y runbooks operativos. |
+| Fuente de verdad operativa | Este README + carpeta documentacion general del proyecto/RC1_Vigente. |

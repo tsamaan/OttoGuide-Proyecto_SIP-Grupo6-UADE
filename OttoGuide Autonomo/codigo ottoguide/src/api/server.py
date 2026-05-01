@@ -11,12 +11,10 @@ from __future__ import annotations
 # @SECURITY: docs_url=None y redoc_url=None en produccion; TransitionNotAllowed -> HTTP 409
 # @AI_CONTEXT: Uvicorn corre en el event loop principal via Server.serve(); sin loops paralelos
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
