@@ -847,7 +847,7 @@
     </div>
     <div class="hero-meta-item">
       <span>Wake Word</span>
-      <span>"Oye Otto"</span>
+      <span>"Hola Otto"</span>
     </div>
   </div>
 
@@ -876,10 +876,10 @@
             <div class="pipeline-header">
               <span class="pipeline-badge" style="background:rgba(56,217,169,0.1);color:var(--wake);">Siempre activo</span>
               <span class="pipeline-name">Wake Word</span>
-              <span class="pipeline-tech">OpenWakeWord</span>
+              <span class="pipeline-tech">Whisper (wake word)</span>
             </div>
             <div class="pipeline-desc">
-              Proceso ultraliviano (~50MB RAM) que escucha el micrófono 24/7. No consume GPU. Solo espera escuchar <strong style="color:#fff">"Oye Otto"</strong> y se activa al detectarlo.
+              Proceso ultraliviano (~50MB RAM) que escucha el micrófono 24/7. No consume GPU. Solo espera escuchar <strong style="color:#fff">"Hola Otto"</strong> y se activa al detectarlo.
             </div>
           </div>
         </div>
@@ -918,7 +918,7 @@
             <div class="pipeline-header">
               <span class="pipeline-badge" style="background:rgba(245,166,35,0.1);color:var(--tts);">Voz</span>
               <span class="pipeline-name">TTS — Piper</span>
-              <span class="pipeline-tech">es_ES-carlfm-high</span>
+              <span class="pipeline-tech">es_MX-gevy-high</span>
             </div>
             <div class="pipeline-desc">
               Convierte la respuesta de texto a audio con voz masculina en español. El audio se envía al parlante de 5W del robot. Todo local, sin latencia de red.
@@ -959,8 +959,8 @@
         <div class="flow-node" style="background:rgba(56,217,169,0.06);border-color:rgba(56,217,169,0.2);">
           <div class="fn-icon">👂</div>
           <div class="fn-content">
-            <div class="fn-label">"Oye Otto…"</div>
-            <div class="fn-note">OpenWakeWord detecta</div>
+            <div class="fn-label">"Hola Otto…"</div>
+            <div class="fn-note">Whisper (wake word) detecta</div>
           </div>
         </div>
 
@@ -1028,9 +1028,9 @@
 
       <div class="container-card wake fade-in">
         <div class="cc-num">CONTENEDOR 01</div>
-        <div class="cc-name">wake-word</div>
-        <div class="cc-tech" style="color:var(--wake);">OpenWakeWord</div>
-        <div class="cc-desc">Escucha el micrófono las 24 horas. Ultraliviano, no usa GPU. Cuando detecta "Oye Otto", notifica al orquestador vía socket. Es el guardián del sistema.</div>
+        <div class="cc-name">wake-word (MVP: via Whisper)</div>
+        <div class="cc-tech" style="color:var(--wake);">Whisper (wake word)</div>
+        <div class="cc-desc">Escucha el micrófono las 24 horas. Ultraliviano, no usa GPU. Cuando detecta "Hola Otto", notifica al orquestador vía socket. Es el guardián del sistema.</div>
       </div>
 
       <div class="container-card stt fade-in delay-1">
@@ -1050,7 +1050,7 @@
       <div class="container-card tts fade-in">
         <div class="cc-num">CONTENEDOR 04</div>
         <div class="cc-name">tts</div>
-        <div class="cc-tech" style="color:var(--tts);">Piper · es_ES-carlfm-high</div>
+        <div class="cc-tech" style="color:var(--tts);">Piper · es_MX-gevy-high</div>
         <div class="cc-desc">Texto a voz con modelo de alta calidad (22kHz). Voz masculina en español de España. Offline total, genera audio WAV que se reproduce por el parlante del robot.</div>
       </div>
 
@@ -1183,7 +1183,7 @@ informes al final del recorrido.
         </thead>
         <tbody>
           <tr>
-            <td><span class="voice-name">es_ES-carlfm-high</span></td>
+            <td><span class="voice-name">es_MX-gevy-high</span></td>
             <td>España</td>
             <td>♂ Masculino</td>
             <td>high (22kHz)</td>
@@ -1227,7 +1227,7 @@ informes al final del recorrido.
     </div>
 
     <div style="background:rgba(245,166,35,0.06);border:1px solid rgba(245,166,35,0.2);border-radius:12px;padding:1.25rem 1.5rem;font-size:0.88rem;color:var(--muted);line-height:1.6;">
-      <strong style="color:var(--accent3);">Nota para Erika (voz e interacciones):</strong> Las voces <code>carlfm</code> y <code>davefx</code> son la primera y segunda opción. Erika debería escuchar ambas y elegir la que mejor represente la personalidad de Otto antes de definir el Modelfile final.
+      <strong style="color:var(--accent3);">Nota para Erika (voz e interacciones):</strong> Las voces <code>gevy</code> y <code>davefx</code> son la primera y segunda opción. Erika debería escuchar ambas y elegir la que mejor represente la personalidad de Otto antes de definir el Modelfile final.
     </div>
 
   </div>
@@ -1272,7 +1272,7 @@ informes al final del recorrido.
           <div class="rp-sub">Segundo contenedor. Texto entra, audio en español sale. Probar las voces masculinas y elegir la definitiva con Erika.</div>
           <div class="rp-tasks">
             <span class="rp-task">contenedor piper</span>
-            <span class="rp-task">descargar es_ES-carlfm-high</span>
+            <span class="rp-task">descargar es_MX-gevy-high</span>
             <span class="rp-task">test síntesis de voz</span>
             <span class="rp-task">comparar voces con Erika</span>
           </div>
@@ -1287,7 +1287,7 @@ informes al final del recorrido.
         <div class="rp-num">03</div>
         <div class="rp-body">
           <div class="rp-title">Whisper STT + Wake Word</div>
-          <div class="rp-sub">Tercero y cuarto contenedor. Otto escucha "Oye Otto" y transcribe lo que dice el visitante.</div>
+          <div class="rp-sub">Tercero y cuarto contenedor. Otto escucha "Hola Otto" y transcribe lo que dice el visitante.</div>
           <div class="rp-tasks">
             <span class="rp-task">contenedor whisper</span>
             <span class="rp-task">contenedor openwakeword</span>
@@ -1384,20 +1384,20 @@ informes al final del recorrido.
 
       <div class="decision-card">
         <div class="dc-header">
-          <div class="dc-topic">Wake Word: OpenWakeWord</div>
+          <div class="dc-topic">Wake Word: Whisper (wake word)</div>
           <span class="dc-verdict verdict-yes">✓ Confirmado</span>
         </div>
         <div class="dc-from">Enfoque B elegido por el equipo: wake word dedicado en lugar de Whisper siempre activo.</div>
-        <div class="dc-reason">OpenWakeWord es ultraliviano (~50MB RAM), no usa GPU y corre en segundo plano sin impacto. Solo activa el pipeline pesado (Whisper + LLM + TTS) cuando detecta "Oye Otto". Ahorra recursos críticos del Jetson.</div>
+        <div class="dc-reason">Whisper (wake word) es ultraliviano (~50MB RAM), no usa GPU y corre en segundo plano sin impacto. Solo activa el pipeline pesado (Whisper + LLM + TTS) cuando detecta "Hola Otto". Ahorra recursos críticos del Jetson.</div>
       </div>
 
       <div class="decision-card">
         <div class="dc-header">
-          <div class="dc-topic">Voz: es_ES-carlfm-high</div>
+          <div class="dc-topic">Voz: es_MX-gevy-high</div>
           <span class="dc-verdict verdict-mod">⚠ A confirmar con Erika</span>
         </div>
         <div class="dc-from">Otto es un guía hombre. Cortana (es_MX) descartada por ser voz femenina.</div>
-        <div class="dc-reason">La voz <code>carlfm-high</code> es la mejor opción masculina en español disponible en Piper (calidad high, 22kHz). Erika debe escuchar las opciones (<code>carlfm</code> y <code>davefx</code>) antes de la decisión final.</div>
+        <div class="dc-reason">La voz <code>gevy-high</code> es la mejor opción masculina en español disponible en Piper (calidad high, 22kHz). Erika debe escuchar las opciones (<code>gevy</code> y <code>davefx</code>) antes de la decisión final.</div>
       </div>
 
       <div class="decision-card">

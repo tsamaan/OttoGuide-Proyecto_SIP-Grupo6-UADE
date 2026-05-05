@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OttoGuide — Paso a Paso</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:      #0a0c10;
+    --bg2:     #111318;
+    --bg3:     #181c24;
+    --border:  rgba(255,255,255,0.07);
+    --text:    #e8eaf0;
+    --muted:   #8890a4;
+    --accent:  #5b8af5;
+    --green:   #38d9a9;
+    --orange:  #f5a623;
+    --red:     #e05c7a;
+    --purple:  #a78bfa;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1rem 3rem;
+    background: rgba(10,12,16,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-logo { font-family: 'DM Mono', monospace; font-size: 0.8rem; color: var(--text); display: flex; align-items: center; gap: 0.5rem; }
+  .nav-logo span { color: var(--green); }
+  .nav-tag { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--muted); letter-spacing: 0.12em; }
+
+  .hero {
+    padding: 4rem 3rem 3rem;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, rgba(91,138,245,0.05) 0%, transparent 60%);
+  }
+  .hero-label { font-family: 'DM Mono', monospace; font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--green); margin-bottom: 0.75rem; }
+  .hero h1 { font-family: 'DM Serif Display', serif; font-size: clamp(2rem, 4vw, 3.5rem); color: #fff; line-height: 1.1; margin-bottom: 0.75rem; }
+  .hero p { color: var(--muted); max-width: 600px; font-size: 0.95rem; }
+
+  .progress-bar-wrap {
+    margin: 2rem 3rem 0;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem 1.75rem;
+    display: flex; align-items: center; gap: 2rem;
+  }
+  .pb-label { font-family: 'DM Mono', monospace; font-size: 0.65rem; letter-spacing: 0.12em; color: var(--muted); white-space: nowrap; }
+  .pb-track { flex: 1; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+  .pb-fill { height: 100%; background: linear-gradient(90deg, var(--green), var(--accent)); border-radius: 3px; transition: width 0.5s ease; }
+  .pb-pct { font-family: 'DM Mono', monospace; font-size: 0.75rem; color: var(--green); font-weight: 500; }
+
+  .phases-nav {
+    display: flex; gap: 0.5rem; flex-wrap: wrap;
+    padding: 1.25rem 3rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+  }
+  .ph-pill {
+    font-family: 'DM Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em;
+    padding: 0.3rem 0.85rem; border-radius: 2rem;
+    border: 1px solid var(--border); color: var(--muted);
+    text-decoration: none; transition: all 0.2s;
+    cursor: pointer;
+  }
+  .ph-pill:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+  .ph-pill.done  { background: rgba(56,217,169,0.1); border-color: rgba(56,217,169,0.3); color: var(--green); }
+  .ph-pill.active{ background: rgba(91,138,245,0.1); border-color: rgba(91,138,245,0.3); color: var(--accent); }
+
+  .content { padding: 0 3rem 4rem; }
+
+  /* ─── PHASE BLOCK ─── */
+  .phase {
+    margin-top: 3rem;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .phase-header {
+    display: flex; align-items: center; gap: 1.25rem;
+    padding: 1.25rem 1.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+  }
+  .ph-num {
+    font-family: 'DM Serif Display', serif;
+    font-size: 2rem; line-height: 1;
+    color: rgba(255,255,255,0.15);
+    width: 40px; flex-shrink: 0;
+  }
+  .ph-info { flex: 1; }
+  .ph-title { font-size: 1rem; font-weight: 600; color: #fff; margin-bottom: 0.15rem; }
+  .ph-sub { font-size: 0.82rem; color: var(--muted); }
+  .ph-badge {
+    font-family: 'DM Mono', monospace; font-size: 0.6rem;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 0.25rem 0.75rem; border-radius: 2rem;
+  }
+  .badge-done    { background: rgba(56,217,169,0.1); color: var(--green); border: 1px solid rgba(56,217,169,0.3); }
+  .badge-active  { background: rgba(91,138,245,0.1); color: var(--accent); border: 1px solid rgba(91,138,245,0.3); }
+  .badge-pending { background: rgba(255,255,255,0.04); color: var(--muted); border: 1px solid var(--border); }
+
+  .phase-body { padding: 1.75rem; background: var(--bg); }
+
+  /* ─── STEP ─── */
+  .step {
+    display: flex; gap: 1.25rem; margin-bottom: 2rem;
+    animation: fadeUp 0.4s ease both;
+  }
+  .step:last-child { margin-bottom: 0; }
+
+  .step-dot {
+    width: 28px; height: 28px; border-radius: 50%;
+    flex-shrink: 0; margin-top: 2px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.65rem; font-weight: 700;
+    font-family: 'DM Mono', monospace;
+  }
+  .dot-done    { background: rgba(56,217,169,0.15); color: var(--green); border: 1.5px solid rgba(56,217,169,0.4); }
+  .dot-active  { background: rgba(91,138,245,0.15); color: var(--accent); border: 1.5px solid rgba(91,138,245,0.4); }
+  .dot-pending { background: var(--bg3); color: var(--muted); border: 1.5px solid var(--border); }
+
+  .step-content { flex: 1; }
+  .step-title { font-size: 0.92rem; font-weight: 600; color: #fff; margin-bottom: 0.3rem; }
+  .step-desc { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.75rem; line-height: 1.6; }
+
+  .step-who {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-family: 'DM Mono', monospace; font-size: 0.62rem;
+    color: var(--muted); margin-bottom: 0.75rem;
+    letter-spacing: 0.05em;
+  }
+
+  /* ─── CODE BLOCK ─── */
+  .code-block {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+  }
+  .code-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,0.02);
+  }
+  .code-lang { font-family: 'DM Mono', monospace; font-size: 0.6rem; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; }
+  .code-file { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--accent); }
+  .code-body {
+    padding: 1rem 1.25rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    color: #c8d8ff;
+    line-height: 1.75;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .code-body .comment { color: var(--muted); }
+  .code-body .cmd { color: var(--green); }
+  .code-body .str { color: var(--orange); }
+  .code-body .kw { color: var(--purple); }
+
+  /* ─── FOLDER TREE ─── */
+  .folder-tree {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem 1.5rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    line-height: 2;
+    color: var(--muted);
+  }
+  .folder-tree .dir  { color: var(--accent); }
+  .folder-tree .file { color: var(--text); }
+  .folder-tree .new  { color: var(--green); }
+  .folder-tree .note { color: var(--muted); font-style: italic; }
+
+  /* ─── NOTE / WARNING ─── */
+  .note {
+    display: flex; gap: 0.75rem; align-items: flex-start;
+    padding: 0.9rem 1.1rem;
+    border-radius: 8px;
+    font-size: 0.83rem;
+    line-height: 1.55;
+    margin-top: 0.75rem;
+  }
+  .note-info    { background: rgba(91,138,245,0.08); border: 1px solid rgba(91,138,245,0.2); color: #a8c0ff; }
+  .note-warn    { background: rgba(245,166,35,0.08); border: 1px solid rgba(245,166,35,0.2); color: #f5c842; }
+  .note-ok      { background: rgba(56,217,169,0.08); border: 1px solid rgba(56,217,169,0.2); color: var(--green); }
+  .note-icon    { font-size: 0.9rem; flex-shrink: 0; margin-top: 1px; }
+
+  /* ─── CHECKLIST ─── */
+  .checklist { list-style: none; display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.75rem; }
+  .checklist li {
+    display: flex; align-items: flex-start; gap: 0.6rem;
+    font-size: 0.84rem; color: var(--muted); line-height: 1.5;
+  }
+  .checklist li.done { color: var(--text); text-decoration: none; }
+  .checklist li.done::before { content: '✓'; color: var(--green); font-size: 0.8rem; flex-shrink: 0; margin-top: 2px; }
+  .checklist li.pending::before { content: '○'; color: var(--muted); font-size: 0.8rem; flex-shrink: 0; margin-top: 2px; }
+  .checklist li.active::before { content: '→'; color: var(--accent); font-size: 0.8rem; flex-shrink: 0; margin-top: 2px; }
+
+  code { font-family: 'DM Mono', monospace; font-size: 0.82em; background: rgba(91,138,245,0.12); color: var(--accent); padding: 0.1em 0.45em; border-radius: 4px; }
+
+  @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+
+  footer { padding: 2rem 3rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; color: var(--muted); font-size: 0.75rem; font-family: 'DM Mono', monospace; }
+
+  .divider { height: 1px; background: var(--border); margin: 0 3rem; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">otto<span>guide</span> / paso-a-paso</div>
+  <span class="nav-tag">documento vivo · se actualiza con cada fase</span>
+</nav>
+
+<div class="hero">
+  <div class="hero-label">Implementación LLM</div>
+  <h1>Paso a paso<br>de cada fase</h1>
+  <p>Registro completo del proceso de construcción del stack de IA para Ottoman. Cada sección se actualiza a medida que se completa la fase correspondiente.</p>
+</div>
+
+<div class="progress-bar-wrap">
+  <span class="pb-label">Progreso total</span>
+  <div class="pb-track"><div class="pb-fill" style="width:80%"></div></div>
+  <span class="pb-pct">4 / 5 fases</span>
+</div>
+
+<div class="phases-nav">
+  <a href="#fase1" class="ph-pill done">F1 · Ollama + LLM ✓</a>
+  <a href="#fase2" class="ph-pill done">F2 · Piper TTS ✓</a>
+  <a href="#fase3" class="ph-pill done">F3 · Whisper + Wake Word ✓</a>
+  <a href="#fase4" class="ph-pill done">F4 · Orquestador ✓</a>
+  <a href="#fase5" class="ph-pill active">F5 · Deploy al Robot</a>
+  <a href="#fase4" class="ph-pill pending">F4 · RAG + Orquestador</a>
+  <a href="#fase5" class="ph-pill pending">F5 · Deploy al Robot</a>
+</div>
+
+<div class="content">
+
+  <!-- ═══════════════════════════════════════════
+       FASE 1 — OLLAMA + LLM
+  ═══════════════════════════════════════════ -->
+  <div class="phase" id="fase1">
+    <div class="phase-header">
+      <div class="ph-num">01</div>
+      <div class="ph-info">
+        <div class="ph-title">Ollama + Gemma4 — El cerebro de Otto</div>
+        <div class="ph-sub">Levantar el LLM local, crear el Modelfile con la personalidad de Otto y verificar respuestas en español.</div>
+      </div>
+      <span class="ph-badge badge-done">✓ Completada</span>
+    </div>
+    <div class="phase-body">
+
+      <!-- PASO 1.0 — Estructura de carpetas -->
+      <div class="step">
+        <div class="step-dot dot-active">1.0</div>
+        <div class="step-content">
+          <div class="step-title">Crear la estructura de carpetas del proyecto</div>
+          <div class="step-desc">En tu notebook, crear la carpeta raíz <code>OttoGuide IA</code> con toda la estructura necesaria. Ejecutar estos comandos desde tu directorio home o donde quieras alojar el proyecto.</div>
+          <span class="step-who">👤 Teo</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">terminal</span></div>
+            <div class="code-body"><span class="comment"># Crear la estructura completa del proyecto</span>
+mkdir -p "OttoGuide IA"/{services/{wake-word,stt,llm,tts/voices,core},data/uade-docs,deploy}
+
+<span class="comment"># Verificar que quedó correcta</span>
+find "OttoGuide IA" -type d | sort</div>
+          </div>
+          <div class="folder-tree">
+<span class="dir">OttoGuide IA/</span>
+├── <span class="dir">services/</span>
+│   ├── <span class="dir">wake-word/</span>
+│   ├── <span class="dir">stt/</span>
+│   ├── <span class="dir">llm/</span>
+│   ├── <span class="dir">tts/</span>
+│   │   └── <span class="dir">voices/</span>
+│   └── <span class="dir">core/</span>
+├── <span class="dir">data/</span>
+│   └── <span class="dir">uade-docs/</span>          <span class="note">← acá van los PDFs de UADE</span>
+└── <span class="dir">deploy/</span>              <span class="note">← scripts para el robot</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 1.1 — Verificar Docker -->
+      <div class="step">
+        <div class="step-dot dot-active">1.1</div>
+        <div class="step-content">
+          <div class="step-title">Verificar Docker Compose</div>
+          <div class="step-desc">Confirmar que Docker Compose está disponible y funcional en la notebook.</div>
+          <span class="step-who">👤 Teo</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">terminal</span></div>
+            <div class="code-body">docker compose version
+docker info | grep -E "Server Version|Runtime"</div>
+          </div>
+          <div class="note note-info">
+            <span class="note-icon">ℹ</span>
+            <span>Si el comando es <code>docker-compose</code> (con guion) en lugar de <code>docker compose</code> (con espacio), avisar — hay que instalar el plugin V2.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 1.2 — docker-compose.yml fase 1 -->
+      <div class="step">
+        <div class="step-dot dot-active">1.2</div>
+        <div class="step-content">
+          <div class="step-title">Crear <code>docker-compose.yml</code> — solo Ollama por ahora</div>
+          <div class="step-desc">El compose final tendrá 5 servicios. Arrancamos solo con Ollama para verificar que funciona antes de agregar complejidad. Crear este archivo en la raíz de <code>OttoGuide IA/</code>.</div>
+          <span class="step-who">👤 Teo + Lucas</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">yaml</span><span class="code-file">OttoGuide IA/docker-compose.yml</span></div>
+            <div class="code-body"><span class="kw">version</span>: <span class="str">'3.8'</span>
+
+<span class="kw">services</span>:
+
+  <span class="kw">llm</span>:
+    <span class="kw">image</span>: <span class="str">ollama/ollama:latest</span>
+    <span class="kw">container_name</span>: <span class="str">ottoguide-llm</span>
+    <span class="kw">ports</span>:
+      - <span class="str">"11434:11434"</span>
+    <span class="kw">volumes</span>:
+      - ollama_data:/root/.ollama
+    <span class="kw">restart</span>: <span class="str">unless-stopped</span>
+    <span class="kw">environment</span>:
+      - <span class="str">OLLAMA_HOST=0.0.0.0</span>
+
+<span class="kw">volumes</span>:
+  <span class="kw">ollama_data</span>:</div>
+          </div>
+          <div class="note note-warn">
+            <span class="note-icon">⚠</span>
+            <span>En esta fase NO incluimos GPU flags todavía — la notebook no tiene NVIDIA. Los flags de GPU para el robot Jetson se agregan en la Fase 5.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 1.3 — Levantar Ollama -->
+      <div class="step">
+        <div class="step-dot dot-active">1.3</div>
+        <div class="step-content">
+          <div class="step-title">Levantar Ollama y descargar Gemma4</div>
+          <div class="step-desc">Primero levantamos el contenedor, luego descargamos el modelo dentro de él. La descarga pesa varios GB — hacerlo con buena conexión.</div>
+          <span class="step-who">👤 Teo</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">terminal — desde OttoGuide IA/</span></div>
+            <div class="code-body"><span class="comment"># Levantar el contenedor en background</span>
+docker compose up -d llm
+
+<span class="comment"># Verificar que está corriendo</span>
+docker compose ps
+
+<span class="comment"># Descargar el modelo Gemma4:e4b dentro del contenedor</span>
+docker exec -it ottoguide-llm ollama pull gemma4:e4b
+
+<span class="comment"># Verificar que se descargó</span>
+docker exec -it ottoguide-llm ollama list</div>
+          </div>
+          <div class="note note-warn">
+            <span class="note-icon">⚠</span>
+            <span>Si <code>gemma4:e4b</code> no está disponible todavía en Ollama, usar <code>gemma2:2b</code> como fallback para continuar el desarrollo. Actualizar cuando el modelo esté disponible.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 1.4 — Test API -->
+      <div class="step">
+        <div class="step-dot dot-active">1.4</div>
+        <div class="step-content">
+          <div class="step-title">Probar la API REST de Ollama</div>
+          <div class="step-desc">Ollama expone una API HTTP en el puerto 11434. Verificar que responde correctamente antes de crear el Modelfile.</div>
+          <span class="step-who">👤 Teo + Lucas</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">terminal</span></div>
+            <div class="code-body"><span class="comment"># Test simple — debe responder con JSON</span>
+curl http://localhost:11434/api/generate \
+  -d '{
+    "model": "gemma4:e4b",
+    "prompt": "Hola, respondé en español: ¿cuál es tu nombre?",
+    "stream": false
+  }'
+
+<span class="comment"># Verificar que el response tiene el campo "response"</span></div>
+          </div>
+          <div class="note note-ok">
+            <span class="note-icon">✓</span>
+            <span>Si el JSON de respuesta contiene el campo <code>"response"</code> con texto en español, el LLM está funcionando correctamente.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 1.5 — Modelfile -->
+      <div class="step">
+        <div class="step-dot dot-active">1.5</div>
+        <div class="step-content">
+          <div class="step-title">Crear el Modelfile de Otto</div>
+          <div class="step-desc">Este archivo define la personalidad, el tono y el conocimiento base de Ottoman. Crearlo en <code>services/llm/</code>. Es un archivo de texto plano, sin extensión.</div>
+          <span class="step-who">👤 Teo + Erika (contenido)</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">modelfile</span><span class="code-file">OttoGuide IA/services/llm/Modelfile</span></div>
+            <div class="code-body">FROM gemma4:e4b
+
+PARAMETER temperature 0.7
+PARAMETER top_p 0.9
+PARAMETER num_ctx 2048
+
+SYSTEM """
+Sos Otto, un robot guía humanoid del campus Monserrat de la
+Universidad Argentina de la Empresa (UADE), ubicado en Lima 775,
+Ciudad de Buenos Aires.
+
+Tu misión es acompañar a estudiantes secundarios durante visitas
+guiadas al campus y responder sus preguntas sobre la universidad
+de manera amigable, clara y entusiasta.
+
+CÓMO HABLÁS:
+- Usás español rioplatense (vos, che, bárbaro)
+- Tono cálido, cercano y motivador
+- Respuestas breves: máximo 3-4 oraciones
+- Nunca das información falsa
+- Si no sabés algo, sugerís consultar en el stand de informes
+
+SOBRE UADE:
+- Universidad privada, fundada en 1962
+- Campus Monserrat: Lima 775, CABA
+- Carreras: Ingeniería, Diseño, Economía y Negocios, Derecho,
+  Ciencias de la Comunicación, Psicología, entre otras
+- Tiene laboratorios modernos, biblioteca, espacios de coworking
+- Sistema de cursada presencial y virtual disponible
+
+RECORDÁ:
+- Estás en medio de un tour guiado
+- Los visitantes son jóvenes de entre 15 y 18 años
+- Tu objetivo es que se enamoren de UADE
+"""</div>
+          </div>
+          <div class="note note-info">
+            <span class="note-icon">ℹ</span>
+            <span>Este Modelfile es el punto de partida. Erika debe revisar y enriquecer el contenido, especialmente el tono y la información de UADE. Se puede actualizar y re-aplicar en cualquier momento.</span>
+          </div>
+
+          <!-- ⚠ ANOTACIÓN DE EQUIPO -->
+          <div style="margin-top:1rem;background:rgba(245,166,35,0.06);border:1px solid rgba(245,166,35,0.25);border-radius:10px;overflow:hidden;">
+            <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1.1rem;border-bottom:1px solid rgba(245,166,35,0.15);background:rgba(245,166,35,0.05);">
+              <span style="font-size:0.85rem;">📌</span>
+              <span style="font-family:'DM Mono',monospace;font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--orange);">Anotación del equipo</span>
+              <span style="margin-left:auto;font-family:'DM Mono',monospace;font-size:0.6rem;color:var(--muted);">Fase 1 · Paso 1.5 · 30/04/2026</span>
+            </div>
+            <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:0.9rem;">
+
+              <div style="font-size:0.88rem;color:#f5c842;font-weight:600;">
+                ⏸ El contenido del Modelfile está pausado — pendiente reunión de equipo
+              </div>
+
+              <div style="font-size:0.83rem;color:var(--muted);line-height:1.6;">
+                El Modelfile actual contiene información básica de UADE suficiente para continuar con las fases técnicas. Sin embargo, para que Otto sea realmente efectivo como guía, el contenido necesita ser enriquecido con datos reales e institucionales. Esto requiere una reunión del equipo completo antes de poder completar esta sección.
+              </div>
+
+              <div style="background:rgba(0,0,0,0.2);border-radius:8px;padding:1rem 1.1rem;">
+                <div style="font-family:'DM Mono',monospace;font-size:0.6rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);margin-bottom:0.65rem;">Puntos a definir con el equipo</div>
+                <div style="display:flex;flex-direction:column;gap:0.5rem;font-size:0.82rem;color:var(--muted);">
+                  <div style="display:flex;gap:0.6rem;"><span style="color:var(--orange);flex-shrink:0;">→</span><span><strong style="color:var(--text);">SOBRE UADE:</strong> cantidad exacta de carreras, duración promedio, modalidades disponibles, sistema de becas, aranceles (o cómo derivar esa consulta), horarios del campus Monserrat, instalaciones específicas (laboratorios, cantina, SUM, biblioteca, coworking)</span></div>
+                  <div style="display:flex;gap:0.6rem;"><span style="color:var(--orange);flex-shrink:0;">→</span><span><strong style="color:var(--text);">CÓMO HABLÁS (Erika):</strong> ¿Otto tiene una frase característica o catchphrase? ¿Usa humor? ¿Cómo maneja preguntas incómodas como costos o comparaciones con otras universidades?</span></div>
+                  <div style="display:flex;gap:0.6rem;"><span style="color:var(--orange);flex-shrink:0;">→</span><span><strong style="color:var(--text);">EL RECORRIDO (Jorge + Martina):</strong> nombres y descripción exacta de los 5 puntos del tour (INICIO, paradas 1-3, FIN), qué hay en cada zona, duración estimada del recorrido completo</span></div>
+                  <div style="display:flex;gap:0.6rem;"><span style="color:var(--orange);flex-shrink:0;">→</span><span><strong style="color:var(--text);">CONTEXTO DEL VISITANTE:</strong> ¿los grupos vienen con docente acompañante? ¿Cuántos alumnos por grupo? ¿Hay alguna presentación previa antes de que empiece el tour con Otto?</span></div>
+                  <div style="display:flex;gap:0.6rem;"><span style="color:var(--orange);flex-shrink:0;">→</span><span><strong style="color:var(--text);">LÍMITES DE OTTO:</strong> definir exactamente qué preguntas Otto puede responder y cuáles deriva al stand de informes. Evitar que invente datos sensibles como precios o fechas.</span></div>
+                </div>
+              </div>
+
+              <div style="display:flex;gap:1rem;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:0.5rem;font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--muted);">
+                  <span style="width:6px;height:6px;border-radius:50%;background:var(--orange);flex-shrink:0;"></span>
+                  Responsable contenido: <strong style="color:var(--text);">Erika</strong>
+                </div>
+                <div style="display:flex;align-items:center;gap:0.5rem;font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--muted);">
+                  <span style="width:6px;height:6px;border-radius:50%;background:var(--orange);flex-shrink:0;"></span>
+                  Responsable recorrido: <strong style="color:var(--text);">Jorge + Martina</strong>
+                </div>
+                <div style="display:flex;align-items:center;gap:0.5rem;font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--muted);">
+                  <span style="width:6px;height:6px;border-radius:50%;background:var(--orange);flex-shrink:0;"></span>
+                  Integración final: <strong style="color:var(--text);">Teo + Lucas</strong>
+                </div>
+              </div>
+
+              <div style="font-size:0.8rem;color:var(--muted);border-top:1px solid rgba(245,166,35,0.15);padding-top:0.75rem;">
+                💡 <strong style="color:var(--text);">Impacto en el desarrollo:</strong> Este bloqueo no impide avanzar con las fases técnicas 1.6 a 5. El Modelfile base es funcional para testing. Se retoma y completa este paso una vez que el equipo defina el contenido en reunión.
+              </div>
+
+            </div>
+          </div>
+          <!-- FIN ANOTACIÓN -->
+
+        </div>
+      </div>
+
+      <!-- PASO 1.6 — Aplicar Modelfile -->
+      <div class="step">
+        <div class="step-dot dot-active">1.6</div>
+        <div class="step-content">
+          <div class="step-title">Aplicar el Modelfile y crear el modelo <code>otto</code></div>
+          <div class="step-desc">Copiar el Modelfile al contenedor y crear el modelo personalizado. Este paso genera el modelo llamado <code>otto</code> que usaremos en todo el proyecto.</div>
+          <span class="step-who">👤 Teo</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">terminal — desde OttoGuide IA/</span></div>
+            <div class="code-body"><span class="comment"># Copiar el Modelfile al contenedor</span>
+docker cp services/llm/Modelfile ottoguide-llm:/tmp/Modelfile
+
+<span class="comment"># Crear el modelo "otto" basado en Gemma4 + Modelfile</span>
+docker exec -it ottoguide-llm ollama create otto -f /tmp/Modelfile
+
+<span class="comment"># Verificar que el modelo "otto" aparece en la lista</span>
+docker exec -it ottoguide-llm ollama list</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 1.7 — Test Otto -->
+      <div class="step">
+        <div class="step-dot dot-active">1.7</div>
+        <div class="step-content">
+          <div class="step-title">Test final — Otto responde como Otto</div>
+          <div class="step-desc">Verificar que el modelo personalizado responde con el tono y la personalidad correcta.</div>
+          <span class="step-who">👤 Teo + Erika</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">terminal</span></div>
+            <div class="code-body"><span class="comment"># Pregunta de prueba — debe responder como Otto</span>
+curl http://localhost:11434/api/generate \
+  -d '{
+    "model": "otto",
+    "prompt": "¿Qué carreras puedo estudiar en UADE?",
+    "stream": false
+  }'
+
+<span class="comment"># Segunda prueba — tono y personalidad</span>
+curl http://localhost:11434/api/generate \
+  -d '{
+    "model": "otto",
+    "prompt": "Hola Otto, ¿por qué debería elegir UADE?",
+    "stream": false
+  }'</div>
+          </div>
+          <div class="note note-ok">
+            <span class="note-icon">✓</span>
+            <span><strong>Criterio de éxito de la Fase 1:</strong> Otto responde en español rioplatense, con tono amigable, menciona UADE y da información coherente. La respuesta llega en menos de 10 segundos (en CPU).</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Checklist Fase 1 -->
+      <div style="margin-top:1.5rem;background:var(--bg2);border:1px solid rgba(56,217,169,0.2);border-radius:10px;padding:1.25rem 1.5rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+          <span style="font-family:'DM Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;">Checklist Fase 1</span>
+          <span style="font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--green);background:rgba(56,217,169,0.1);border:1px solid rgba(56,217,169,0.3);padding:0.2rem 0.65rem;border-radius:2rem;">✓ Completada · 30/04/2026</span>
+        </div>
+        <ul class="checklist">
+          <li class="done">Estructura de carpetas <code>OttoGuide IA/</code> creada</li>
+          <li class="done">Docker Compose verificado y funcional — v5.1.3</li>
+          <li class="done"><code>docker-compose.yml</code> creado con servicio llm</li>
+          <li class="done">Contenedor <code>ottoguide-llm</code> corriendo</li>
+          <li class="done">Modelo <code>gemma4:e4b</code> descargado — 9.6GB</li>
+          <li class="done">API REST responde correctamente en español</li>
+          <li class="done"><code>Modelfile</code> creado en <code>services/llm/</code></li>
+          <li class="done">Modelo <code>otto</code> creado con Ollama</li>
+          <li class="done">Otto responde con personalidad correcta en español rioplatense ✓</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       FASE 2 — PIPER TTS
+  ═══════════════════════════════════════════ -->
+  <div class="phase" id="fase2">
+    <div class="phase-header">
+      <div class="ph-num">02</div>
+      <div class="ph-info">
+        <div class="ph-title">Piper TTS — La voz de Otto</div>
+        <div class="ph-sub">Contenedor de síntesis de voz en español masculino. Texto entra, audio WAV sale por el parlante.</div>
+      </div>
+      <span class="ph-badge badge-done">✓ Completada</span>
+    </div>
+    <div class="phase-body">
+
+      <!-- PASO 2.1 — Descargar voz -->
+      <div class="step">
+        <div class="step-dot dot-active">2.1</div>
+        <div class="step-content">
+          <div class="step-title">Descargar la voz masculina de Piper</div>
+          <div class="step-desc">Piper necesita dos archivos por voz: el modelo <code>.onnx</code> y su configuración <code>.onnx.json</code>. Se descargan una sola vez y quedan en <code>services/tts/voices/</code>.</div>
+          <span class="step-who">👤 Teo</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">terminal — desde OttoGuide IA/</span></div>
+            <div class="code-body"><span class="comment"># Descargar el modelo de voz es_ES-carlfm-high (masculino)</span>
+wget -P services/tts/voices/ \
+  "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/carlfm/x_low/es_ES-carlfm-x_low.onnx?download=true" \
+  -O services/tts/voices/es_ES-carlfm-high.onnx
+
+wget -P services/tts/voices/ \
+  "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/carlfm/x_low/es_ES-carlfm-x_low.onnx.json?download=true" \
+  -O services/tts/voices/es_ES-carlfm-high.onnx.json
+
+<span class="comment"># Verificar que quedaron los dos archivos</span>
+ls -lh services/tts/voices/</div>
+          </div>
+          <div class="note note-info">
+            <span class="note-icon">ℹ</span>
+            <span>La versión <code>high</code> oficial de carlfm no está en el repositorio público de Piper aún. Usamos <code>x_low</code> como base funcional para desarrollo. Erika debe escucharla y decidir si es aceptable o exploramos otras opciones.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 2.2 — Crear Dockerfile TTS con fix pathvalidate -->
+      <div class="step">
+        <div class="step-dot dot-active">2.2</div>
+        <div class="step-content">
+          <div class="step-title">Crear <code>Dockerfile</code> propio para TTS</div>
+          <div class="step-desc">La imagen oficial <code>rhasspy/wyoming-piper</code> tiene un módulo Python faltante (<code>pathvalidate</code>) que causa que el contenedor crashee en loop. La solución es crear un Dockerfile propio que extiende la imagen oficial e instala el módulo faltante. Esto garantiza que la dependencia queda grabada en la imagen y no se pierde al recrear el contenedor.</div>
+          <span class="step-who">👤 Teo</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">dockerfile</span><span class="code-file">services/tts/Dockerfile</span></div>
+            <div class="code-body">FROM rhasspy/wyoming-piper:latest
+
+<span class="comment"># Fix: pathvalidate faltante en la imagen oficial</span>
+<span class="comment"># Sin esto el contenedor crashea con ModuleNotFoundError</span>
+RUN /usr/src/.venv/bin/pip install pathvalidate</div>
+          </div>
+
+          <!-- Bug box -->
+          <div style="margin-top:0.75rem;background:rgba(224,92,122,0.06);border:1px solid rgba(224,92,122,0.2);border-radius:10px;overflow:hidden;">
+            <div style="display:flex;align-items:center;gap:0.75rem;padding:0.65rem 1.1rem;border-bottom:1px solid rgba(224,92,122,0.15);background:rgba(224,92,122,0.04);">
+              <span style="font-size:0.8rem;">🐛</span>
+              <span style="font-family:'DM Mono',monospace;font-size:0.58rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--red);">Bug encontrado en desarrollo · 01/05/2026</span>
+            </div>
+            <div style="padding:1rem 1.25rem;display:flex;flex-direction:column;gap:0.6rem;">
+              <div style="font-size:0.84rem;font-weight:600;color:#fff;">ModuleNotFoundError: No module named 'pathvalidate'</div>
+              <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;"><strong style="color:var(--text);">Síntoma:</strong> El contenedor <code>ottoguide-tts</code> arranca y entra en loop de reinicios continuos. <code>dps</code> muestra estado <code>Restarting (1)</code>.</div>
+              <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;"><strong style="color:var(--text);">Causa:</strong> La imagen oficial <code>rhasspy/wyoming-piper:latest</code> no incluye el módulo <code>pathvalidate</code> en su virtualenv interno (<code>/usr/src/.venv</code>), pero el código lo importa al arrancar.</div>
+              <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;"><strong style="color:var(--text);">Lo que NO funciona:</strong> Instalar con <code>docker exec ... pip install</code> — la instalación se pierde cuando el contenedor se recrea. Tampoco funciona el pip del sistema por restricciones de Debian (<code>externally-managed-environment</code>).</div>
+              <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;"><strong style="color:var(--text);">Solución correcta:</strong> Crear un <code>Dockerfile</code> propio que use la imagen oficial como base y ejecute <code>/usr/src/.venv/bin/pip install pathvalidate</code>. Cambiar <code>image:</code> por <code>build:</code> en el compose. Así la dependencia queda grabada permanentemente en la imagen local.</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- PASO 2.3 — Agregar servicio TTS al compose con build -->
+      <div class="step">
+        <div class="step-dot dot-active">2.3</div>
+        <div class="step-content">
+          <div class="step-title">Agregar servicio <code>tts</code> al <code>docker-compose.yml</code></div>
+          <div class="step-desc">Usar <code>build:</code> en lugar de <code>image:</code> para que Docker construya desde el Dockerfile local. Notar también que el nombre de la voz es <code>x_low</code>, no <code>high</code> — la versión high no está disponible en el repositorio público todavía.</div>
+          <span class="step-who">👤 Teo + Lucas</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">yaml</span><span class="code-file">docker-compose.yml — bloque tts definitivo</span></div>
+            <div class="code-body">  tts:
+    build: ./services/tts        <span class="comment"># ← build, no image</span>
+    container_name: ottoguide-tts
+    ports:
+      - "10200:10200"
+    volumes:
+      - ./services/tts/voices:/data/voices
+    restart: unless-stopped
+    command: >
+      --voice es_ES-carlfm-x_low  <span class="comment"># ← x_low, no high</span>
+      --update-voices
+      --download-dir /data/voices</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 2.4 — Levantar TTS -->
+      <div class="step">
+        <div class="step-dot dot-active">2.4</div>
+        <div class="step-content">
+          <div class="step-title">Construir y levantar el contenedor TTS</div>
+          <div class="step-desc">Con el flag <code>--build</code> Docker construye la imagen local desde el Dockerfile antes de levantar.</div>
+          <span class="step-who">👤 Teo</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">terminal — desde OttoGuide IA/</span></div>
+            <div class="code-body">docker compose up -d --build tts
+
+<span class="comment"># Verificar que levantó y no está en Restarting</span>
+dps</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 2.4 — Test de voz -->
+      <div class="step">
+        <div class="step-dot dot-active">2.4</div>
+        <div class="step-content">
+          <div class="step-title">Test — escuchar la voz de Otto</div>
+          <div class="step-desc">Enviar texto al servicio TTS y reproducir el audio generado. Erika debe estar presente para evaluar si la voz es adecuada para el personaje.</div>
+          <span class="step-who">👤 Teo + Erika</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">terminal</span></div>
+            <div class="code-body"><span class="comment"># Generar audio de prueba y reproducirlo</span>
+echo "Hola, soy Otto, tu guía del campus Monserrat de UADE. ¡Bienvenidos!" | \
+  docker exec -i ottoguide-tts piper \
+    --model /data/voices/es_ES-carlfm-high.onnx \
+    --output_file /tmp/test.wav
+
+<span class="comment"># Copiar el audio a la notebook y reproducir</span>
+docker cp ottoguide-tts:/tmp/test.wav /tmp/otto-test.wav
+aplay /tmp/otto-test.wav</div>
+          </div>
+          <div class="note note-ok">
+            <span class="note-icon">✓</span>
+            <span><strong>Criterio de éxito Fase 2:</strong> Se genera un archivo WAV con voz masculina en español que suena natural. Erika aprueba la voz o se elige una alternativa (<code>davefx-medium</code>).</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Checklist Fase 2 -->
+      <div style="margin-top:1.5rem;background:var(--bg2);border:1px solid rgba(56,217,169,0.2);border-radius:10px;padding:1.25rem 1.5rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+          <span style="font-family:'DM Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;">Checklist Fase 2</span>
+          <span style="font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--green);background:rgba(56,217,169,0.1);border:1px solid rgba(56,217,169,0.3);padding:0.2rem 0.65rem;border-radius:2rem;">✓ Completada · 01/05/2026</span>
+        </div>
+        <ul class="checklist">
+          <li class="done">Archivos <code>es_ES-carlfm-x_low.onnx</code> y <code>.onnx.json</code> descargados — 27MB</li>
+          <li class="done">Dockerfile creado en <code>services/tts/</code> con fix de <code>pathvalidate</code></li>
+          <li class="done">Servicio <code>tts</code> agregado al <code>docker-compose.yml</code> usando <code>build</code></li>
+          <li class="done">Contenedor <code>ottoguide-tts</code> corriendo en puerto 10200</li>
+          <li class="done">Audio WAV generado y reproducido correctamente — ~5s en CPU</li>
+          <li class="pending">Erika aprueba la voz definitiva ⏸ pendiente reunión</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       FASE 3 — WHISPER + WAKE WORD
+  ═══════════════════════════════════════════ -->
+  <div class="phase" id="fase3">
+    <div class="phase-header">
+      <div class="ph-num">03</div>
+      <div class="ph-info">
+        <div class="ph-title">Whisper STT + OpenWakeWord</div>
+        <div class="ph-sub">Escucha del micrófono, detección de "Hola Otto" y transcripción de voz a texto.</div>
+      </div>
+      <span class="ph-badge badge-done">✓ Completada</span>
+    </div>
+    <div class="phase-body">
+
+      <!-- PASO 3.1 — Acceso al micrófono -->
+      <div class="step">
+        <div class="step-dot dot-active">3.1</div>
+        <div class="step-content">
+          <div class="step-title">Verificar acceso al micrófono desde Docker</div>
+          <div class="step-desc">Los contenedores necesitan acceso al dispositivo de audio del sistema. Verificar que el micrófono está disponible en la notebook.</div>
+          <span class="step-who">👤 Teo</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">terminal</span></div>
+            <div class="code-body"><span class="comment"># Ver dispositivos de audio disponibles</span>
+arecord -l
+
+<span class="comment"># Grabar 3 segundos de prueba</span>
+arecord -d 3 -f cd /tmp/mic-test.wav && aplay /tmp/mic-test.wav</div>
+          </div>
+          <div class="note note-info">
+            <span class="note-icon">ℹ</span>
+            <span>Si el micrófono funciona en la notebook pero no dentro del contenedor, hay que pasarle el dispositivo con <code>--device /dev/snd</code> en el compose.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 3.2 — Contenedor Whisper -->
+      <div class="step">
+        <div class="step-dot dot-active">3.2</div>
+        <div class="step-content">
+          <div class="step-title">Agregar servicio <code>stt</code> — Whisper</div>
+          <div class="step-desc">Agregar el contenedor de Whisper al <code>docker-compose.yml</code>. Usamos <code>faster-whisper</code> que es más eficiente que el original.</div>
+          <span class="step-who">👤 Teo + Lucas</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">yaml</span><span class="code-file">docker-compose.yml — agregar bloque stt</span></div>
+            <div class="code-body">  stt:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    container_name: ottoguide-stt
+    ports:
+      - "9000:9000"
+    environment:
+      - ASR_MODEL=small
+      - ASR_ENGINE=faster_whisper
+      - ASR_LANGUAGE=es
+    restart: unless-stopped</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 3.3 — Contenedor Wake Word -->
+      <div class="step">
+        <div class="step-dot dot-active">3.3</div>
+        <div class="step-content">
+          <div class="step-title">Agregar servicio <code>wake-word</code> — OpenWakeWord</div>
+          <div class="step-desc">Crear el Dockerfile del wake word y agregarlo al compose. Este contenedor escucha el micrófono 24/7 esperando "Hola Otto".</div>
+          <span class="step-who">👤 Teo + Lucas</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">dockerfile</span><span class="code-file">services/wake-word/Dockerfile</span></div>
+            <div class="code-body">FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y \
+    portaudio19-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install openwakeword pyaudio
+
+WORKDIR /app
+COPY listen.py .
+
+CMD ["python", "listen.py"]</div>
+          </div>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">yaml</span><span class="code-file">docker-compose.yml — agregar bloque wake-word</span></div>
+            <div class="code-body">  wake-word:
+    build: ./services/wake-word
+    container_name: ottoguide-wake
+    devices:
+      - /dev/snd:/dev/snd
+    environment:
+      - CORE_URL=http://core:8080
+    restart: unless-stopped
+    depends_on:
+      - stt
+      - llm
+      - tts</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 3.4 — Script listen.py -->
+      <div class="step">
+        <div class="step-dot dot-active">3.4</div>
+        <div class="step-content">
+          <div class="step-title">Crear el script <code>listen.py</code> del wake word</div>
+          <div class="step-desc">Este script escucha el micrófono, detecta "Hola Otto" y notifica al orquestador. Es el primer paso del pipeline de voz.</div>
+          <span class="step-who">👤 Lucas</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">python</span><span class="code-file">services/wake-word/listen.py</span></div>
+            <div class="code-body">import openwakeword
+import pyaudio
+import numpy as np
+import requests
+import os
+
+CORE_URL = os.getenv("CORE_URL", "http://core:8080")
+CHUNK = 1280
+RATE = 16000
+
+model = openwakeword.Model(wakeword_models=["hey_jarvis"])  
+<span class="comment"># Modelo personalizado "hola otto" se agrega en Fase 4</span>
+
+p = pyaudio.PyAudio()
+stream = p.open(format=pyaudio.paInt16, channels=1,
+                rate=RATE, input=True, frames_per_buffer=CHUNK)
+
+print("Escuchando wake word... (Hola Otto)")
+
+while True:
+    audio = np.frombuffer(stream.read(CHUNK), dtype=np.int16)
+    predictions = model.predict(audio)
+    
+    for name, score in predictions.items():
+        if score > 0.5:
+            print(f"Wake word detectado! Score: {score:.2f}")
+            requests.post(f"{CORE_URL}/wake", timeout=2)
+            break</div>
+          </div>
+          <div class="note note-warn">
+            <span class="note-icon">⚠</span>
+            <span>OpenWakeWord no tiene un modelo nativo de "Hola Otto". En esta fase usamos un modelo de prueba. El modelo personalizado se entrena y agrega en la Fase 4.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 3.5 — Test STT -->
+      <div class="step">
+        <div class="step-dot dot-active">3.5</div>
+        <div class="step-content">
+          <div class="step-title">Test Whisper — transcribir un audio de prueba</div>
+          <div class="step-desc">Verificar que Whisper transcribe correctamente en español antes de integrarlo con el wake word.</div>
+          <span class="step-who">👤 Teo + Lucas</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">terminal</span></div>
+            <div class="code-body"><span class="comment"># Grabar 5 segundos y transcribir</span>
+arecord -d 5 -f cd -r 16000 /tmp/pregunta.wav
+
+curl -X POST http://localhost:9000/asr \
+  -F "audio_file=@/tmp/pregunta.wav" \
+  -F "language=es"</div>
+          </div>
+          <div class="note note-ok">
+            <span class="note-icon">✓</span>
+            <span><strong>Criterio de éxito Fase 3:</strong> Whisper transcribe correctamente en español y el wake word detecta una señal de audio. El pipeline de entrada de voz está funcional.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Checklist Fase 3 -->
+      <div style="margin-top:1.5rem;background:var(--bg2);border:1px solid rgba(56,217,169,0.2);border-radius:10px;padding:1.25rem 1.5rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+          <span style="font-family:'DM Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;">Checklist Fase 3</span>
+          <span style="font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--green);background:rgba(56,217,169,0.1);border:1px solid rgba(56,217,169,0.3);padding:0.2rem 0.65rem;border-radius:2rem;">✓ Completada · 03/05/2026</span>
+        </div>
+        <ul class="checklist">
+          <li class="done">Micrófono verificado — tarjeta 1, dispositivo 0 (hw:1,0)</li>
+          <li class="done">Servicio <code>stt</code> corriendo en puerto 9001 (9000 ocupado por Portainer)</li>
+          <li class="done">Whisper transcribe correctamente en español — ~7s en CPU</li>
+          <li class="done">Comando de grabación correcto: <code>arecord -d 5 -D plughw:1,0 -f S16_LE -c 2</code></li>
+          <li class="done">Wake word via Whisper funcionando — detecta "Hola Otto" y activa pipeline</li>
+          <li class="done">Orquestador <code>services/core/main.py</code> creado y probado</li>
+          <li class="done">Pipeline completo end-to-end operativo: wake word → STT → LLM → TTS</li>
+          <li class="pending">Wake word dedicado OpenWakeWord "Hola Otto" ⏸ post-miércoles</li>
+        </ul>
+
+        <!-- Bug box puerto -->
+        <div style="margin-top:1rem;background:rgba(224,92,122,0.06);border:1px solid rgba(224,92,122,0.2);border-radius:10px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:0.75rem;padding:0.65rem 1.1rem;border-bottom:1px solid rgba(224,92,122,0.15);background:rgba(224,92,122,0.04);">
+            <span style="font-size:0.8rem;">🐛</span>
+            <span style="font-family:'DM Mono',monospace;font-size:0.58rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--red);">Bug encontrado · 01/05/2026</span>
+          </div>
+          <div style="padding:1rem 1.25rem;display:flex;flex-direction:column;gap:0.5rem;">
+            <div style="font-size:0.84rem;font-weight:600;color:#fff;">Puerto 9000 ocupado por Portainer</div>
+            <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;"><strong style="color:var(--text);">Solución:</strong> Cambiar el puerto externo del servicio <code>stt</code> a <code>9001:9000</code> en el compose. En el robot usar 9000 directamente.</div>
+          </div>
+        </div>
+
+        <!-- Bug box idioma Whisper -->
+        <div style="margin-top:0.75rem;background:rgba(224,92,122,0.06);border:1px solid rgba(224,92,122,0.2);border-radius:10px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:0.75rem;padding:0.65rem 1.1rem;border-bottom:1px solid rgba(224,92,122,0.15);background:rgba(224,92,122,0.04);">
+            <span style="font-size:0.8rem;">🐛</span>
+            <span style="font-family:'DM Mono',monospace;font-size:0.58rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--red);">Bug encontrado · 03/05/2026</span>
+          </div>
+          <div style="padding:1rem 1.25rem;display:flex;flex-direction:column;gap:0.5rem;">
+            <div style="font-size:0.84rem;font-weight:600;color:#fff;">Whisper transcribe en idiomas incorrectos (japonés, griego, polaco)</div>
+            <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;"><strong style="color:var(--text);">Causa:</strong> Fragmentos de audio cortos (3 segundos) sin suficiente contexto — Whisper no detecta bien el idioma.</div>
+            <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;"><strong style="color:var(--text);">Solución:</strong> Pasar el idioma como parámetro en la URL: <code>?language=es&task=transcribe</code>. El parámetro en el body era ignorado por el contenedor.</div>
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:0.75rem 1rem;font-family:'DM Mono',monospace;font-size:0.72rem;color:#a8c4ff;margin-top:0.25rem;">f"{STT_URL}?language=es&task=transcribe"</div>
+          </div>
+        </div>
+
+        <!-- Nota wake word -->
+        <div style="margin-top:0.75rem;background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.2);border-radius:8px;padding:0.9rem 1.1rem;font-size:0.82rem;color:#c4b5fd;line-height:1.6;">
+          <strong>📌 Decisión arquitectural — Wake word via Whisper (MVP):</strong> OpenWakeWord no tiene modelos en español y entrenar uno desde cero requiere datos sintéticos masivos. Para el MVP se usa Whisper como detector de wake word grabando ciclos de 3 segundos. El modelo dedicado "Hola Otto" se entrena post-miércoles. Ver documento <code>OttoGuide_WakeWord_HolaOtto_V1.html</code> para el plan completo.
+        </div>
+
+        <!-- Nota micrófono -->
+        <div style="margin-top:0.75rem;background:rgba(245,166,35,0.06);border:1px solid rgba(245,166,35,0.2);border-radius:8px;padding:0.9rem 1.1rem;font-size:0.82rem;color:#f5c842;line-height:1.6;">
+          <strong>⚠ Nota sobre el micrófono de la notebook:</strong> La transcripción imprecisa ("oshioto", "ото") es por la calidad del micrófono interno. En el robot Jetson con array de 4 micrófonos la precisión va a ser significativamente mejor.
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       FASE 4 — ORQUESTADOR + INTEGRACIÓN
+  ═══════════════════════════════════════════ -->
+  <div class="phase" id="fase4">
+    <div class="phase-header">
+      <div class="ph-num">04</div>
+      <div class="ph-info">
+        <div class="ph-title">Orquestador Python + Integración completa</div>
+        <div class="ph-sub">El <code>main.py</code> conecta todos los servicios. Pipeline end-to-end funcionando.</div>
+      </div>
+      <span class="ph-badge badge-done">✓ Completada</span>
+    </div>
+    <div class="phase-body">
+
+      <!-- PASO 4.1 — main.py completo -->
+      <div class="step">
+        <div class="step-dot dot-active">4.1</div>
+        <div class="step-content">
+          <div class="step-title">Orquestador <code>services/core/main.py</code> — versión final</div>
+          <div class="step-desc">Pipeline completo end-to-end funcionando. Incluye detección de wake word via Whisper, loop de conversación con frases aleatorias, corrección fonética de UADE con algoritmo de Levenshtein, y TTS via archivo para preservar acentos.</div>
+          <span class="step-who">👤 Teo + Lucas</span>
+
+          <div style="background:var(--bg2);border:1px solid rgba(56,217,169,0.2);border-radius:10px;padding:1.25rem 1.5rem;margin-top:0.75rem;">
+            <div style="font-family:'DM Mono',monospace;font-size:0.6rem;letter-spacing:0.12em;color:var(--green);margin-bottom:0.75rem;text-transform:uppercase;">Características del orquestador</div>
+            <ul class="checklist">
+              <li class="done">Wake word "Hola Otto" detectado via Whisper (ciclos de 3 seg)</li>
+              <li class="done">Filtro de amplitud — descarta silencio antes de llamar a Whisper</li>
+              <li class="done">Filtro de falsos positivos — descarta alucinaciones de Whisper</li>
+              <li class="done">Algoritmo Levenshtein — corrige variaciones fonéticas de UADE</li>
+              <li class="done">Loop de conversación — múltiples preguntas sin repetir wake word</li>
+              <li class="done">Frases aleatorias de bienvenida y seguimiento</li>
+              <li class="done">Detección de despedidas — cierra conversación graciosamente</li>
+              <li class="done">TTS via archivo <code>/tmp/otto_texto.txt</code> — preserva acentos</li>
+              <li class="done"><code>esperar_fin_audio()</code> via PipeWire — sincronización real mic/parlante</li>
+              <li class="done">Timeout dinámico según longitud de pregunta</li>
+            </ul>
+          </div>
+
+          <div class="code-block" style="margin-top:0.75rem;">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">Ejecutar el orquestador</span></div>
+            <div class="code-body">python3 services/core/main.py</div>
+          </div>
+
+          <!-- Bugs documentados -->
+          <div style="margin-top:0.75rem;background:rgba(224,92,122,0.06);border:1px solid rgba(224,92,122,0.2);border-radius:10px;overflow:hidden;">
+            <div style="display:flex;align-items:center;gap:0.75rem;padding:0.65rem 1.1rem;border-bottom:1px solid rgba(224,92,122,0.15);background:rgba(224,92,122,0.04);">
+              <span style="font-size:0.8rem;">🐛</span>
+              <span style="font-family:'DM Mono',monospace;font-size:0.58rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--red);">Bugs resueltos en desarrollo · 03-04/05/2026</span>
+            </div>
+            <div style="padding:1rem 1.25rem;display:flex;flex-direction:column;gap:0.75rem;">
+
+              <div>
+                <div style="font-size:0.84rem;font-weight:600;color:#fff;">LLM devuelve respuesta vacía — <code>done_reason: length</code></div>
+                <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;margin-top:0.2rem;"><strong style="color:var(--text);">Causa:</strong> <code>num_predict: 150</code> era menor que los tokens del system prompt (~250). El modelo agotaba el presupuesto leyendo el contexto y no generaba respuesta. <strong style="color:var(--text);">Solución:</strong> Eliminar <code>num_predict</code> del options — el Modelfile controla la longitud via instrucciones de respuesta corta.</div>
+              </div>
+
+              <div>
+                <div style="font-size:0.84rem;font-weight:600;color:#fff;">Acentos corruptos en TTS — voz silenciosa o cortada</div>
+                <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;margin-top:0.2rem;"><strong style="color:var(--text);">Causa:</strong> Pasar texto con acentos via <code>echo "texto" | piper</code> en bash dentro de Docker corrompe los caracteres UTF-8. <strong style="color:var(--text);">Solución:</strong> Escribir el texto a <code>/tmp/otto_texto.txt</code> con <code>encoding="utf-8"</code> y usar <code>cat archivo | piper</code>.</div>
+              </div>
+
+              <div>
+                <div style="font-size:0.84rem;font-weight:600;color:#fff;">Micrófono capta voz de Otto — feedback loop</div>
+                <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;margin-top:0.2rem;"><strong style="color:var(--text);">Causa:</strong> <code>arecord</code> arrancaba antes que <code>paplay</code> terminara. <strong style="color:var(--text);">Solución:</strong> Función <code>esperar_fin_audio()</code> que consulta <code>pactl list sink-inputs</code> hasta que el parlante queda libre.</div>
+              </div>
+
+              <div>
+                <div style="font-size:0.84rem;font-weight:600;color:#fff;">Whisper transcribe en idiomas incorrectos (japonés, griego)</div>
+                <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;margin-top:0.2rem;"><strong style="color:var(--text);">Causa:</strong> Parámetro <code>language=es</code> ignorado cuando se manda en el body. <strong style="color:var(--text);">Solución:</strong> Pasarlo en la URL: <code>?language=es&task=transcribe</code>. También se migró a modelo <code>medium</code> para mayor precisión.</div>
+              </div>
+
+              <div>
+                <div style="font-size:0.84rem;font-weight:600;color:#fff;">UADE transcripto como "guadi", "huawei", "wai", etc.</div>
+                <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;margin-top:0.2rem;"><strong style="color:var(--text);">Solución:</strong> Algoritmo de distancia de Levenshtein en <code>similar_a_uade()</code> — detecta automáticamente cualquier variación con hasta 2 errores fonéticos. Fallback manual disponible en <code>services/core/correcciones_uade.json</code>.</div>
+              </div>
+
+              <div>
+                <div style="font-size:0.84rem;font-weight:600;color:#fff;">Voz con acento español — carlfm descartada</div>
+                <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;margin-top:0.2rem;"><strong style="color:var(--text);">Solución:</strong> Migración a <code>es_MX-gevy-high.onnx</code> — voz masculina con acento latinoamericano, descargada del repositorio de la comunidad en Hugging Face (HirCoir).</div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Checklist Fase 4 -->
+      <div style="margin-top:1.5rem;background:var(--bg2);border:1px solid rgba(56,217,169,0.2);border-radius:10px;padding:1.25rem 1.5rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+          <span style="font-family:'DM Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;">Checklist Fase 4</span>
+          <span style="font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--green);background:rgba(56,217,169,0.1);border:1px solid rgba(56,217,169,0.3);padding:0.2rem 0.65rem;border-radius:2rem;">✓ Completada · 04/05/2026</span>
+        </div>
+        <ul class="checklist">
+          <li class="done"><code>services/core/main.py</code> orquestador completo y funcionando</li>
+          <li class="done">Pipeline end-to-end: wake word → STT → LLM → TTS</li>
+          <li class="done">Voz masculina latinoamericana <code>es_MX-gevy-high</code></li>
+          <li class="done">Modelo Whisper <code>medium</code> — mayor precisión en español</li>
+          <li class="done">Algoritmo Levenshtein para variaciones de UADE</li>
+          <li class="done">Loop de conversación con frases aleatorias</li>
+          <li class="done">Detección de despedidas y cierre gracioso</li>
+          <li class="done">TTS via archivo — acentos preservados correctamente</li>
+          <li class="done">Sincronización mic/parlante via PipeWire</li>
+          <li class="pending">ChromaDB — RAG con documentos institucionales UADE ⏸ pendiente contenido</li>
+          <li class="pending">Contenedor Docker para el core (actualmente corre en host)</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">python</span><span class="code-file">services/core/main.py</span></div>
+            <div class="code-body">import subprocess, requests, time, re, os
+
+<span class="comment"># Puertos — cambiar según ambiente</span>
+STT_PORT = 9001   <span class="comment"># notebook desarrollo</span>
+<span class="comment"># STT_PORT = 9000  # robot Jetson</span>
+
+LLM_PORT = 11434
+TTS_PORT = 10200
+
+STT_URL = f"http://localhost:{STT_PORT}/asr"
+LLM_URL = f"http://localhost:{LLM_PORT}/api/generate"
+
+<span class="comment"># Dispositivo de audio</span>
+MIC_DEVICE = "plughw:1,0"   <span class="comment"># notebook Linux Mint</span>
+MIC_CHANNELS = "2"
+<span class="comment"># MIC_DEVICE = "plughw:0,0"  # robot Jetson</span>
+<span class="comment"># MIC_CHANNELS = "1"         # robot Jetson</span>
+
+WAKE_WORDS = [
+    "otto", "oto", "auto",
+    "hola otto", "hola oto",
+    "hola otto", "hola oto",
+    "hola otto", "hola oto",
+]
+
+def grabar(duracion, path):
+    subprocess.run(["arecord", "-d", str(duracion), "-D", MIC_DEVICE,
+        "-f", "S16_LE", "-c", MIC_CHANNELS, "-r", "16000", path],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def transcribir(path):
+    try:
+        with open(path, "rb") as f:
+            r = requests.post(
+                f"{STT_URL}?language=es&task=transcribe",
+                files={"audio_file": f}, timeout=30)
+        return re.sub(r'[^\w\s]', '', r.text.lower().strip())
+    except Exception as e:
+        print(f"[STT] Error: {e}")
+        return ""
+
+def es_wake_word(texto):
+    return any(w in texto for w in WAKE_WORDS)
+
+def preguntar_llm(pregunta):
+    try:
+        r = requests.post(LLM_URL,
+            json={"model": "otto", "prompt": pregunta, "stream": False},
+            timeout=60)
+        return r.json().get("response", "")
+    except Exception as e:
+        print(f"[LLM] Error: {e}")
+        return "Perdona, no pude procesar eso."
+
+def hablar(texto):
+    try:
+        texto_esc = texto.replace('"', "'").replace('`', "'")
+        subprocess.run(["docker", "exec", "ottoguide-tts", "sh", "-c",
+            f'echo "{texto_esc}" | /usr/src/.venv/bin/piper '
+            f'--model /data/voices/es_ES-carlfm-x_low.onnx '
+            f'--output_file /tmp/respuesta.wav'])
+        subprocess.run(["docker", "cp",
+            "ottoguide-tts:/tmp/respuesta.wav", "/tmp/respuesta.wav"])
+        subprocess.run(["aplay", "/tmp/respuesta.wav"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"[TTS] Error: {e}")
+
+print("OttoGuide iniciado. Escuchando wake word 'Hola Otto'...")
+print(f"STT: {STT_URL} | LLM: {LLM_URL}")
+
+while True:
+    grabar(duracion=3, path="/tmp/wake_check.wav")
+    texto_wake = transcribir("/tmp/wake_check.wav")
+    if not texto_wake:
+        continue
+    print(f"[WAKE] Escuche: '{texto_wake}'")
+    if not es_wake_word(texto_wake):
+        continue
+    print("[WAKE] Hola Otto detectado!")
+    hablar("Te escucho adelante")
+    grabar(duracion=5, path="/tmp/pregunta.wav")
+    pregunta = transcribir("/tmp/pregunta.wav")
+    if not pregunta:
+        hablar("No te escuche bien podes repetir")
+        continue
+    print(f"[STT] Pregunta: '{pregunta}'")
+    respuesta = preguntar_llm(pregunta)
+    print(f"[LLM] Respuesta: '{respuesta}'")
+    hablar(respuesta)
+    print("[LOOP] Volviendo a escuchar...")
+    time.sleep(0.5)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 4.2 — Test pipeline completo -->
+      <div class="step">
+        <div class="step-dot dot-active">4.2</div>
+        <div class="step-content">
+          <div class="step-title">Test pipeline completo end-to-end</div>
+          <div class="step-desc">Ejecutar el orquestador y verificar que el flujo completo funciona: wake word → pregunta → LLM → voz.</div>
+          <span class="step-who">👤 Teo</span>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">bash</span><span class="code-file">terminal — desde OttoGuide IA/</span></div>
+            <div class="code-body">python3 services/core/main.py</div>
+          </div>
+          <div class="note note-ok">
+            <span class="note-icon">✓</span>
+            <span><strong>Resultado confirmado · 03/05/2026:</strong> El pipeline completo funciona. Otto detecta el wake word, escucha la pregunta, consulta al LLM y responde con voz en español. La voz dice "Te escucho adelante" al detectar el wake word correctamente.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASO 4.3 — Pendiente RAG -->
+      <div class="step">
+        <div class="step-dot dot-pending">4.3</div>
+        <div class="step-content">
+          <div class="step-title">Integrar ChromaDB — RAG con documentos de UADE</div>
+          <div class="step-desc">Agregar la base de conocimiento institucional para que Otto pueda responder preguntas específicas sobre UADE (carreras, aranceles, instalaciones, etc.) con datos reales.</div>
+          <span class="step-who">👤 Teo + Lucas</span>
+          <div class="note note-warn">
+            <span class="note-icon">⚠</span>
+            <span>Pendiente de contenido. Requiere que el equipo defina y cargue los documentos institucionales de UADE en <code>data/uade-docs/</code>. Ver anotación del Paso 1.5.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Checklist Fase 4 -->
+      <div style="margin-top:1.5rem;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:1.25rem 1.5rem;">
+        <div style="font-family:'DM Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;color:var(--muted);margin-bottom:0.75rem;text-transform:uppercase;">Checklist Fase 4</div>
+        <ul class="checklist">
+          <li class="done"><code>services/core/main.py</code> creado con orquestador completo</li>
+          <li class="done">Pipeline end-to-end probado y funcionando · 03/05/2026</li>
+          <li class="done">Wake word detecta "Hola Otto" (via Whisper)</li>
+          <li class="done">LLM responde preguntas sobre UADE con personalidad de Otto</li>
+          <li class="done">TTS convierte respuesta a voz en español</li>
+          <li class="pending">ChromaDB — RAG con documentos institucionales UADE</li>
+          <li class="pending">Contenedor Docker para el core (actualmente corre en host)</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       FASE 5 — DEPLOY AL ROBOT
+  ═══════════════════════════════════════════ -->
+  <div class="phase" id="fase5">
+    <div class="phase-header">
+      <div class="ph-num">05</div>
+      <div class="ph-info">
+        <div class="ph-title">Deploy al Robot Jetson</div>
+        <div class="ph-sub">Script automatizado para instalar y configurar todo en el Unitree G1-EDU con aceleración GPU.</div>
+      </div>
+      <span class="ph-badge badge-active">En curso</span>
+    </div>
+    <div class="phase-body" style="display:flex;align-items:center;justify-content:center;padding:3rem;color:var(--muted);font-size:0.9rem;font-family:'DM Mono',monospace;">
+      — Esta fase se documenta al completar la Fase 4 completamente —
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <span>OttoGuide · Paso a Paso · V1</span>
+  <span>Notebook: Linux Mint · 32GB RAM · Docker · Robot: Jetson Orin NX 16GB</span>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OttoGuide — Instrucciones de Levantamiento</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:      #0a0c10;
+    --bg2:     #111318;
+    --bg3:     #181c24;
+    --border:  rgba(255,255,255,0.07);
+    --text:    #e8eaf0;
+    --muted:   #8890a4;
+    --accent:  #5b8af5;
+    --green:   #38d9a9;
+    --orange:  #f5a623;
+    --red:     #e05c7a;
+    --purple:  #a78bfa;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ─── SIDEBAR ─── */
+  .sidebar {
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    padding: 2rem 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sidebar-logo {
+    padding: 0 1.5rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.5rem;
+  }
+  .sidebar-logo .name { font-family: 'DM Mono', monospace; font-size: 0.85rem; color: var(--text); }
+  .sidebar-logo .name span { color: var(--green); }
+  .sidebar-logo .tag { font-family: 'DM Mono', monospace; font-size: 0.6rem; color: var(--muted); letter-spacing: 0.12em; margin-top: 0.2rem; }
+
+  .sidebar-section {
+    padding: 0 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .sidebar-section-title {
+    font-family: 'DM Mono', monospace; font-size: 0.55rem;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 0.6rem;
+  }
+  .sidebar-link {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.45rem 0.75rem; border-radius: 6px;
+    text-decoration: none; font-size: 0.82rem; color: var(--muted);
+    transition: all 0.15s; margin-bottom: 0.15rem;
+  }
+  .sidebar-link:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+  .sidebar-link.active { background: rgba(91,138,245,0.1); color: var(--accent); }
+  .sidebar-link .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot-green  { background: var(--green); }
+  .dot-accent { background: var(--accent); }
+  .dot-orange { background: var(--orange); }
+  .dot-purple { background: var(--purple); }
+  .dot-red    { background: var(--red); }
+  .dot-muted  { background: var(--muted); }
+
+  .sidebar-env {
+    margin-top: auto;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+  .env-badge {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-family: 'DM Mono', monospace; font-size: 0.62rem;
+    padding: 0.3rem 0.75rem; border-radius: 2rem;
+    letter-spacing: 0.06em;
+  }
+  .env-notebook { background: rgba(91,138,245,0.1); color: var(--accent); border: 1px solid rgba(91,138,245,0.3); }
+  .env-robot    { background: rgba(167,139,250,0.1); color: var(--purple); border: 1px solid rgba(167,139,250,0.3); }
+
+  /* ─── MAIN ─── */
+  .main {
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+
+  .main-header {
+    padding: 3rem 3.5rem 2.5rem;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, rgba(56,217,169,0.04) 0%, transparent 60%);
+  }
+  .main-header .label { font-family: 'DM Mono', monospace; font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--green); margin-bottom: 0.5rem; }
+  .main-header h1 { font-family: 'DM Serif Display', serif; font-size: clamp(1.8rem, 3vw, 2.8rem); color: #fff; margin-bottom: 0.5rem; }
+  .main-header p { color: var(--muted); font-size: 0.9rem; max-width: 500px; }
+
+  .content { padding: 0 3.5rem 4rem; }
+
+  /* ─── SECTION ─── */
+  .doc-section {
+    margin-top: 3rem;
+    scroll-margin-top: 2rem;
+  }
+  .doc-section-header {
+    display: flex; align-items: center; gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .ds-icon { font-size: 1.1rem; }
+  .ds-title { font-size: 1rem; font-weight: 600; color: #fff; }
+  .ds-env {
+    margin-left: auto;
+    font-family: 'DM Mono', monospace; font-size: 0.58rem;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 0.2rem 0.65rem; border-radius: 2rem;
+  }
+
+  /* ─── REQ TABLE ─── */
+  .req-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 1.25rem; }
+  .req-table th { text-align: left; font-family: 'DM Mono', monospace; font-size: 0.58rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border); }
+  .req-table td { padding: 0.75rem 0.9rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .req-table tr:last-child td { border-bottom: none; }
+  .req-table .item { font-weight: 500; color: var(--text); }
+  .req-table .value { font-family: 'DM Mono', monospace; font-size: 0.78rem; color: var(--accent); }
+  .req-table .ok { color: var(--green); font-size: 0.8rem; }
+
+  /* ─── CODE BLOCK ─── */
+  .code-block {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; margin-bottom: 1rem;
+  }
+  .code-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.5rem 1rem; border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,0.02);
+  }
+  .code-lang { font-family: 'DM Mono', monospace; font-size: 0.58rem; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; }
+  .code-file { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--orange); }
+  .code-body {
+    padding: 1.1rem 1.25rem;
+    font-family: 'DM Mono', monospace; font-size: 0.74rem;
+    color: #c8d8ff; line-height: 1.8;
+    white-space: pre; overflow-x: auto;
+  }
+  .comment { color: var(--muted) !important; }
+  .cmd     { color: var(--green) !important; }
+  .str     { color: var(--orange) !important; }
+  .kw      { color: var(--purple) !important; }
+  .hl      { color: #fff !important; font-weight: 600; }
+
+  /* ─── STEP ─── */
+  .step-num {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-family: 'DM Mono', monospace; font-size: 0.65rem;
+    color: var(--green); margin-bottom: 0.3rem; letter-spacing: 0.05em;
+  }
+  .step-num::before { content: '→'; }
+  .step-title-sm { font-size: 0.88rem; font-weight: 600; color: #fff; margin-bottom: 0.35rem; }
+  .step-desc-sm { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.75rem; line-height: 1.55; }
+
+  .step-group { margin-bottom: 2rem; }
+
+  /* ─── NOTE ─── */
+  .note { display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.85rem 1.1rem; border-radius: 8px; font-size: 0.82rem; line-height: 1.55; margin-bottom: 0.75rem; }
+  .note-info  { background: rgba(91,138,245,0.08); border: 1px solid rgba(91,138,245,0.2); color: #a8c0ff; }
+  .note-warn  { background: rgba(245,166,35,0.08); border: 1px solid rgba(245,166,35,0.2); color: #f5c842; }
+  .note-ok    { background: rgba(56,217,169,0.08); border: 1px solid rgba(56,217,169,0.2); color: var(--green); }
+  .note-icon  { font-size: 0.9rem; flex-shrink: 0; margin-top: 1px; }
+
+  code { font-family: 'DM Mono', monospace; font-size: 0.82em; background: rgba(91,138,245,0.12); color: var(--accent); padding: 0.1em 0.45em; border-radius: 4px; }
+
+  /* ─── STATUS TABLE ─── */
+  .status-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin-bottom: 1rem; }
+  .status-table th { text-align: left; font-family: 'DM Mono', monospace; font-size: 0.58rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); padding: 0.5rem 0.85rem; border-bottom: 1px solid var(--border); }
+  .status-table td { padding: 0.65rem 0.85rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .status-table tr:last-child td { border-bottom: none; }
+  .s-badge { font-family: 'DM Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; padding: 0.2rem 0.6rem; border-radius: 2rem; }
+  .s-active  { background: rgba(56,217,169,0.1); color: var(--green); border: 1px solid rgba(56,217,169,0.3); }
+  .s-pending { background: rgba(255,255,255,0.04); color: var(--muted); border: 1px solid var(--border); }
+
+  /* ─── FOLDER TREE ─── */
+  .folder-tree { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 1.1rem 1.4rem; font-family: 'DM Mono', monospace; font-size: 0.74rem; line-height: 2; color: var(--muted); margin-bottom: 1rem; }
+  .folder-tree .dir  { color: var(--accent); }
+  .folder-tree .file { color: var(--text); }
+  .folder-tree .note { color: var(--muted); }
+
+  .divider { height: 1px; background: var(--border); margin: 0; }
+
+  @media (max-width: 768px) {
+    body { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+    .main-header, .content { padding-left: 1.5rem; padding-right: 1.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="name">otto<span>guide</span></div>
+    <div class="tag">instrucciones · V1</div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Inicio rápido</div>
+    <a href="#requisitos" class="sidebar-link"><span class="dot dot-muted"></span>Requisitos</a>
+    <a href="#estructura" class="sidebar-link"><span class="dot dot-muted"></span>Estructura del proyecto</a>
+    <a href="#levantar-notebook" class="sidebar-link active"><span class="dot dot-accent"></span>Levantar en notebook</a>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Servicios</div>
+    <a href="#svc-llm" class="sidebar-link"><span class="dot dot-purple"></span>LLM — Ollama + Gemma4</a>
+    <a href="#svc-tts" class="sidebar-link"><span class="dot dot-orange"></span>TTS — Piper</a>
+    <a href="#svc-stt" class="sidebar-link"><span class="dot dot-accent"></span>STT — Whisper</a>
+    <a href="#svc-wake" class="sidebar-link"><span class="dot dot-green"></span>Wake Word</a>
+    <a href="#svc-core" class="sidebar-link"><span class="dot dot-red"></span>Core — Orquestador</a>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Comandos</div>
+    <a href="#cmd-basicos" class="sidebar-link"><span class="dot dot-muted"></span>Comandos básicos</a>
+    <a href="#cmd-modelo" class="sidebar-link"><span class="dot dot-muted"></span>Gestión del modelo</a>
+    <a href="#cmd-logs" class="sidebar-link"><span class="dot dot-muted"></span>Logs y debugging</a>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Robot</div>
+    <a href="#robot-deploy" class="sidebar-link"><span class="dot dot-purple"></span>Deploy al Jetson</a>
+    <a href="#robot-systemd" class="sidebar-link"><span class="dot dot-purple"></span>Auto-start systemd</a>
+  </div>
+
+  <div class="sidebar-env">
+    <div style="font-family:'DM Mono',monospace;font-size:0.55rem;letter-spacing:0.15em;color:var(--muted);margin-bottom:0.6rem;text-transform:uppercase;">Ambientes</div>
+    <div class="env-badge env-notebook" style="display:block;margin-bottom:0.4rem;">💻 Notebook · Linux Mint · CPU</div>
+    <div class="env-badge env-robot" style="display:block;">🤖 Robot · Jetson Orin NX · GPU</div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <div class="main-header">
+    <div class="label">Guía de operación</div>
+    <h1>Cómo levantar OttoGuide</h1>
+    <p>Instrucciones completas para correr el stack en la notebook de desarrollo y para desplegarlo en el robot. Se actualiza con cada fase completada.</p>
+  </div>
+
+  <div class="content">
+
+    <!-- ─── REQUISITOS ─── -->
+    <div class="doc-section" id="requisitos">
+      <div class="doc-section-header">
+        <span class="ds-icon">📋</span>
+        <span class="ds-title">Requisitos del sistema</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+        <div style="background:var(--bg2);border:1px solid rgba(91,138,245,0.2);border-radius:12px;padding:1.25rem;">
+          <div style="font-family:'DM Mono',monospace;font-size:0.6rem;letter-spacing:0.15em;color:var(--accent);margin-bottom:0.75rem;text-transform:uppercase;">💻 Notebook (desarrollo)</div>
+          <table class="req-table">
+            <tr><td class="item">OS</td><td class="value">Linux Mint Cinnamon</td></tr>
+            <tr><td class="item">RAM</td><td class="value">32GB ✓</td></tr>
+            <tr><td class="item">Docker</td><td class="value">CLI instalado ✓</td></tr>
+            <tr><td class="item">GPU</td><td class="value">No requerida (CPU mode)</td></tr>
+            <tr><td class="item">Espacio</td><td class="value">~15GB libres</td></tr>
+          </table>
+        </div>
+        <div style="background:var(--bg2);border:1px solid rgba(167,139,250,0.2);border-radius:12px;padding:1.25rem;">
+          <div style="font-family:'DM Mono',monospace;font-size:0.6rem;letter-spacing:0.15em;color:var(--purple);margin-bottom:0.75rem;text-transform:uppercase;">🤖 Robot (producción)</div>
+          <table class="req-table">
+            <tr><td class="item">Hardware</td><td class="value">Unitree G1-EDU</td></tr>
+            <tr><td class="item">Módulo</td><td class="value">Jetson Orin NX</td></tr>
+            <tr><td class="item">RAM</td><td class="value">16GB ✓</td></tr>
+            <tr><td class="item">GPU</td><td class="value">1024-core Ampere ✓</td></tr>
+            <tr><td class="item">IP local</td><td class="value">192.168.123.164</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="note note-warn">
+        <span class="note-icon">⚠</span>
+        <span>Docker Compose Plugin V2 requerido (<code>docker compose</code> con espacio, no <code>docker-compose</code> con guion). Verificar con <code>docker compose version</code>.</span>
+      </div>
+    </div>
+
+    <!-- ─── ESTRUCTURA ─── -->
+    <div class="doc-section" id="estructura">
+      <div class="doc-section-header">
+        <span class="ds-icon">📁</span>
+        <span class="ds-title">Estructura del proyecto</span>
+      </div>
+
+      <div class="folder-tree">
+<span class="dir">OttoGuide IA/</span>
+├── <span class="file">docker-compose.yml</span>          <span class="note">← 3 contenedores: llm, tts, stt</span>
+├── <span class="dir">services/</span>
+│   ├── <span class="dir">llm/</span>
+│   │   └── <span class="file">Modelfile</span>           <span class="note">← personalidad de Otto</span>
+│   ├── <span class="dir">tts/</span>
+│   │   ├── <span class="file">Dockerfile</span>          <span class="note">← fix pathvalidate</span>
+│   │   └── <span class="dir">voices/</span>
+│   │       ├── <span class="file">es_MX-gevy-high.onnx</span>      <span class="note">← voz activa</span>
+│   │       ├── <span class="file">es_MX-gevy-high.onnx.json</span>
+│   │       └── <span class="file">es_ES-carlfm-x_low.onnx</span>   <span class="note">← voces de respaldo</span>
+│   ├── <span class="dir">stt/</span>                        <span class="note">← sin Dockerfile, usa imagen oficial</span>
+│   └── <span class="dir">core/</span>
+│       ├── <span class="file">main.py</span>              <span class="note">← orquestador Python (corre en host)</span>
+│       └── <span class="file">correcciones_uade.json</span>  <span class="note">← fallback fonético UADE</span>
+├── <span class="dir">data/</span>
+│   └── <span class="dir">uade-docs/</span>              <span class="note">← PDFs y textos para RAG (futuro)</span>
+└── <span class="dir">deploy/</span>
+    ├── <span class="file">deploy-robot.sh</span>         <span class="note">← script de deploy al Jetson (Fase 5)</span>
+    └── <span class="file">ottoguide.service</span>       <span class="note">← unidad systemd auto-start</span>
+      </div>
+    </div>
+
+    <!-- ─── LEVANTAR EN NOTEBOOK ─── -->
+    <div class="doc-section" id="levantar-notebook">
+      <div class="doc-section-header">
+        <span class="ds-icon">🚀</span>
+        <span class="ds-title">Levantar en notebook — inicio rápido</span>
+        <span class="ds-env env-badge env-notebook">💻 Notebook</span>
+      </div>
+
+      <div class="note note-info">
+        <span class="note-icon">ℹ</span>
+        <span>Todos los comandos de Docker se ejecutan desde dentro de <code>OttoGuide IA/</code>. El orquestador <code>main.py</code> también se ejecuta desde ahí.</span>
+      </div>
+
+      <div class="step-group">
+        <div class="step-num">Paso 1 — Levantar los contenedores</div>
+        <div class="step-title-sm">3 contenedores: LLM, TTS y STT</div>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">bash</span></div>
+          <div class="code-body"><span class="comment"># Desde OttoGuide IA/</span>
+<span class="cmd">docker compose up -d</span>
+
+<span class="comment"># Verificar que los 3 están corriendo</span>
+<span class="cmd">dps</span></div>
+        </div>
+        <div class="note note-info">
+          <span class="note-icon">ℹ</span>
+          <span>El alias <code>dps</code> está configurado en <code>~/.zshrc</code>: <code>alias dps='docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"'</code></span>
+        </div>
+      </div>
+
+      <div class="step-group">
+        <div class="step-num">Paso 2 — Verificar el docker-compose.yml actual</div>
+        <div class="step-title-sm">Estado actual del compose — 3 servicios</div>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">yaml</span><span class="code-file">docker-compose.yml</span></div>
+          <div class="code-body">services:
+
+  llm:
+    image: ollama/ollama:latest
+    container_name: ottoguide-llm
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+
+  tts:
+    build: ./services/tts
+    container_name: ottoguide-tts
+    ports:
+      - "10200:10200"
+    volumes:
+      - ./services/tts/voices:/data/voices
+    restart: unless-stopped
+    command: >
+      --voice es_MX-gevy-high
+      --update-voices
+      --download-dir /data/voices
+
+  stt:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    container_name: ottoguide-stt
+    ports:
+      - "9001:9000"
+    environment:
+      - ASR_MODEL=medium
+      - ASR_ENGINE=faster_whisper
+      - ASR_LANGUAGE=es
+    restart: unless-stopped
+
+volumes:
+  ollama_data:</div>
+        </div>
+        <div class="note note-warn">
+          <span class="note-icon">⚠</span>
+          <span>Puerto <code>9001</code> en notebook porque Portainer ocupa el 9000. En el robot usar <code>9000:9000</code> directamente.</span>
+        </div>
+      </div>
+
+      <div class="step-group">
+        <div class="step-num">Paso 3 — Ejecutar el orquestador</div>
+        <div class="step-title-sm">El core corre directo en el host, no en Docker</div>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">bash</span><span class="code-file">desde OttoGuide IA/</span></div>
+          <div class="code-body">python3 services/core/main.py</div>
+        </div>
+        <div class="note note-ok">
+          <span class="note-icon">✓</span>
+          <span>Cuando veas <code>[HIBERNACION] Esperando 'Hola Otto'...</code> el sistema está listo. Decí <strong>"Hola Otto"</strong> para iniciar una conversación.</span>
+        </div>
+      </div>
+
+      <div class="step-group">
+        <div class="step-num">Bajar el stack</div>
+        <div class="step-title-sm">Detener contenedores</div>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">bash</span></div>
+          <div class="code-body"><span class="comment"># Bajar todo (conserva modelos descargados)</span>
+<span class="cmd">docker compose down</span>
+
+<span class="comment"># Bajar y eliminar volúmenes — borra modelos, usar con cuidado</span>
+<span class="cmd">docker compose down -v</span></div>
+        </div>
+      </div>
+
+    <!-- ─── SVC LLM ─── -->
+    <div class="doc-section" id="svc-llm">
+      <div class="doc-section-header">
+        <span class="ds-icon">🧠</span>
+        <span class="ds-title">Servicio LLM — Ollama + Gemma4</span>
+        <span class="ds-env env-badge" style="background:rgba(167,139,250,0.1);color:var(--purple);border:1px solid rgba(167,139,250,0.3);">LLM</span>
+      </div>
+
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:1.25rem 1.5rem;margin-bottom:1rem;">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;font-size:0.82rem;">
+          <div><div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:var(--muted);margin-bottom:0.2rem;">IMAGEN</div><div style="color:var(--accent);font-family:'DM Mono',monospace;font-size:0.78rem;">ollama/ollama:latest</div></div>
+          <div><div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:var(--muted);margin-bottom:0.2rem;">PUERTO</div><div style="color:var(--text);font-family:'DM Mono',monospace;font-size:0.78rem;">11434</div></div>
+          <div><div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:var(--muted);margin-bottom:0.2rem;">MODELO</div><div style="color:var(--text);font-family:'DM Mono',monospace;font-size:0.78rem;">gemma4:e4b → otto</div></div>
+          <div><div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:var(--muted);margin-bottom:0.2rem;">VOLUMEN</div><div style="color:var(--text);font-family:'DM Mono',monospace;font-size:0.78rem;">ollama_data</div></div>
+        </div>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><span class="code-file">Comandos útiles — LLM</span></div>
+        <div class="code-body"><span class="comment"># Ver modelos disponibles en el contenedor</span>
+docker exec -it ottoguide-llm ollama list
+
+<span class="comment"># Descargar Gemma4</span>
+docker exec -it ottoguide-llm ollama pull gemma4:e4b
+
+<span class="comment"># Crear/actualizar el modelo otto desde el Modelfile</span>
+docker cp services/llm/Modelfile ottoguide-llm:/tmp/Modelfile
+docker exec -it ottoguide-llm ollama create otto -f /tmp/Modelfile
+
+<span class="comment"># Chat interactivo con otto (para testing)</span>
+docker exec -it ottoguide-llm ollama run otto
+
+<span class="comment"># API REST — test rápido</span>
+curl http://localhost:11434/api/generate \
+  -d '{"model":"otto","prompt":"¿Qué es UADE?","stream":false}'</div>
+      </div>
+
+      <div class="note note-info">
+        <span class="note-icon">ℹ</span>
+        <span>El Modelfile se edita en <code>services/llm/Modelfile</code> y se re-aplica con los comandos de arriba. No hay que reiniciar el contenedor para actualizar el modelo.</span>
+      </div>
+    </div>
+
+    <!-- ─── SVC TTS ─── -->
+    <div class="doc-section" id="svc-tts">
+      <div class="doc-section-header">
+        <span class="ds-icon">🔊</span>
+        <span class="ds-title">Servicio TTS — Piper</span>
+        <span class="ds-env env-badge" style="background:rgba(245,166,35,0.1);color:var(--orange);border:1px solid rgba(245,166,35,0.3);">TTS</span>
+      </div>
+
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:1.25rem 1.5rem;margin-bottom:1rem;">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;font-size:0.82rem;">
+          <div><div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:var(--muted);margin-bottom:0.2rem;">IMAGEN</div><div style="color:var(--accent);font-family:'DM Mono',monospace;font-size:0.78rem;">build ./services/tts</div></div>
+          <div><div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:var(--muted);margin-bottom:0.2rem;">PUERTO</div><div style="color:var(--text);font-family:'DM Mono',monospace;font-size:0.78rem;">10200</div></div>
+          <div><div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:var(--muted);margin-bottom:0.2rem;">VOZ ACTIVA</div><div style="color:var(--text);font-family:'DM Mono',monospace;font-size:0.78rem;">es_MX-gevy-high</div></div>
+          <div><div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:var(--muted);margin-bottom:0.2rem;">GÉNERO</div><div style="color:var(--green);font-family:'DM Mono',monospace;font-size:0.78rem;">♂ Masculino MX</div></div>
+        </div>
+      </div>
+
+      <div class="note note-info">
+        <span class="note-icon">ℹ</span>
+        <span>La voz <code>es_MX-gevy-high</code> es una voz masculina latinoamericana descargada del repositorio de la comunidad (HirCoir/Piper-TTS-Spanish en Hugging Face). Requiere el <code>Dockerfile</code> propio en <code>services/tts/</code> con el fix de <code>pathvalidate</code>.</span>
+      </div>
+    </div>
+
+    <!-- ─── SVC STT ─── -->
+    <div class="doc-section" id="svc-stt">
+      <div class="doc-section-header">
+        <span class="ds-icon">📝</span>
+        <span class="ds-title">Servicio STT — Whisper</span>
+        <span class="ds-env env-badge" style="background:rgba(91,138,245,0.1);color:var(--accent);border:1px solid rgba(91,138,245,0.3);">STT</span>
+      </div>
+      <div class="note note-warn"><span class="note-icon">⚠</span><span>Esta sección se completa en la <strong>Fase 3</strong>.</span></div>
+    </div>
+
+    <!-- ─── SVC WAKE ─── -->
+    <div class="doc-section" id="svc-wake">
+      <div class="doc-section-header">
+        <span class="ds-icon">👂</span>
+        <span class="ds-title">Servicio Wake Word — OpenWakeWord</span>
+        <span class="ds-env env-badge" style="background:rgba(56,217,169,0.1);color:var(--green);border:1px solid rgba(56,217,169,0.3);">Wake Word</span>
+      </div>
+      <div class="note note-warn"><span class="note-icon">⚠</span><span>Esta sección se completa en la <strong>Fase 3</strong>.</span></div>
+    </div>
+
+    <!-- ─── SVC CORE ─── -->
+    <div class="doc-section" id="svc-core">
+      <div class="doc-section-header">
+        <span class="ds-icon">⚙️</span>
+        <span class="ds-title">Servicio Core — Orquestador Python</span>
+        <span class="ds-env env-badge" style="background:rgba(224,92,122,0.1);color:var(--red);border:1px solid rgba(224,92,122,0.3);">Core</span>
+      </div>
+      <div class="note note-warn"><span class="note-icon">⚠</span><span>Esta sección se completa en la <strong>Fase 4</strong>.</span></div>
+    </div>
+
+    <!-- ─── CMD BASICOS ─── -->
+    <div class="doc-section" id="cmd-basicos">
+      <div class="doc-section-header">
+        <span class="ds-icon">⌨️</span>
+        <span class="ds-title">Comandos básicos de operación</span>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><span class="code-file">Referencia rápida</span></div>
+        <div class="code-body"><span class="comment"># ── STACK ─────────────────────────────────────────</span>
+docker compose up -d              <span class="comment"># levantar todo</span>
+docker compose down               <span class="comment"># bajar todo</span>
+docker compose restart            <span class="comment"># reiniciar todo</span>
+docker compose ps                 <span class="comment"># ver estado de contenedores</span>
+
+<span class="comment"># ── LOGS ──────────────────────────────────────────</span>
+docker compose logs -f            <span class="comment"># logs de todos en tiempo real</span>
+docker compose logs -f llm        <span class="comment"># logs solo del LLM</span>
+docker compose logs -f core       <span class="comment"># logs del orquestador</span>
+
+<span class="comment"># ── CONTENEDOR INDIVIDUAL ─────────────────────────</span>
+docker exec -it ottoguide-llm bash         <span class="comment"># entrar al contenedor LLM</span>
+docker exec -it ottoguide-core bash        <span class="comment"># entrar al core</span>
+
+<span class="comment"># ── REBUILD (cuando cambia código) ────────────────</span>
+docker compose up -d --build core          <span class="comment"># rebuild solo core</span>
+docker compose up -d --build               <span class="comment"># rebuild todo</span></div>
+      </div>
+    </div>
+
+    <!-- ─── CMD MODELO ─── -->
+    <div class="doc-section" id="cmd-modelo">
+      <div class="doc-section-header">
+        <span class="ds-icon">🧬</span>
+        <span class="ds-title">Gestión del modelo Otto</span>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><span class="code-file">Actualizar Modelfile y personalidad</span></div>
+        <div class="code-body"><span class="comment"># Editar el Modelfile</span>
+nano services/llm/Modelfile
+
+<span class="comment"># Aplicar cambios al contenedor</span>
+docker cp services/llm/Modelfile ottoguide-llm:/tmp/Modelfile
+docker exec -it ottoguide-llm ollama create otto -f /tmp/Modelfile
+
+<span class="comment"># Verificar que el modelo se actualizó</span>
+docker exec -it ottoguide-llm ollama list
+
+<span class="comment"># Test rápido de la personalidad</span>
+docker exec -it ottoguide-llm ollama run otto "Hola Otto, presentate"</div>
+      </div>
+    </div>
+
+    <!-- ─── LOGS / DEBUG ─── -->
+    <div class="doc-section" id="cmd-logs">
+      <div class="doc-section-header">
+        <span class="ds-icon">🔍</span>
+        <span class="ds-title">Logs y debugging</span>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><span class="code-file">Diagnóstico</span></div>
+        <div class="code-body"><span class="comment"># Ver uso de recursos de contenedores</span>
+docker stats
+
+<span class="comment"># Ver logs con timestamps</span>
+docker compose logs -f --timestamps
+
+<span class="comment"># Filtrar errores</span>
+docker compose logs | grep -i error
+
+<span class="comment"># Verificar que la API de Ollama responde</span>
+curl -s http://localhost:11434/api/tags | python3 -m json.tool
+
+<span class="comment"># Ver cuánta RAM usa el modelo</span>
+docker exec -it ottoguide-llm ollama ps</div>
+      </div>
+    </div>
+
+    <!-- ─── ROBOT DEPLOY ─── -->
+    <div class="doc-section" id="robot-deploy">
+      <div class="doc-section-header">
+        <span class="ds-icon">🤖</span>
+        <span class="ds-title">Deploy al Robot Jetson</span>
+        <span class="ds-env env-badge env-robot">🤖 Robot</span>
+      </div>
+
+      <div class="note note-warn">
+        <span class="note-icon">⚠</span>
+        <span>Esta sección se completa en la <strong>Fase 5</strong>. Antes de armar el script hay que relevar información del robot respondiendo la checklist de abajo.</span>
+      </div>
+
+      <div style="background:var(--bg2);border:1px solid rgba(245,166,35,0.2);border-radius:12px;padding:1.5rem;margin-bottom:1rem;">
+        <div style="font-family:'DM Mono',monospace;font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--orange);margin-bottom:1rem;">Checklist — Info a relevar del robot antes del deploy</div>
+        <div style="display:flex;flex-direction:column;gap:0.6rem;font-size:0.84rem;color:var(--muted);">
+          <div style="display:flex;gap:0.6rem;"><span style="color:var(--orange);flex-shrink:0;">→</span><span><strong style="color:var(--text);">Acceso SSH:</strong> usuario, contraseña, confirmar IP 192.168.123.164</span></div>
+          <div style="display:flex;gap:0.6rem;"><span style="color:var(--orange);flex-shrink:0;">→</span><span><strong style="color:var(--text);">Sistema:</strong> <code>lsb_release -a</code> · <code>uname -m</code> · <code>cat /etc/nv_tegra_release</code></span></div>
+          <div style="display:flex;gap:0.6rem;"><span style="color:var(--orange);flex-shrink:0;">→</span><span><strong style="color:var(--text);">Docker:</strong> <code>docker --version</code> · <code>docker compose version</code> · <code>groups</code></span></div>
+          <div style="display:flex;gap:0.6rem;"><span style="color:var(--orange);flex-shrink:0;">→</span><span><strong style="color:var(--text);">Audio:</strong> <code>arecord -l</code> — identificar tarjeta del array de micrófonos para MIC_DEVICE</span></div>
+          <div style="display:flex;gap:0.6rem;"><span style="color:var(--orange);flex-shrink:0;">→</span><span><strong style="color:var(--text);">Internet:</strong> <code>ping google.com</code> — si no hay internet, exportar imágenes desde la notebook</span></div>
+          <div style="display:flex;gap:0.6rem;"><span style="color:var(--orange);flex-shrink:0;">→</span><span><strong style="color:var(--text);">Python:</strong> <code>python3 --version</code> · <code>pip3 --version</code></span></div>
+          <div style="display:flex;gap:0.6rem;"><span style="color:var(--orange);flex-shrink:0;">→</span><span><strong style="color:var(--text);">Espacio:</strong> <code>df -h</code> — necesitamos al menos 15GB libres</span></div>
+        </div>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><span class="code-file">Preview — deploy-robot.sh (se completa en Fase 5)</span></div>
+        <div class="code-body"><span class="comment"># 1. Conectarse al robot</span>
+ssh unitree@192.168.123.164
+
+<span class="comment"># 2. Ejecutar script de deploy</span>
+bash deploy/deploy-robot.sh
+
+<span class="comment"># El script va a:</span>
+<span class="comment"># - Verificar dependencias (Docker, Python, pip)</span>
+<span class="comment"># - Instalar dependencias Python (requests, etc.)</span>
+<span class="comment"># - Copiar archivos del proyecto</span>
+<span class="comment"># - Levantar contenedores con GPU flags para Jetson</span>
+<span class="comment"># - Configurar MIC_DEVICE según el audio del robot</span>
+<span class="comment"># - Registrar servicio systemd para auto-start</span></div>
+      </div>
+
+    <!-- ─── ROBOT SYSTEMD ─── -->
+    <div class="doc-section" id="robot-systemd">
+      <div class="doc-section-header">
+        <span class="ds-icon">⚡</span>
+        <span class="ds-title">Auto-start con systemd</span>
+        <span class="ds-env env-badge env-robot">🤖 Robot</span>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">ini</span><span class="code-file">deploy/ottoguide.service</span></div>
+        <div class="code-body">[Unit]
+Description=OttoGuide AI Stack
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ottoguide
+ExecStartPre=docker compose pull
+ExecStart=docker compose up
+ExecStop=docker compose down
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target</div>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><span class="code-file">Instalar el servicio en el robot (Fase 5)</span></div>
+        <div class="code-body"><span class="comment"># Copiar el servicio y habilitarlo (en el robot)</span>
+sudo cp deploy/ottoguide.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable ottoguide
+sudo systemctl start ottoguide
+
+<span class="comment"># Verificar estado</span>
+sudo systemctl status ottoguide</div>
+      </div>
+
+      <div class="note note-ok">
+        <span class="note-icon">✓</span>
+        <span>Con este servicio configurado, al encender el robot el stack de IA se levanta automáticamente en segundo plano. Si algo falla, systemd lo reinicia solo después de 10 segundos.</span>
+      </div>
+    </div>
+
+    <!-- Estado de los servicios -->
+    <div style="margin-top:3rem;background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+      <div style="padding:1rem 1.5rem;border-bottom:1px solid var(--border);font-family:'DM Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;">Estado de documentación</div>
+      <table class="status-table">
+        <thead><tr><th>Servicio</th><th>Puerto</th><th>Documentado</th><th>Testeado</th></tr></thead>
+        <tbody>
+          <tr><td>🧠 LLM — Ollama + Gemma4</td><td style="font-family:'DM Mono',monospace;font-size:0.8rem;">11434</td><td><span class="s-badge s-active">✓ Fase 1</span></td><td><span class="s-badge s-active">✓ OK</span></td></tr>
+          <tr><td>🔊 TTS — Piper (gevy MX)</td><td style="font-family:'DM Mono',monospace;font-size:0.8rem;">10200</td><td><span class="s-badge s-active">✓ Fase 2</span></td><td><span class="s-badge s-active">✓ OK</span></td></tr>
+          <tr><td>📝 STT — Whisper medium</td><td style="font-family:'DM Mono',monospace;font-size:0.8rem;">9001*</td><td><span class="s-badge s-active">✓ Fase 3</span></td><td><span class="s-badge s-active">✓ OK</span></td></tr>
+          <tr><td>👂 Wake Word — via Whisper</td><td style="font-family:'DM Mono',monospace;font-size:0.8rem;">—</td><td><span class="s-badge s-active">✓ Fase 3</span></td><td><span class="s-badge s-active">✓ OK</span></td></tr>
+          <tr><td>⚙️ Core Python — orquestador</td><td style="font-family:'DM Mono',monospace;font-size:0.8rem;">host</td><td><span class="s-badge s-active">✓ Fase 4</span></td><td><span class="s-badge s-active">✓ OK</span></td></tr>
+        </tbody>
+      </table>
+      <div style="font-family:'DM Mono',monospace;font-size:0.62rem;color:var(--muted);margin-top:0.5rem;">* Puerto 9001 en notebook (9000 ocupado por Portainer). En el robot usar 9000.</div>
+    </div>
+
+  </div>
+</main>
+
+</body>
+</html>

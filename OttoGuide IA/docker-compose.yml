@@ -1,5 +1,3 @@
-
-
 services:
 
   llm:
@@ -13,5 +11,29 @@ services:
     environment:
       - OLLAMA_HOST=0.0.0.0
 
+  tts:
+    build: ./services/tts
+    container_name: ottoguide-tts
+    ports:
+      - "10200:10200"
+    volumes:
+      - ./services/tts/voices:/data/voices
+    restart: unless-stopped
+    command: >
+      --voice es_MX-gevy-high
+      --update-voices
+      --download-dir /data/voices
+
+  stt:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    container_name: ottoguide-stt
+    ports:
+      - "9001:9000"
+    environment:
+      - ASR_MODEL=medium
+      - ASR_ENGINE=faster_whisper
+      - ASR_LANGUAGE=es
+    restart: unless-stopped
+
 volumes:
-    ollama_data:
+  ollama_data:
