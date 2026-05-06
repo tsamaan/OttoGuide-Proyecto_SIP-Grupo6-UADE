@@ -16,6 +16,15 @@
              En desarrollo (notebook Linux Mint), usar PiperTTSAdapter.
              Ambos implementan la misma interfaz TTSAdapter para ser intercambiables vía Strategy.
 
+BUG FIX DOCUMENTADO (SDK Unitree g1_audio_client.py):
+  El SDK original tenía `self.tts_index += self.tts_index` en TtsMaker(), causando
+  crecimiento exponencial del índice DDS y eventual crash en sesiones largas.
+  Resolución en dos capas:
+    1. PATCH DIRECTO en libs/unitree_sdk2_python-master/.../g1_audio_client.py
+       (cambiado a `+= 1` con guard de overflow en INT32_MAX)
+    2. WRAPPER DEFENSIVO en UnitreeTTSAdapter._speak_sync: detecta crecimientos
+       anómalos del índice y lo corrige en runtime si el patch fue revertido.
+
 STEP 1: Definir protocolo TTSAdapter (interfaz abstracta)
 STEP 2: Implementar PiperTTSAdapter (Piper via Docker, para notebook)
 STEP 3: Implementar UnitreeTTSAdapter (AudioClient.TtsMaker, para robot)
@@ -252,21 +261,53 @@ class UnitreeTTSAdapter(TTSAdapter):
 
     def _speak_sync(self, text: str) -> None:
         """
-        @TASK: Llamar a AudioClient.TtsMaker() del SDK Unitree de forma síncrona
-        @INPUT: text — string a sintetizar
-        @OUTPUT: Audio enviado al hardware del robot
-        @SECURITY: SDK importado lazy; no disponible fuera de robot HIL
-        @AI_CONTEXT: AudioClient es parte de unitree_sdk2py.g1.audio (a confirmar con SDK docs)
+        @TASK: Llamar a AudioClient.TtsMaker() del SDK Unitree de forma síncrona con wrapper defensivo
+        @INPUT: text — string a sintetizar (ya limpio de emojis y caracteres problemáticos)
+        @OUTPUT: Audio enviado al hardware del robot via DDS RPC
+        @SECURITY: SDK importado lazy; no disponible fuera de robot HIL.
+                   Wrapper defensivo detecta y corrige el bug de índice exponencial del SDK
+                   en caso de que un future update del SDK revierta el patch directo.
+        @AI_CONTEXT: El wrapper valida que tts_index creció exactamente +1 después de TtsMaker().
+                     Si detectó crecimiento > 1 (bug exponencial activo), corrige el índice
+                     en el objeto del SDK y emite LOGGER.critical para alerta inmediata.
+
+        STEP 3.1: Inicializar AudioClient lazy si no existe
+        STEP 3.2: Capturar tts_index antes de la llamada
+        STEP 3.3: Invocar TtsMaker()
+        STEP 3.4: Validar que el incremento fue lineal (+1); corregir si es exponencial
         """
         try:
+            # STEP 3.1: Inicializar AudioClient lazy
             if self._client is None:
                 self._client = self._init_sdk_client()
 
-            if self._client is not None:
-                self._client.TtsMaker(text, self._language)
-                LOGGER.info("[UnitreeTTSAdapter] TtsMaker enviado: '%s'", text[:60])
-            else:
+            if self._client is None:
                 LOGGER.warning("[UnitreeTTSAdapter] AudioClient no disponible — omitiendo TTS")
+                return
+
+            # STEP 3.2: Capturar índice ANTES de la llamada para detectar comportamiento exponencial
+            index_before = getattr(self._client, "tts_index", None)
+
+            # STEP 3.3: Invocar TtsMaker()
+            self._client.TtsMaker(text, self._language)
+            LOGGER.info("[UnitreeTTSAdapter] TtsMaker enviado: '%s'", text[:60])
+
+            # STEP 3.4: Wrapper defensivo — detectar y corregir bug de índice exponencial
+            # @AI_CONTEXT: Si el SDK fue actualizado y el bug regresó, el índice crecerá > 1.
+            #              Este wrapper lo detecta y lo corrige sin romper la sesión de audio.
+            if index_before is not None:
+                index_after = getattr(self._client, "tts_index", index_before)
+                expected = index_before + 1
+                if index_after != expected and index_after > 0:
+                    LOGGER.critical(
+                        "[UnitreeTTSAdapter] BUG DETECTADO: tts_index creció de %d a %d "
+                        "(esperado %d). El bug exponencial del SDK está activo. "
+                        "Corrigiendo a %d. Aplicar patch en g1_audio_client.py.",
+                        index_before, index_after, expected, expected,
+                    )
+                    # Corregir el índice en el objeto SDK directamente
+                    # @SECURITY: Mutación directa del atributo del SDK; justificada por el bug.
+                    self._client.tts_index = expected
 
         except Exception as exc:
             LOGGER.warning(
