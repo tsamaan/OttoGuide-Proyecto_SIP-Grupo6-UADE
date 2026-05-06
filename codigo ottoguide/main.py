@@ -33,6 +33,7 @@ from api.router import router, telemetry_manager
 from config.settings import get_hardware_adapter, get_settings
 from hardware.interface import RobotHardwareInterface
 from src.core.mission_audit import MissionAuditLogger
+from src.infrastructure.unitree import UnitreeFactoryRestClient
 
 LOGGER = logging.getLogger("otto_guide.main")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -65,6 +66,7 @@ async def lifespan(app: FastAPI):
     """
     settings = get_settings()
     hardware: Optional[RobotHardwareInterface] = None
+    nav_bridge = None
 
     try:
         LOGGER.info(
@@ -80,9 +82,14 @@ async def lifespan(app: FastAPI):
         # Los modulos congelados siguen usando src.* — no modificar sus imports
         from src.core import TourOrchestrator
 
+        nav_bridge = _get_nav_bridge_stub()
+        if settings.ROBOT_MODE == "real":
+            LOGGER.info("[BOOT] ROBOT_MODE=real. Inicializando AsyncNav2Bridge obligatorio.")
+            await nav_bridge.start()
+
         orchestrator = TourOrchestrator(
             hardware_api=hardware,
-            nav_bridge=_get_nav_bridge_stub(),
+            nav_bridge=nav_bridge,
             conversation_manager=_get_conversation_manager_stub(settings),
             vision_processor=_get_vision_processor_stub(),
             telemetry_manager=telemetry_manager,
@@ -90,6 +97,12 @@ async def lifespan(app: FastAPI):
             robot_mode=settings.ROBOT_MODE,
         )
         app.state.orchestrator = orchestrator
+        app.state.nav_bridge = nav_bridge
+        app.state.factory_rest_client = UnitreeFactoryRestClient.get_instance(
+            base_url=settings.UNITREE_FACTORY_BASE_URL,
+            timeout_s=settings.UNITREE_FACTORY_TIMEOUT_S,
+            enabled=settings.UNITREE_FACTORY_DIAGNOSTICS_ENABLED,
+        )
         LOGGER.info(
             "[BOOT] TourOrchestrator instanciado. state_id='%s'",
             orchestrator.state_id,
@@ -121,6 +134,14 @@ async def lifespan(app: FastAPI):
                     "[SHUTDOWN] Fallo en damp(): %s — %s",
                     type(exc).__name__, exc,
                 )
+
+        if nav_bridge is not None:
+            close_nav = getattr(nav_bridge, "close", None)
+            if callable(close_nav):
+                try:
+                    await close_nav()
+                except Exception as exc:
+                    LOGGER.warning("[SHUTDOWN] Fallo cerrando nav_bridge: %s", exc)
 
         LOGGER.info("[SHUTDOWN] Secuencia de apagado completada.")
 
