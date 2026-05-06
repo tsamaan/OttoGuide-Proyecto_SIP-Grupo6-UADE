@@ -40,7 +40,13 @@ OttoGuide-Proyecto_SIP-Grupo6-UADE/
 |   |   |-- nav2_params_g1.yaml
 |   |   `-- settings.py
 |   |-- data/
-|   |   `-- mvp_tour_script.json
+|   |   |-- mvp_tour_script.json
+|   |   `-- AppPhone/
+|   |       |-- APK_CONNECTIVITY_ANALYSIS.md
+|   |       |-- README.md
+|   |       |-- Unitree Go_1.12.7_APKPure.xapk
+|   |       |-- unitree_go_apk/
+|   |       `-- unitree_go_xapk/
 |   |-- deploy/
 |   |   `-- ottoguide_mvp.service
 |   |-- hardware/
@@ -58,12 +64,18 @@ OttoGuide-Proyecto_SIP-Grupo6-UADE/
 |   |   |-- preflight_check.sh
 |   |   |-- verify_remote_env.sh
 |   |   |-- start_robot.sh
-|   |   `-- mvp_master_run.sh
+|   |   |-- mvp_master_run.sh
+|   |   |-- hil_capture_mapping_bundle.sh
+|   |   |-- hil_start_mapping.sh
+|   |   |-- hil_mapping_recorder.sh
+|   |   |-- hil_save_map.sh
+|   |   `-- other deployment scripts
 |   |-- src/
 |   |   |-- api/
 |   |   |-- common/
 |   |   |-- core/
 |   |   |-- hardware/
+|   |   |-- infrastructure/
 |   |   |-- interaction/
 |   |   |-- navigation/
 |   |   `-- vision/
@@ -106,7 +118,7 @@ OttoGuide-Proyecto_SIP-Grupo6-UADE/
 | codigo ottoguide | Contiene el sistema ejecutable (API, logica, hardware y scripts de operacion). |
 | codigo ottoguide/api | Expone contratos HTTP/WS para operar el tour y la seguridad del robot. |
 | codigo ottoguide/config | Centraliza configuraciones de red robotica y parametros de navegacion. |
-| codigo ottoguide/data | Guarda insumos funcionales del tour sin tocar codigo. |
+| codigo ottoguide/data | Guarda insumos funcionales del tour, análisis técnicos y referencias de compatibilidad sin tocar código. |
 | codigo ottoguide/deploy | Aloja artefactos de despliegue para companion/servicio. |
 | codigo ottoguide/hardware | Abstrae la capa de control del robot real, mock y sim. |
 | codigo ottoguide/scripts | Define la secuencia operativa y verificaciones de campo. |
@@ -114,6 +126,7 @@ OttoGuide-Proyecto_SIP-Grupo6-UADE/
 | codigo ottoguide/static | Provee la interfaz web de monitoreo y control del operador. |
 | codigo ottoguide/tests | Organiza validaciones unitarias, de integracion y dobles de prueba. |
 | documentacion general del proyecto/RC1_Vigente | Es la unica base documental operativa para ejecutar RC1 en hardware. |
+| documentacion general del proyecto/AppAnalysis | Contiene análisis técnicos de referencia (compatibilidad de APK, topología de red remota). |
 | documentacion general del proyecto/Historico_SITL | Conserva evidencia de simulacion previa como referencia historica. |
 | documentacion general del proyecto/Investigacion_y_Memorias | Reune material academico, investigacion y anexos de contexto. |
 | planificacion | Mantiene cronogramas y entregables de gestion del proyecto. |
@@ -133,6 +146,8 @@ OttoGuide-Proyecto_SIP-Grupo6-UADE/
 | TourOrchestrator (FSM) | codigo ottoguide/src/core/tour_orchestrator.py | Director de la mision: decide cuando navegar, hablar o frenar. |
 | ConversationManager | codigo ottoguide/src/interaction/conversation_manager.py | Asistente conversacional que transforma preguntas en respuestas audibles. |
 | MissionAuditLogger | codigo ottoguide/src/core/mission_audit.py | Caja negra de operacion para trazabilidad y auditoria post-mision. |
+| UnitreeFactoryRestClient | codigo ottoguide/src/infrastructure/unitree/factory_rest_client.py | Diagnostico read-only del plano factory `192.168.12.1:9991/con_check`. |
+| Unitree AudioClient | codigo ottoguide/libs/unitree_sdk2_python-master/unitree_sdk2py/g1/audio/g1_audio_client.py | API nativa SDK2 para `TtsMaker` y streaming PCM; mejora post-RC1. |
 
 ### 3.2 Relacion con perfiles de lectura
 
@@ -157,7 +172,7 @@ OttoGuide-Proyecto_SIP-Grupo6-UADE/
 | 5 | Nav2_bridge | Adaptador de hardware | Comando interno con limites | Velocidad clampeda y segura para locomocion. |
 | 6 | Adaptador hardware | Unitree G1 EDU 8 | SDK + DDS unicast | Robot se mueve fisicamente segun ruta. |
 | 7 | TourOrchestrator | ConversationManager | Corrutina (evento contextual) | Se genera respuesta textual/voz al usuario. |
-| 8 | ConversationManager | Audio de salida | TTS local | Robot responde en voz durante o entre tramos. |
+| 8 | ConversationManager | Audio de salida | TTS local / futuro AudioClient nativo | Robot responde en voz durante o entre tramos. |
 | 9 | TourOrchestrator | Dashboard | WebSocket (/ws/telemetry) | Operador ve estado, progreso y alertas en tiempo real. |
 | 10 | TourOrchestrator | MissionAuditLogger | Registro JSON atomico | Evidencia completa para analisis posterior. |
 
@@ -189,7 +204,21 @@ Secuencia oficial para encender y operar el sistema fisico en RC1.
 | 11 | Orquestacion E2E (si aplica) | codigo ottoguide/scripts/mvp_master_run.sh | Stack completo para demo/operacion. |
 | 12 | Verificacion post-arranque | GET /status + /ws/telemetry + dashboard | Operacion visible y trazable en tiempo real. |
 
-### 5.1 GO / NO-GO operativo
+### 5.1 Protocolo separado: Captura de mapeo e historial bruto (HIL)
+
+**Nota operativa**: La captura de mapeo con SLAM + rosbag2 es un procedimiento **separado y previo** al startup normal. Se ejecuta cuando es necesario generar o actualizar el mapa del entorno.
+
+```bash
+# Ejecución única (una pasada de conducción genera tanto mapa como bag)
+./scripts/hil_capture_mapping_bundle.sh
+
+# O con parámetros personalizados
+HIL_MAP_BASENAME="/ruta/personalizada/mapa" HIL_BAG_OUT_DIR="/ruta/personalizada/bags" ./scripts/hil_capture_mapping_bundle.sh
+```
+
+**Criterio de salida**: Mapa guardado en YAML/PGM, rosbag2 generado, sensores validados en línea.
+
+### 5.2 GO / NO-GO operativo
 
 | Control | GO | NO-GO |
 |---|---|---|
@@ -229,8 +258,11 @@ Solo se consideran vigentes para operacion RC1 los documentos bajo RC1_Vigente.
 | Runbook de deploy | documentacion general del proyecto/RC1_Vigente/RUNBOOK_DEPLOY.md |
 | Protocolo HIL | documentacion general del proyecto/RC1_Vigente/HIL_TESTING_PROTOCOL.md |
 | Integracion ROS2 | documentacion general del proyecto/RC1_Vigente/ROS2_INTEGRATION.md |
+| Analisis de compatibilidad APK | documentacion general del proyecto/AppAnalysis/APK_CONNECTIVITY_ANALYSIS.md |
 
 Documentos en Historico_SITL e Investigacion_y_Memorias permanecen como soporte historico y academico, no como base operativa primaria.
+
+Documentos en AppAnalysis constituyen referencia técnica para entender integración con ecosistema Unitree.
 
 ---
 

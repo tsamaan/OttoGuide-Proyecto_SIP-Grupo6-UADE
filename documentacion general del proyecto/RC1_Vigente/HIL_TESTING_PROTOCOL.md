@@ -34,6 +34,28 @@ Garantizar integridad mecanica y disponibilidad del plano de red antes de energi
 - Alimentacion independiente validada.
 - LiDAR MID360 y camara D435i libres de obstruccion.
 
+### Captura unica de mapeo y rosbag
+
+Si el objetivo es recorrer el entorno una sola vez y obtener tanto el mapa como los datos brutos, usar el orquestador combinado:
+
+```bash
+./scripts/hil_capture_mapping_bundle.sh
+```
+
+Durante la sesion se levantan los drivers de sensores, `slam_toolbox` y la grabacion `rosbag2` en paralelo. Cuando termine el recorrido, pulsar `Ctrl+C`; el script detiene la grabacion, guarda `maps/uade_physical_map.yaml` y `maps/uade_physical_map.pgm`, y deja el bag en `logs/bags/`.
+
+Si se quiere cambiar el nombre del mapa o la carpeta del bag sin tocar el script:
+
+```bash
+HIL_MAP_BASENAME="/ruta/personalizada/mapa_recorrido" HIL_BAG_OUT_DIR="/ruta/personalizada/bags" ./scripts/hil_capture_mapping_bundle.sh
+```
+
+El orquestador genera ademas un manifiesto JSON por sesion en `logs/bags/`, valida `/scan`, `/livox/lidar`, `/livox/imu`, `/camera/color/image_raw`, `/camera/depth/image_rect_raw` y `/map`, y graba los topicos `/scan`, `/tf_static` y `/map` junto con los datos crudos. Para prueba seca sin iniciar ROS2:
+
+```bash
+HIL_DRY_RUN=1 ./scripts/hil_capture_mapping_bundle.sh
+```
+
 ---
 
 ## Fase -0: Inicializacion Electrica y Postural
@@ -194,6 +216,17 @@ cat config/cyclonedds.xml | head -20
 ## Fase 2: Validación Acústica Local (TTS)
 
 **Objetivo:** Verificar que el altavoz estéreo de 5W reproduce audio con potencia suficiente.
+
+### Capacidades nativas Unitree G1
+
+El SDK local incluye `unitree_sdk2py.g1.audio.g1_audio_client.AudioClient` con:
+
+- `TtsMaker(text, speaker_id)` para TTS nativo del servicio `voice`.
+- `PlayStream(app_name, stream_id, pcm_data)` para streaming PCM.
+- `PlayStop(app_name)` para detener reproduccion.
+- `GetVolume()` y `SetVolume(volume)` para volumen.
+
+RC1 mantiene Piper/local TTS como ruta operativa portable. La integracion nativa Unitree queda como mejora post-RC1, sujeta a prueba fisica de idioma, latencia, volumen y convivencia con DDS de locomocion.
 
 ### Establecer Modelo Piper TTS
 
