@@ -7,16 +7,16 @@
 # STEP 1: Cargar entorno ROS 2 y preparar directorio de salida
 # STEP 2: Iniciar ros2 bag record sobre topicos de alta densidad requeridos
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
 OUT_DIR="${1:-${PROJECT_ROOT}/logs/bags}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
-BAG_PATH="${OUT_DIR}/hil_mapping_${STAMP}"
+BAG_PATH="${HIL_BAG_PATH:-${OUT_DIR}/hil_mapping_${STAMP}}"
 
-mkdir -p "${OUT_DIR}"
+mkdir -p "${OUT_DIR}" "$(dirname "${BAG_PATH}")"
 
 if [[ -f "${ROS_SETUP}" ]]; then
   # shellcheck source=/dev/null
@@ -27,9 +27,12 @@ exec ros2 bag record \
   --storage mcap \
   --output "${BAG_PATH}" \
   --max-cache-size 0 \
+  /scan \
   /livox/lidar \
   /livox/imu \
   /camera/color/image_raw \
   /camera/depth/image_rect_raw \
   /tf \
+  /tf_static \
+  /map \
   /robot_state/odom

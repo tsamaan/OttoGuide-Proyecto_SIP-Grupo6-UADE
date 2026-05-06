@@ -14,11 +14,28 @@ DOC
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-MAP_BASENAME="${PROJECT_ROOT}/maps/uade_physical_map"
+ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
+MAP_BASENAME="${1:-${HIL_MAP_BASENAME:-${PROJECT_ROOT}/maps/uade_physical_map}}"
 
-source /opt/ros/humble/setup.bash
+if [ ! -f "${ROS_SETUP}" ]; then
+  echo "@OUTPUT: ERROR ROS_SETUP no encontrado: ${ROS_SETUP}" >&2
+  exit 1
+fi
+
+# shellcheck source=/dev/null
+source "${ROS_SETUP}"
 if [ -f "${PROJECT_ROOT}/install/setup.bash" ]; then
+  # shellcheck source=/dev/null
   source "${PROJECT_ROOT}/install/setup.bash"
+fi
+
+if ! command -v ros2 >/dev/null 2>&1; then
+  echo "@OUTPUT: ERROR comando ros2 no disponible tras cargar ROS_SETUP" >&2
+  exit 1
+fi
+if ! command -v timeout >/dev/null 2>&1; then
+  echo "@OUTPUT: ERROR comando timeout no disponible" >&2
+  exit 1
 fi
 
 mkdir -p "$(dirname "${MAP_BASENAME}")"
