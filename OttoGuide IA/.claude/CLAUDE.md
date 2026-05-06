@@ -274,3 +274,16 @@ Los HTMLs de documentación están en la carpeta `documentacion/` del repo:
 - `OttoGuide_PasoPaso_V1.html` — registro de implementación fase a fase
 - `OttoGuide_Instrucciones_V1.html` — guía de operación con comandos
 - `OttoGuide_WakeWord_HolaOtto_V1.html` — plan de wake word dedicado
+
+---
+
+## Archivos de referencia
+
+Leer estos archivos para contexto detallado antes de responder:
+
+@documentacion/OttoGuide_LLM_Plan_V2.html
+@documentacion/OttoGuide_PasoPaso_V1.html
+@documentacion/OttoGuide_Instrucciones_V1.html
+@services/core/main.py
+@services/llm/Modelfile
+@docker-compose.yml
