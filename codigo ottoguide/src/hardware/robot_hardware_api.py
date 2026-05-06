@@ -7,6 +7,8 @@ from importlib import import_module
 from threading import Lock
 from typing import Any, Callable, Optional, Protocol, TypeVar, runtime_checkable
 
+from .interface import MotionCommand
+
 
 @runtime_checkable
 class SupportsUnitreeHighLevelControl(Protocol):
@@ -156,7 +158,12 @@ class RobotHardwareAPI:
                 )
             return cls._instance
 
-    async def move(self, vx: float, vy: float, wz: float) -> Any:
+    async def move(
+        self,
+        command_or_vx: MotionCommand | float,
+        vy: float = 0.0,
+        wz: float = 0.0,
+    ) -> Any:
         # @TASK: Ejecutar comando Move
         # @INPUT: vx, vy, wz
         # @OUTPUT: Resultado del SDK o excepcion de dominio
@@ -165,6 +172,13 @@ class RobotHardwareAPI:
         # STEP 2: Activar Damp si falla para llevar robot a estado seguro
         # @SECURITY: Failsafe con parada amortiguada ante error
         # @AI_CONTEXT: Mantiene hilo principal libre de bloqueos de IO/SDK
+        if isinstance(command_or_vx, MotionCommand):
+            vx = command_or_vx.linear_x
+            vy = 0.0
+            wz = command_or_vx.angular_z
+        else:
+            vx = float(command_or_vx)
+
         clamped_vx, clamped_vy = self._clamp_linear_velocity(vx, vy)
         try:
             return await self._invoke_sdk("Move", clamped_vx, clamped_vy, wz)
@@ -221,6 +235,18 @@ class RobotHardwareAPI:
         # @SECURITY: Funcion critica de seguridad operacional
         # @AI_CONTEXT: Debe ser invocable tanto en error como manualmente
         return await self._invoke_sdk("Damp")
+
+    async def get_state(self) -> dict[str, Any]:
+        # @TASK: Exponer estado observable del wrapper SDK
+        # @INPUT: Sin parametros
+        # @OUTPUT: Dict serializable para status y diagnostico
+        # @CONTEXT: Compatibilidad con RobotHardwareInterface usado por main.py
+        # @SECURITY: Solo lectura; no invoca comandos de movimiento
+        return {
+            "adapter": "RobotHardwareAPI",
+            "initialized": self._sdk_client is not None,
+            "call_timeout_s": self._call_timeout_s,
+        }
 
     async def _safe_damp_on_failure(self, cause: Exception) -> None:
         # @TASK: Proteger en falla critica
