@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     # --- NLP / LLM ---
     OLLAMA_HOST: str = "http://127.0.0.1:11434"
     OLLAMA_MODEL: str = "qwen2.5:3b"
+    # Nombre del modelo personalizado creado via Modelfile (ollama create otto -f Modelfile)
+    OLLAMA_OTTO_MODEL: str = "otto"
 
     # --- API Server ---
     API_HOST: str = "0.0.0.0"
@@ -43,6 +45,33 @@ class Settings(BaseSettings):
     UNITREE_FACTORY_DIAGNOSTICS_ENABLED: bool = False
     UNITREE_FACTORY_BASE_URL: str = "http://192.168.12.1:9991"
     UNITREE_FACTORY_TIMEOUT_S: float = 0.35
+
+    # --- Whisper STT (Docker container openai-whisper-asr-webservice) ---
+    # @CONTEXT: Puerto 9001 en notebook (Portainer ocupa el 9000); puerto 9000 en robot Jetson
+    # @AI_CONTEXT: Configurable via WHISPER_STT_PORT env var; default notebook
+    WHISPER_STT_PORT: int = 9001
+    WHISPER_STT_HOST: str = "http://localhost"
+    WHISPER_STT_TIMEOUT_S: float = 30.0
+    WHISPER_STT_LANGUAGE: str = "es"
+    WHISPER_SILENCE_THRESHOLD: int = 1000
+
+    # --- Piper TTS (Docker container ottoguide-tts) ---
+    # @CONTEXT: Solo usado en modo mock/sim/demo; modo real usa UnitreeTTSAdapter (SDK)
+    PIPER_TTS_CONTAINER: str = "ottoguide-tts"
+    PIPER_TTS_VOICE: str = "es_MX-gevy-high"
+    PIPER_TTS_BIN: str = "/usr/src/.venv/bin/piper"
+    PIPER_TTS_VOICES_DIR: str = "/data/voices"
+
+    # --- Audio / Micrófono ---
+    # @AI_CONTEXT: plughw:1,0 = notebook Linux Mint; plughw:0,0 = robot Jetson Orin NX
+    AUDIO_MIC_DEVICE: str = "plughw:1,0"
+    AUDIO_MIC_CHANNELS: str = "1"
+    AUDIO_SAMPLE_RATE: int = 16000
+    AUDIO_WAKE_CYCLE_S: int = 3
+
+    # --- Wake Word / Corrección UADE ---
+    # @CONTEXT: "levenshtein" = automático (default); "manual" = usa data/correcciones_uade.json
+    UADE_CORRECTION_MODE: str = "levenshtein"
 
     model_config = {
         "env_file": ".env",
