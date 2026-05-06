@@ -29,7 +29,14 @@ import subprocess
 import tempfile
 import wave
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    # @AI_CONTEXT: Import condicional para evitar importación circular en runtime.
+    # OttoEventBus está en src.core; WakeWordDetector está en src.interaction.
+    # En runtime se recibe la instancia via inyección de dependencias en __init__.
+    from src.core.event_bus import OttoEventBus
+    from src.core.events import EventType
 
 LOGGER = logging.getLogger(__name__)
 
@@ -179,17 +186,20 @@ def clean_text_for_tts(text: str) -> str:
 
 class WakeWordDetector:
     """
-    @TASK: Detectar el wake word "Hola Otto" en ciclos de audio via STT Whisper
-    @INPUT: Configuración de micrófono (device, channels, sample_rate) y URL de Whisper STT
-    @OUTPUT: Método detect_cycle() retorna (is_wake_word: bool, transcript: str)
+    @TASK: Detectar el wake word "Hola Otto" en ciclos de audio via STT Whisper y notificar via EventBus
+    @INPUT: Configuración de micrófono (device, channels, sample_rate), URL de Whisper STT,
+            y referencia opcional a OttoEventBus para publicar INTERACTION_STARTED
+    @OUTPUT: Método detect_cycle() retorna (is_wake_word: bool, transcript: str);
+             publica EventType.INTERACTION_STARTED en el bus al detectar el wake word
     @CONTEXT: Consumido por el pipeline de interacción en modo hibernación.
               Reemplaza el while-True procedural de OttoGuide IA/services/core/main.py.
               Toda I/O bloqueante (subprocess.run) se ejecuta en run_in_executor.
+              Integrado con OttoEventBus para notificar a TourOrchestrator sin acoplamiento directo.
     @SECURITY: Archivos /tmp con nombres únicos (tempfile) para evitar colisiones.
                arecord es un proceso externo; no se interpola input del usuario.
     @PERFORMANCE: Ciclos de 3s por defecto. Filtro de silencio previene llamadas HTTP a Whisper.
-    @AI_CONTEXT: Diseñado para operar en Jetson Orin NX con array de 4 micrófonos (plughw:0,0)
-                 y en notebook de desarrollo (plughw:1,0). Configurable via Settings.
+    @AI_CONTEXT: event_bus es Optional para mantener compatibilidad backward con callers que
+                 no usan el EventBus (tests unitarios, modo mock sin orchestrator).
     """
 
     def __init__(
@@ -204,8 +214,26 @@ class WakeWordDetector:
         wake_words: Optional[list[str]] = None,
         false_positives: Optional[list[str]] = None,
         uade_fallback_map: Optional[dict[str, str]] = None,
+        event_bus: "Optional[OttoEventBus]" = None,
     ) -> None:
-        # STEP 3.1: Guardar configuración
+        """
+        @TASK: Inicializar el detector de wake word con configuración de audio y EventBus opcional
+        @INPUT: stt_url — URL del servicio Whisper ASR
+                mic_device — dispositivo ALSA (plughw:1,0 notebook, plughw:0,0 Jetson)
+                mic_channels — canales de audio ("1" mono)
+                sample_rate — frecuencia de muestreo en Hz (16000 requerido por Whisper)
+                cycle_duration_s — duración de cada ciclo de grabación en segundos
+                silence_threshold — amplitud mínima para considerar voz real
+                wake_words — lista de variaciones aceptadas del wake word (default: WAKE_WORDS)
+                false_positives — strings de alucinaciones de Whisper a filtrar
+                uade_fallback_map — dict de correcciones UADE manuales (fallback a Levenshtein)
+                event_bus — instancia de OttoEventBus para publicar INTERACTION_STARTED;
+                            None desactiva la publicación (modo standalone/testing)
+        @OUTPUT: Instancia configurada y lista para detect_cycle()
+        @CONTEXT: Llamar desde el lifespan de FastAPI o desde el script de orquestación.
+        @AI_CONTEXT: event_bus=None mantiene backward-compatibility con código pre-EventBus.
+        """
+        # STEP 3.1: Guardar configuración de audio
         self._stt_url = stt_url
         self._mic_device = mic_device
         self._mic_channels = mic_channels
@@ -216,9 +244,15 @@ class WakeWordDetector:
         self._false_positives: list[str] = false_positives or FALSE_POSITIVES
         self._uade_fallback_map: Optional[dict[str, str]] = uade_fallback_map
 
+        # STEP 3.2: Guardar referencia al EventBus (puede ser None)
+        # @AI_CONTEXT: Se usa Any para evitar el import circular en runtime;
+        #              el type hint TYPE_CHECKING-only garantiza la verificación estática.
+        self._event_bus = event_bus
+
         LOGGER.info(
-            "[WakeWordDetector] Inicializado. stt_url=%s mic=%s cycle=%ds",
+            "[WakeWordDetector] Inicializado. stt_url=%s mic=%s cycle=%ds event_bus=%s",
             stt_url, mic_device, cycle_duration_s,
+            "activo" if event_bus is not None else "desactivado",
         )
 
     # ------------------------------------------------------------------
@@ -227,12 +261,18 @@ class WakeWordDetector:
 
     async def detect_cycle(self) -> tuple[bool, str]:
         """
-        @TASK: Ejecutar un ciclo completo de detección: grabar → transcribir → evaluar
+        @TASK: Ejecutar un ciclo completo de detección: grabar → transcribir → evaluar → publicar evento
         @INPUT: Sin parámetros (usa configuración de la instancia)
-        @OUTPUT: Tuple (is_wake_word: bool, transcript: str)
-        @CONTEXT: Llamar en loop desde el pipeline de hibernación
+        @OUTPUT: Tuple (is_wake_word: bool, transcript: str);
+                 side-effect: publica EventType.INTERACTION_STARTED en el EventBus si es wake word
+        @CONTEXT: Llamar en loop desde el pipeline de hibernación.
+                  Si se detecta wake word Y hay EventBus configurado, se publica
+                  INTERACTION_STARTED ANTES de retornar, permitiendo que TourOrchestrator
+                  ejecute pause_for_interaction() de forma concurrente (fire-and-forget en el bus).
         @SECURITY: Archivo temporal con nombre único (mkstemp); eliminado en finally
         @PERFORMANCE: Toda I/O en run_in_executor para no bloquear el event loop
+        @AI_CONTEXT: La publicación del evento ocurre DESPUÉS de confirmar el wake word.
+                     El orchestrator reacciona en su callback suscripto de forma concurrente.
         """
         loop = asyncio.get_running_loop()
 
@@ -266,10 +306,27 @@ class WakeWordDetector:
 
             is_wake = self._is_wake_word(transcript)
             LOGGER.debug("[WakeWordDetector] transcript='%s' is_wake=%s", transcript, is_wake)
+
+            # STEP 3.6: Publicar INTERACTION_STARTED en el EventBus si se detectó wake word
+            # @AI_CONTEXT: La publicación es fire-and-forget respecto a detect_cycle().
+            #              TourOrchestrator recibirá el evento y ejecutará pause_for_interaction()
+            #              en su callback suscripto de forma concurrente.
+            #              El payload incluye la transcripción para que el orchestrator
+            #              pueda usarla como contexto inicial de la interacción.
+            if is_wake and self._event_bus is not None:
+                from src.core.events import EventType  # import runtime (evita circular en module level)
+                LOGGER.info(
+                    "[WakeWordDetector] Wake word detectado. Publicando INTERACTION_STARTED."
+                )
+                await self._event_bus.publish(
+                    EventType.INTERACTION_STARTED,
+                    data={"transcript": transcript, "source": "wake_word_detector"},
+                )
+
             return is_wake, transcript
 
         finally:
-            # STEP 3.6: Limpiar archivo temporal
+            # STEP 3.7: Limpiar archivo temporal
             # @SECURITY: Cleanup garantizado independientemente del resultado
             try:
                 os.unlink(tmp_path)
