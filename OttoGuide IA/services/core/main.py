@@ -42,7 +42,7 @@ LLM_URL = f"http://localhost:{LLM_PORT}/api/generate"
 # ─── CONFIGURACIÓN DE AUDIO ───────────────────────────────────────────────────
 
 MIC_DEVICE   = "plughw:1,0"  # notebook Linux Mint — micrófono interno tarjeta 1
-MIC_CHANNELS = "1"           # notebook: mono (1 canal)
+MIC_CHANNELS = "2"           # notebook: mono (1 canal) o estéreo (2 canales) — probar ambos y elegir el que suene mejor
 # MIC_DEVICE   = "plughw:0,0"  # robot Jetson — confirmar con arecord -l en Fase 5
 # MIC_CHANNELS = "1"           # robot Jetson: mono
 
@@ -400,6 +400,10 @@ def hablar(texto: str):
             "ottoguide-tts:/tmp/otto_texto.txt"
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+        # Eliminar audio anterior en el host para evitar reproducir archivos cacheados
+        if os.path.exists("/tmp/respuesta.wav"):
+            os.remove("/tmp/respuesta.wav")
+
         # Borrar el WAV anterior del contenedor y generar el nuevo
         # Si Piper falla, el docker cp va a fallar y no se reproduce nada
         subprocess.run([
@@ -417,6 +421,11 @@ def hablar(texto: str):
             "ottoguide-tts:/tmp/respuesta.wav",
             "/tmp/respuesta.wav"
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # Verificar que se generó el audio correctamente
+        if not os.path.exists("/tmp/respuesta.wav"):
+            print("[TTS] ERROR: no se generó audio")
+            return
 
         # Reproducir en background con paplay (PipeWire)
         subprocess.Popen(
