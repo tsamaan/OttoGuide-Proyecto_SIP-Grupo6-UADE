@@ -83,3 +83,10 @@ Las transiciones se ejecutan con AsyncEngine y tareas no bloqueantes para navega
 3. Levantar servicio systemd del orquestador E2E.
 4. Supervisar telemetría por WebSocket y dashboard web.
 5. Activar kill switch REST ante condición insegura.
+
+## Actualizacion RC1 HIL
+
+- `scripts/hil_capture_mapping_bundle.sh` orquesta sensores, `slam_toolbox`, `rosbag2`, guardado de mapa y manifiesto JSON.
+- `scripts/hil_mapping_recorder.sh` graba `/scan`, `/livox/lidar`, `/livox/imu`, camaras, `/tf`, `/tf_static`, `/map` y `/robot_state/odom`.
+- `scripts/hil_save_map.sh` respeta `ROS_SETUP` y persiste el mapa con `nav2_map_server`.
+- El SDK G1 incluye `AudioClient.TtsMaker` y `AudioClient.PlayStream`; su uso queda en backlog post-RC1 hasta validacion fisica.

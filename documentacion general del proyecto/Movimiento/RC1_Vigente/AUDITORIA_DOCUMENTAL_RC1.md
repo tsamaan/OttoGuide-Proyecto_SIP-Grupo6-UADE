@@ -26,6 +26,10 @@ Estado objetivo contrastado:
 | documentacion general del proyecto/docs/README_simulation.md | Referencial (fase previa) | Enfoque de simulacion, no estado operativo actual | Conservar como anexo historico |
 | documentacion general del proyecto/docs/G1-Manual-de-usuario-Transcripcion.md | Vigente referencial proveedor | Manual operativo de hardware y seguridad base | Mantener como fuente normativa de seguridad |
 | documentacion general del proyecto/MEMORIA_TECNICA_EXPORT.txt | Obsoleta parcial | Referencias de rutas legacy fuera de codigo ottoguide/ y archivos removidos | Mantener solo como evidencia historica, no documental viva |
+| documentacion general del proyecto/AppAnalysis/APK_CONNECTIVITY_ANALYSIS.md | Referencial tecnica | Analisis de ingenieria inversa de aplicacion Unitree Go para entender topologia de red remota | Mantener como referencia de compatibilidad y arquitectura de control remoto |
+| codigo ottoguide/data/AppPhone/APK_CONNECTIVITY_ANALYSIS.md | Referencial tecnica sincronizada | Copia operativa del analisis APK usada por el codigo y backlog tecnico | Mantener sincronizada con AppAnalysis |
+| documentacion general del proyecto/RC1_Vigente/RUNBOOK_PACKET_CAPTURE_HIL.md | Vigente | Procedimiento de captura pasiva `tcpdump` para completar analisis dinamico del plano factory | Ejecutar solo en HIL fisico aislado |
+| codigo ottoguide/libs/unitree_sdk2_python-master/unitree_sdk2py/g1/audio/g1_audio_client.py | Referencial SDK proveedor | Confirma `AudioClient.TtsMaker` y `PlayStream` para audio nativo G1 | Evaluar como mejora post-RC1, no ruta primaria actual |
 | planificacion/V2/README.md | Administrativo | Describe capa de cronogramas, sin impacto tecnico runtime | Mantener en dominio de planificacion |
 
 ## Incongruencias detectadas
@@ -39,3 +43,5 @@ Estado objetivo contrastado:
 1. Se crea documentacion_general_del_proyecto/ como fuente documental canonica de RC1.
 2. Se centraliza arquitectura operativa y runbook de arranque en documentos dedicados.
 3. Se deja trazabilidad explicita de documentos vigentes vs historicos para evitar uso incorrecto.
+4. Se incorpora analisis tecnico de referencia (AppAnalysis/) para entender compatibilidad con ecosistema Unitree y topologia de red remota.
+5. Se incorpora backlog tecnico en `TODO.md` para separar mejoras post-RC1 de cambios permitidos durante operacion bloqueada.

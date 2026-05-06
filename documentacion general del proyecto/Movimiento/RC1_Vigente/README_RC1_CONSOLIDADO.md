@@ -15,6 +15,9 @@ Este directorio consolida la documentacion operativa y arquitectonica vigente de
 | ARQUITECTURA_OPERATIVA_RC1.md | Contrato tecnico de arquitectura y flujo E2E vigente |
 | RUNBOOK_STARTUP_RC1.md | Secuencia de arranque y criterios GO/NO-GO |
 | RUNBOOK_DEMO_LOCAL.md | Procedimiento offline/mock para demo local de interaccion y dashboard WS |
+| RUNBOOK_PACKET_CAPTURE_HIL.md | Captura pasiva del plano factory `192.168.12.x` para analisis dinamico del APK |
+| HIL_TESTING_PROTOCOL.md | Protocolo fisico HIL, mapeo, audio, seguridad y apagado |
+| ROS2_INTEGRATION.md | Frontera ROS2/DDS/SDK2, incluyendo nota de audio nativo G1 |
 
 ## Politica de uso
 

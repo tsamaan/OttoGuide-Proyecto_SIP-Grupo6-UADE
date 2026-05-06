@@ -4,6 +4,8 @@ Documento de arquitectura pasivo. Define exclusivamente la topologia
 de capas y los limites de responsabilidad entre Python (Capa 4) y
 ROS 2 (Capa 2). Auditado contra `codigo ottoguide/libs/unitree_ros2-master/`.
 
+El audio nativo del G1 no requiere ROS 2 en RC1. El SDK Python expone `unitree_sdk2py.g1.audio.g1_audio_client.AudioClient`, servicio `voice`, con `TtsMaker`, `PlayStream`, `PlayStop`, `GetVolume` y `SetVolume`. Esta ruta usa SDK2/RPC sobre DDS y debe aislarse como adaptador de audio separado si se integra post-RC1.
+
 ---
 
 ## Arquitectura de Capas
@@ -117,3 +119,4 @@ con GPU, Isaac Lab queda documentado como trabajo futuro post-MVP.
 - El resto de modulos de aplicacion no debe inicializar nodos ROS 2.
 - `ament_index_python` no forma parte del runtime de OttoGuide MVP.
 - `real_adapter.py`, `sim_adapter.py` y `mock_adapter.py` no importan ROS 2.
+- Cualquier integracion futura de `AudioClient` debe vivir fuera de `nav2_bridge.py` y no puede compartir responsabilidad con locomocion.
