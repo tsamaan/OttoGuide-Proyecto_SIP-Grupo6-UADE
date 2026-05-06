@@ -43,6 +43,13 @@ unitree_mujoco/
 libs/
 codigo ottoguide/libs/
 
-# ===== Datos y recursos locales =====
-data/
-resources/
+# ===== Recursos generados (mantener local, no versionado) =====
+codigo ottoguide/resources/audio/
+codigo ottoguide/resources/maps/
+codigo ottoguide/resources/tags/
+
+# ===== APK binarios grandes (excluir; usar link apkpure.com para referencia) =====
+codigo ottoguide/data/AppPhone/*.xapk
+codigo ottoguide/data/AppPhone/*.zip
+codigo ottoguide/data/AppPhone/unitree_go_apk/base.zip
+codigo ottoguide/data/AppPhone/unitree_go_xapk/
