@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
 
+    # --- Unitree factory plane diagnostics (read-only) ---
+    UNITREE_FACTORY_DIAGNOSTICS_ENABLED: bool = False
+    UNITREE_FACTORY_BASE_URL: str = "http://192.168.12.1:9991"
+    UNITREE_FACTORY_TIMEOUT_S: float = 0.35
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
