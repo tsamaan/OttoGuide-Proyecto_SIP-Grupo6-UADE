@@ -1,15 +1,17 @@
 #!/bin/bash
 set -eo pipefail
 export AMENT_TRACE_SETUP_FILES=""
-export AMENT_PYTHON_EXECUTABLE=""
+export AMENT_PYTHON_EXECUTABLE="$(which python3)"
+source /opt/ros/foxy/setup.bash
+source /home/unitree/livox_ws/install/setup.bash
 
 : <<'DOC'
 @TASK: Orquestar inicio de mapeo fisico HIL en Companion PC con sensores reales del Unitree G1.
-@INPUT: Entorno ROS 2 Humble disponible con drivers Livox MID360 y RealSense instalados.
+@INPUT: Entorno ROS 2 Foxy disponible con drivers Livox MID360 y RealSense instalados.
 @OUTPUT: Drivers de sensores y slam_toolbox online_async ejecutandose en paralelo para generar mapa.
 @CONTEXT: Flujo de pre-configuracion para mapeo fisico teleoperado por joystick nativo del G1.
 @SECURITY: No inicia teleoperacion por teclado ni publica comandos de movimiento.
-STEP [1]: Cargar setup ROS 2 y workspace local.
+STEP [1]: Cargar workspace local.
 STEP [2]: Levantar driver Livox MID360.
 STEP [3]: Levantar driver RealSense.
 STEP [4]: Levantar slam_toolbox en modo online_async con reloj real.
@@ -19,9 +21,6 @@ DOC
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# @CONTEXT: Inyeccion de middleware ROS 2 verificada para robot (header canónico)
-source /opt/ros/foxy/setup.bash
-source /home/unitree/livox_ws/install/setup.bash
 if [ -f "${PROJECT_ROOT}/install/setup.bash" ]; then
   source "${PROJECT_ROOT}/install/setup.bash"
 fi
@@ -29,6 +28,7 @@ fi
 PIDS=()
 
 cleanup() {
+  echo "@CONTEXT: Deteniendo stack de sensores..."
   for pid in "${PIDS[@]:-}"; do
     if kill -0 "${pid}" >/dev/null 2>&1; then
       kill -INT "${pid}" >/dev/null 2>&1 || true

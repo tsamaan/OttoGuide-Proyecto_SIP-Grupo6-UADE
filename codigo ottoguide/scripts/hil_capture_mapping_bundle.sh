@@ -1,7 +1,9 @@
 #!/bin/bash
 set -eo pipefail
 export AMENT_TRACE_SETUP_FILES=""
-export AMENT_PYTHON_EXECUTABLE=""
+export AMENT_PYTHON_EXECUTABLE="$(which python3)"
+source /opt/ros/foxy/setup.bash
+source /home/unitree/livox_ws/install/setup.bash
 
 : <<'DOC'
 @TASK: Ejecutar captura HIL de mapeo con fases declarativas y manifiesto.
@@ -17,9 +19,6 @@ DOC
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-# @CONTEXT: Inyeccion de middleware ROS 2 verificada para robot (header canónico)
-source /opt/ros/foxy/setup.bash
-source /home/unitree/livox_ws/install/setup.bash
 ROS_SETUP="/opt/ros/foxy/setup.bash"
 HIL_MAP_BASENAME="${HIL_MAP_BASENAME:-${PROJECT_ROOT}/maps/uade_physical_map}"
 HIL_BAG_OUT_DIR="${HIL_BAG_OUT_DIR:-${PROJECT_ROOT}/logs/bags}"

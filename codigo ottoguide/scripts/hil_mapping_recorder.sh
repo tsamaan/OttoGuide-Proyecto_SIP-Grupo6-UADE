@@ -1,22 +1,22 @@
 #!/bin/bash
 set -eo pipefail
 export AMENT_TRACE_SETUP_FILES=""
-export AMENT_PYTHON_EXECUTABLE=""
+export AMENT_PYTHON_EXECUTABLE="$(which python3)"
+source /opt/ros/foxy/setup.bash
+source /home/unitree/livox_ws/install/setup.bash
 
-# @TASK: Grabar rosbag2 pasivo de alta densidad para mapeo HIL sin ejecutar navegacion
-# @INPUT: ROS 2 activo, topicos LiDAR/IMU/camara/tf/odom disponibles, directorio de salida opcional
-# @OUTPUT: Bag rosbag2 almacenado con topicos crudos para postproceso de mapeo
-# @CONTEXT: Captura de datos HIL previa a calibracion AMCL/Nav2 en Companion PC
-# @SECURITY: Solo suscripcion pasiva de topicos; no publica comandos ni muta estado de navegacion
-# STEP 1: Cargar entorno ROS 2 y preparar directorio de salida
-# STEP 2: Iniciar ros2 bag record sobre topicos de alta densidad requeridos
+: <<'DOC'
+@TASK: Grabar rosbag2 pasivo de alta densidad para mapeo HIL sin ejecutar navegacion.
+@INPUT: ROS 2 activo, topicos LiDAR/IMU/camara/tf/odom disponibles, directorio de salida opcional.
+@OUTPUT: Bag rosbag2 almacenado con topicos crudos para postproceso de mapeo.
+@CONTEXT: Captura de datos HIL previa a calibracion AMCL/Nav2 en Companion PC.
+@SECURITY: Solo suscripcion pasiva de topicos; no publica comandos ni muta estado de navegacion.
+STEP [1]: Cargar entorno ROS 2 y preparar directorio de salida.
+STEP [2]: Iniciar ros2 bag record sobre topicos de alta densidad requeridos.
+DOC
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-# @CONTEXT: Inyeccion de middleware ROS 2 verificada para robot (header canonico)
-source /opt/ros/foxy/setup.bash
-source /home/unitree/livox_ws/install/setup.bash
-ROS_SETUP="/opt/ros/foxy/setup.bash"
 OUT_DIR="${1:-${PROJECT_ROOT}/logs/bags}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 BAG_PATH="${HIL_BAG_PATH:-${OUT_DIR}/hil_mapping_${STAMP}}"
