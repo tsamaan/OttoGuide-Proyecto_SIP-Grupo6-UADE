@@ -278,4 +278,9 @@ log_output "Bag destino ${BAG_PATH}"
 log_output "Mapa destino ${HIL_MAP_BASENAME}.yaml y ${HIL_MAP_BASENAME}.pgm"
 log_context "Conducir una sola vez el recorrido; al terminar, pulsar Ctrl+C para guardar todo."
 
-wait "${PIDS[0]}"
+echo -e "\n========================================================"
+echo -e "[+] MAPEO HIL EN CURSO - Tópicos activos."
+echo -e "[!] PELIGRO: NO presiones Ctrl+C (destruye el SLAM prematuramente)."
+echo -e " Presiona la tecla [ENTER] cuando termines para guardar el mapa."
+echo -e "========================================================\n"
+read -r
