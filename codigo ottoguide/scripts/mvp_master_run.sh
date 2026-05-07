@@ -17,7 +17,13 @@ PREFLIGHT_SCRIPT="${SCRIPT_DIR}/preflight_check.sh"
 VERIFY_SCRIPT="${SCRIPT_DIR}/verify_remote_env.sh"
 VENV_ACTIVATE="${PROJECT_ROOT}/.venv/bin/activate"
 VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
-ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
+# @CONTEXT: Inyeccion de middleware ROS 2 (Foxy nativo en Companion PC Unitree G1 o Humble local)
+if [[ -f "/opt/ros/foxy/setup.bash" ]]; then
+  DEFAULT_ROS_SETUP="/opt/ros/foxy/setup.bash"
+else
+  DEFAULT_ROS_SETUP="/opt/ros/humble/setup.bash"
+fi
+ROS_SETUP="${ROS_SETUP:-${DEFAULT_ROS_SETUP}}"
 API_HOST="${API_HOST:-0.0.0.0}"
 API_PORT="${API_PORT:-8000}"
 EMERGENCY_URL="http://127.0.0.1:${API_PORT}/emergency"
