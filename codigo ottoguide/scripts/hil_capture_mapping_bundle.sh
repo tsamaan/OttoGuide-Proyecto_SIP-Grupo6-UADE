@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-set -euo pipefail
+export AMENT_TRACE_SETUP_FILES=""
+source /opt/ros/foxy/setup.bash
+source /home/unitree/livox_ws/install/setup.bash
+set -eo pipefail
 
 : <<'DOC'
 @TASK: Ejecutar captura HIL de mapeo con fases declarativas y manifiesto.
@@ -16,11 +19,6 @@ DOC
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # @CONTEXT: Inyeccion de middleware ROS 2 (Foxy nativo en Companion PC Unitree G1 o Humble local)
-if [[ -f "/opt/ros/foxy/setup.bash" ]]; then
-  DEFAULT_ROS_SETUP="/opt/ros/foxy/setup.bash"
-else
-  DEFAULT_ROS_SETUP="/opt/ros/humble/setup.bash"
-fi
 ROS_SETUP="${ROS_SETUP:-${DEFAULT_ROS_SETUP}}"
 HIL_MAP_BASENAME="${HIL_MAP_BASENAME:-${PROJECT_ROOT}/maps/uade_physical_map}"
 HIL_BAG_OUT_DIR="${HIL_BAG_OUT_DIR:-${PROJECT_ROOT}/logs/bags}"
@@ -68,10 +66,6 @@ load_ros_environment() {
   if [[ -f "${ROS_SETUP}" ]]; then
     # shellcheck source=/dev/null
     source "${ROS_SETUP}"
-  fi
-  if [[ -f "${PROJECT_ROOT}/install/setup.bash" ]]; then
-    # shellcheck source=/dev/null
-    source "${PROJECT_ROOT}/install/setup.bash"
   fi
 }
 

@@ -1,5 +1,8 @@
 #!/bin/bash
-set -euo pipefail
+export AMENT_TRACE_SETUP_FILES=""
+source /opt/ros/foxy/setup.bash
+source /home/unitree/livox_ws/install/setup.bash
+set -eo pipefail
 
 : <<'DOC'
 @TASK: Persistir mapa fisico generado por slam_toolbox mediante nav2_map_server.
@@ -15,25 +18,16 @@ DOC
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # @CONTEXT: Inyeccion de middleware ROS 2 (Foxy nativo en Companion PC Unitree G1 o Humble local)
-if [[ -f "/opt/ros/foxy/setup.bash" ]]; then
-  DEFAULT_ROS_SETUP="/opt/ros/foxy/setup.bash"
-else
-  DEFAULT_ROS_SETUP="/opt/ros/humble/setup.bash"
-fi
 ROS_SETUP="${ROS_SETUP:-${DEFAULT_ROS_SETUP}}"
 MAP_BASENAME="${1:-${HIL_MAP_BASENAME:-${PROJECT_ROOT}/maps/uade_physical_map}}"
 
 if [ ! -f "${ROS_SETUP}" ]; then
   echo "@OUTPUT: ERROR ROS_SETUP no encontrado: ${ROS_SETUP}" >&2
   exit 1
-fi
 
 # shellcheck source=/dev/null
 source "${ROS_SETUP}"
-if [ -f "${PROJECT_ROOT}/install/setup.bash" ]; then
   # shellcheck source=/dev/null
-  source "${PROJECT_ROOT}/install/setup.bash"
-fi
 
 if ! command -v ros2 >/dev/null 2>&1; then
   echo "@OUTPUT: ERROR comando ros2 no disponible tras cargar ROS_SETUP" >&2

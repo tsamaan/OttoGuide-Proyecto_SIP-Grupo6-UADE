@@ -1,5 +1,8 @@
 #!/bin/bash
-set -euo pipefail
+export AMENT_TRACE_SETUP_FILES=""
+source /opt/ros/foxy/setup.bash
+source /home/unitree/livox_ws/install/setup.bash
+set -eo pipefail
 
 : <<'DOC'
 @TASK: Iniciar navegacion autonoma fisica HIL con mapa pre-generado y reloj real.
@@ -19,19 +22,10 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MAP_PATH="${PROJECT_ROOT}/maps/uade_physical_map.yaml"
 
 # @CONTEXT: Inyeccion de middleware ROS 2 (Foxy nativo en Companion PC Unitree G1 o Humble local)
-if [[ -f "/opt/ros/foxy/setup.bash" ]]; then
-  source "/opt/ros/foxy/setup.bash"
-elif [[ -f "/opt/ros/humble/setup.bash" ]]; then
-  source "/opt/ros/humble/setup.bash"
-fi
-if [ -f "${PROJECT_ROOT}/install/setup.bash" ]; then
-  source "${PROJECT_ROOT}/install/setup.bash"
-fi
 
 if [ ! -f "${MAP_PATH}" ]; then
   echo "@OUTPUT: ERROR mapa no encontrado en ${MAP_PATH}"
   exit 1
-fi
 
 PIDS=()
 

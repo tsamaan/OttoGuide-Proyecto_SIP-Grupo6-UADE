@@ -1,5 +1,8 @@
 #!/bin/bash
-set -euo pipefail
+export AMENT_TRACE_SETUP_FILES=""
+source /opt/ros/foxy/setup.bash
+source /home/unitree/livox_ws/install/setup.bash
+set -eo pipefail
 
 : <<'DOC'
 @TASK: Wrapper operativo para calibrar un waypoint logico usando pose AMCL.
@@ -15,7 +18,6 @@ DOC
 if [ "${1:-}" = "" ]; then
   echo "@OUTPUT: ERROR falta parametro node-id. Uso: bash scripts/hil_calibrate_node.sh <I|1|2|3|F>"
   exit 1
-fi
 
 NODE_ID="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,16 +25,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CALIBRATOR="${SCRIPT_DIR}/hil_waypoint_calibrator.py"
 
 # @CONTEXT: Inyeccion de middleware ROS 2 (Foxy nativo en Companion PC Unitree G1 o Humble local)
-if [[ -f "/opt/ros/foxy/setup.bash" ]]; then
-  source "/opt/ros/foxy/setup.bash"
-elif [[ -f "/opt/ros/humble/setup.bash" ]]; then
-  source "/opt/ros/humble/setup.bash"
-else
   echo "@OUTPUT: ERROR ROS 2 no encontrado (ni Foxy ni Humble)."
   exit 1
-fi
-if [ -f "${PROJECT_ROOT}/install/setup.bash" ]; then
-  source "${PROJECT_ROOT}/install/setup.bash"
-fi
 
 python3 "${CALIBRATOR}" --node-id "${NODE_ID}"

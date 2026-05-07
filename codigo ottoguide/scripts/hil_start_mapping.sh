@@ -1,5 +1,8 @@
 #!/bin/bash
-set -euo pipefail
+export AMENT_TRACE_SETUP_FILES=""
+source /opt/ros/foxy/setup.bash
+source /home/unitree/livox_ws/install/setup.bash
+set -eo pipefail
 
 : <<'DOC'
 @TASK: Orquestar inicio de mapeo fisico HIL en Companion PC con sensores reales del Unitree G1.
@@ -18,14 +21,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # @CONTEXT: Inyeccion de middleware ROS 2 (Foxy nativo en Companion PC Unitree G1 o Humble local)
-if [[ -f "/opt/ros/foxy/setup.bash" ]]; then
-  source "/opt/ros/foxy/setup.bash"
-elif [[ -f "/opt/ros/humble/setup.bash" ]]; then
-  source "/opt/ros/humble/setup.bash"
-fi
-if [ -f "${PROJECT_ROOT}/install/setup.bash" ]; then
-  source "${PROJECT_ROOT}/install/setup.bash"
-fi
 
 PIDS=()
 
@@ -34,7 +29,6 @@ cleanup() {
     if kill -0 "${pid}" >/dev/null 2>&1; then
       kill "${pid}" >/dev/null 2>&1 || true
       wait "${pid}" >/dev/null 2>&1 || true
-    fi
   done
 }
 
