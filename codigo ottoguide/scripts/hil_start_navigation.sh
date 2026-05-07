@@ -1,8 +1,5 @@
 #!/bin/bash
-export AMENT_TRACE_SETUP_FILES=""
-source /opt/ros/foxy/setup.bash
-source /home/unitree/livox_ws/install/setup.bash
-set -eo pipefail
+set -euo pipefail
 
 : <<'DOC'
 @TASK: Iniciar navegacion autonoma fisica HIL con mapa pre-generado y reloj real.
@@ -21,18 +18,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MAP_PATH="${PROJECT_ROOT}/maps/uade_physical_map.yaml"
 
-# @CONTEXT: Inyeccion de middleware ROS 2 (Foxy nativo en Companion PC Unitree G1 o Humble local)
+# @CONTEXT: Inyeccion de middleware ROS 2 verificada para robot
+export AMENT_TRACE_SETUP_FILES=""
+source /opt/ros/foxy/setup.bash
+source /home/unitree/livox_ws/install/setup.bash
+if [ -f "${PROJECT_ROOT}/install/setup.bash" ]; then
+  source "${PROJECT_ROOT}/install/setup.bash"
+fi
 
 if [ ! -f "${MAP_PATH}" ]; then
   echo "@OUTPUT: ERROR mapa no encontrado en ${MAP_PATH}"
   exit 1
+fi
 
 PIDS=()
 
 cleanup() {
   for pid in "${PIDS[@]:-}"; do
     if kill -0 "${pid}" >/dev/null 2>&1; then
-      kill "${pid}" >/dev/null 2>&1 || true
+      kill -INT "${pid}" >/dev/null 2>&1 || true
       wait "${pid}" >/dev/null 2>&1 || true
     fi
   done

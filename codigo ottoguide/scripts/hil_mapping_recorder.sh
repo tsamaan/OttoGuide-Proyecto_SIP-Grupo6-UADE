@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-export AMENT_TRACE_SETUP_FILES=""
-source /opt/ros/foxy/setup.bash
-source /home/unitree/livox_ws/install/setup.bash
 # @TASK: Grabar rosbag2 pasivo de alta densidad para mapeo HIL sin ejecutar navegacion
 # @INPUT: ROS 2 activo, topicos LiDAR/IMU/camara/tf/odom disponibles, directorio de salida opcional
 # @OUTPUT: Bag rosbag2 almacenado con topicos crudos para postproceso de mapeo
@@ -10,21 +7,25 @@ source /home/unitree/livox_ws/install/setup.bash
 # STEP 1: Cargar entorno ROS 2 y preparar directorio de salida
 # STEP 2: Iniciar ros2 bag record sobre topicos de alta densidad requeridos
 
-set -eo pipefail
+set -euo pipefail
+
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-# @CONTEXT: Inyeccion de middleware ROS 2 (Foxy nativo en Companion PC Unitree G1 o Humble local)
-ROS_SETUP="${ROS_SETUP:-${DEFAULT_ROS_SETUP}}"
+# @CONTEXT: Inyeccion de middleware ROS 2 verificada para robot
+export AMENT_TRACE_SETUP_FILES=""
+source /opt/ros/foxy/setup.bash
+source /home/unitree/livox_ws/install/setup.bash
+ROS_SETUP="/opt/ros/foxy/setup.bash"
 OUT_DIR="${1:-${PROJECT_ROOT}/logs/bags}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 BAG_PATH="${HIL_BAG_PATH:-${OUT_DIR}/hil_mapping_${STAMP}}"
 
 mkdir -p "${OUT_DIR}" "$(dirname "${BAG_PATH}")"
 
-if [[ -f "${ROS_SETUP}" ]]; then
-  # shellcheck source=/dev/null
-  source "${ROS_SETUP}"
+# @CONTEXT: Ya inicializado en el header
+# shellcheck source=/dev/null
+# source "${ROS_SETUP}"
 
 exec ros2 bag record \
   --storage mcap \
