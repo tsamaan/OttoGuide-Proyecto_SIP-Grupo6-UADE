@@ -144,12 +144,12 @@ chmod +x scripts/deploy.sh
 
 **Parámetros de override:**
 - `ROBOT_USER=unitree` (usuario remoto, por defecto)
-- `ROBOT_IP=192.168.123.161` (IP del robot, por defecto)
+- `ROBOT_IP=192.168.123.164` (IP del robot, por defecto)
 - Destino remoto: `/home/unitree/OttoGuide-Proyecto_SIP-Grupo6-UADE` (por defecto)
 
 Ejemplo con parámetros personalizados:
 ```bash
-ROBOT_USER=admin ROBOT_IP=192.168.123.150 ./scripts/deploy.sh
+ROBOT_USER=admin ROBOT_IP=192.168.123.164 ./scripts/deploy.sh
 ```
 
 **Exclusiones automáticas:** `.venv/`, `__pycache__/`, `.git/`, `tests/`, `.pytest_cache/`.
@@ -161,7 +161,7 @@ ROBOT_USER=admin ROBOT_IP=192.168.123.150 ./scripts/deploy.sh
 ### Acceso Remoto
 
 ```bash
-ssh unitree@192.168.123.161
+ssh unitree@192.168.123.164
 ```
 
 ### Crear Entorno Virtual Python
@@ -409,7 +409,7 @@ Conflictos en comandos de locomoción pueden resultar en comportamiento no deter
 ## Checklist de Despliegue
 
 - [ ] PC conectada a LAN aislada del Unitree G1.
-- [ ] SSH accesible a `unitree@192.168.123.161`.
+- [ ] SSH accesible a `unitree@192.168.123.164`.
 - [ ] `scripts/deploy.sh` ejecutado sin errores.
 - [ ] Entorno virtual Python creado y renovado en robot.
 - [ ] Instalación `pip install -e ".[hardware]"` completada sin fallos.

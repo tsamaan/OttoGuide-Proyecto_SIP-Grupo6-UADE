@@ -182,8 +182,8 @@ Desde la estacion local de desarrollo:
 // @TASK: Copiar pcap desde Companion PC/controlador a estacion local.
 // @INPUT: Usuario SSH, host remoto y ruta PCAP_OUT.
 // @OUTPUT: Archivo .pcap disponible para Wireshark local.
-// @CONTEXT: Reemplazar unitree@192.168.123.161 y ruta por valores reales.
-scp unitree@192.168.123.161:/home/unitree/ottoguide_pcaps/unitree_factory_YYYYMMDDTHHMMSSZ.pcap .
+// @CONTEXT: Reemplazar unitree@192.168.123.164 y ruta por valores reales.
+scp unitree@192.168.123.164:/home/unitree/ottoguide_pcaps/unitree_factory_YYYYMMDDTHHMMSSZ.pcap .
 ```
 
 Si el acceso de gestion ocurre por otra IP:
