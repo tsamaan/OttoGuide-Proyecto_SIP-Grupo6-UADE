@@ -53,3 +53,11 @@ codigo ottoguide/data/AppPhone/*.xapk
 codigo ottoguide/data/AppPhone/*.zip
 codigo ottoguide/data/AppPhone/unitree_go_apk/base.zip
 codigo ottoguide/data/AppPhone/unitree_go_xapk/
+
+# ===== APK y Binarios Android =====
+*.apk
+*.xapk
+*.dex
+codigo ottoguide/data/AppPhone/unitree_explore/extracted/
+codigo ottoguide/data/AppPhone/unitree_go_apk/**/smali/
+codigo ottoguide/data/AppPhone/**/*.so
