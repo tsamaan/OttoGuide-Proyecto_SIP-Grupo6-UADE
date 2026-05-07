@@ -17,7 +17,12 @@ DOC
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-source /opt/ros/humble/setup.bash
+# @CONTEXT: Inyeccion de middleware ROS 2 (Foxy nativo en Companion PC Unitree G1 o Humble local)
+if [[ -f "/opt/ros/foxy/setup.bash" ]]; then
+  source "/opt/ros/foxy/setup.bash"
+elif [[ -f "/opt/ros/humble/setup.bash" ]]; then
+  source "/opt/ros/humble/setup.bash"
+fi
 if [ -f "${PROJECT_ROOT}/install/setup.bash" ]; then
   source "${PROJECT_ROOT}/install/setup.bash"
 fi

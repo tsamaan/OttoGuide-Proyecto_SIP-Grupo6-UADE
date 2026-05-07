@@ -22,12 +22,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CALIBRATOR="${SCRIPT_DIR}/hil_waypoint_calibrator.py"
 
-if [ ! -f "/opt/ros/humble/setup.bash" ]; then
-  echo "@OUTPUT: ERROR ROS 2 Humble no encontrado en /opt/ros/humble/setup.bash"
+# @CONTEXT: Inyeccion de middleware ROS 2 (Foxy nativo en Companion PC Unitree G1 o Humble local)
+if [[ -f "/opt/ros/foxy/setup.bash" ]]; then
+  source "/opt/ros/foxy/setup.bash"
+elif [[ -f "/opt/ros/humble/setup.bash" ]]; then
+  source "/opt/ros/humble/setup.bash"
+else
+  echo "@OUTPUT: ERROR ROS 2 no encontrado (ni Foxy ni Humble)."
   exit 1
 fi
-
-source /opt/ros/humble/setup.bash
 if [ -f "${PROJECT_ROOT}/install/setup.bash" ]; then
   source "${PROJECT_ROOT}/install/setup.bash"
 fi

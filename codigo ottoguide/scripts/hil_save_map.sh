@@ -14,7 +14,13 @@ DOC
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
+# @CONTEXT: Inyeccion de middleware ROS 2 (Foxy nativo en Companion PC Unitree G1 o Humble local)
+if [[ -f "/opt/ros/foxy/setup.bash" ]]; then
+  DEFAULT_ROS_SETUP="/opt/ros/foxy/setup.bash"
+else
+  DEFAULT_ROS_SETUP="/opt/ros/humble/setup.bash"
+fi
+ROS_SETUP="${ROS_SETUP:-${DEFAULT_ROS_SETUP}}"
 MAP_BASENAME="${1:-${HIL_MAP_BASENAME:-${PROJECT_ROOT}/maps/uade_physical_map}}"
 
 if [ ! -f "${ROS_SETUP}" ]; then
