@@ -902,7 +902,7 @@
             <div class="pipeline-header">
               <span class="pipeline-badge" style="background:rgba(56,217,169,0.1);color:var(--wake);">Siempre activo</span>
               <span class="pipeline-name">Wake Word — via Whisper</span>
-              <span class="pipeline-tech">main.py · ciclos 3s</span>
+              <span class="pipeline-tech">main_v2.py · async · ciclos 3s</span>
             </div>
             <div class="pipeline-desc">
               El orquestador graba ciclos de 3 segundos con <code>arecord</code> y los manda a Whisper. Si la transcripción contiene "Hola Otto" (máx 4 palabras), activa el pipeline. Modo hibernación entre conversaciones.
@@ -947,7 +947,7 @@
               <span class="pipeline-tech">unitree_sdk2py · TtsMaker</span>
             </div>
             <div class="pipeline-desc">
-              La respuesta se pasa a <code>AudioClient.TtsMaker(text, speaker_id)</code> del SDK de Unitree. El robot habla con su hardware de audio nativo. Sin contenedor, sin archivos de voz externos.
+              Dual-mode controlado por <code>OTTO_ENV</code>. En notebook: <code>hablar_docker()</code> usa el contenedor Piper. En robot: <code>hablar_sdk()</code> llama a <code>AudioClient.TtsMaker()</code> del SDK Unitree. Fallback automático a Docker hasta validar el SDK en hardware real.
             </div>
           </div>
         </div>
@@ -961,7 +961,7 @@
               <span class="pipeline-tech">main.py</span>
             </div>
             <div class="pipeline-desc">
-              Tras la respuesta Otto pregunta si hay más consultas. Si el visitante se despide, vuelve al modo hibernación esperando el próximo "Hola Otto". Cooldown de 3 segundos para evitar captar la conversación ambiental.
+              Tras la respuesta Otto pregunta si hay más consultas. Si el visitante se despide, vuelve a hibernación. Cooldown 3 seg. Variable OTTO_ENV controla el backend TTS activo.
             </div>
           </div>
         </div>
