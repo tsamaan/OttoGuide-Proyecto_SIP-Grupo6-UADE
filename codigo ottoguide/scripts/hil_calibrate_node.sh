@@ -1,5 +1,7 @@
 #!/bin/bash
-set -euo pipefail
+set -eo pipefail
+export AMENT_TRACE_SETUP_FILES=""
+export AMENT_PYTHON_EXECUTABLE=""
 
 : <<'DOC'
 @TASK: Wrapper operativo para calibrar un waypoint logico usando pose AMCL.
@@ -22,8 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CALIBRATOR="${SCRIPT_DIR}/hil_waypoint_calibrator.py"
 
-# @CONTEXT: Inyeccion de middleware ROS 2 verificada para robot
-export AMENT_TRACE_SETUP_FILES=""
+# @CONTEXT: Inyeccion de middleware ROS 2 verificada para robot (header canónico)
 source /opt/ros/foxy/setup.bash
 source /home/unitree/livox_ws/install/setup.bash
 if [ -f "${PROJECT_ROOT}/install/setup.bash" ]; then

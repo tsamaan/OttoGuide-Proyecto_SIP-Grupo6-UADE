@@ -1,5 +1,7 @@
 #!/bin/bash
-set -euo pipefail
+set -eo pipefail
+export AMENT_TRACE_SETUP_FILES=""
+export AMENT_PYTHON_EXECUTABLE=""
 
 : <<'DOC'
 @TASK: Persistir mapa fisico generado por slam_toolbox mediante nav2_map_server.
@@ -14,8 +16,7 @@ DOC
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-# @CONTEXT: Inyeccion de middleware ROS 2 verificada para robot
-export AMENT_TRACE_SETUP_FILES=""
+# @CONTEXT: Inyeccion de middleware ROS 2 verificada para robot (header canónico)
 source /opt/ros/foxy/setup.bash
 source /home/unitree/livox_ws/install/setup.bash
 ROS_SETUP="/opt/ros/foxy/setup.bash"
