@@ -14,12 +14,16 @@ source /home/unitree/livox_ws/install/setup.bash
 STEP [1]: Cargar workspace local.
 STEP [2]: Levantar driver Livox MID360.
 STEP [3]: Levantar driver RealSense.
-STEP [4]: Levantar slam_toolbox en modo online_async con reloj real.
-STEP [5]: Mantener sesion viva y cerrar procesos hijos de forma segura al terminar.
+STEP [4]: Ejecutar preflight read-only de sensores y /scan.
+STEP [5]: Levantar slam_toolbox en modo online_async con reloj real.
+STEP [6]: Mantener sesion viva y cerrar procesos hijos de forma segura al terminar.
 DOC
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PREFLIGHT_SCRIPT="${SCRIPT_DIR}/preflight_sensors.sh"
+HIL_PREFLIGHT_ENABLED="${HIL_PREFLIGHT_ENABLED:-1}"
+HIL_SENSOR_WARMUP_S="${HIL_SENSOR_WARMUP_S:-8}"
 
 if [ -f "${PROJECT_ROOT}/install/setup.bash" ]; then
   source "${PROJECT_ROOT}/install/setup.bash"
@@ -44,6 +48,15 @@ PIDS+=("$!")
 
 ros2 launch realsense2_camera rs_launch.py enable_depth:=true enable_color:=true pointcloud.enable:=true &
 PIDS+=("$!")
+
+if [ "${HIL_PREFLIGHT_ENABLED}" = "1" ]; then
+  if [ ! -f "${PREFLIGHT_SCRIPT}" ]; then
+    echo "@OUTPUT: ERROR preflight no encontrado en ${PREFLIGHT_SCRIPT}"
+    exit 1
+  fi
+  sleep "${HIL_SENSOR_WARMUP_S}"
+  "${PREFLIGHT_SCRIPT}"
+fi
 
 ros2 launch slam_toolbox online_async_launch.py use_sim_time:=false scan_topic:=/scan &
 PIDS+=("$!")

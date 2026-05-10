@@ -5,7 +5,7 @@ set -euo pipefail
 : <<'DOC'
 @TASK: Certificar que los sensores criticos (LiDAR Livox MID360 y RealSense D435i) 
        estan publicando datos correctamente en ROS 2 para slam_toolbox.
-@INPUT: ROS 2 Foxy/Humble instalado, drivers livox_ros_driver2 y realsense2_camera disponibles.
+@INPUT: ROS 2 Foxy instalado en target G1, drivers livox_ros_driver2, realsense2_camera y pointcloud_to_laserscan disponibles.
 @OUTPUT: Estado de sensores, tabla de topicos activos y frecuencias. EXIT 0 si todo OK.
 @CONTEXT: Script de preflight HIL para validacion antes de mapeo/navegacion autonoma.
 @SECURITY: Solo lectura de topicos; no publica comandos ni modifica estado del robot.
@@ -27,14 +27,17 @@ readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly TOPIC_WAIT_TIMEOUT_S="${PREFLIGHT_TOPIC_WAIT_S:-10}"
 readonly HZ_MEASURE_DURATION_S="${PREFLIGHT_HZ_DURATION_S:-5}"
 readonly MIN_HZ_LIDAR="${PREFLIGHT_MIN_HZ_LIDAR:-8.0}"      # Livox MID360 ~10Hz
+readonly MIN_HZ_SCAN="${PREFLIGHT_MIN_HZ_SCAN:-8.0}"        # LaserScan derivado para slam_toolbox
 readonly MIN_HZ_IMU="${PREFLIGHT_MIN_HZ_IMU:-80.0}"         # IMU Livox ~100Hz  
 readonly MIN_HZ_CAMERA="${PREFLIGHT_MIN_HZ_CAMERA:-15.0}"   # RealSense ~30Hz
 readonly MIN_HZ_TF="${PREFLIGHT_MIN_HZ_TF:-5.0}"            # TF ~10-50Hz
+readonly LIVOX_MID360_IP="${LIVOX_MID360_IP:-192.168.123.120}"
 
 # Topicos criticos a verificar
 declare -A CRITICAL_TOPICS=(
     ["/utlidar/cloud"]="LiDAR PointCloud2"
     ["/utlidar/imu"]="LiDAR IMU"
+    ["/scan"]="LaserScan requerido por slam_toolbox"
     ["/camera/depth/image_rect_raw"]="RealSense Depth"
     ["/camera/color/image_raw"]="RealSense Color"
     ["/tf"]="Transformaciones dinamicas"
@@ -43,7 +46,6 @@ declare -A CRITICAL_TOPICS=(
 
 # Topicos opcionales (no bloqueantes)
 declare -A OPTIONAL_TOPICS=(
-    ["/scan"]="LaserScan convertido"
     ["/camera/depth/color/points"]="PointCloud RealSense"
     ["/sportmodestate"]="Estado locomocion G1"
 )
@@ -66,8 +68,9 @@ source_ros_environment() {
     local ros_setup_found=false
     local setup_file=""
     
-    # Buscar setup de ROS 2 en orden de preferencia
-    for setup_path in "/opt/ros/humble/setup.bash" "/opt/ros/foxy/setup.bash"; do
+    # Buscar setup de ROS 2 en orden de preferencia para target G1 EDU (Foxy nativo)
+    for setup_path in "${ROS_SETUP_OVERRIDE:-}" "/opt/ros/foxy/setup.bash" "/opt/ros/humble/setup.bash"; do
+        [[ -n "$setup_path" ]] || continue
         if [[ -f "$setup_path" ]]; then
             setup_file="$setup_path"
             ros_setup_found=true
@@ -77,7 +80,7 @@ source_ros_environment() {
     
     if [[ "$ros_setup_found" == false ]]; then
         log_error "No se encontro instalacion ROS 2 (ni Humble ni Foxy)"
-        log_error "Buscado en: /opt/ros/humble/setup.bash, /opt/ros/foxy/setup.bash"
+        log_error "Buscado en: ROS_SETUP_OVERRIDE, /opt/ros/foxy/setup.bash, /opt/ros/humble/setup.bash"
         return 1
     fi
     
@@ -137,6 +140,25 @@ check_drivers_installed() {
         log_info "  [OK] slam_toolbox instalado"
     else
         log_warn "  [FALTA] slam_toolbox no encontrado"
+        all_ok=false
+    fi
+
+    # Verificar nav2_bringup
+    log_info "Verificando nav2_bringup..."
+    if ros2 pkg list 2>/dev/null | grep -q "^nav2_bringup"; then
+        log_info "  [OK] nav2_bringup instalado"
+    else
+        log_warn "  [FALTA] nav2_bringup no encontrado"
+        all_ok=false
+    fi
+
+    # Verificar pointcloud_to_laserscan
+    log_info "Verificando pointcloud_to_laserscan..."
+    if ros2 pkg list 2>/dev/null | grep -q "^pointcloud_to_laserscan"; then
+        log_info "  [OK] pointcloud_to_laserscan instalado"
+    else
+        log_warn "  [FALTA] pointcloud_to_laserscan no encontrado"
+        log_warn "  Requerido si livox_ros_driver2 no publica /scan. Instalar ros-${ROS_DISTRO}-pointcloud-to-laserscan o lanzar un conversor equivalente."
         all_ok=false
     fi
     
@@ -245,6 +267,20 @@ measure_topic_frequencies() {
         printf '%-50s %-12.2f %-12.1f %-12s\n' "/utlidar/cloud" "$hz_lidar" "$MIN_HZ_LIDAR" "[BAJO]"
         all_frequencies_ok=false
     fi
+
+    # Verificar /scan (LaserScan requerido por slam_toolbox)
+    log_info "Midiendo /scan (durante ${HZ_MEASURE_DURATION_S}s)..."
+    local hz_scan
+    hz_scan=$(measure_hz "/scan" "$HZ_MEASURE_DURATION_S" || echo "0.0")
+    measured_hz["/scan"]="$hz_scan"
+
+    if (( $(echo "$hz_scan >= $MIN_HZ_SCAN" | bc -l 2>/dev/null || echo "0") )); then
+        printf '%-50s %-12.2f %-12.1f %-12s\n' "/scan" "$hz_scan" "$MIN_HZ_SCAN" "[OK]"
+    else
+        printf '%-50s %-12.2f %-12.1f %-12s\n' "/scan" "$hz_scan" "$MIN_HZ_SCAN" "[BAJO]"
+        log_warn "/scan ausente o por debajo del minimo. slam_toolbox usa scan_topic:=/scan; activar pointcloud_to_laserscan si livox_ros_driver2 solo publica /utlidar/cloud."
+        all_frequencies_ok=false
+    fi
     
     # Verificar /utlidar/imu (IMU)
     log_info "Midiendo /utlidar/imu (durante ${HZ_MEASURE_DURATION_S}s)..."
@@ -310,7 +346,7 @@ check_network_connectivity() {
     # IPs conocidas del G1
     local pc1_ip="192.168.123.161"  # Motion Control
     local pc2_ip="192.168.123.164"  # Companion PC
-    local lidar_ip="192.168.123.20" # LiDAR Livox
+    local lidar_ip="$LIVOX_MID360_IP" # LiDAR Livox MID360 configurable por contradiccion documental
     
     printf '\n%-25s %-15s %-20s\n' "DISPOSITIVO" "IP" "ESTADO"
     printf '%s\n' "$(printf '=%.0s' {1..65})"
