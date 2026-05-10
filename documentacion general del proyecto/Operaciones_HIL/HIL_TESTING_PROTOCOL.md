@@ -44,13 +44,15 @@ Si el objetivo es recorrer el entorno una sola vez y obtener tanto el mapa como 
 
 Durante la sesion se levantan los drivers de sensores, `slam_toolbox` y la grabacion `rosbag2` en paralelo. Cuando termine el recorrido, pulsar `Ctrl+C`; el script detiene la grabacion, guarda `maps/uade_physical_map.yaml` y `maps/uade_physical_map.pgm`, y deja el bag en `logs/bags/`.
 
+Nota operacional RC1: `/utlidar/cloud` es la precondicion para convertir `PointCloud2` a `LaserScan` con `pointcloud_to_laserscan`; `/scan` es la precondicion para iniciar `slam_toolbox`. No asumir `/scan` si `pointcloud_to_laserscan` no esta lanzado o si el driver no lo publica. La IP del LiDAR MID360 (`192.168.123.20` vs `192.168.123.120`) debe validarse en HIL fisico antes de mapear.
+
 Si se quiere cambiar el nombre del mapa o la carpeta del bag sin tocar el script:
 
 ```bash
 HIL_MAP_BASENAME="/ruta/personalizada/mapa_recorrido" HIL_BAG_OUT_DIR="/ruta/personalizada/bags" ./scripts/hil_capture_mapping_bundle.sh
 ```
 
-El orquestador genera ademas un manifiesto JSON por sesion en `logs/bags/`, valida `/scan`, `/livox/lidar`, `/livox/imu`, `/camera/color/image_raw`, `/camera/depth/image_rect_raw` y `/map`, y graba los topicos `/scan`, `/tf_static` y `/map` junto con los datos crudos. Para prueba seca sin iniciar ROS2:
+El orquestador genera ademas un manifiesto JSON por sesion en `logs/bags/`, valida `/scan`, `/utlidar/cloud`, `/utlidar/imu`, `/camera/color/image_raw`, `/camera/depth/image_rect_raw` y `/map`, y graba los topicos `/scan`, `/tf_static` y `/map` junto con los datos crudos. Para prueba seca sin iniciar ROS2:
 
 ```bash
 HIL_DRY_RUN=1 ./scripts/hil_capture_mapping_bundle.sh

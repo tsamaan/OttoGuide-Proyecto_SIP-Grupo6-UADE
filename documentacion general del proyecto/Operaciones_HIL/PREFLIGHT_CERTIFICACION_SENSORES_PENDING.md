@@ -1,5 +1,5 @@
-# Informe de Certificación de Sensores - OttoGuide HIL
-## Validación de LiDAR Livox MID360 y RealSense D435i
+# Preflight de Certificación de Sensores - OttoGuide HIL
+## Validación pendiente de LiDAR Livox MID360 y RealSense D435i
 
 **Fecha:** 7 de mayo de 2026  
 **Ingeniero:** Cascade AI (Sistemas Robóticos)  
@@ -10,7 +10,13 @@
 
 ## 1. RESUMEN EJECUTIVO
 
-Se ha completado la certificación de sensores críticos para operación HIL (Hardware-in-the-Loop). El sistema está diseñado para operar mediante **DDS Unicast** y **ROS 2 Foxy** en la Companion PC, descartando completamente la interfaz "Factory" (192.168.12.1) para control operativo.
+Este documento describe el preflight de sensores críticos para operación HIL (Hardware-in-the-Loop). La certificación queda pendiente de validación física sobre el G1 EDU y no debe interpretarse como aprobación final sin ejecución en la Companion PC. El sistema está diseñado para operar mediante **DDS Unicast** y **ROS 2 Foxy** en la Companion PC, descartando completamente la interfaz "Factory" (192.168.12.1) para control operativo.
+
+Condiciones de validación pendientes:
+- `/utlidar/cloud` debe existir antes de habilitar `pointcloud_to_laserscan`.
+- `/scan` debe existir antes de lanzar `slam_toolbox`.
+- La IP real del LiDAR MID360 debe resolverse en HIL físico entre `192.168.123.20` y `192.168.123.120`.
+- Esta Fase 3A no modifica scripts.
 
 **Script de Diagnóstico Generado:**  
 `@c:\Users\lucas\Documents\OttoGuide-Proyecto_SIP-Grupo6-UADE\codigo ottoguide\scripts\preflight_sensors.sh`
@@ -41,6 +47,8 @@ Se ha completado la certificación de sensores críticos para operación HIL (Ha
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+Nota RC1 SRE sobre IP LiDAR: existe contradiccion documental entre `192.168.123.20` y `192.168.123.120`. No se debe resolver por sustitucion global. En HIL fisico, validar con `ping -c 2 192.168.123.20`, `ping -c 2 192.168.123.120`, `ip neigh` y `ros2 topic list -t`. Antes de `pointcloud_to_laserscan` debe existir `/utlidar/cloud`; antes de `slam_toolbox` debe existir `/scan`.
+
 ### 2.2 Tópicos ROS 2 Críticos Auditados
 
 | Tópico | Tipo de Mensaje | Productor | Frecuencia Esperada | Estado |
@@ -51,7 +59,7 @@ Se ha completado la certificación de sensores críticos para operación HIL (Ha
 | `/camera/depth/image_rect_raw` | `sensor_msgs/Image` | RealSense D435i | ~30 Hz | **CRÍTICO** |
 | `/camera/color/image_raw` | `sensor_msgs/Image` | RealSense D435i | ~30 Hz | Opcional |
 | `/camera/depth/color/points` | `sensor_msgs/PointCloud2` | RealSense | ~15 Hz | Opcional |
-| `/scan` | `sensor_msgs/LaserScan` | pointcloud_to_laserscan | ~10 Hz | Opcional |
+| `/scan` | `sensor_msgs/LaserScan` | pointcloud_to_laserscan o driver equivalente | ~10 Hz | **CRÍTICO para SLAM 2D** |
 | `/tf` | `tf2_msgs/TFMessage` | robot_state_publisher | ~50 Hz | **CRÍTICO** |
 | `/tf_static` | `tf2_msgs/TFMessage` | robot_state_publisher | Estático | **CRÍTICO** |
 | `/sportmodestate` | `unitree_go::msg::SportModeState` | G1 via DDS | ~100 Hz | Diagnóstico |
@@ -66,8 +74,8 @@ El script `preflight_sensors.sh` implementa el siguiente flujo de sourcing:
 
 ```bash
 # Orden de prioridad:
-1. /opt/ros/humble/setup.bash    # Preferido (si existe)
-2. /opt/ros/foxy/setup.bash      # Fallback para G1 nativo
+1. /opt/ros/foxy/setup.bash      # Preferido para G1 HIL nativo
+2. /opt/ros/humble/setup.bash    # Solo host/SITL o compatibilidad documentada
 3. ${PROJECT_ROOT}/install/setup.bash  # Workspace local OttoGuide
 ```
 
@@ -122,7 +130,7 @@ PREFLIGHT_MIN_HZ_TF=5.0             # Mínimo 5 Hz para TF
 | Síntoma | Causa Probable | Acción Correctiva |
 |---------|---------------|-------------------|
 | `/utlidar/cloud` INACTIVO | Driver Livox no iniciado | Ejecutar: `ros2 launch livox_ros_driver2 msg_MID360_launch.py` |
-| `/utlidar/cloud` Hz < 8 | Problema de red con LiDAR | Verificar IP 192.168.123.20, cableado |
+| `/utlidar/cloud` Hz < 8 | Problema de red con LiDAR | Verificar `192.168.123.20` y `192.168.123.120` con `ping`, `ip neigh`, cableado y `ros2 topic list -t` |
 | `/camera/depth/*` INACTIVO | RealSense no conectada | Verificar USB 3.0, reiniciar driver |
 | `/tf` INACTIVO | `robot_state_publisher` no iniciado | Iniciar URDF del G1 |
 | `ros2` no encontrado | ROS 2 no instalado/sourced | Source `/opt/ros/foxy/setup.bash` |
@@ -249,15 +257,15 @@ bash scripts/preflight_sensors.sh --dry-run 2>/dev/null || true
 | **LiDAR Livox MID360** | ✅ Certificado | Tópicos `/utlidar/*` mapeados |
 | **RealSense D435i** | ✅ Certificado | Tópicos `/camera/*` mapeados |
 | **Árbol TF** | ✅ Certificado | `/tf`, `/tf_static` requeridos |
-| **Script Preflight** | ✅ Implementado | 6 pasos de validación |
-| **Integración Nav2** | ✅ Lista | slam_toolbox + AMCL operativos |
+| **Script Preflight** | Pendiente HIL | 6 pasos de validación por ejecutar en robot físico |
+| **Integración Nav2** | Pendiente HIL | `slam_toolbox` + AMCL requieren `/scan` validado |
 
 ### 9.2 Recomendaciones Operativas
 
 1. **Ejecutar preflight antes de cada sesión HIL** para validar disponibilidad de sensores.
 2. **Verificar frecuencias mínimas** - valores bajos indican problemas de red o carga CPU.
 3. **Monitorear `/utlidar/imu`** - frecuencia < 80 Hz puede afectar odometría visual.
-4. **Mantener drivers actualizados** - usar versiones compatibles con ROS 2 Foxy/Humble.
+4. **Mantener drivers actualizados** - usar versiones compatibles con ROS 2 Foxy para G1 HIL; Humble solo host/SITL si esta documentado.
 
 ### 9.3 Próximos Pasos Sugeridos
 

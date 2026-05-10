@@ -126,6 +126,8 @@ G1-EDU 主体（不含手部）的 29 个潜在关节映射如下 9：
 ### **4.1 三维空间感知：LiDAR 与 深度相机融合**
 
 * **Livox MID-360 固态激光雷达：** 安装于 G1 头部，分配 IP 地址 192.168.123.20。该雷达采用非重复扫描技术，提供高达 360° 的水平视场角（FOV）和 59° 的垂直视场角 4。在 ROS2 环境中，其产生的点云数据极为关键。底层系统不仅发布原始点云话题 /utlidar/cloud（位于激光雷达坐标系 utlidar\_lidar），还发布了消除运动畸变后的点云话题 /utlidar/cloud\_deskewed 18。由于机器人行走时机身会产生剧烈的高频振动，雷达扫描一帧期间的点云会发生扭曲。Unitree 系统利用高频更新的机身里程计与 IMU 数据（通过 /sportmodestate 话题分发），将一帧内处于不同时间戳的点云统一转换到全局 odom 坐标系的同一时间基准下。这种硬件级别的时间同步和畸变补偿，极大降低了用户在开发 SLAM 和建图算法时的预处理难度 18。  
+
+> Nota RC1 SRE: esta referencia conserva `192.168.123.20` como dato documental/hardware. El contexto operativo OttoGuide tambien registra `192.168.123.120`; la IP real del MID360 debe resolverse en HIL fisico con `ping -c 2 192.168.123.20`, `ping -c 2 192.168.123.120`, `ip neigh` y `ros2 topic list -t`, sin sustitucion global previa.
 * **Intel RealSense D435i 深度相机：** 深度相机与激光雷达的 FOV 在前方存在大面积的重叠区域（Merged FOV） 4。D435i 提供的 RGB 纹理信息与高帧率的短距离深度图弥补了激光雷达在近场盲区和色彩语义识别上的不足。这种异构传感器的组合，是支撑 Vision-Language Models (VLM) 和视觉伺服算法的基础 4。
 
 ### **4.2 末端操作革命：灵巧手的力位混合控制**

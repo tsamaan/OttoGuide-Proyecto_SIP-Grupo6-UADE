@@ -10,6 +10,8 @@
 
 ---
 
+> **Nota de vigencia RC1:** esta memoria es un documento académico/histórico de decisiones del MVP. No es runbook operativo. El contrato operativo vigente vive en `ARQUITECTURA_OPERATIVA_RC1.md` y la frontera `ROS 2`/`DDS`/`SDK2` vive en `ROS2_INTEGRATION.md`.
+
 ## 1. Resumen Ejecutivo
 
 El presente documento constituye la memoria arquitectónica formal del Producto
@@ -91,7 +93,7 @@ testabilidad aislada del código Python.
                     └────────────────┬──────────────────────┘
                                      │ publica nav2/amcl/slam
                     ┌────────────────▼──────────────────────┐
-                    │  Capa 2 — ROS 2 Humble                │
+                    │  Capa 2 — ROS 2 Foxy                  │
                     │  Nav2 + AMCL + SLAM Toolbox           │
                     │  LiDAR Livox MID360 + RealSense D435i │
                     └────────────────┬──────────────────────┘
@@ -111,12 +113,14 @@ y acepta comandos de locomoción (`LocoClient` con IDL `unitree_hg`). Esta capa
 no es modificable por el equipo de desarrollo; su comportamiento está determinado
 por el firmware del robot.
 
-### 2.2 Capa 2 — Percepción y Navegación (ROS 2 Humble)
+### 2.2 Capa 2 — Percepción y Navegación (ROS 2 Foxy)
 
 El stack ROS 2 gestiona la percepción del entorno (LiDAR, profundidad) y la
 planificación de trayectorias (Nav2/AMCL). Publica el estado de navegación en
 tópicos que la Capa 4 consume a través del módulo
 `codigo ottoguide/src/navigation/nav2_bridge.py`.
+
+Nota RC1 SRE: `ROS 2 Foxy` es el runtime HIL nativo esperado para la Companion PC G1 EDU sobre Ubuntu 20.04. `ROS 2 Humble` solo debe interpretarse como contexto de host de desarrollo, SITL o documentacion historica cuando aparezca fuera de la ruta HIL.
 
 **Principio de aislamiento crítico:** La Capa 4 limita el uso de `rclpy` al
 bridge de navegación (`src/navigation/nav2_bridge.py`). El resto del código de

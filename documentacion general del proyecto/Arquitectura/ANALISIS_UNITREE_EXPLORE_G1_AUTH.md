@@ -15,6 +15,8 @@ Unitree Explore representa un **cambio de paradigma arquitectónico** radical re
 
 **Hallazgo crítico:** Unitree Explore **SÍ soporta el G1-EDU** mediante endpoints dedicados `/g1/*` y `/g1_d/*`, con un sistema de autenticación enterprise que **no permite bypass trivial**.
 
+**Decision RC1 OttoGuide:** Unitree Explore se reconoce como app oficial para G1/G1_D, pero queda fuera de la ruta MVP operativa por AR8030, autenticacion enterprise, dependencia cloud y protocolo binario. La ruta primaria de control operativo permanece en `SDK2/DDS Unicast` hacia `192.168.123.161`.
+
 ---
 
 ## 2. ARQUITECTURA DE CONECTIVIDAD

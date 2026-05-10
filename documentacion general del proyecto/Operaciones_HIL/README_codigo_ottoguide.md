@@ -12,7 +12,8 @@ Este repositorio implementa el MVP de OttoGuide para la cátedra Seminario de In
 
 ### Middleware y transporte
 - DDS: CycloneDDS en Domain 0 para locomoción y canales de estado.
-- ROS 2 Humble: procesos externos para Nav2, AMCL, drivers de sensores y bringup.
+- ROS 2 Foxy: runtime HIL nativo del G1 EDU en la Companion PC Ubuntu 20.04 para Nav2, AMCL, drivers de sensores y bringup.
+- ROS 2 Humble: conservar solo como referencia de host de desarrollo, SITL o documentacion historica; no usar como runtime nativo HIL del G1.
 - API: FastAPI + Uvicorn escuchando en 0.0.0.0 para acceso remoto en red local.
 
 ### Flujo de locomoción
@@ -30,6 +31,23 @@ Contiene memoria técnica, protocolos HIL, integración ROS 2 y documentación d
 
 ### Raíz 3: planificacion/
 Contiene artefactos de planificación del proyecto en versiones iterativas.
+
+## Estrategia Air-Gapped y Vendorización de Dependencias
+
+`codigo ottoguide/libs/` no debe interpretarse como duplicacion accidental. La coexistencia de carpetas paralelas forma parte de la estrategia de despliegue air-gapped, fallback SRE, compatibilidad con imports rigidos, disponibilidad de IDL y separacion entre source crudo y workspace operativo.
+
+La duplicidad controlada evita fallos de despliegue offline, colisiones por rutas hardcodeadas y roturas del workspace ROS 2 durante pruebas HIL. Durante `RC1_LOCKED`, no se debe purgar, fusionar ni renombrar `libs/`.
+
+| Ruta | Propósito operativo | Motivo de preservación |
+|---|---|---|
+| `codigo ottoguide/libs/unitree_ros2` | Workspace ROS 2 operativo / default con `cyclonedds_ws` | Requerido para runtime HIL, validaciones ROS 2 y fallback local |
+| `codigo ottoguide/libs/unitree_ros2-master` | Source crudo / snapshot upstream | Conserva referencia intacta de IDL, especialmente `unitree_hg`, y fallback de compilación cruzada |
+| `codigo ottoguide/libs/unitree_sdk2_python` | Dependencia editable de producción | Referida por `requirements_prod.txt` mediante instalación editable en despliegues air-gapped |
+| `codigo ottoguide/libs/unitree_sdk2_python-master` | Snapshot original SDK2 Python / ruta usada por scripts o tooling histórico | Preserva compatibilidad con imports rígidos, scripts estáticos y pruebas SITL |
+| `codigo ottoguide/libs/unitree_mujoco-main` | Artefacto de simulación MuJoCo | Preservado solo para SITL/simulación; excluido de la orquestación física HIL |
+| `codigo ottoguide/libs/unitree_sim_isaaclab-main` | Artefacto de simulación Isaac Lab | Preservado solo para SITL/simulación avanzada; excluido de la orquestación física HIL |
+
+Durante `RC1_LOCKED`, cualquier limpieza de `libs/` queda prohibida salvo autorización explícita posterior y validación completa del bootstrap air-gapped en la Companion PC.
 
 ## Patrones de Diseño Utilizados
 
@@ -87,6 +105,7 @@ Las transiciones se ejecutan con AsyncEngine y tareas no bloqueantes para navega
 ## Actualizacion RC1 HIL
 
 - `scripts/hil_capture_mapping_bundle.sh` orquesta sensores, `slam_toolbox`, `rosbag2`, guardado de mapa y manifiesto JSON.
-- `scripts/hil_mapping_recorder.sh` graba `/scan`, `/livox/lidar`, `/livox/imu`, camaras, `/tf`, `/tf_static`, `/map` y `/robot_state/odom`.
+- `scripts/hil_mapping_recorder.sh` graba `/scan`, `/utlidar/cloud`, `/utlidar/imu`, camaras, `/tf`, `/tf_static`, `/map` y `/robot_state/odom`.
 - `scripts/hil_save_map.sh` respeta `ROS_SETUP` y persiste el mapa con `nav2_map_server`.
 - El SDK G1 incluye `AudioClient.TtsMaker` y `AudioClient.PlayStream`; su uso queda en backlog post-RC1 hasta validacion fisica.
+- Antes de lanzar `slam_toolbox`, debe existir `/scan`; antes de habilitar `pointcloud_to_laserscan`, debe existir `/utlidar/cloud`.

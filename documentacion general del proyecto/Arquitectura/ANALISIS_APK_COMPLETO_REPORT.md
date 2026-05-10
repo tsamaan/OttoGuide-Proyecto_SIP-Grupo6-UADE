@@ -8,9 +8,13 @@
 
 ---
 
+> **Nota de vigencia RC1:** este documento es análisis pasivo/histórico de `Unitree Go` y del plano factory `192.168.12.x`. No implica ruta operativa primaria para el G1 EDU. `Unitree Explore` es la app oficial G1/G1_D, pero queda fuera de la ruta MVP por AR8030, autenticación enterprise, dependencia cloud y protocolo binario. La ruta primaria sigue siendo `SDK2/DDS Unicast` hacia `192.168.123.161`.
+
 ## 1. Resumen Ejecutivo
 
-Este reporte documenta el análisis sistemático de la aplicación oficial "Unitree Go" para comprender los mecanismos de comunicación con el robot humanoide G1 EDU. El análisis combina ingeniería inversa estática del APK con la arquitectura operativa ya implementada en OttoGuide RC1.
+Este reporte documenta el análisis sistemático de la aplicación "Unitree Go" como referencia secundaria del plano factory `192.168.12.x`. No define la ruta primaria de control del G1 EDU en OttoGuide RC1; la ruta operativa primaria es `SDK2/DDS Unicast` hacia `192.168.123.161`.
+
+Nota RC1 SRE: la app oficial para G1/G1_D es `Unitree Explore`, pero queda fuera del MVP operativo por AR8030, autenticacion enterprise, dependencia cloud y protocolo binario.
 
 ### Hallazgos Clave
 - **Red bifurcada:** La aplicación opera sobre dos planos de red aislados: el plano factory (192.168.12.x) para control remoto y el plano autónomo (192.168.123.x) para operación nativa.
@@ -337,7 +341,7 @@ sudo tcpdump -i <iface> -s 0 -w unitree_traffic.pcap \
 
 | Documento | Ubicación |
 |-----------|-----------|
-| Análisis Preliminar APK | `documentacion general del proyecto/Arquitectura/APK_CONNECTIVITY_ANALYSIS.md` |
+| Análisis Preliminar APK | `documentacion general del proyecto/AppPhone/APK_CONNECTIVITY_ANALYSIS.codigo_ottoguide.md` |
 | Protocolo HIL | `documentacion general del proyecto/Operaciones_HIL/RUNBOOK_PACKET_CAPTURE_HIL.md` |
 | Arquitectura RC1 | `documentacion general del proyecto/Arquitectura/ARQUITECTURA_OPERATIVA_RC1.md` |
 | Memoria Técnica | `documentacion general del proyecto/Arquitectura/MEMORIA_ARQUITECTONICA_MVP.md` |
@@ -393,18 +397,18 @@ La arquitectura del G1 EDU implementa **dos planos de red estrictamente aislados
 │  PLANO FACTORY (WiFi del robot)          192.168.12.x            │
 │  ├── WiFi integrado del G1 (AP mode)                             │
 │  ├── IP: 192.168.12.1 (el robot hace de AP/access point)         │
-│  ├── App Unitree Go se conecta aquí                              │
+│  ├── App Unitree Go se conecta aqui como referencia factory       │
 │  ├── Endpoints REST: /con_check, /rest/remote/packet/*           │
 │  └── **NO TIENE SSH AL UBUNTU INTERNO**                          │
 │       ↓                                                          │
-│       Esta red está diseñada SOLO para control remoto vía app    │
+│       Esta red queda fuera de la ruta primaria OttoGuide RC1      │
 └─────────────────────────────────────────────────────────────────┘
                               ╳ Sin puente documentado
 ┌─────────────────────────────────────────────────────────────────┐
 │  PLANO AUTÓNOMO (Ethernet/DDS)          192.168.123.x            │
 │  ├── PC2 Ubuntu interno: 192.168.123.164 ← **SSH disponible**    │
 │  ├── Módulo locomoción: 192.168.123.161                          │
-│  ├── LiDAR: 192.168.123.20                                       │
+│  ├── LiDAR: 192.168.123.20 (contrasta con 192.168.123.120 SRE)   │
 │  └── Conexión: RJ45 físico o AP externo en Wireless Bridge       │
 │       ↓                                                          │
 │       **AQUÍ ESTÁ EL UBUNTU ACCESIBLE POR SSH**                  │
@@ -451,7 +455,7 @@ Según `@c:\Users\lucas\Documents\OttoGuide-Proyecto_SIP-Grupo6-UADE\documentaci
 
 **Conclusión operativa:**
 
-1. **WiFi integrado del G1 (192.168.12.x):** Solo para control remoto vía app oficial Unitree Go. No expone SSH ni SDK2.
+1. **WiFi integrado del G1 (192.168.12.x):** referencia factory/app Unitree Go para diagnostico pasivo. No es ruta primaria de control del G1 EDU en OttoGuide RC1 y no expone SSH ni SDK2.
 
 2. **Para desarrollo OttoGuide:** Se requiere conexión a la red `192.168.123.x`, ya sea:
    - RJ45 directo (setup laboratorio)

@@ -2,7 +2,9 @@
 
 ## 1. Objetivo
 
-Capturar trafico real de la app oficial Unitree Go contra el plano factory del robot (`192.168.12.x`) para completar el analisis dinamico pendiente del APK. La captura es pasiva. OttoGuide no debe emitir comandos por `/rest/remote/packet/*` durante este procedimiento.
+Capturar trafico real de la app Unitree Go contra el plano factory del robot (`192.168.12.x`) para completar el analisis dinamico pendiente del APK. Unitree Go se trata como referencia secundaria/pasiva del plano factory, no como ruta primaria de control del G1 EDU. La captura es pasiva. OttoGuide no debe emitir comandos por `/rest/remote/packet/*` durante este procedimiento.
+
+Nota RC1 SRE: Unitree Explore es la app oficial para G1/G1_D, pero queda fuera del MVP operativo por AR8030, autenticacion enterprise, dependencia cloud y protocolo binario. La ruta primaria OttoGuide es `SDK2/DDS Unicast` hacia `192.168.123.161`.
 
 ```text
 // @TASK: Capturar trafico factory Unitree Go en HIL fisico.
@@ -20,7 +22,7 @@ Capturar trafico real de la app oficial Unitree Go contra el plano factory del r
 4. Acceso SSH estable al host donde se ejecutara `tcpdump`.
 5. `tcpdump` instalado.
 6. Espacio libre minimo recomendado: `2 GB`.
-7. App oficial Unitree Go instalada en el telefono de prueba.
+7. App Unitree Go instalada en el telefono de prueba como referencia factory pasiva; no como control primario G1.
 8. Operador con control fisico de emergencia disponible.
 
 Validacion minima:
@@ -160,8 +162,8 @@ Secuencia estricta:
 4. Esperar handshake inicial. Objetivo esperado: trafico hacia `192.168.12.1:9991`, incluyendo `/con_check`.
 5. Navegar hasta pantalla de control remoto o estado.
 6. Mantener la app activa al menos `60 s` para capturar telemetria basal.
-7. Ejecutar una accion minima de movimiento solo si el robot esta mecanicamente asegurado.
-8. Registrar minuto/segundo exacto de cada accion en una nota externa.
+7. No ejecutar acciones de movimiento durante esta captura documental salvo autorizacion HIL separada.
+8. Registrar minuto/segundo exacto de cada accion observacional en una nota externa.
 9. Cerrar la app o desconectar telefono.
 10. Detener `tcpdump` con `Ctrl+C` si no se uso `timeout`.
 
@@ -235,4 +237,4 @@ Checklist final:
 - [ ] Acciones moviles registradas con timestamps.
 - [ ] OttoGuide no ejecuto `/tour/start` durante captura.
 - [ ] No hubo control simultaneo ROS2/DDS y app oficial.
-- [ ] Hallazgos cargados en `APK_CONNECTIVITY_ANALYSIS.md`.
+- [ ] Hallazgos cargados en `documentacion general del proyecto/AppPhone/APK_CONNECTIVITY_ANALYSIS.codigo_ottoguide.md`.

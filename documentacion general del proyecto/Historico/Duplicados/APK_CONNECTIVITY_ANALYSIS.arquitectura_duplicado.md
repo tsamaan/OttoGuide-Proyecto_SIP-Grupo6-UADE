@@ -2,7 +2,7 @@
 
 ## Resumen Ejecutivo
 
-Este documento detalla el análisis de ingeniería inversa del APK de la aplicación Unitree Go (v1.12.7) para entender cómo se comunica con el robot Unitree G1 EDU.
+Este documento detalla el analisis de ingenieria inversa del APK de la aplicacion Unitree Go (v1.12.7) como referencia secundaria del plano factory `192.168.12.x`. No documenta la ruta primaria de control del G1 EDU para OttoGuide RC1.
 
 **Hallazgos clave:**
 - La aplicación opera en una red separada (192.168.12.1) del stack de navegación autónoma (192.168.123.x)
@@ -10,6 +10,8 @@ Este documento detalla el análisis de ingeniería inversa del APK de la aplicac
 - Implementa UDP como capa de transporte para telemetría en tiempo real
 - Soporta WebRTC para streaming de video
 - El protocolo es híbrido: REST para control/estado, UDP para telemetría
+
+**Aclaracion RC1:** Unitree Explore es la app oficial para G1/G1_D, pero queda fuera de la ruta MVP operativa por AR8030, autenticacion enterprise, dependencia cloud y protocolo binario. La ruta primaria de OttoGuide es `SDK2/DDS Unicast` hacia `192.168.123.161`.
 
 ## Estado de Integracion RC1
 
@@ -86,7 +88,8 @@ FOREGROUND_SERVICE (servicios en primer plano)
 
 #### Red de Navegación Autónoma (OttoGuide Stack)
 - **IP del módulo de navegación**: 192.168.123.161
-- **Middleware**: ROS 2 Humble + CycloneDDS (unicast)
+- **Middleware HIL G1**: ROS 2 Foxy + CycloneDDS (unicast)
+- **Nota Humble**: ROS 2 Humble queda restringido a host de desarrollo, SITL o documentacion historica; no es el runtime nativo HIL del G1 EDU.
 - **Independiente** de la red de control remoto
 
 ### Endpoints REST

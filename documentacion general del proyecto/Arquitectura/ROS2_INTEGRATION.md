@@ -4,6 +4,8 @@ Documento de arquitectura pasivo. Define exclusivamente la topologia
 de capas y los limites de responsabilidad entre Python (Capa 4) y
 ROS 2 (Capa 2). Auditado contra `codigo ottoguide/libs/unitree_ros2-master/`.
 
+Nota RC1 SRE: el runtime HIL nativo esperado en la Companion PC del G1 EDU (`192.168.123.164`, Ubuntu 20.04) es `ROS 2 Foxy`. Las referencias a `ROS 2 Humble` solo son validas para host de desarrollo, SITL o documentacion historica, no para el despliegue HIL nativo del G1.
+
 El audio nativo del G1 no requiere ROS 2 en RC1. El SDK Python expone `unitree_sdk2py.g1.audio.g1_audio_client.AudioClient`, servicio `voice`, con `TtsMaker`, `PlayStream`, `PlayStop`, `GetVolume` y `SetVolume`. Esta ruta usa SDK2/RPC sobre DDS y debe aislarse como adaptador de audio separado si se integra post-RC1.
 
 ---
@@ -20,7 +22,7 @@ El audio nativo del G1 no requiere ROS 2 en RC1. El SDK Python expone `unitree_s
 │  Capa 3 — IA                                            │
 │  Ollama daemon (localhost:11434) + ConversationManager  │
 ├─────────────────────────────────────────────────────────┤
-│  Capa 2 — ROS 2 Humble (proceso externo)               │
+│  Capa 2 — ROS 2 Foxy (proceso externo HIL G1)           │
 │  Nav2 + AMCL + drivers de sensores                      │
 │  Topicos clave (ver seccion mas abajo)                  │
 ├─────────────────────────────────────────────────────────┤
@@ -65,6 +67,8 @@ Auditados en `codigo ottoguide/libs/unitree_ros2-master/README.md`.
 | `lf/lowstate` | `unitree_go::msg::LowState` | G1 hardware | Diagnostico (solo lectura) |
 | `/utlidar/cloud` | `sensor_msgs/PointCloud2` | LiDAR Livox MID360 | Nav2 / AMCL |
 | `/wirelesscontroller` | `unitree_go::msg::WirelessController` | G1 hardware | No usado en MVP |
+
+Para SLAM 2D, `slam_toolbox` requiere `/scan` (`sensor_msgs/LaserScan`). Si `livox_ros_driver2` solo publica `/utlidar/cloud`, la conversion `PointCloud2 -> LaserScan` mediante `pointcloud_to_laserscan` debe habilitarse despues de confirmar en HIL que `/utlidar/cloud` existe y antes de iniciar `slam_toolbox`.
 
 ### Publicacion (comandos desde el sistema)
 
@@ -168,4 +172,3 @@ Senal OS (SIGINT/SIGTERM)
 
 **Nota operativa:** `SIGKILL` no es capturable. Configurar `TimeoutStopSec=5` en
 la unidad systemd del robot. Si el robot no responde, activar `L1+A` en el mando.
-
