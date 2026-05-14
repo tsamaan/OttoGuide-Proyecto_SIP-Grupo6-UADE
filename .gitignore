@@ -1,48 +1,18 @@
-# ===== Python =====
-__pycache__/
+
+# Python
+
+**pycache**/
 *.py[cod]
-*.so
-*.pyd
-
-# ===== Build =====
-build/
-dist/
-*.egg-info/
-
-# ===== Testing =====
-.pytest_cache/
-.coverage
-coverage.xml
-htmlcov/
-
-# ===== Variables de entorno =====
-.env
 .venv/
-env/
 venv/
+env/
 
-# ===== OS =====
-.DS_Store
+# Logs y ROS
 
-# ===== IDE =====
-.vscode/
-.idea/
-
-# ===== Logs =====
 *.log
-logs/
+*.bag
+*.mcap
+build/
+install/
+log/
 
-# ===== Mapas SLAM generados localmente =====
-maps/*.pgm
-maps/*.yaml
-
-# ===== Simulador MuJoCo (clonar externamente, no incluir en repo) =====
-unitree_mujoco/
-
-# ===== SDK upstream (instalar via pip, no local) =====
-libs/
-codigo ottoguide/libs/
-
-# ===== Datos y recursos locales =====
-data/
-resources/

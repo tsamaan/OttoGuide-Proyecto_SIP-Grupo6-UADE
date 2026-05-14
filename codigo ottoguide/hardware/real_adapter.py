@@ -102,7 +102,7 @@ class UnitreeG1Adapter(RobotHardwareInterface):
         try:
             await loop.run_in_executor(
                 self._executor,
-                partial(ChannelFactoryInitialize, 0),
+                partial(ChannelFactoryInitialize, 0, self._network_interface),
             )
         except Exception as exc:
             raise RuntimeError(

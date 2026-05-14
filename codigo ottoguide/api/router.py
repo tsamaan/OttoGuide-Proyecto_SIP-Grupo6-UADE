@@ -93,6 +93,7 @@ def _get_orchestrator(request: Request):
     summary="Iniciar tour de navegacion autonoma",
 )
 async def endpoint_start_tour(
+    request: Request,
     payload: StartTourRequest,
     background_tasks: BackgroundTasks,
     orchestrator=Depends(_get_orchestrator),
@@ -106,6 +107,16 @@ async def endpoint_start_tour(
     """
     from src.navigation import NavWaypoint
     from src.core import TourPlan
+
+    readiness_errors = await _resolve_readiness_errors(request, orchestrator)
+    if readiness_errors:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": "Sistema no listo para iniciar tour.",
+                "errors": readiness_errors,
+            },
+        )
 
     domain_waypoints = [
         NavWaypoint(x=wp.x, y=wp.y, yaw_rad=wp.yaw_rad, frame_id=wp.frame_id)
@@ -263,6 +274,7 @@ async def websocket_telemetry(
     summary="Consultar estado completo del sistema",
 )
 async def endpoint_status(
+    request: Request,
     orchestrator=Depends(_get_orchestrator),
 ) -> StatusResponse:
     """
@@ -273,12 +285,74 @@ async def endpoint_status(
     @SECURITY: Endpoint de observabilidad sin mutacion de estado
     """
     ctx = orchestrator.context
+    readiness_errors = await _resolve_readiness_errors(request, orchestrator)
+    factory_rest = await _resolve_factory_rest_status(request)
     return StatusResponse(
         state=orchestrator.state_id,
         tour_id=ctx.tour_id,
         current_waypoint_index=ctx.current_waypoint_index,
         last_error=ctx.last_error,
+        operational_ready=not readiness_errors,
+        readiness_errors=readiness_errors,
+        factory_rest=factory_rest,
     )
+
+
+async def _resolve_readiness_errors(request: Request, orchestrator) -> list[str]:
+    """
+    @TASK: Calcular errores de readiness antes de aceptar tours
+    @INPUT: request.app.state y orquestador activo
+    @OUTPUT: Lista de errores bloqueantes; vacia indica GO
+    @CONTEXT: Gate operativo para no despachar tours sin Nav2/hardware critico
+    STEP 1: Validar estado FSM idle
+    STEP 2: En modo real, validar Nav2 iniciado y hardware inicializado
+    @SECURITY: Bloquea movimiento autonomo ante inicializacion incompleta
+    """
+    errors: list[str] = []
+
+    if orchestrator.state_id != "idle":
+        errors.append(f"fsm_state={orchestrator.state_id}; se requiere idle")
+
+    robot_mode = str(getattr(orchestrator, "_robot_mode", "mock")).lower()
+    hardware = getattr(orchestrator, "_hardware_api", None)
+    nav_bridge = getattr(request.app.state, "nav_bridge", None)
+    if nav_bridge is None:
+        nav_bridge = getattr(orchestrator, "_nav_bridge", None)
+
+    if robot_mode == "real":
+        nav_started = bool(getattr(nav_bridge, "_started", getattr(nav_bridge, "started", False)))
+        if not nav_started:
+            errors.append("nav2_bridge no iniciado")
+
+        state_reader = getattr(hardware, "get_state", None)
+        if callable(state_reader):
+            try:
+                hardware_state = await asyncio.wait_for(state_reader(), timeout=0.25)
+                if isinstance(hardware_state, dict) and hardware_state.get("initialized") is False:
+                    errors.append("hardware no inicializado")
+            except Exception as exc:
+                errors.append(f"hardware state no disponible: {type(exc).__name__}")
+
+    return errors
+
+
+async def _resolve_factory_rest_status(request: Request) -> dict:
+    """
+    @TASK: Obtener healthcheck REST read-only del plano de fabrica
+    @INPUT: request.app.state.factory_rest_client opcional
+    @OUTPUT: dict serializable para StatusResponse.factory_rest
+    @CONTEXT: Diagnostico secundario de 192.168.12.1:9991/con_check
+    @SECURITY: Solo GET /con_check; no emite paquetes de control
+    """
+    client = getattr(request.app.state, "factory_rest_client", None)
+    if client is None:
+        return {
+            "enabled": False,
+            "reachable": False,
+            "error": "factory_rest_client not configured",
+        }
+    health = await client.con_check()
+    return health.to_dict()
 
 
 @router.post(

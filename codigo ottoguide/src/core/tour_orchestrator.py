@@ -40,6 +40,8 @@ from src.hardware import RobotHardwareAPI, RobotHardwareAPIError
 from src.hardware.interface import MotionCommand
 from src.api.websocket_manager import TelemetryManager
 from src.core.mission_audit import MissionAuditLogger
+from src.core.events import EventType
+from src.core.event_bus import OttoEventBus
 from src.interaction import ConversationManager, ConversationRequest, ConversationResponse
 from src.navigation import AsyncNav2Bridge, NavWaypoint
 from src.vision import OdometryVector, VisionProcessor
@@ -179,6 +181,7 @@ class TourOrchestrator(StateMachine):
         damp_timeout_s: float = DAMP_TIMEOUT_S,
         audio_capture_timeout_s: float = AUDIO_CAPTURE_TIMEOUT_S,
         robot_mode: str = "mock",
+        event_bus: Optional[OttoEventBus] = None,
     ) -> None:
         """
         @TASK: Inyectar dependencias de todos los subsistemas e inicializar el estado interno de la FSM
@@ -191,16 +194,10 @@ class TourOrchestrator(StateMachine):
                 damp_timeout_s — timeout fisico de Damp() en segundos; debe ser >= 0.5 s
                 audio_capture_timeout_s — timeout maximo del pipeline NLP completo en segundos
                 robot_mode — "real" | "sim" | "mock"; inyectado desde config/settings.py (no de os.environ)
-        @OUTPUT: Instancia de TourOrchestrator en estado IDLE con los atributos inicializados:
-                 _hardware_api, _nav_bridge, _conversation_manager, _vision_processor — subsistemas activos;
-                 _telemetry_manager, _mission_audit_logger — servicios opcionales;
-                 _damp_timeout_s, _audio_capture_timeout_s, _robot_mode — parametros de configuracion;
-                 _context: TourContext — estado mutable del tour, limpio;
-                 _odometry_task: Optional[Task[None]] = None — handle de tarea de odometria;
-                 _nav_task: Optional[Task[None]] = None — handle de tarea de navegacion;
-                 _interaction_done_event: asyncio.Event — evento de sincronizacion de dialogo;
-                 _pending_audio: np.ndarray = zeros(1, float32) — buffer PCM del wake-word pendiente;
-                 _pending_language: str = "es" — idioma del audio pendiente
+                event_bus — instancia de OttoEventBus para suscribirse a INTERACTION_STARTED;
+                            si None, se usa OttoEventBus.get_instance() (Singleton global)
+        @OUTPUT: Instancia de TourOrchestrator en estado IDLE con todos los atributos inicializados
+                 y suscripción activa a EventType.INTERACTION_STARTED en el EventBus.
         @CONTEXT: Constructor DI; todos los subsistemas deben estar en estado ACTIVO antes de inyectar.
                   super().__init__() se invoca al final para que python-statemachine inicialice el grafo.
         @SECURITY: damp_timeout_s <= 0 lanza ValueError; por debajo de 0.5 s puede no propagarse via DDS.
@@ -209,8 +206,9 @@ class TourOrchestrator(StateMachine):
         STEP 1: Validar parametros criticos de seguridad (ValueError si damp o audio timeout <= 0)
         STEP 2: Persistir referencias a todos los subsistemas inyectados como atributos privados
         STEP 3: Inicializar contexto del tour, handles de tareas background y atributos de interaccion pendiente
-        STEP 4: Emitir advertencia CRITICAL de kill switch mecanico al arrancar
-        STEP 5: Invocar super().__init__() para que python-statemachine inicialice el grafo de estados
+        STEP 4: Suscribirse a EventType.INTERACTION_STARTED en el EventBus
+        STEP 5: Emitir advertencia CRITICAL de kill switch mecanico al arrancar
+        STEP 6: Invocar super().__init__() para que python-statemachine inicialice el grafo de estados
         """
         if damp_timeout_s <= 0:
             raise ValueError("damp_timeout_s debe ser mayor que 0.")
@@ -233,6 +231,13 @@ class TourOrchestrator(StateMachine):
         self._interaction_done_event: asyncio.Event = asyncio.Event()
         self._pending_audio: np.ndarray = np.zeros(1, dtype=np.float32)
         self._pending_language: str = "es"
+
+        resolved_bus = event_bus if event_bus is not None else OttoEventBus.get_instance()
+        self._event_bus: OttoEventBus = resolved_bus
+        self._event_bus.subscribe(EventType.INTERACTION_STARTED, self._on_interaction_started)
+        LOGGER.info(
+            "[Orchestrator] Suscripción a INTERACTION_STARTED registrada en OttoEventBus."
+        )
 
         LOGGER.critical(
             "[SAFETY] TourOrchestrator inicializado. "
@@ -360,6 +365,73 @@ class TourOrchestrator(StateMachine):
         self._pending_language = language
 
         await self.pause_for_interaction()
+
+    async def _on_interaction_started(
+        self,
+        event_type: EventType,
+        data: Any,
+    ) -> None:
+        """
+        @TASK: Reaccionar al evento INTERACTION_STARTED publicado por WakeWordDetector
+        @INPUT: event_type — EventType.INTERACTION_STARTED (ignorado; el tipo ya está filtrado por el bus)
+                data — dict con keys: 'transcript' (str), 'source' (str)
+        @OUTPUT: Si el robot está en NAVIGATING:
+                   1. Parada cinemática segura (cancel nav + velocidad 0)
+                   2. Transición FSM NAVIGATING → INTERACTING via pause_for_interaction()
+                 Si no está en NAVIGATING: logging.info y retorno sin acción
+        @CONTEXT: Callback suscripto a OttoEventBus en __init__.
+                  Invocado por OttoEventBus.publish() como coroutine concurrente con gather().
+                  Este método implementa el desacoplamiento Observer:
+                    WakeWordDetector publica → EventBus despacha → TourOrchestrator reacciona.
+                  La lógica de diálogo real se ejecuta en on_enter_interacting() (STEP 3 de FSM).
+        @SECURITY: El check de estado "navigating" antes de cualquier acción de hardware previene
+                   race conditions si múltiples fuentes publican INTERACTION_STARTED concurrentemente.
+        @AI_CONTEXT: _pending_audio = zeros(1) porque el audio del wake word ya fue procesado
+                     por WakeWordDetector. on_enter_interacting usará STT fresco para la pregunta real.
+
+        STEP 1: Extraer transcript del payload para logging de auditoría
+        STEP 2: Verificar que el estado es "navigating"; retornar sin acción si no lo es
+        STEP 3: Registrar evento de auditoría INTERACTION_STARTED
+        STEP 4: Setear _pending_audio y _pending_language para on_enter_interacting
+        STEP 5: Ejecutar transición pause_for_interaction() via AsyncEngine
+        """
+        safe_data = data if isinstance(data, dict) else {}
+        transcript = safe_data.get("transcript", "")
+        source = safe_data.get("source", "unknown")
+
+        LOGGER.info(
+            "[Orchestrator] INTERACTION_STARTED recibido desde '%s'. "
+            "transcript='%s' estado_actual='%s'",
+            source, transcript[:60], self.state_id,
+        )
+
+        if self.state_id != "navigating":
+            LOGGER.info(
+                "[Orchestrator] INTERACTION_STARTED ignorado: estado='%s' (se requiere 'navigating').",
+                self.state_id,
+            )
+            return
+
+        self._schedule_audit_event(
+            event_type="INTERACTION_STARTED",
+            node_id=self._resolve_logical_waypoint_id(),
+            payload={
+                "source": source,
+                "transcript_preview": transcript[:80],
+                "fsm_state_before": self.state_id,
+            },
+        )
+
+        self._pending_audio = np.zeros(1, dtype=np.float32)
+        self._pending_language = "es"
+
+        try:
+            await self.pause_for_interaction()
+        except Exception as exc:
+            LOGGER.error(
+                "[Orchestrator] Fallo en transición pause_for_interaction desde EventBus: %s — %s",
+                type(exc).__name__, exc,
+            )
 
     async def emergency_stop(self, reason: str = "manual") -> None:
         """

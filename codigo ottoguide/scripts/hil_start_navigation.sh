@@ -1,13 +1,17 @@
 #!/bin/bash
-set -euo pipefail
+set -eo pipefail
+export AMENT_TRACE_SETUP_FILES=""
+export AMENT_PYTHON_EXECUTABLE="$(which python3)"
+source /opt/ros/foxy/setup.bash
+source /home/unitree/livox_ws/install/setup.bash
 
 : <<'DOC'
 @TASK: Iniciar navegacion autonoma fisica HIL con mapa pre-generado y reloj real.
-@INPUT: ROS 2 Humble activo, mapa en codigo ottoguide/maps/uade_physical_map.yaml y drivers de sensores disponibles.
+@INPUT: ROS 2 Foxy activo, mapa en maps/uade_physical_map.yaml y drivers de sensores disponibles.
 @OUTPUT: Drivers fisicos y stack Nav2/AMCL levantados con use_sim_time:=false.
 @CONTEXT: Orquestador operativo para fase de navegacion autonoma fisica en Companion PC.
 @SECURITY: No publica comandos manuales de locomocion; solo habilita infraestructura de navegacion.
-STEP [1]: Cargar setup de ROS 2 y workspace local si existe.
+STEP [1]: Cargar workspace local si existe.
 STEP [2]: Verificar existencia del mapa fisico requerido.
 STEP [3]: Levantar Livox MID360 y RealSense.
 STEP [4]: Levantar Nav2 bringup con AMCL usando el mapa fisico y use_sim_time:=false.
@@ -18,7 +22,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MAP_PATH="${PROJECT_ROOT}/maps/uade_physical_map.yaml"
 
-source /opt/ros/humble/setup.bash
 if [ -f "${PROJECT_ROOT}/install/setup.bash" ]; then
   source "${PROJECT_ROOT}/install/setup.bash"
 fi
@@ -33,7 +36,7 @@ PIDS=()
 cleanup() {
   for pid in "${PIDS[@]:-}"; do
     if kill -0 "${pid}" >/dev/null 2>&1; then
-      kill "${pid}" >/dev/null 2>&1 || true
+      kill -INT "${pid}" >/dev/null 2>&1 || true
       wait "${pid}" >/dev/null 2>&1 || true
     fi
   done

@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Technical defaults for companion PC target; can be overridden by CLI args.
 ROBOT_USER_DEFAULT="unitree"
-ROBOT_IP_DEFAULT="192.168.123.161"
+ROBOT_IP_DEFAULT="192.168.123.164"
 PROJECT_NAME_DEFAULT="OttoGuide-Proyecto_SIP-Grupo6-UADE"
 ROBOT_DST_DEFAULT="/home/${ROBOT_USER_DEFAULT}/${PROJECT_NAME_DEFAULT}"
 

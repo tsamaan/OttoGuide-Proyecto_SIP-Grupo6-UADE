@@ -4,8 +4,10 @@ from .robot_hardware_api import (
     RobotHardwareEmergencyStopError,
     SupportsUnitreeHighLevelControl,
 )
+from .interface import MotionCommand
 
 __all__ = [
+    "MotionCommand",
     "RobotHardwareAPI",
     "RobotHardwareAPIError",
     "RobotHardwareEmergencyStopError",

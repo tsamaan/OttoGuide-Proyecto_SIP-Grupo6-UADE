@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Optional
 
 import numpy as np
 import pyttsx3
 import speech_recognition as sr
 from numpy.typing import NDArray
+
+LOGGER = logging.getLogger(__name__)
 
 
 class AudioHardwareBridge:
@@ -28,8 +31,16 @@ class AudioHardwareBridge:
         tts_rate: int = 150,
     ) -> None:
         self._recognizer = sr.Recognizer()
-        self._engine = pyttsx3.init()
-        self._engine.setProperty("rate", tts_rate)
+        self._engine: Optional[object] = None
+        try:
+            self._engine = pyttsx3.init()
+            self._engine.setProperty("rate", tts_rate)
+        except Exception as exc:
+            LOGGER.warning(
+                "[AudioHardwareBridge] TTS local deshabilitado: %s - %s",
+                type(exc).__name__,
+                exc,
+            )
         self._speech_timeout_seconds = speech_timeout_seconds
         self._phrase_time_limit_seconds = phrase_time_limit_seconds
         self._language = language
@@ -106,6 +117,8 @@ class AudioHardwareBridge:
         """
         message = text.strip()
         if not message:
+            return
+        if self._engine is None:
             return
         self._engine.say(message)
         self._engine.runAndWait()

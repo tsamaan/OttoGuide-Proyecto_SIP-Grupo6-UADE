@@ -60,6 +60,9 @@ class StatusResponse(BaseModel):
     tour_id: Optional[str] = None
     current_waypoint_index: int = 0
     last_error: Optional[str] = None
+    operational_ready: bool = False
+    readiness_errors: list[str] = Field(default_factory=list)
+    factory_rest: dict = Field(default_factory=dict)
 
 
 class QuestionRequest(BaseModel):

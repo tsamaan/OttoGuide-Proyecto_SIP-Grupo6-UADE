@@ -1,5 +1,9 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+set -eo pipefail
+export AMENT_TRACE_SETUP_FILES=""
+export AMENT_PYTHON_EXECUTABLE="$(which python3)"
+source /opt/ros/foxy/setup.bash
+source /home/unitree/livox_ws/install/setup.bash
 
 : <<'DOC'
 @TASK: Ejecutar captura HIL de mapeo con fases declarativas y manifiesto.
@@ -15,7 +19,7 @@ DOC
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
+ROS_SETUP="/opt/ros/foxy/setup.bash"
 HIL_MAP_BASENAME="${HIL_MAP_BASENAME:-${PROJECT_ROOT}/maps/uade_physical_map}"
 HIL_BAG_OUT_DIR="${HIL_BAG_OUT_DIR:-${PROJECT_ROOT}/logs/bags}"
 HIL_DRY_RUN="${HIL_DRY_RUN:-0}"
@@ -209,7 +213,7 @@ cleanup() {
   fi
 
   if [[ -n "${PIDS[0]:-}" ]] && kill -0 "${PIDS[0]}" >/dev/null 2>&1; then
-    kill -TERM "${PIDS[0]}" >/dev/null 2>&1 || true
+    kill -INT "${PIDS[0]}" >/dev/null 2>&1 || true
     wait "${PIDS[0]}" >/dev/null 2>&1 || true
   fi
 
@@ -274,4 +278,9 @@ log_output "Bag destino ${BAG_PATH}"
 log_output "Mapa destino ${HIL_MAP_BASENAME}.yaml y ${HIL_MAP_BASENAME}.pgm"
 log_context "Conducir una sola vez el recorrido; al terminar, pulsar Ctrl+C para guardar todo."
 
-wait "${PIDS[0]}"
+echo -e "\n========================================================"
+echo -e "[+] MAPEO HIL EN CURSO - Tópicos activos."
+echo -e "[!] PELIGRO: NO presiones Ctrl+C (destruye el SLAM prematuramente)."
+echo -e " Presiona la tecla [ENTER] cuando termines para guardar el mapa."
+echo -e "========================================================\n"
+read -r

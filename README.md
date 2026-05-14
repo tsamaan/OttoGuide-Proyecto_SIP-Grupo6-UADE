@@ -1,193 +1,124 @@
-# OttoGuide Proyect
+# OttoGuide MVP — Robot Guía Universitario Autónomo
 
-### CO-Guia de las futuras visitas guiadas universitarias en UADE
+- `Estado: RC1_LOCKED`
+- `Modo: Air-gapped / HIL-ready`
+- `Hardware: Unitree G1 EDU 8`
+- `Validación física: pendiente`
 
----
+## Resumen Ejecutivo
 
-## ¿Qué es OttoGuide?
+`OttoGuide` es un MVP de robot guía universitario autónomo para visitas en `UADE`, orientado a navegación guiada, interacción local, operación sin dependencia de cloud y observabilidad durante validación `HIL`.
 
-OttoGuide integra un robot humanoide **Unitree G1 EDU** (llamado **Ottoman**) para realizar visitas guiadas autónomas en el campus Monserrat de la Universidad Argentina de la Empresa (UADE). El sistema guía a estudiantes secundarios a través del campus, responde preguntas sobre la universidad y presenta las instalaciones de forma interactiva.
+El sistema está congelado funcionalmente bajo `RC1_LOCKED`. La arquitectura, documentación y empaquetado local fueron preparados para validación, pero la operación física completa sobre el `Unitree G1 EDU 8` sigue pendiente.
 
-El proyecto se divide en dos módulos que trabajan en conjunto:
+## Ficha Técnica Rápida
 
-| Módulo | Descripción | Responsable |
-|---|---|---|
-| **OttoGuide Autónomo** | Navegación, movimiento y control del robot en el campus | Lucas / Echezuria |
-| **OttoGuide IA** | Sistema de conversación por voz — escucha, entiende y responde | Teo |
-
----
-
-## Equipo
-
-| Integrante | Rol |
+| Área | Valor |
 |---|---|
-| **Teo** | Líder técnico · IA · integración de sistemas |
-| **Lucas** | Python · SDK Unitree · locomoción autónoma |
-| **Erika** | Voz · diálogos · personalidad de Otto |
-| **Jorge** | Testing · relevamiento físico del campus |
-| **Martina** | Encuestas · análisis de usuarios |
+| Robot | `Unitree G1 EDU 8` |
+| Companion PC | `192.168.123.164` |
+| Locomoción / DDS | `192.168.123.161` |
+| LiDAR | `Livox MID360`, IP pendiente entre `192.168.123.20` y `192.168.123.120` |
+| Cámara | `Intel RealSense D435i` |
+| Runtime HIL | `ROS 2 Foxy` |
+| Control primario | `SDK2/DDS Unicast` |
+| IA local | `Ollama` |
+| Backend | `FastAPI + asyncio` |
 
----
+## Arquitectura High-Level
 
-## Estructura del repositorio
+- `FastAPI`: API local, dashboard operativo y exposición de estado.
+- `TourOrchestrator`: FSM de misión y coordinación de alto nivel.
+- `OttoEventBus`: distribución interna de eventos entre módulos.
+- `Nav2Bridge`: frontera controlada entre OttoGuide y `ROS 2/Nav2`.
+- `Unitree SDK2 Adapter`: integración de control directo vía `DDS`.
+- `ConversationManager`: interacción local `STT/LLM/TTS`.
+- `CycloneDDS`: transporte `DDS` unicast para operación HIL.
 
-```
-OttoGuide-Proyecto_SIP-Grupo6-UADE/
-│
-├── codigo ottoguide/              ← Módulo autónomo (locomoción + backend)
-│   ├── src/
-│   │   ├── core/                  ← Orquestador de misión (FSM)
-│   │   ├── navigation/            ← Bridge con Nav2/ROS2
-│   │   ├── interaction/           ← Conversación + audio
-│   │   ├── hardware/              ← Abstracción del robot
-│   │   └── infrastructure/        ← Cliente REST Unitree
-│   ├── scripts/                   ← Scripts de operación HIL
-│   ├── config/                    ← CycloneDDS, Nav2, settings
-│   ├── deploy/                    ← Servicios systemd
-│   └── main.py                    ← Entrada principal del backend
-│
-├── OttoGuide IA/                  ← Módulo de conversación con IA
-│   ├── .claude/CLAUDE.md          ← Contexto para Claude Code
-│   ├── docker-compose.yml         ← Stack: Ollama + Whisper + Piper
-│   ├── services/
-│   │   ├── core/main.py           ← Orquestador de voz (wake word → LLM → TTS)
-│   │   ├── llm/Modelfile          ← Personalidad de Otto en Gemma4
-│   │   └── tts/                   ← Piper TTS con voz masculina latinoamericana
-│   └── documentacion/             ← Docs técnicos del módulo IA
-│
-├── documentacion general del proyecto/
-│   ├── Interaccion/               ← Docs del módulo IA (planes, roadmap)
-│   └── Movimiento/                ← Docs del módulo autónomo (RC1, HIL, ROS2)
-│
-├── planificacion/                 ← Cronogramas y entregas (V1, V2, V3)
+## Unitree Go / Unitree Explore
+
+`Unitree Go` se conserva solo como referencia pasiva y de diagnóstico del plano factory `192.168.12.x`. No es ruta primaria de control del `G1 EDU`.
+
+`Unitree Explore` es la app oficial para `G1/G1_D`, pero queda fuera de la ruta MVP operativa por `AR8030`, autenticación enterprise, dependencia cloud y protocolo binario.
+
+La ruta primaria operativa de OttoGuide es `SDK2/DDS Unicast` hacia `192.168.123.161`.
+
+## Mapa del Repositorio
+
+```text
+.
+├── README.md
 ├── TODO.md
-└── README.md
+├── codigo ottoguide/
+│   ├── src/
+│   ├── scripts/
+│   ├── config/
+│   └── libs/
+└── documentacion general del proyecto/
+    ├── README.md
+    ├── Arquitectura/
+    ├── Operaciones_HIL/
+    ├── Hardware_Reference/
+    ├── AppPhone/
+    ├── Auditorias/
+    └── Historico/
 ```
 
----
+- `README.md`: front-page pública y mapa de navegación del repositorio.
+- `TODO.md`: backlog post-`RC1` y validaciones HIL pendientes.
+- `codigo ottoguide/src/`: lógica de aplicación y módulos runtime.
+- `codigo ottoguide/scripts/`: orquestadores y utilidades HIL.
+- `codigo ottoguide/config/`: configuración operativa.
+- `codigo ottoguide/libs/`: dependencias vendorizadas air-gapped preservadas.
+- `documentacion general del proyecto/`: documentación técnica profunda e histórica.
 
-## Módulo 1 — OttoGuide Autónomo
+## Roadmap de Ejecución Rápida
 
-Sistema de navegación autónoma basado en **ROS2 + Nav2 + CycloneDDS**. El robot recibe rutas con waypoints del campus y navega de forma segura entre ellos.
+Los procedimientos operativos viven en runbooks dedicados. Este `README.md` no duplica pasos de despliegue ni pruebas:
 
-**Stack tecnológico:**
-- FastAPI (backend de control)
-- ROS2 + Nav2 + AMCL (navegación y localización)
-- CycloneDDS (comunicación entre procesos)
-- SDK Unitree G1 EDU (control del hardware)
-- Dashboard web en Vanilla JS
+- [Startup RC1](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_STARTUP_RC1.md>)
+- [Deploy](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_DEPLOY.md>)
+- [Protocolo HIL](<documentacion general del proyecto/Operaciones_HIL/HIL_TESTING_PROTOCOL.md>)
+- [Demo local](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_DEMO_LOCAL.md>)
+- [Packet capture HIL](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_PACKET_CAPTURE_HIL.md>)
 
-**Estado actual:** RC1 — operativo en hardware real (HIL)
+## Estado Actual
 
-**Arranque rápido:**
-```bash
-cd "codigo ottoguide"
-./scripts/preflight_check.sh    # verificar precondiciones
-./scripts/start_robot.sh        # levantar el sistema
-```
+Hecho:
 
-Ver `documentacion general del proyecto/Movimiento/RC1_Vigente/RUNBOOK_STARTUP_RC1.md` para el proceso completo.
+- Arquitectura `RC1` congelada.
+- Documentación saneada y reorganizada.
+- `CycloneDDS` XML corregido.
+- `Unitree Go` / `Unitree Explore` segregado documentalmente.
+- `TODO.md` convertido en backlog post-`RC1`.
+- `codigo ottoguide/libs/` documentado como vendorización air-gapped intencional.
 
----
+Pendiente:
 
-## Módulo 2 — OttoGuide IA
+- Validación HIL real sobre el robot físico.
+- Confirmar IP efectiva del `Livox MID360`.
+- Confirmar disponibilidad de `/utlidar/cloud`.
+- Confirmar disponibilidad de `/scan`.
+- Confirmar generación de `/map`.
+- Validación de `Audio SDK2`.
+- Pruebas físicas de seguridad.
 
-Sistema de conversación por voz que permite a Otto escuchar preguntas, procesarlas con un LLM local y responder con voz sintetizada. Funciona **100% offline** dentro del robot.
+## Seguridad Operativa
 
-**Pipeline de voz:**
-```
-"Hola Otto" → Whisper (STT) → Gemma4:e4b (LLM) → Piper TTS → parlante
-```
+- No ejecutar comandos de movimiento sin operador físico presente.
+- No usar `/cmd_vel` desde Python OttoGuide.
+- No usar `/rest/remote/packet/*` como ruta de control.
+- Mantener `L1 + A` / `Damp` como seguridad física según procedimientos.
+- Seguir los runbooks HIL antes de cualquier ejecución sobre hardware.
 
-**Stack tecnológico:**
-- **LLM:** Ollama con Gemma4:e4b + Modelfile personalizado
-- **STT:** Whisper `medium` en español
-- **TTS:** Piper con voz `es_MX-gevy-high` (voz masculina latinoamericana)
-- **Wake word:** detección de "Hola Otto" via Whisper
-- **Orquestador:** Python en host
+## Enlaces Principales
 
-**Estado actual:** Pipeline completo funcionando en notebook. Deploy al robot Jetson pendiente.
-
-**Arranque rápido:**
-```bash
-cd "OttoGuide IA"
-
-# 1. Levantar los contenedores Docker
-docker compose up -d
-
-# 2. Ejecutar el orquestador
-python3 services/core/main.py
-```
-
-Cuando veas `[HIBERNACION] Esperando 'Hola Otto'...` el sistema está listo.
-
-**Requisitos:**
-- Docker + Docker Compose
-- Python 3.10+
-- `requests` instalado (`pip install requests`)
-
-Ver `OttoGuide IA/documentacion/` para documentación técnica detallada.
-
----
-
-## Hardware — Robot Unitree G1 EDU
-
-| Componente | Detalle |
+| Recurso | Ruta |
 |---|---|
-| Módulo de cómputo | Jetson Orin NX 16GB |
-| CPU | ARM Cortex-A78AE · 8 cores · 2GHz |
-| GPU | 1024 cores NVIDIA Ampere (32 Tensor Cores) |
-| Storage | 2TB |
-| Audio | Array 4 micrófonos + parlante 5W |
-| OS | Ubuntu 20.04.6 LTS · JetPack R35.3.1 |
-| IP local | 192.168.123.164 |
-| Conexión | SSH `unitree@192.168.123.164` |
-
----
-
-## Estado del proyecto
-
-| Componente | Estado |
-|---|---|
-| Navegación autónoma (RC1) | ✅ Operativo en hardware real |
-| Wake word "Hola Otto" | ✅ Funcionando via Whisper |
-| LLM local Gemma4 | ✅ Respondiendo con personalidad de Otto |
-| TTS voz masculina MX | ✅ Piper es_MX-gevy-high |
-| Pipeline completo en notebook | ✅ End-to-end funcionando |
-| Deploy al robot Jetson | 🔄 En progreso (Fase 5) |
-| TTS nativo SDK Unitree | ⏳ Pendiente validación en robot |
-| Wake word dedicado "Hola Otto" | ⏳ Post-MVP (OpenWakeWord) |
-| RAG con docs UADE | ⏳ Pendiente contenido del equipo |
-| Integración Autónomo + IA | ⏳ V2 en planificación |
-
----
-
-## Ramas del repositorio
-
-| Rama | Propósito |
-|---|---|
-| `desarrollo` | Rama de integración principal — contiene ambos módulos actualizados |
-| `teo` | Rama de trabajo del módulo IA |
-| `echezuria` | Rama de trabajo del módulo autónomo |
-
-**Flujo de trabajo:**
-```
-teo ───────┐
-           ├──→ desarrollo
-echezuria ─┘
-```
-
-Cada integrante trabaja en su rama y mergea a `desarrollo` cuando tiene algo estable.
-
----
-
-## Documentación
-
-| Documento | Ubicación |
-|---|---|
-| Plan técnico LLM V2 | `documentacion general del proyecto/Interaccion/` |
-| Paso a paso de implementación | `documentacion general del proyecto/Interaccion/` |
-| Instrucciones de levantamiento | `documentacion general del proyecto/Interaccion/` |
-| Arquitectura operativa RC1 | `documentacion general del proyecto/Movimiento/RC1_Vigente/` |
-| Runbook startup robot | `documentacion general del proyecto/Movimiento/RC1_Vigente/` |
-| Planificación del proyecto | `planificacion/V3/` |
+| Documentación técnica | [documentacion general del proyecto/README.md](<documentacion general del proyecto/README.md>) |
+| Backlog | [TODO.md](<TODO.md>) |
+| Arquitectura operativa | [ARQUITECTURA_OPERATIVA_RC1.md](<documentacion general del proyecto/Arquitectura/ARQUITECTURA_OPERATIVA_RC1.md>) |
+| `ROS 2` / `DDS` | [ROS2_INTEGRATION.md](<documentacion general del proyecto/Arquitectura/ROS2_INTEGRATION.md>) |
+| Protocolo HIL | [HIL_TESTING_PROTOCOL.md](<documentacion general del proyecto/Operaciones_HIL/HIL_TESTING_PROTOCOL.md>) |
+| Preflight sensores | [PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md](<documentacion general del proyecto/Operaciones_HIL/PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md>) |
+| AppPhone / APK | [README_AppPhone.md](<documentacion general del proyecto/AppPhone/README_AppPhone.md>) |
