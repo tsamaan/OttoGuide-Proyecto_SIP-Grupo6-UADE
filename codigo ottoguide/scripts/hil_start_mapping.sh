@@ -55,7 +55,7 @@ if [ "${HIL_PREFLIGHT_ENABLED}" = "1" ]; then
     exit 1
   fi
   sleep "${HIL_SENSOR_WARMUP_S}"
-  "${PREFLIGHT_SCRIPT}"
+  bash "${PREFLIGHT_SCRIPT}"
 fi
 
 ros2 launch slam_toolbox online_async_launch.py use_sim_time:=false scan_topic:=/scan &
