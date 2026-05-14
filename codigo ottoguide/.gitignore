@@ -1,0 +1,9 @@
+# Local AppPhone artifacts
+data/AppPhone/*.apk
+data/AppPhone/*.xapk
+data/AppPhone/unitree_explore/
+data/AppPhone/unitree_go_xapk/
+data/AppPhone/**/assets/dist/
+
+# Local test/cache artifacts
+.pytest_cache/
