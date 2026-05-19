@@ -16,3 +16,26 @@ build/
 install/
 log/
 
+# Local Codex / SSH / robot access artifacts
+.codex_ssh/
+*.pem
+*.key
+id_ed25519*
+id_rsa*
+*.pub.local
+
+# Local SSH/network diagnostics
+ssh_key_acl_fix*.txt
+network_robot_before_*.txt
+network_robot_after_*.txt
+*ssh*diagnostic*.txt
+*ssh*test*.txt
+*network*robot*.txt
+*network*diagnostic*.txt
+*acl*fix*.txt
+
+# Local runtime/debug artifacts
+*.tmp
+*.bak
+*.orig
+*.rej
