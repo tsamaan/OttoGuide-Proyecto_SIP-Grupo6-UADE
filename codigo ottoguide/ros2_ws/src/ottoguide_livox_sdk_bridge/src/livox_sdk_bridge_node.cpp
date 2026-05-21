@@ -519,49 +519,60 @@ private:
       return;
     }
 
-    auto msg = sensor_msgs::msg::PointCloud2();
-    msg.header.stamp = now();
-    msg.header.frame_id = frame_id_;
-    msg.height = 1;
-    msg.width = static_cast<uint32_t>(frame.points.size());
-    msg.is_bigendian = false;
-    msg.is_dense = true;
+    try {
+      mark_lifecycle("MARK_082_CALLBACK_POINTCLOUD_BUILD_START");
+      auto msg = sensor_msgs::msg::PointCloud2();
+      msg.header.stamp = now();
+      msg.header.frame_id = frame_id_;
+      msg.height = 1;
+      msg.width = static_cast<uint32_t>(frame.points.size());
+      msg.is_bigendian = false;
+      msg.is_dense = true;
 
-    sensor_msgs::PointCloud2Modifier modifier(msg);
-    modifier.setPointCloud2Fields(
-      6,
-      "x", 1, sensor_msgs::msg::PointField::FLOAT32,
-      "y", 1, sensor_msgs::msg::PointField::FLOAT32,
-      "z", 1, sensor_msgs::msg::PointField::FLOAT32,
-      "intensity", 1, sensor_msgs::msg::PointField::FLOAT32,
-      "tag", 1, sensor_msgs::msg::PointField::UINT8,
-      "line", 1, sensor_msgs::msg::PointField::UINT8);
-    modifier.resize(frame.points.size());
+      sensor_msgs::PointCloud2Modifier modifier(msg);
+      modifier.setPointCloud2Fields(
+        6,
+        "x", 1, sensor_msgs::msg::PointField::FLOAT32,
+        "y", 1, sensor_msgs::msg::PointField::FLOAT32,
+        "z", 1, sensor_msgs::msg::PointField::FLOAT32,
+        "intensity", 1, sensor_msgs::msg::PointField::FLOAT32,
+        "tag", 1, sensor_msgs::msg::PointField::UINT8,
+        "line", 1, sensor_msgs::msg::PointField::UINT8);
+      modifier.resize(frame.points.size());
 
-    sensor_msgs::PointCloud2Iterator<float> iter_x(msg, "x");
-    sensor_msgs::PointCloud2Iterator<float> iter_y(msg, "y");
-    sensor_msgs::PointCloud2Iterator<float> iter_z(msg, "z");
-    sensor_msgs::PointCloud2Iterator<float> iter_intensity(msg, "intensity");
-    sensor_msgs::PointCloud2Iterator<uint8_t> iter_tag(msg, "tag");
-    sensor_msgs::PointCloud2Iterator<uint8_t> iter_line(msg, "line");
+      sensor_msgs::PointCloud2Iterator<float> iter_x(msg, "x");
+      sensor_msgs::PointCloud2Iterator<float> iter_y(msg, "y");
+      sensor_msgs::PointCloud2Iterator<float> iter_z(msg, "z");
+      sensor_msgs::PointCloud2Iterator<float> iter_intensity(msg, "intensity");
+      sensor_msgs::PointCloud2Iterator<uint8_t> iter_tag(msg, "tag");
+      sensor_msgs::PointCloud2Iterator<uint8_t> iter_line(msg, "line");
 
-    for (const auto & point : frame.points) {
-      *iter_x = point.x;
-      *iter_y = point.y;
-      *iter_z = point.z;
-      *iter_intensity = point.intensity;
-      *iter_tag = point.tag;
-      *iter_line = point.line;
+      for (const auto & point : frame.points) {
+        *iter_x = point.x;
+        *iter_y = point.y;
+        *iter_z = point.z;
+        *iter_intensity = point.intensity;
+        *iter_tag = point.tag;
+        *iter_line = point.line;
 
-      ++iter_x;
-      ++iter_y;
-      ++iter_z;
-      ++iter_intensity;
-      ++iter_tag;
-      ++iter_line;
+        ++iter_x;
+        ++iter_y;
+        ++iter_z;
+        ++iter_intensity;
+        ++iter_tag;
+        ++iter_line;
+      }
+
+      mark_lifecycle("MARK_083_CALLBACK_POINTCLOUD_BUILD_DONE");
+      mark_lifecycle("MARK_084_CALLBACK_POINTCLOUD_PUBLISH_ATTEMPT");
+      cloud_pub_->publish(msg);
+      mark_lifecycle("MARK_085_CALLBACK_POINTCLOUD_PUBLISH_DONE");
+    } catch (const std::exception & ex) {
+      mark_lifecycle("MARK_086_CALLBACK_POINTCLOUD_EXCEPTION");
+      RCLCPP_ERROR(get_logger(), "PointCloud exception: %s", ex.what());
+      return;
     }
 
-    cloud_pub_->publish(msg);
     const auto count = ++cloud_packets_published_;
     if (count % 100 == 0) {
       RCLCPP_INFO(
@@ -621,17 +632,27 @@ private:
       return;
     }
 
-    auto msg = sensor_msgs::msg::Imu();
-    msg.header.stamp = now();
-    msg.header.frame_id = frame_id_;
-    msg.orientation_covariance[0] = -1.0;
-    msg.angular_velocity.x = sample.gyro_x;
-    msg.angular_velocity.y = sample.gyro_y;
-    msg.angular_velocity.z = sample.gyro_z;
-    msg.linear_acceleration.x = sample.acc_x;
-    msg.linear_acceleration.y = sample.acc_y;
-    msg.linear_acceleration.z = sample.acc_z;
-    imu_pub_->publish(msg);
+    try {
+      mark_lifecycle("MARK_092_CALLBACK_IMU_BUILD_START");
+      auto msg = sensor_msgs::msg::Imu();
+      msg.header.stamp = now();
+      msg.header.frame_id = frame_id_;
+      msg.orientation_covariance[0] = -1.0;
+      msg.angular_velocity.x = sample.gyro_x;
+      msg.angular_velocity.y = sample.gyro_y;
+      msg.angular_velocity.z = sample.gyro_z;
+      msg.linear_acceleration.x = sample.acc_x;
+      msg.linear_acceleration.y = sample.acc_y;
+      msg.linear_acceleration.z = sample.acc_z;
+      mark_lifecycle("MARK_093_CALLBACK_IMU_BUILD_DONE");
+      mark_lifecycle("MARK_094_CALLBACK_IMU_PUBLISH_ATTEMPT");
+      imu_pub_->publish(msg);
+      mark_lifecycle("MARK_095_CALLBACK_IMU_PUBLISH_DONE");
+    } catch (const std::exception & ex) {
+      mark_lifecycle("MARK_096_CALLBACK_IMU_EXCEPTION");
+      RCLCPP_ERROR(get_logger(), "IMU exception: %s", ex.what());
+      return;
+    }
 
     const auto count = ++imu_packets_published_;
     if (count % 100 == 0) {
