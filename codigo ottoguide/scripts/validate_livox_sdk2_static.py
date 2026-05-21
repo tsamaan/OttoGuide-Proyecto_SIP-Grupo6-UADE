@@ -106,11 +106,17 @@ def validate_bridge_sources(failures: List[str]) -> None:
     require_contains(node, r"livox_lidar_api\.h", "Node includes official Livox SDK2 API", failures)
     require_contains(node, r"std::memcpy", "Node copies SDK payloads before reading typed samples", failures)
     require_contains(node, r"packet_dot_count_is_safe", "Node guards Livox dot_num before payload parsing", failures)
+    require_contains(node, r"max_points_per_packet", "Node exposes configurable max points per packet", failures)
+    require_contains(node, r"debug_dry_run_no_publish", "Node exposes dry-run mode without ROS publishing", failures)
+    require_contains(node, r"std::bad_alloc", "Node catches std::bad_alloc around packet handling", failures)
+    require_contains(node, r"packet_timestamp_hex", "Node logs Livox packet timestamp diagnostics", failures)
     require_contains(node, r"publish_queued_messages", "Node publishes from ROS timer path", failures)
     require_contains(node, r'"/utlidar/cloud"', "Node default cloud topic is /utlidar/cloud", failures)
     require_contains(node, r'"/livox/imu"', "Node default IMU topic is /livox/imu", failures)
     require_contains(node, r'"utlidar_lidar"', "Node default frame_id is utlidar_lidar", failures)
     require_contains(launch, r"mid360_sdk2_bridge\.json", "Launch resolves MID360 SDK2 config", failures)
+    require_contains(launch, r"max_points_per_packet", "Launch exposes max_points_per_packet", failures)
+    require_contains(launch, r"debug_dry_run_no_publish", "Launch exposes debug_dry_run_no_publish", failures)
     require_contains(readme, r"Do not run.*livox_ros_driver2", "README warns against dual Livox drivers", failures)
 
 

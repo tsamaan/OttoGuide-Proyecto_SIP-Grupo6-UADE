@@ -5,6 +5,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def _default_config_path() -> str:
@@ -46,6 +47,21 @@ def generate_launch_description():
             default_value="/livox/imu",
             description="IMU output topic recorded by the HIL mapping pipeline.",
         ),
+        DeclareLaunchArgument(
+            "max_points_per_packet",
+            default_value="96",
+            description="Hard safety cap for decoded Livox points per SDK2 packet.",
+        ),
+        DeclareLaunchArgument(
+            "debug_dry_run_no_publish",
+            default_value="false",
+            description="Decode and log SDK2 callbacks without publishing ROS messages.",
+        ),
+        DeclareLaunchArgument(
+            "diagnostic_log_every_n_packets",
+            default_value="250",
+            description="Emit one SDK2 packet diagnostic sample every N callbacks.",
+        ),
         Node(
             package="ottoguide_livox_sdk_bridge",
             executable="livox_sdk_bridge_node",
@@ -56,6 +72,18 @@ def generate_launch_description():
                 "frame_id": LaunchConfiguration("frame_id"),
                 "topic_cloud": LaunchConfiguration("topic_cloud"),
                 "topic_imu": LaunchConfiguration("topic_imu"),
+                "max_points_per_packet": ParameterValue(
+                    LaunchConfiguration("max_points_per_packet"),
+                    value_type=int,
+                ),
+                "debug_dry_run_no_publish": ParameterValue(
+                    LaunchConfiguration("debug_dry_run_no_publish"),
+                    value_type=bool,
+                ),
+                "diagnostic_log_every_n_packets": ParameterValue(
+                    LaunchConfiguration("diagnostic_log_every_n_packets"),
+                    value_type=int,
+                ),
             }],
         ),
     ])

@@ -23,6 +23,9 @@ claiming compatibility with `livox_ros_driver2`'s `/utlidar/imu` behavior.
 - `topic_imu`: IMU topic. Default: `/livox/imu`
 - `publish_pointcloud`: enable point cloud publisher. Default: `true`
 - `publish_imu`: enable IMU publisher. Default: `true`
+- `max_points_per_packet`: hard safety cap before decoding SDK2 point payloads. Default: `96`
+- `debug_dry_run_no_publish`: decode/log SDK2 callbacks without publishing ROS messages. Default: `false`
+- `diagnostic_log_every_n_packets`: emit one packet diagnostic sample every N callbacks. Default: `250`
 
 ## Network
 
@@ -64,3 +67,11 @@ ros2 launch ottoguide_livox_sdk_bridge mid360_sdk2_bridge.launch.py
 The launch file passes an absolute config path when `OTTOGUIDE_ROOT` or
 `OTTOGUIDE_LIVOX_CONFIG` is set. Keep `frame_id=utlidar_lidar` unless the TF
 tree is intentionally changed.
+
+For runtime forensics, isolate Livox SDK2 callbacks from ROS message publishing:
+
+```bash
+ros2 launch ottoguide_livox_sdk_bridge mid360_sdk2_bridge.launch.py \
+  debug_dry_run_no_publish:=true \
+  diagnostic_log_every_n_packets:=1
+```

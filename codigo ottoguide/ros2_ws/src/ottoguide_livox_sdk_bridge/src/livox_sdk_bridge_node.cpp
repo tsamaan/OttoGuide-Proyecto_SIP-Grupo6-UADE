@@ -6,8 +6,11 @@
 #include <deque>
 #include <fstream>
 #include <functional>
+#include <iomanip>
 #include <memory>
 #include <mutex>
+#include <new>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -27,6 +30,7 @@ namespace {
 constexpr double kMillimetersToMeters = 0.001;
 constexpr double kCentimetersToMeters = 0.01;
 constexpr std::size_t kMaxLivoxPacketPayloadBytes = 1500;
+constexpr std::size_t kDefaultMaxPointsPerPacket = 96;
 constexpr std::size_t kMaxQueuedCloudFrames = 16;
 constexpr std::size_t kMaxQueuedImuSamples = 256;
 constexpr auto kPublishTimerPeriod = std::chrono::milliseconds(10);
@@ -70,6 +74,23 @@ public:
     topic_imu_ = declare_parameter<std::string>("topic_imu", "/livox/imu");
     publish_pointcloud_ = declare_parameter<bool>("publish_pointcloud", true);
     publish_imu_ = declare_parameter<bool>("publish_imu", true);
+    debug_dry_run_no_publish_ = declare_parameter<bool>("debug_dry_run_no_publish", false);
+    max_points_per_packet_ = declare_parameter<int>(
+      "max_points_per_packet", static_cast<int>(kDefaultMaxPointsPerPacket));
+    diagnostic_log_every_n_packets_ = declare_parameter<int>(
+      "diagnostic_log_every_n_packets", 250);
+
+    if (max_points_per_packet_ <= 0) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Invalid max_points_per_packet=%d; using default=%u",
+        max_points_per_packet_,
+        static_cast<unsigned>(kDefaultMaxPointsPerPacket));
+      max_points_per_packet_ = static_cast<int>(kDefaultMaxPointsPerPacket);
+    }
+    if (diagnostic_log_every_n_packets_ <= 0) {
+      diagnostic_log_every_n_packets_ = 250;
+    }
 
     resolved_config_path_ = resolve_config_path(config_path_);
     if (!file_exists(resolved_config_path_)) {
@@ -77,10 +98,10 @@ public:
     }
 
     const auto qos = rclcpp::SensorDataQoS();
-    if (publish_pointcloud_) {
+    if (publish_pointcloud_ && !debug_dry_run_no_publish_) {
       cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(topic_cloud_, qos);
     }
-    if (publish_imu_) {
+    if (publish_imu_ && !debug_dry_run_no_publish_) {
       imu_pub_ = create_publisher<sensor_msgs::msg::Imu>(topic_imu_, qos);
     }
     publish_timer_ = create_wall_timer(
@@ -101,8 +122,11 @@ public:
       throw std::runtime_error("LivoxLidarSdkStart failed");
     }
 
-    RCLCPP_INFO(get_logger(), "Livox SDK2 bridge started: config=%s cloud=%s imu=%s frame_id=%s",
-      resolved_config_path_.c_str(), topic_cloud_.c_str(), topic_imu_.c_str(), frame_id_.c_str());
+    RCLCPP_INFO(
+      get_logger(),
+      "Livox SDK2 bridge started: config=%s cloud=%s imu=%s frame_id=%s dry_run=%s max_points_per_packet=%d",
+      resolved_config_path_.c_str(), topic_cloud_.c_str(), topic_imu_.c_str(), frame_id_.c_str(),
+      debug_dry_run_no_publish_ ? "true" : "false", max_points_per_packet_);
   }
 
   ~LivoxSdkBridgeNode() override
@@ -162,7 +186,11 @@ private:
     auto * node = static_cast<LivoxSdkBridgeNode *>(client_data);
     CallbackGuard guard(node);
     if (guard) {
-      node->enqueue_point_cloud(data);
+      try {
+        node->enqueue_point_cloud(data);
+      } catch (const std::bad_alloc & ex) {
+        node->handle_bad_alloc("point_cloud_callback", data, ex);
+      }
     }
   }
 
@@ -177,7 +205,11 @@ private:
     auto * node = static_cast<LivoxSdkBridgeNode *>(client_data);
     CallbackGuard guard(node);
     if (guard) {
-      node->enqueue_imu(data);
+      try {
+        node->enqueue_imu(data);
+      } catch (const std::bad_alloc & ex) {
+        node->handle_bad_alloc("imu_callback", data, ex);
+      }
     }
   }
 
@@ -207,24 +239,105 @@ private:
   };
 
   template<typename PointT>
+  std::size_t max_safe_points_for_packet() const
+  {
+    const auto payload_limit = kMaxLivoxPacketPayloadBytes / sizeof(PointT);
+    const auto configured_limit = static_cast<std::size_t>(max_points_per_packet_);
+    return configured_limit < payload_limit ? configured_limit : payload_limit;
+  }
+
+  std::string packet_timestamp_hex(const LivoxLidarEthernetPacket * packet) const
+  {
+    if (packet == nullptr) {
+      return "null";
+    }
+
+    std::ostringstream stream;
+    stream << std::hex << std::setfill('0');
+    for (const auto byte : packet->timestamp) {
+      stream << std::setw(2) << static_cast<unsigned>(byte);
+    }
+    return stream.str();
+  }
+
+  void log_packet_diagnostic(
+    const char * callback_name,
+    const LivoxLidarEthernetPacket * packet,
+    const char * action,
+    const std::size_t max_safe_points)
+  {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 2000,
+      "%s Livox packet action=%s data_type=%u dot_num=%u max_safe_points=%u timestamp=%s",
+      callback_name,
+      action,
+      packet == nullptr ? 0U : static_cast<unsigned>(packet->data_type),
+      packet == nullptr ? 0U : static_cast<unsigned>(packet->dot_num),
+      static_cast<unsigned>(max_safe_points),
+      packet_timestamp_hex(packet).c_str());
+  }
+
+  void maybe_log_packet_sample(
+    const char * callback_name,
+    const LivoxLidarEthernetPacket * packet,
+    const std::size_t max_safe_points)
+  {
+    const auto count = ++diagnostic_packets_seen_;
+    if (count % static_cast<uint64_t>(diagnostic_log_every_n_packets_) != 0) {
+      return;
+    }
+
+    RCLCPP_INFO(
+      get_logger(),
+      "%s Livox packet sample count=%lu data_type=%u dot_num=%u max_safe_points=%u timestamp=%s",
+      callback_name,
+      static_cast<unsigned long>(count),
+      packet == nullptr ? 0U : static_cast<unsigned>(packet->data_type),
+      packet == nullptr ? 0U : static_cast<unsigned>(packet->dot_num),
+      static_cast<unsigned>(max_safe_points),
+      packet_timestamp_hex(packet).c_str());
+  }
+
+  void handle_bad_alloc(
+    const char * context,
+    const LivoxLidarEthernetPacket * packet,
+    const std::bad_alloc & ex)
+  {
+    ++bad_alloc_drops_;
+    RCLCPP_ERROR_THROTTLE(
+      get_logger(), *get_clock(), 2000,
+      "Dropping Livox packet after std::bad_alloc in %s: %s data_type=%u dot_num=%u timestamp=%s bad_alloc_drops=%lu",
+      context,
+      ex.what(),
+      packet == nullptr ? 0U : static_cast<unsigned>(packet->data_type),
+      packet == nullptr ? 0U : static_cast<unsigned>(packet->dot_num),
+      packet_timestamp_hex(packet).c_str(),
+      static_cast<unsigned long>(bad_alloc_drops_.load()));
+  }
+
+  template<typename PointT>
   bool packet_dot_count_is_safe(const LivoxLidarEthernetPacket * packet) const
   {
     if (packet == nullptr || packet->dot_num == 0) {
       return false;
     }
-    const auto max_dots = kMaxLivoxPacketPayloadBytes / sizeof(PointT);
-    return packet->dot_num <= max_dots;
+    return packet->dot_num <= max_safe_points_for_packet<PointT>();
   }
 
   template<typename PointT>
   void enqueue_cartesian_points(const LivoxLidarEthernetPacket * packet, const double scale)
   {
+    const auto max_safe_points = max_safe_points_for_packet<PointT>();
     if (!packet_dot_count_is_safe<PointT>(packet)) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 5000,
-        "Dropping Livox cloud packet with unsafe dot_num=%u for data_type=%u",
-        packet == nullptr ? 0U : static_cast<unsigned>(packet->dot_num),
-        packet == nullptr ? 0U : static_cast<unsigned>(packet->data_type));
+      log_packet_diagnostic("point_cloud_callback", packet, "drop_unsafe_dot_num", max_safe_points);
+      ++cloud_packets_dropped_;
+      return;
+    }
+
+    maybe_log_packet_sample("point_cloud_callback", packet, max_safe_points);
+
+    if (debug_dry_run_no_publish_) {
+      log_packet_diagnostic("point_cloud_callback", packet, "dry_run_drop", max_safe_points);
       ++cloud_packets_dropped_;
       return;
     }
@@ -253,7 +366,7 @@ private:
 
   void enqueue_point_cloud(const LivoxLidarEthernetPacket * packet)
   {
-    if (!publish_pointcloud_ || !cloud_pub_ || packet == nullptr || packet->dot_num == 0) {
+    if (!publish_pointcloud_ || packet == nullptr || packet->dot_num == 0) {
       return;
     }
 
@@ -277,7 +390,7 @@ private:
 
   void publish_cloud_frame(const CloudFrame & frame)
   {
-    if (!publish_pointcloud_ || !cloud_pub_ || frame.points.empty()) {
+    if (!publish_pointcloud_ || debug_dry_run_no_publish_ || !cloud_pub_ || frame.points.empty()) {
       return;
     }
 
@@ -336,7 +449,7 @@ private:
 
   void enqueue_imu(const LivoxLidarEthernetPacket * packet)
   {
-    if (!publish_imu_ || !imu_pub_ || packet == nullptr) {
+    if (!publish_imu_ || packet == nullptr) {
       return;
     }
 
@@ -349,11 +462,17 @@ private:
       return;
     }
 
+    const auto max_safe_points = max_safe_points_for_packet<LivoxLidarImuRawPoint>();
     if (!packet_dot_count_is_safe<LivoxLidarImuRawPoint>(packet)) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 5000,
-        "Dropping Livox IMU packet with unsafe dot_num=%u",
-        static_cast<unsigned>(packet->dot_num));
+      log_packet_diagnostic("imu_callback", packet, "drop_unsafe_dot_num", max_safe_points);
+      ++imu_packets_dropped_;
+      return;
+    }
+
+    maybe_log_packet_sample("imu_callback", packet, max_safe_points);
+
+    if (debug_dry_run_no_publish_) {
+      log_packet_diagnostic("imu_callback", packet, "dry_run_drop", max_safe_points);
       ++imu_packets_dropped_;
       return;
     }
@@ -372,7 +491,7 @@ private:
 
   void publish_imu_sample(const ImuSample & sample)
   {
-    if (!publish_imu_ || !imu_pub_) {
+    if (!publish_imu_ || debug_dry_run_no_publish_ || !imu_pub_) {
       return;
     }
 
@@ -408,10 +527,18 @@ private:
     }
 
     for (const auto & frame : cloud_frames) {
-      publish_cloud_frame(frame);
+      try {
+        publish_cloud_frame(frame);
+      } catch (const std::bad_alloc & ex) {
+        handle_bad_alloc("publish_cloud_frame", nullptr, ex);
+      }
     }
     for (const auto & sample : imu_samples) {
-      publish_imu_sample(sample);
+      try {
+        publish_imu_sample(sample);
+      } catch (const std::bad_alloc & ex) {
+        handle_bad_alloc("publish_imu_sample", nullptr, ex);
+      }
     }
   }
 
@@ -422,6 +549,9 @@ private:
   std::string topic_imu_;
   bool publish_pointcloud_{true};
   bool publish_imu_{true};
+  bool debug_dry_run_no_publish_{false};
+  int max_points_per_packet_{static_cast<int>(kDefaultMaxPointsPerPacket)};
+  int diagnostic_log_every_n_packets_{250};
   bool sdk_initialized_{false};
   std::atomic<bool> accepting_callbacks_{true};
   std::atomic<uint64_t> active_callbacks_{0};
@@ -429,6 +559,8 @@ private:
   std::atomic<uint64_t> imu_packets_published_{0};
   std::atomic<uint64_t> cloud_packets_dropped_{0};
   std::atomic<uint64_t> imu_packets_dropped_{0};
+  std::atomic<uint64_t> bad_alloc_drops_{0};
+  std::atomic<uint64_t> diagnostic_packets_seen_{0};
   std::mutex queue_mutex_;
   std::deque<CloudFrame> cloud_queue_;
   std::deque<ImuSample> imu_queue_;
