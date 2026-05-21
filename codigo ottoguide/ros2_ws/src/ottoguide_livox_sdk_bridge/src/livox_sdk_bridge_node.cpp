@@ -451,8 +451,10 @@ private:
   template<typename PointT>
   void enqueue_cartesian_points(const LivoxLidarEthernetPacket * packet, const double scale)
   {
+    mark_lifecycle("MARK_120_ENQUEUE_CARTESIAN_ENTER");
     const auto max_safe_points = max_safe_points_for_packet<PointT>();
     if (!packet_dot_count_is_safe<PointT>(packet)) {
+      mark_lifecycle("MARK_121_ENQUEUE_CARTESIAN_RETURN_UNSAFE_DOT_NUM");
       log_packet_diagnostic("point_cloud_callback", packet, "drop_unsafe_dot_num", max_safe_points);
       ++cloud_packets_dropped_;
       return;
@@ -462,6 +464,7 @@ private:
 
     if (debug_dry_run_no_publish_) {
       mark_lifecycle("MARK_081_CALLBACK_POINTCLOUD_DROP_DRY_RUN");
+      mark_lifecycle("MARK_122_ENQUEUE_CARTESIAN_DRYRUN_DROP");
       log_packet_diagnostic("point_cloud_callback", packet, "dry_run_drop", max_safe_points);
       ++cloud_packets_dropped_;
       return;
@@ -480,31 +483,47 @@ private:
       out.tag = point.tag;
       frame.points.push_back(out);
     }
+    mark_lifecycle("MARK_123_ENQUEUE_CARTESIAN_FRAME_BUILT");
 
     std::lock_guard<std::mutex> lock(queue_mutex_);
     if (cloud_queue_.size() >= kMaxQueuedCloudFrames) {
+      mark_lifecycle("MARK_124_ENQUEUE_CARTESIAN_QUEUE_FULL_DROP");
       cloud_queue_.pop_front();
       ++cloud_packets_dropped_;
     }
     cloud_queue_.push_back(std::move(frame));
+    mark_lifecycle("MARK_125_ENQUEUE_CARTESIAN_QUEUE_PUSH_DONE");
   }
 
   void enqueue_point_cloud(const LivoxLidarEthernetPacket * packet)
   {
-    if (!publish_pointcloud_ || packet == nullptr || packet->dot_num == 0) {
+    mark_lifecycle("MARK_110_ENQUEUE_POINTCLOUD_ENTER");
+    if (!publish_pointcloud_) {
+      mark_lifecycle("MARK_111_ENQUEUE_POINTCLOUD_RETURN_DISABLED");
+      return;
+    }
+    if (packet == nullptr) {
+      mark_lifecycle("MARK_112_ENQUEUE_POINTCLOUD_RETURN_NULL_PACKET");
+      return;
+    }
+    if (packet->dot_num == 0) {
+      mark_lifecycle("MARK_113_ENQUEUE_POINTCLOUD_RETURN_ZERO_DOT_NUM");
       return;
     }
 
     switch (packet->data_type) {
       case kLivoxLidarCartesianCoordinateHighData:
+        mark_lifecycle("MARK_114_ENQUEUE_POINTCLOUD_HIGH_DATA");
         enqueue_cartesian_points<LivoxLidarCartesianHighRawPoint>(
           packet, kMillimetersToMeters);
         break;
       case kLivoxLidarCartesianCoordinateLowData:
+        mark_lifecycle("MARK_115_ENQUEUE_POINTCLOUD_LOW_DATA");
         enqueue_cartesian_points<LivoxLidarCartesianLowRawPoint>(
           packet, kCentimetersToMeters);
         break;
       default:
+        mark_lifecycle("MARK_116_ENQUEUE_POINTCLOUD_UNSUPPORTED_TYPE");
         RCLCPP_WARN_THROTTLE(
           get_logger(), *get_clock(), 5000,
           "Unsupported Livox point data_type=%u", static_cast<unsigned>(packet->data_type));
@@ -515,7 +534,21 @@ private:
 
   void publish_cloud_frame(const CloudFrame & frame)
   {
-    if (!publish_pointcloud_ || debug_dry_run_no_publish_ || !cloud_pub_ || frame.points.empty()) {
+    mark_lifecycle("MARK_150_PUBLISH_CLOUD_FRAME_ENTER");
+    if (!publish_pointcloud_) {
+      mark_lifecycle("MARK_151_PUBLISH_CLOUD_RETURN_DISABLED");
+      return;
+    }
+    if (debug_dry_run_no_publish_) {
+      mark_lifecycle("MARK_152_PUBLISH_CLOUD_RETURN_DRYRUN");
+      return;
+    }
+    if (!cloud_pub_) {
+      mark_lifecycle("MARK_153_PUBLISH_CLOUD_RETURN_NO_PUBLISHER");
+      return;
+    }
+    if (frame.points.empty()) {
+      mark_lifecycle("MARK_154_PUBLISH_CLOUD_RETURN_EMPTY_FRAME");
       return;
     }
 
@@ -585,11 +618,18 @@ private:
 
   void enqueue_imu(const LivoxLidarEthernetPacket * packet)
   {
-    if (!publish_imu_ || packet == nullptr) {
+    mark_lifecycle("MARK_130_ENQUEUE_IMU_ENTER");
+    if (!publish_imu_) {
+      mark_lifecycle("MARK_131_ENQUEUE_IMU_RETURN_DISABLED");
+      return;
+    }
+    if (packet == nullptr) {
+      mark_lifecycle("MARK_132_ENQUEUE_IMU_RETURN_NULL_PACKET");
       return;
     }
 
     if (packet->data_type != kLivoxLidarImuData) {
+      mark_lifecycle("MARK_133_ENQUEUE_IMU_RETURN_NON_IMU_DATA");
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 5000,
         "Ignoring non-IMU Livox data_type=%u in IMU callback",
@@ -600,6 +640,7 @@ private:
 
     const auto max_safe_points = max_safe_points_for_packet<LivoxLidarImuRawPoint>();
     if (!packet_dot_count_is_safe<LivoxLidarImuRawPoint>(packet)) {
+      mark_lifecycle("MARK_134_ENQUEUE_IMU_RETURN_UNSAFE_DOT_NUM");
       log_packet_diagnostic("imu_callback", packet, "drop_unsafe_dot_num", max_safe_points);
       ++imu_packets_dropped_;
       return;
@@ -609,6 +650,7 @@ private:
 
     if (debug_dry_run_no_publish_) {
       mark_lifecycle("MARK_091_CALLBACK_IMU_DROP_DRY_RUN");
+      mark_lifecycle("MARK_135_ENQUEUE_IMU_DRYRUN_DROP");
       log_packet_diagnostic("imu_callback", packet, "dry_run_drop", max_safe_points);
       ++imu_packets_dropped_;
       return;
@@ -619,16 +661,28 @@ private:
       LivoxLidarImuRawPoint raw{};
       std::memcpy(&raw, packet->data + (i * sizeof(LivoxLidarImuRawPoint)), sizeof(raw));
       if (imu_queue_.size() >= kMaxQueuedImuSamples) {
+        mark_lifecycle("MARK_136_ENQUEUE_IMU_QUEUE_FULL_DROP");
         imu_queue_.pop_front();
         ++imu_packets_dropped_;
       }
       imu_queue_.push_back(ImuSample{raw.gyro_x, raw.gyro_y, raw.gyro_z, raw.acc_x, raw.acc_y, raw.acc_z});
+      mark_lifecycle("MARK_137_ENQUEUE_IMU_QUEUE_PUSH_DONE");
     }
   }
 
   void publish_imu_sample(const ImuSample & sample)
   {
-    if (!publish_imu_ || debug_dry_run_no_publish_ || !imu_pub_) {
+    mark_lifecycle("MARK_160_PUBLISH_IMU_SAMPLE_ENTER");
+    if (!publish_imu_) {
+      mark_lifecycle("MARK_161_PUBLISH_IMU_RETURN_DISABLED");
+      return;
+    }
+    if (debug_dry_run_no_publish_) {
+      mark_lifecycle("MARK_162_PUBLISH_IMU_RETURN_DRYRUN");
+      return;
+    }
+    if (!imu_pub_) {
+      mark_lifecycle("MARK_163_PUBLISH_IMU_RETURN_NO_PUBLISHER");
       return;
     }
 
@@ -665,6 +719,7 @@ private:
 
   void publish_queued_messages()
   {
+    mark_lifecycle("MARK_140_PUBLISH_TIMER_ENTER");
     std::deque<CloudFrame> cloud_frames;
     std::deque<ImuSample> imu_samples;
     {
@@ -673,8 +728,19 @@ private:
       imu_samples.swap(imu_queue_);
     }
 
+    if (!cloud_frames.empty()) {
+      mark_lifecycle("MARK_141_PUBLISH_TIMER_CLOUD_QUEUE_NONEMPTY");
+    }
+    if (!imu_samples.empty()) {
+      mark_lifecycle("MARK_142_PUBLISH_TIMER_IMU_QUEUE_NONEMPTY");
+    }
+    if (cloud_frames.empty() && imu_samples.empty()) {
+      mark_lifecycle("MARK_143_PUBLISH_TIMER_EMPTY_QUEUES");
+    }
+
     for (const auto & frame : cloud_frames) {
       try {
+        mark_lifecycle("MARK_144_PUBLISH_TIMER_CALL_CLOUD_PUBLISH");
         publish_cloud_frame(frame);
       } catch (const std::bad_alloc & ex) {
         handle_bad_alloc("publish_cloud_frame", nullptr, ex);
@@ -682,6 +748,7 @@ private:
     }
     for (const auto & sample : imu_samples) {
       try {
+        mark_lifecycle("MARK_145_PUBLISH_TIMER_CALL_IMU_PUBLISH");
         publish_imu_sample(sample);
       } catch (const std::bad_alloc & ex) {
         handle_bad_alloc("publish_imu_sample", nullptr, ex);
