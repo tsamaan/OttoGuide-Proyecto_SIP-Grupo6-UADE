@@ -3,7 +3,6 @@ set -eo pipefail
 export AMENT_TRACE_SETUP_FILES=""
 export AMENT_PYTHON_EXECUTABLE="$(which python3)"
 source /opt/ros/foxy/setup.bash
-source /home/unitree/livox_ws/install/setup.bash
 
 : <<'DOC'
 @TASK: Grabar rosbag2 pasivo de alta densidad para mapeo HIL sin ejecutar navegacion.
@@ -21,6 +20,10 @@ OUT_DIR="${1:-${PROJECT_ROOT}/logs/bags}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 BAG_PATH="${HIL_BAG_PATH:-${OUT_DIR}/hil_mapping_${STAMP}}"
 
+if [ -f "${PROJECT_ROOT}/ros2_ws/install/setup.bash" ]; then
+  source "${PROJECT_ROOT}/ros2_ws/install/setup.bash"
+fi
+
 mkdir -p "${OUT_DIR}" "$(dirname "${BAG_PATH}")"
 
 exec ros2 bag record \
@@ -28,7 +31,7 @@ exec ros2 bag record \
   --output "${BAG_PATH}" \
   --max-cache-size 0 \
   /scan \
-  /livox/lidar \
+  /utlidar/cloud \
   /livox/imu \
   /camera/color/image_raw \
   /camera/depth/image_rect_raw \

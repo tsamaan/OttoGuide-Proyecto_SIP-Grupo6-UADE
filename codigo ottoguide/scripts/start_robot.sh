@@ -40,7 +40,7 @@ _require_file() {
 }
 
 _require_file "${VERIFY_SCRIPT}"       "Script de validacion HIL"
-_require_file "${ROS_SETUP}"           "ROS 2 Humble setup.bash"
+_require_file "${ROS_SETUP}"           "ROS 2 setup.bash"
 _require_file "${VENV_ACTIVATE}"       "Activador de entorno virtual"
 _require_file "${CYCLONEDDS_CONFIG}"   "Configuracion CycloneDDS XML"
 _require_file "${ENTRYPOINT}"          "Entrypoint Python (main.py)"
@@ -155,10 +155,10 @@ echo "[SAFETY] Confirmacion valida. Procediendo con el arranque del sistema." >&
 # FASE 3 — Aprovisionamiento del entorno de ejecucion
 # ----------------------------------------------------------------------------
 
-# ROS 2 Humble
-# shellcheck source=/opt/ros/humble/setup.bash
+# ROS 2 Foxy en G1 HIL; Humble solo host/SITL si se fuerza ROS_SETUP.
+# shellcheck source=/dev/null
 source "${ROS_SETUP}"
-echo "[ENV] ROS 2 Humble cargado desde: ${ROS_SETUP}" >&2
+echo "[ENV] ROS 2 cargado desde: ${ROS_SETUP}" >&2
 
 # Entorno virtual Python
 # shellcheck source=/dev/null

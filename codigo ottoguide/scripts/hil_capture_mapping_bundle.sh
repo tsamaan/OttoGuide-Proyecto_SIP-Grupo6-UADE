@@ -3,17 +3,16 @@ set -eo pipefail
 export AMENT_TRACE_SETUP_FILES=""
 export AMENT_PYTHON_EXECUTABLE="$(which python3)"
 source /opt/ros/foxy/setup.bash
-source /home/unitree/livox_ws/install/setup.bash
 
 : <<'DOC'
 @TASK: Ejecutar captura HIL de mapeo con fases declarativas y manifiesto.
-@INPUT: ROS 2 Humble, drivers Livox/RealSense, slam_toolbox, rosbag2 y nav2_map_server.
+@INPUT: ROS 2 Foxy, bridge Livox SDK2, RealSense, slam_toolbox, rosbag2 y nav2_map_server.
 @OUTPUT: rosbag2, mapa YAML/PGM y manifest JSON de la sesion.
 @CONTEXT: Orquestador para recorrer una sola vez el entorno y capturar mapa/datos brutos.
 @SECURITY: No publica locomocion; solo levanta sensores, SLAM y suscripcion rosbag2.
 STEP 1: Preflight de scripts, comandos y rutas.
 STEP 2: Arrancar stack de mapeo y esperar topics/nodo criticos.
-STEP 3: Iniciar rosbag2 con path exacto y mantener sesion hasta Ctrl+C.
+STEP 3: Iniciar rosbag2 con path exacto y mantener sesion hasta ENTER del operador.
 STEP 4: Guardar mapa, validar artefactos y emitir manifest.
 DOC
 
@@ -70,6 +69,10 @@ load_ros_environment() {
   if [[ -f "${PROJECT_ROOT}/install/setup.bash" ]]; then
     # shellcheck source=/dev/null
     source "${PROJECT_ROOT}/install/setup.bash"
+  fi
+  if [[ -f "${PROJECT_ROOT}/ros2_ws/install/setup.bash" ]]; then
+    # shellcheck source=/dev/null
+    source "${PROJECT_ROOT}/ros2_ws/install/setup.bash"
   fi
 }
 
@@ -162,7 +165,7 @@ write_manifest() {
   "bag_path": "${BAG_PATH}",
   "topics_required": [
     "/scan",
-    "/livox/lidar",
+    "/utlidar/cloud",
     "/livox/imu",
     "/camera/color/image_raw",
     "/camera/depth/image_rect_raw",
@@ -262,7 +265,7 @@ PIDS+=("$!")
 wait_for_process "mapping stack" "${PIDS[0]}"
 wait_for_node_pattern "SLAM" '(^|/)slam_toolbox($|/)' "${HIL_READY_TIMEOUT_S}"
 wait_for_topic "/scan" "${HIL_READY_TIMEOUT_S}"
-wait_for_topic "/livox/lidar" "${HIL_READY_TIMEOUT_S}"
+wait_for_topic "/utlidar/cloud" "${HIL_READY_TIMEOUT_S}"
 wait_for_topic "/livox/imu" "${HIL_READY_TIMEOUT_S}"
 wait_for_topic "/camera/color/image_raw" "${HIL_READY_TIMEOUT_S}"
 wait_for_topic "/camera/depth/image_rect_raw" "${HIL_READY_TIMEOUT_S}"
@@ -276,7 +279,7 @@ wait_for_process "rosbag2" "${PIDS[1]}"
 log_output "Captura unica de mapeo iniciada. mapping=${PIDS[0]} bag=${PIDS[1]}"
 log_output "Bag destino ${BAG_PATH}"
 log_output "Mapa destino ${HIL_MAP_BASENAME}.yaml y ${HIL_MAP_BASENAME}.pgm"
-log_context "Conducir una sola vez el recorrido; al terminar, pulsar Ctrl+C para guardar todo."
+log_context "Conducir una sola vez el recorrido; al terminar, pulsar ENTER para guardar todo."
 
 echo -e "\n========================================================"
 echo -e "[+] MAPEO HIL EN CURSO - Tópicos activos."

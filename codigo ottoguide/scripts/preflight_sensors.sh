@@ -5,7 +5,7 @@ set -euo pipefail
 : <<'DOC'
 @TASK: Certificar que los sensores criticos (LiDAR Livox MID360 y RealSense D435i) 
        estan publicando datos correctamente en ROS 2 para slam_toolbox.
-@INPUT: ROS 2 Foxy instalado en target G1, drivers livox_ros_driver2, realsense2_camera y pointcloud_to_laserscan disponibles.
+@INPUT: ROS 2 Foxy instalado en target G1, ottoguide_livox_sdk_bridge, realsense2_camera y pointcloud_to_laserscan disponibles.
 @OUTPUT: Estado de sensores, tabla de topicos activos y frecuencias. EXIT 0 si todo OK.
 @CONTEXT: Script de preflight HIL para validacion antes de mapeo/navegacion autonoma.
 @SECURITY: Solo lectura de topicos; no publica comandos ni modifica estado del robot.
@@ -36,7 +36,7 @@ readonly LIVOX_MID360_IP="${LIVOX_MID360_IP:-192.168.123.120}"
 # Topicos criticos a verificar
 declare -A CRITICAL_TOPICS=(
     ["/utlidar/cloud"]="LiDAR PointCloud2"
-    ["/utlidar/imu"]="LiDAR IMU"
+    ["/livox/imu"]="LiDAR IMU"
     ["/scan"]="LaserScan requerido por slam_toolbox"
     ["/camera/depth/image_rect_raw"]="RealSense Depth"
     ["/camera/color/image_raw"]="RealSense Color"
@@ -100,6 +100,11 @@ source_ros_environment() {
         # shellcheck source=/dev/null
         source "${PROJECT_ROOT}/install/setup.bash"
     fi
+    if [[ -f "${PROJECT_ROOT}/ros2_ws/install/setup.bash" ]]; then
+        log_info "Sourcing ROS 2 workspace local: ${PROJECT_ROOT}/ros2_ws/install/setup.bash"
+        # shellcheck source=/dev/null
+        source "${PROJECT_ROOT}/ros2_ws/install/setup.bash"
+    fi
     
     log_info "ROS 2 Distro: ${ROS_DISTRO:-unknown}"
     log_info "ROS 2 Version: $(ros2 --version 2>&1 || echo 'N/A')"
@@ -114,13 +119,13 @@ check_drivers_installed() {
     
     local all_ok=true
     
-    # Verificar livox_ros_driver2
-    log_info "Verificando livox_ros_driver2..."
-    if ros2 pkg list 2>/dev/null | grep -q "^livox_ros_driver2"; then
-        log_info "  [OK] livox_ros_driver2 instalado"
+    # Verificar bridge Livox SDK2 OttoGuide
+    log_info "Verificando ottoguide_livox_sdk_bridge..."
+    if ros2 pkg list 2>/dev/null | grep -q "^ottoguide_livox_sdk_bridge"; then
+        log_info "  [OK] ottoguide_livox_sdk_bridge instalado"
     else
-        log_warn "  [FALTA] livox_ros_driver2 no encontrado"
-        log_warn "  Instalar: https://github.com/Livox-SDK/livox_ros_driver2"
+        log_warn "  [FALTA] ottoguide_livox_sdk_bridge no encontrado"
+        log_warn "  Compilar: cd ros2_ws && colcon build --packages-select ottoguide_livox_sdk_bridge"
         all_ok=false
     fi
     
@@ -158,7 +163,7 @@ check_drivers_installed() {
         log_info "  [OK] pointcloud_to_laserscan instalado"
     else
         log_warn "  [FALTA] pointcloud_to_laserscan no encontrado"
-        log_warn "  Requerido si livox_ros_driver2 no publica /scan. Instalar ros-${ROS_DISTRO}-pointcloud-to-laserscan o lanzar un conversor equivalente."
+        log_warn "  Requerido para convertir /utlidar/cloud a /scan antes de slam_toolbox."
         all_ok=false
     fi
     
@@ -278,20 +283,20 @@ measure_topic_frequencies() {
         printf '%-50s %-12.2f %-12.1f %-12s\n' "/scan" "$hz_scan" "$MIN_HZ_SCAN" "[OK]"
     else
         printf '%-50s %-12.2f %-12.1f %-12s\n' "/scan" "$hz_scan" "$MIN_HZ_SCAN" "[BAJO]"
-        log_warn "/scan ausente o por debajo del minimo. slam_toolbox usa scan_topic:=/scan; activar pointcloud_to_laserscan si livox_ros_driver2 solo publica /utlidar/cloud."
+        log_warn "/scan ausente o por debajo del minimo. slam_toolbox usa scan_topic:=/scan; activar pointcloud_to_laserscan sobre /utlidar/cloud."
         all_frequencies_ok=false
     fi
     
-    # Verificar /utlidar/imu (IMU)
-    log_info "Midiendo /utlidar/imu (durante ${HZ_MEASURE_DURATION_S}s)..."
+    # Verificar /livox/imu (IMU)
+    log_info "Midiendo /livox/imu (durante ${HZ_MEASURE_DURATION_S}s)..."
     local hz_imu
-    hz_imu=$(measure_hz "/utlidar/imu" "$HZ_MEASURE_DURATION_S" || echo "0.0")
-    measured_hz["/utlidar/imu"]="$hz_imu"
+    hz_imu=$(measure_hz "/livox/imu" "$HZ_MEASURE_DURATION_S" || echo "0.0")
+    measured_hz["/livox/imu"]="$hz_imu"
     
     if (( $(echo "$hz_imu >= $MIN_HZ_IMU" | bc -l 2>/dev/null || echo "0") )); then
-        printf '%-50s %-12.2f %-12.1f %-12s\n' "/utlidar/imu" "$hz_imu" "$MIN_HZ_IMU" "[OK]"
+        printf '%-50s %-12.2f %-12.1f %-12s\n' "/livox/imu" "$hz_imu" "$MIN_HZ_IMU" "[OK]"
     else
-        printf '%-50s %-12.2f %-12.1f %-12s\n' "/utlidar/imu" "$hz_imu" "$MIN_HZ_IMU" "[BAJO]"
+        printf '%-50s %-12.2f %-12.1f %-12s\n' "/livox/imu" "$hz_imu" "$MIN_HZ_IMU" "[BAJO]"
         # IMU es critico pero no bloqueante para slam_toolbox
         log_warn "Frecuencia IMU baja - puede afectar odometria"
     fi

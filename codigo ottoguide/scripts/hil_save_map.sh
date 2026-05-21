@@ -3,7 +3,6 @@ set -eo pipefail
 export AMENT_TRACE_SETUP_FILES=""
 export AMENT_PYTHON_EXECUTABLE="$(which python3)"
 source /opt/ros/foxy/setup.bash
-source /home/unitree/livox_ws/install/setup.bash
 
 : <<'DOC'
 @TASK: Persistir mapa fisico generado por slam_toolbox mediante nav2_map_server.
