@@ -18,7 +18,7 @@ El sistema está congelado funcionalmente bajo `RC1_LOCKED`. La arquitectura, do
 | Robot | `Unitree G1 EDU 8` |
 | Companion PC | `192.168.123.164` |
 | Locomoción / DDS | `192.168.123.161` |
-| LiDAR | `Livox MID360`, IP pendiente entre `192.168.123.20` y `192.168.123.120` |
+| LiDAR | `Livox MID360`, default SDK2 `192.168.123.120`; `.20` queda como alternativa `PENDING_HIL` |
 | Cámara | `Intel RealSense D435i` |
 | Runtime HIL | `ROS 2 Foxy` |
 | Control primario | `SDK2/DDS Unicast` |
@@ -79,6 +79,7 @@ Los procedimientos operativos viven en runbooks dedicados. Este `README.md` no d
 - [Startup RC1](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_STARTUP_RC1.md>)
 - [Deploy](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_DEPLOY.md>)
 - [Protocolo HIL](<documentacion general del proyecto/Operaciones_HIL/HIL_TESTING_PROTOCOL.md>)
+- [Livox SDK2 bridge](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_LIVOX_SDK2_BRIDGE.md>)
 - [Demo local](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_DEMO_LOCAL.md>)
 - [Packet capture HIL](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_PACKET_CAPTURE_HIL.md>)
 
@@ -98,6 +99,7 @@ Pendiente:
 - Validación HIL real sobre el robot físico.
 - Confirmar IP efectiva del `Livox MID360`.
 - Confirmar disponibilidad de `/utlidar/cloud`.
+- Confirmar disponibilidad de `/livox/imu`.
 - Confirmar disponibilidad de `/scan`.
 - Confirmar generación de `/map`.
 - Validación de `Audio SDK2`.

@@ -105,7 +105,8 @@ Las transiciones se ejecutan con AsyncEngine y tareas no bloqueantes para navega
 ## Actualizacion RC1 HIL
 
 - `scripts/hil_capture_mapping_bundle.sh` orquesta sensores, `slam_toolbox`, `rosbag2`, guardado de mapa y manifiesto JSON.
-- `scripts/hil_mapping_recorder.sh` graba `/scan`, `/utlidar/cloud`, `/utlidar/imu`, camaras, `/tf`, `/tf_static`, `/map` y `/robot_state/odom`.
+- `scripts/hil_mapping_recorder.sh` graba `/scan`, `/utlidar/cloud`, `/livox/imu`, camaras, `/tf`, `/tf_static`, `/map` y `/robot_state/odom`.
 - `scripts/hil_save_map.sh` respeta `ROS_SETUP` y persiste el mapa con `nav2_map_server`.
 - El SDK G1 incluye `AudioClient.TtsMaker` y `AudioClient.PlayStream`; su uso queda en backlog post-RC1 hasta validacion fisica.
+- La ruta LiDAR activa es `ottoguide_livox_sdk_bridge`; no ejecutar `livox_ros_driver2` en simultaneo.
 - Antes de lanzar `slam_toolbox`, debe existir `/scan`; antes de habilitar `pointcloud_to_laserscan`, debe existir `/utlidar/cloud`.

@@ -65,10 +65,11 @@ Auditados en `codigo ottoguide/libs/unitree_ros2-master/README.md`.
 |--------|----------------|-----------|----------------------|
 | `/sportmodestate` | `unitree_go::msg::SportModeState` | G1 via DDS bridge | Nav2 (estado de posicion) |
 | `lf/lowstate` | `unitree_go::msg::LowState` | G1 hardware | Diagnostico (solo lectura) |
-| `/utlidar/cloud` | `sensor_msgs/PointCloud2` | LiDAR Livox MID360 | Nav2 / AMCL |
+| `/utlidar/cloud` | `sensor_msgs/PointCloud2` | `ottoguide_livox_sdk_bridge` / Livox MID360 | Nav2 / AMCL |
+| `/livox/imu` | `sensor_msgs/Imu` | `ottoguide_livox_sdk_bridge` / Livox MID360 | Rosbag / diagnostico |
 | `/wirelesscontroller` | `unitree_go::msg::WirelessController` | G1 hardware | No usado en MVP |
 
-Para SLAM 2D, `slam_toolbox` requiere `/scan` (`sensor_msgs/LaserScan`). Si `livox_ros_driver2` solo publica `/utlidar/cloud`, la conversion `PointCloud2 -> LaserScan` mediante `pointcloud_to_laserscan` debe habilitarse despues de confirmar en HIL que `/utlidar/cloud` existe y antes de iniciar `slam_toolbox`.
+Para SLAM 2D, `slam_toolbox` requiere `/scan` (`sensor_msgs/LaserScan`). La ruta activa de Livox es el bridge propio `ottoguide_livox_sdk_bridge`, que publica `/utlidar/cloud`; la conversion `PointCloud2 -> LaserScan` mediante `pointcloud_to_laserscan` debe habilitarse despues de confirmar en HIL que `/utlidar/cloud` existe y antes de iniciar `slam_toolbox`. No ejecutar `livox_ros_driver2` en simultaneo con el bridge SDK2.
 
 ### Publicacion (comandos desde el sistema)
 

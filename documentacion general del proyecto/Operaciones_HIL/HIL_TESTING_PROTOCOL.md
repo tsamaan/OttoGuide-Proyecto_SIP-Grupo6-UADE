@@ -42,9 +42,9 @@ Si el objetivo es recorrer el entorno una sola vez y obtener tanto el mapa como 
 ./scripts/hil_capture_mapping_bundle.sh
 ```
 
-Durante la sesion se levantan los drivers de sensores, `slam_toolbox` y la grabacion `rosbag2` en paralelo. Cuando termine el recorrido, pulsar `Ctrl+C`; el script detiene la grabacion, guarda `maps/uade_physical_map.yaml` y `maps/uade_physical_map.pgm`, y deja el bag en `logs/bags/`.
+Durante la sesion se levantan los drivers de sensores, `slam_toolbox` y la grabacion `rosbag2` en paralelo. Cuando termine el recorrido, pulsar `ENTER`; el script detiene la grabacion, guarda `maps/uade_physical_map.yaml` y `maps/uade_physical_map.pgm`, y deja el bag en `logs/bags/`.
 
-Nota operacional RC1: `/utlidar/cloud` es la precondicion para convertir `PointCloud2` a `LaserScan` con `pointcloud_to_laserscan`; `/scan` es la precondicion para iniciar `slam_toolbox`. No asumir `/scan` si `pointcloud_to_laserscan` no esta lanzado o si el driver no lo publica. La IP del LiDAR MID360 (`192.168.123.20` vs `192.168.123.120`) debe validarse en HIL fisico antes de mapear.
+Nota operacional RC1: la ruta Livox activa es `ottoguide_livox_sdk_bridge`, no `livox_ros_driver2`. `/utlidar/cloud` es la precondicion para convertir `PointCloud2` a `LaserScan` con `pointcloud_to_laserscan`; `/scan` es la precondicion para iniciar `slam_toolbox`. No asumir `/scan` si `pointcloud_to_laserscan` no esta lanzado. La IP default del LiDAR MID360 es `192.168.123.120`; `192.168.123.20` queda como alternativa `PENDING_HIL` hasta evidencia fisica.
 
 Si se quiere cambiar el nombre del mapa o la carpeta del bag sin tocar el script:
 
@@ -52,11 +52,28 @@ Si se quiere cambiar el nombre del mapa o la carpeta del bag sin tocar el script
 HIL_MAP_BASENAME="/ruta/personalizada/mapa_recorrido" HIL_BAG_OUT_DIR="/ruta/personalizada/bags" ./scripts/hil_capture_mapping_bundle.sh
 ```
 
-El orquestador genera ademas un manifiesto JSON por sesion en `logs/bags/`, valida `/scan`, `/utlidar/cloud`, `/utlidar/imu`, `/camera/color/image_raw`, `/camera/depth/image_rect_raw` y `/map`, y graba los topicos `/scan`, `/tf_static` y `/map` junto con los datos crudos. Para prueba seca sin iniciar ROS2:
+El orquestador genera ademas un manifiesto JSON por sesion en `logs/bags/`, valida `/scan`, `/utlidar/cloud`, `/livox/imu`, `/camera/color/image_raw`, `/camera/depth/image_rect_raw` y `/map`, y graba los topicos `/scan`, `/tf_static` y `/map` junto con los datos crudos. Para prueba seca sin iniciar ROS2:
 
 ```bash
 HIL_DRY_RUN=1 ./scripts/hil_capture_mapping_bundle.sh
 ```
+
+### GO/NO-GO especifico para mapeo Livox SDK2
+
+GO:
+
+- Operador de seguridad designado con control remoto y acceso inmediato a `L1 + A`.
+- Unico proceso Livox activo: `ottoguide_livox_sdk_bridge`.
+- Config SDK2 revisada: host `192.168.123.164`, LiDAR default `192.168.123.120`, puertos `56100-56501`.
+- `/utlidar/cloud` y `/livox/imu` visibles antes de iniciar conversion o SLAM.
+- `/scan` visible antes de iniciar `slam_toolbox`.
+
+NO-GO:
+
+- `livox_ros_driver2` activo al mismo tiempo que el bridge SDK2.
+- IP del MID360 no verificada entre `.120` y la alternativa `.20`.
+- `frame_id` distinto de `utlidar_lidar` sin TF actualizado.
+- Operador sin hardstop fisico o sin zona despejada.
 
 ---
 

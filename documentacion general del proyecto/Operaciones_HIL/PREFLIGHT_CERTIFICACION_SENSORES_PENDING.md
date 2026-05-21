@@ -14,9 +14,10 @@ Este documento describe el preflight de sensores críticos para operación HIL (
 
 Condiciones de validación pendientes:
 - `/utlidar/cloud` debe existir antes de habilitar `pointcloud_to_laserscan`.
+- `/livox/imu` debe existir como topic IMU del bridge SDK2 propio.
 - `/scan` debe existir antes de lanzar `slam_toolbox`.
-- La IP real del LiDAR MID360 debe resolverse en HIL físico entre `192.168.123.20` y `192.168.123.120`.
-- Esta Fase 3A no modifica scripts.
+- La IP default del LiDAR MID360 es `192.168.123.120`; `192.168.123.20` queda como alternativa pendiente de evidencia HIL.
+- Esta Fase 3A documenta el gate esperado; los scripts HIL activos viven en `codigo ottoguide/scripts/`.
 
 **Script de Diagnóstico Generado:**  
 `@c:\Users\lucas\Documents\OttoGuide-Proyecto_SIP-Grupo6-UADE\codigo ottoguide\scripts\preflight_sensors.sh`
@@ -30,12 +31,12 @@ Condiciones de validación pendientes:
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  HARDWARE UNITREE G1 EDU                                         │
-│  ├─ Cabeza: Livox MID360 LiDAR        (IP: 192.168.123.20)       │
+│  ├─ Cabeza: Livox MID360 LiDAR        (IP default: 192.168.123.120) │
 │  └─ Cabeza: Intel RealSense D435i     (USB 3.0)                  │
 ├──────────────────────────────────────────────────────────────────┤
 │  COMPANION PC (192.168.123.164)                                  │
-│  ├─ Driver Livox:  livox_ros_driver2                             │
-│  │   └─ Tópicos: /utlidar/cloud, /utlidar/imu                   │
+│  ├─ Bridge Livox:  ottoguide_livox_sdk_bridge                    │
+│  │   └─ Tópicos: /utlidar/cloud, /livox/imu                     │
 │  ├─ Driver RealSense: realsense2_camera                          │
 │  │   └─ Tópicos: /camera/depth/image_rect_raw, /camera/color/* │
 │  └─ Transformaciones: /tf, /tf_static (robot_state_publisher)   │
@@ -47,14 +48,14 @@ Condiciones de validación pendientes:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-Nota RC1 SRE sobre IP LiDAR: existe contradiccion documental entre `192.168.123.20` y `192.168.123.120`. No se debe resolver por sustitucion global. En HIL fisico, validar con `ping -c 2 192.168.123.20`, `ping -c 2 192.168.123.120`, `ip neigh` y `ros2 topic list -t`. Antes de `pointcloud_to_laserscan` debe existir `/utlidar/cloud`; antes de `slam_toolbox` debe existir `/scan`.
+Nota RC1 SRE sobre IP LiDAR: el default operativo SDK2 es `192.168.123.120`; `192.168.123.20` queda como alternativa `PENDING_HIL`. En HIL fisico, validar con `ping -c 2 192.168.123.120`, `ping -c 2 192.168.123.20`, `ip neigh` y `ros2 topic list -t`. Antes de `pointcloud_to_laserscan` debe existir `/utlidar/cloud`; antes de `slam_toolbox` debe existir `/scan`.
 
 ### 2.2 Tópicos ROS 2 Críticos Auditados
 
 | Tópico | Tipo de Mensaje | Productor | Frecuencia Esperada | Estado |
 |--------|----------------|-----------|---------------------|--------|
 | `/utlidar/cloud` | `sensor_msgs/PointCloud2` | Livox MID360 | ~10 Hz | **CRÍTICO** |
-| `/utlidar/imu` | `sensor_msgs/Imu` | Livox MID360 | ~100 Hz | **CRÍTICO** |
+| `/livox/imu` | `sensor_msgs/Imu` | Livox MID360 SDK2 bridge | ~100 Hz | **CRÍTICO** |
 | `/utlidar/cloud_deskewed` | `sensor_msgs/PointCloud2` | Livox (procesado) | ~10 Hz | Opcional |
 | `/camera/depth/image_rect_raw` | `sensor_msgs/Image` | RealSense D435i | ~30 Hz | **CRÍTICO** |
 | `/camera/color/image_raw` | `sensor_msgs/Image` | RealSense D435i | ~30 Hz | Opcional |
@@ -88,7 +89,7 @@ El script `preflight_sensors.sh` implementa el siguiente flujo de sourcing:
 
 | Driver | Paquete ROS 2 | Verificación en Script | Prioridad |
 |--------|---------------|------------------------|-----------|
-| **Livox MID360** | `livox_ros_driver2` | `ros2 pkg list \| grep livox_ros_driver2` | CRÍTICO |
+| **Livox MID360** | `ottoguide_livox_sdk_bridge` | `ros2 pkg list \| grep ottoguide_livox_sdk_bridge` | CRÍTICO |
 | **RealSense D435i** | `realsense2_camera` | `ros2 pkg list \| grep realsense2_camera` | CRÍTICO |
 | **SLAM Toolbox** | `slam_toolbox` | `ros2 pkg list \| grep slam_toolbox` | CRÍTICO |
 | **Nav2** | `nav2_bringup` | Verificado por scripts HIL | CRÍTICO |
@@ -129,19 +130,19 @@ PREFLIGHT_MIN_HZ_TF=5.0             # Mínimo 5 Hz para TF
 
 | Síntoma | Causa Probable | Acción Correctiva |
 |---------|---------------|-------------------|
-| `/utlidar/cloud` INACTIVO | Driver Livox no iniciado | Ejecutar: `ros2 launch livox_ros_driver2 msg_MID360_launch.py` |
-| `/utlidar/cloud` Hz < 8 | Problema de red con LiDAR | Verificar `192.168.123.20` y `192.168.123.120` con `ping`, `ip neigh`, cableado y `ros2 topic list -t` |
+| `/utlidar/cloud` INACTIVO | Bridge Livox SDK2 no iniciado | Ejecutar el runbook `RUNBOOK_LIVOX_SDK2_BRIDGE.md` |
+| `/utlidar/cloud` Hz < 8 | Problema de red con LiDAR | Verificar `192.168.123.120` y alternativa `.20` con `ping`, `ip neigh`, cableado y `ros2 topic list -t` |
 | `/camera/depth/*` INACTIVO | RealSense no conectada | Verificar USB 3.0, reiniciar driver |
 | `/tf` INACTIVO | `robot_state_publisher` no iniciado | Iniciar URDF del G1 |
 | `ros2` no encontrado | ROS 2 no instalado/sourced | Source `/opt/ros/foxy/setup.bash` |
-| Livox driver no instalado | Workspace incompleto | Clonar `livox_ros_driver2` y compilar |
+| Livox bridge no instalado | Workspace incompleto | Compilar `ottoguide_livox_sdk_bridge` en `ros2_ws` |
 
 ### 5.2 Flujo de Dependencias
 
 ```
 [OttoGuide] 
     └─→ [nav2_bridge.py] ──DDS──┐
-                                ├─→ [ROS 2] ──┬─→ [livox_ros_driver2] ──→ [Livox MID360]
+                                ├─→ [ROS 2] ──┬─→ [ottoguide_livox_sdk_bridge] ──→ [Livox MID360]
                                 │             └─→ [realsense2_camera] ──→ [RealSense D435i]
                                 └─→ [unitree_sdk2py] ──DDS Unicast──→ [G1 Motion Control .161]
 ```
@@ -178,20 +179,22 @@ PREFLIGHT_MIN_HZ_LIDAR=5.0 bash scripts/preflight_sensors.sh
 TOPICO                                             ESTADO          DESCRIPCION
 =====================================================================================
 /utlidar/cloud                                     [ACTIVO]        LiDAR PointCloud2
-/utlidar/imu                                       [ACTIVO]        LiDAR IMU
+/livox/imu                                        [ACTIVO]        LiDAR IMU
+/scan                                             [ACTIVO]        LaserScan requerido por slam_toolbox
 /camera/depth/image_rect_raw                       [ACTIVO]        RealSense Depth
 /camera/color/image_raw                            [ACTIVO]        RealSense Color
 /tf                                                [ACTIVO]        Transformaciones dinamicas
 /tf_static                                         [ACTIVO]        Transformaciones estaticas
 
-CRITICOS: 6/6 activos | OPCIONALES: 3/5 activos
+CRITICOS: 7/7 activos | OPCIONALES: 3/5 activos
 
 === PASO 4: Analisis de Frecuencia ===
 
 TOPICO                                             MEDIDO(Hz)   MINIMO(Hz)   ESTADO
 ==========================================================================================
 /utlidar/cloud                                     9.82         8.0          [OK]
-/utlidar/imu                                       98.45        80.0         [OK]
+/livox/imu                                        98.45        80.0         [OK]
+/scan                                             9.75         8.0          [OK]
 /camera/depth/image_rect_raw                       28.30        15.0         [OK]
 /tf                                                12.50        5.0          [OK]
 
@@ -241,7 +244,7 @@ bash scripts/preflight_sensors.sh --dry-run 2>/dev/null || true
 
 ### 8.2 Referencias Externas
 
-- **Livox ROS Driver 2:** https://github.com/Livox-SDK/livox_ros_driver2
+- **OttoGuide Livox SDK2 bridge:** `codigo ottoguide/ros2_ws/src/ottoguide_livox_sdk_bridge`
 - **RealSense ROS2:** https://github.com/IntelRealSense/realsense-ros
 - **SLAM Toolbox:** https://github.com/SteveMacenski/slam_toolbox
 - **Nav2:** https://navigation.ros.org/
@@ -254,7 +257,7 @@ bash scripts/preflight_sensors.sh --dry-run 2>/dev/null || true
 
 | Componente | Estado | Notas |
 |------------|--------|-------|
-| **LiDAR Livox MID360** | ✅ Certificado | Tópicos `/utlidar/*` mapeados |
+| **LiDAR Livox MID360** | Pendiente HIL | Bridge SDK2 propio publica `/utlidar/cloud` y `/livox/imu` |
 | **RealSense D435i** | ✅ Certificado | Tópicos `/camera/*` mapeados |
 | **Árbol TF** | ✅ Certificado | `/tf`, `/tf_static` requeridos |
 | **Script Preflight** | Pendiente HIL | 6 pasos de validación por ejecutar en robot físico |
@@ -264,7 +267,7 @@ bash scripts/preflight_sensors.sh --dry-run 2>/dev/null || true
 
 1. **Ejecutar preflight antes de cada sesión HIL** para validar disponibilidad de sensores.
 2. **Verificar frecuencias mínimas** - valores bajos indican problemas de red o carga CPU.
-3. **Monitorear `/utlidar/imu`** - frecuencia < 80 Hz puede afectar odometría visual.
+3. **Monitorear `/livox/imu`** - frecuencia < 80 Hz puede afectar odometría visual.
 4. **Mantener drivers actualizados** - usar versiones compatibles con ROS 2 Foxy para G1 HIL; Humble solo host/SITL si esta documentado.
 
 ### 9.3 Próximos Pasos Sugeridos

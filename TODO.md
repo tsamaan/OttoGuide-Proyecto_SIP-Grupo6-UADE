@@ -14,7 +14,7 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 
 ## PENDING_HIL
 
-- [PENDING_HIL] Validar en robot fisico que `livox_ros_driver2` publica `/scan`; si no, agregar nodo explicito de conversion Livox `PointCloud2` -> `LaserScan`.
+- [PENDING_HIL] Validar en robot fisico que `ottoguide_livox_sdk_bridge` publica `/utlidar/cloud` y `/livox/imu`; luego habilitar conversion `PointCloud2` -> `LaserScan` para `/scan`.
 - [PENDING_HIL] Confirmar que `slam_toolbox` publica `/map` dentro de `HIL_READY_TIMEOUT_S`.
 - [PENDING_HIL] Registrar duracion real, tamanio de bag y checksums de mapa en cada prueba HIL.
 - [PENDING_HIL] Ejecutar `RUNBOOK_PACKET_CAPTURE_HIL.md` con app Unitree Go oficial y guardar `.pcap` de handshake, telemetria basal y accion minima.
@@ -30,7 +30,7 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [PENDING_HIL] Validar `AudioClient.PlayStream()` con WAV PCM mono `16 kHz` usando `example/g1/audio/g1_audio_client_play_wav.py`.
 - [PENDING_HIL] Auditar que `/cmd_vel_nav` sea consumido por el controlador fisico esperado antes de navegacion autonoma.
 - [PENDING_HIL] Medir latencia real de `Damp()` en robot suspendido.
-- [PENDING_HIL] Validar que `Ctrl+C` en `hil_capture_mapping_bundle.sh` cierra recorder antes de guardar mapa.
+- [PENDING_HIL] Validar que `ENTER` en `hil_capture_mapping_bundle.sh` cierra recorder antes de guardar mapa; validar `Ctrl+C` como aborto controlado por separado.
 - [PENDING_HIL] Validar que `timeout 60 map_saver_cli` es suficiente en mapa UADE real.
 
 ## PENDING_DOC

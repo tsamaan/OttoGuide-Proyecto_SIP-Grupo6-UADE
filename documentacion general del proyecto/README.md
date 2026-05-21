@@ -25,6 +25,7 @@ Advertencia: el README maestro público del proyecto vive en `../README.md` desd
 | `Operaciones_HIL/README_codigo_ottoguide.md` | Índice operativo de código, `libs/` air-gapped y topología HIL. |
 | `Operaciones_HIL/HIL_TESTING_PROTOCOL.md` | Protocolo físico HIL, seguridad, mapeo y apagado. |
 | `Operaciones_HIL/PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md` | Preflight de sensores y certificación pendiente de validación HIL física. |
+| `Operaciones_HIL/RUNBOOK_LIVOX_SDK2_BRIDGE.md` | Build, arranque y validación progresiva del bridge Livox SDK2 propio. |
 | `Operaciones_HIL/RUNBOOK_STARTUP_RC1.md` | Secuencia de arranque y criterios GO/NO-GO. |
 | `Operaciones_HIL/RUNBOOK_PACKET_CAPTURE_HIL.md` | Captura pasiva del plano factory `192.168.12.x`. |
 | `AppPhone/APK_CONNECTIVITY_ANALYSIS.codigo_ottoguide.md` | Análisis canónico del APK `Unitree Go` conservado como referencia factory pasiva. |
