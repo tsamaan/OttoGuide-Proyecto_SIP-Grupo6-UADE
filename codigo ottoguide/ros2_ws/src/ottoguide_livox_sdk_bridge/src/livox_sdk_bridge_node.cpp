@@ -7,6 +7,7 @@
 #include <fstream>
 #include <functional>
 #include <iomanip>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -67,6 +68,8 @@ public:
   LivoxSdkBridgeNode()
   : Node("livox_sdk_bridge_node")
   {
+    mark_lifecycle("MARK_001_NODE_CONSTRUCT_START");
+
     config_path_ = declare_parameter<std::string>(
       "config_path", "config/livox/mid360_sdk2_bridge.json");
     frame_id_ = declare_parameter<std::string>("frame_id", "utlidar_lidar");
@@ -79,6 +82,39 @@ public:
       "max_points_per_packet", static_cast<int>(kDefaultMaxPointsPerPacket));
     diagnostic_log_every_n_packets_ = declare_parameter<int>(
       "diagnostic_log_every_n_packets", 250);
+    debug_stage_stop_after_node_init_ = declare_parameter<bool>(
+      "debug_stage_stop_after_node_init", false);
+    debug_stage_stop_after_params_ = declare_parameter<bool>(
+      "debug_stage_stop_after_params", false);
+    debug_stage_stop_after_publishers_ = declare_parameter<bool>(
+      "debug_stage_stop_after_publishers", false);
+    debug_stage_stop_after_timer_ = declare_parameter<bool>(
+      "debug_stage_stop_after_timer", false);
+    debug_stage_stop_before_sdk_init_ = declare_parameter<bool>(
+      "debug_stage_stop_before_sdk_init", false);
+    debug_stage_stop_after_sdk_init_ = declare_parameter<bool>(
+      "debug_stage_stop_after_sdk_init", false);
+    debug_stage_stop_after_callbacks_registered_ = declare_parameter<bool>(
+      "debug_stage_stop_after_callbacks_registered", false);
+    debug_stage_stop_before_sdk_start_ = declare_parameter<bool>(
+      "debug_stage_stop_before_sdk_start", false);
+    debug_stage_stop_after_sdk_start_ = declare_parameter<bool>(
+      "debug_stage_stop_after_sdk_start", false);
+    debug_disable_livox_sdk_ = declare_parameter<bool>("debug_disable_livox_sdk", false);
+    debug_disable_callbacks_ = declare_parameter<bool>("debug_disable_callbacks", false);
+    debug_disable_timers_ = declare_parameter<bool>("debug_disable_timers", false);
+    debug_disable_publishers_ = declare_parameter<bool>("debug_disable_publishers", false);
+    debug_log_lifecycle_markers_ = declare_parameter<bool>("debug_log_lifecycle_markers", true);
+
+    mark_lifecycle("MARK_010_PARAMS_LOADED");
+    if (debug_stage_stop_after_node_init_) {
+      request_stage_stop("debug_stage_stop_after_node_init");
+      return;
+    }
+    if (debug_stage_stop_after_params_) {
+      request_stage_stop("debug_stage_stop_after_params");
+      return;
+    }
 
     if (max_points_per_packet_ <= 0) {
       RCLCPP_WARN(
@@ -98,28 +134,77 @@ public:
     }
 
     const auto qos = rclcpp::SensorDataQoS();
-    if (publish_pointcloud_ && !debug_dry_run_no_publish_) {
+    if (publish_pointcloud_ && !debug_dry_run_no_publish_ && !debug_disable_publishers_) {
       cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(topic_cloud_, qos);
     }
-    if (publish_imu_ && !debug_dry_run_no_publish_) {
+    if (publish_imu_ && !debug_dry_run_no_publish_ && !debug_disable_publishers_) {
       imu_pub_ = create_publisher<sensor_msgs::msg::Imu>(topic_imu_, qos);
     }
-    publish_timer_ = create_wall_timer(
-      kPublishTimerPeriod,
-      std::bind(&LivoxSdkBridgeNode::publish_queued_messages, this));
+    mark_lifecycle("MARK_020_PUBLISHERS_CREATED");
+    if (debug_stage_stop_after_publishers_) {
+      request_stage_stop("debug_stage_stop_after_publishers");
+      return;
+    }
+
+    if (!debug_disable_timers_) {
+      publish_timer_ = create_wall_timer(
+        kPublishTimerPeriod,
+        std::bind(&LivoxSdkBridgeNode::publish_queued_messages, this));
+    }
+    mark_lifecycle("MARK_030_TIMER_CREATED");
+    if (debug_stage_stop_after_timer_) {
+      request_stage_stop("debug_stage_stop_after_timer");
+      return;
+    }
+
+    if (debug_disable_livox_sdk_) {
+      mark_lifecycle("MARK_039_SDK_DISABLED");
+      return;
+    }
+
+    mark_lifecycle("MARK_040_SDK_INIT_START");
+    if (debug_stage_stop_before_sdk_init_) {
+      request_stage_stop("debug_stage_stop_before_sdk_init");
+      return;
+    }
 
     if (!LivoxLidarSdkInit(resolved_config_path_.c_str())) {
       throw std::runtime_error("LivoxLidarSdkInit failed for config_path: " + resolved_config_path_);
     }
     sdk_initialized_ = true;
+    mark_lifecycle("MARK_041_SDK_INIT_OK");
+    if (debug_stage_stop_after_sdk_init_) {
+      request_stage_stop("debug_stage_stop_after_sdk_init");
+      return;
+    }
 
-    SetLivoxLidarPointCloudCallBack(&LivoxSdkBridgeNode::point_cloud_callback, this);
-    SetLivoxLidarImuDataCallback(&LivoxSdkBridgeNode::imu_callback, this);
+    if (!debug_disable_callbacks_) {
+      mark_lifecycle("MARK_050_CALLBACK_REGISTER_START");
+      SetLivoxLidarPointCloudCallBack(&LivoxSdkBridgeNode::point_cloud_callback, this);
+      SetLivoxLidarImuDataCallback(&LivoxSdkBridgeNode::imu_callback, this);
+      mark_lifecycle("MARK_051_CALLBACK_REGISTER_OK");
+    } else {
+      mark_lifecycle("MARK_052_CALLBACK_REGISTER_DISABLED");
+    }
+    if (debug_stage_stop_after_callbacks_registered_) {
+      request_stage_stop("debug_stage_stop_after_callbacks_registered");
+      return;
+    }
 
+    mark_lifecycle("MARK_060_SDK_START_START");
+    if (debug_stage_stop_before_sdk_start_) {
+      request_stage_stop("debug_stage_stop_before_sdk_start");
+      return;
+    }
     if (!LivoxLidarSdkStart()) {
       LivoxLidarSdkUninit();
       sdk_initialized_ = false;
       throw std::runtime_error("LivoxLidarSdkStart failed");
+    }
+    mark_lifecycle("MARK_061_SDK_START_OK");
+    if (debug_stage_stop_after_sdk_start_) {
+      request_stage_stop("debug_stage_stop_after_sdk_start");
+      return;
     }
 
     RCLCPP_INFO(
@@ -127,6 +212,7 @@ public:
       "Livox SDK2 bridge started: config=%s cloud=%s imu=%s frame_id=%s dry_run=%s max_points_per_packet=%d",
       resolved_config_path_.c_str(), topic_cloud_.c_str(), topic_imu_.c_str(), frame_id_.c_str(),
       debug_dry_run_no_publish_ ? "true" : "false", max_points_per_packet_);
+    mark_lifecycle("MARK_070_SPIN_READY");
   }
 
   ~LivoxSdkBridgeNode() override
@@ -139,9 +225,41 @@ public:
     while (active_callbacks_.load() != 0) {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+    mark_lifecycle("MARK_999_SHUTDOWN");
+  }
+
+  bool stage_stop_requested() const
+  {
+    return stage_stop_requested_;
   }
 
 private:
+  void mark_lifecycle(const std::string & marker)
+  {
+    {
+      std::lock_guard<std::mutex> lock(marker_mutex_);
+      last_marker_ = marker;
+    }
+
+    if (debug_log_lifecycle_markers_) {
+      RCLCPP_INFO(get_logger(), "%s", marker.c_str());
+    }
+    std::cerr << marker << std::endl;
+  }
+
+  std::string last_marker() const
+  {
+    std::lock_guard<std::mutex> lock(marker_mutex_);
+    return last_marker_;
+  }
+
+  void request_stage_stop(const std::string & reason)
+  {
+    stage_stop_requested_ = true;
+    stage_stop_reason_ = reason;
+    mark_lifecycle("MARK_STAGE_STOP_" + reason);
+  }
+
   class CallbackGuard
   {
   public:
@@ -186,6 +304,7 @@ private:
     auto * node = static_cast<LivoxSdkBridgeNode *>(client_data);
     CallbackGuard guard(node);
     if (guard) {
+      node->mark_lifecycle("MARK_080_CALLBACK_POINTCLOUD_ENTER");
       try {
         node->enqueue_point_cloud(data);
       } catch (const std::bad_alloc & ex) {
@@ -205,6 +324,7 @@ private:
     auto * node = static_cast<LivoxSdkBridgeNode *>(client_data);
     CallbackGuard guard(node);
     if (guard) {
+      node->mark_lifecycle("MARK_090_CALLBACK_IMU_ENTER");
       try {
         node->enqueue_imu(data);
       } catch (const std::bad_alloc & ex) {
@@ -303,16 +423,20 @@ private:
     const LivoxLidarEthernetPacket * packet,
     const std::bad_alloc & ex)
   {
+    const auto marker = last_marker();
     ++bad_alloc_drops_;
     RCLCPP_ERROR_THROTTLE(
       get_logger(), *get_clock(), 2000,
-      "Dropping Livox packet after std::bad_alloc in %s: %s data_type=%u dot_num=%u timestamp=%s bad_alloc_drops=%lu",
+      "Dropping Livox packet after std::bad_alloc in %s at marker=%s: %s data_type=%u dot_num=%u timestamp=%s bad_alloc_drops=%lu",
       context,
+      marker.c_str(),
       ex.what(),
       packet == nullptr ? 0U : static_cast<unsigned>(packet->data_type),
       packet == nullptr ? 0U : static_cast<unsigned>(packet->dot_num),
       packet_timestamp_hex(packet).c_str(),
       static_cast<unsigned long>(bad_alloc_drops_.load()));
+    std::cerr << "MARK_BAD_ALLOC context=" << context << " last_marker=" << marker
+              << " what=" << ex.what() << std::endl;
   }
 
   template<typename PointT>
@@ -337,6 +461,7 @@ private:
     maybe_log_packet_sample("point_cloud_callback", packet, max_safe_points);
 
     if (debug_dry_run_no_publish_) {
+      mark_lifecycle("MARK_081_CALLBACK_POINTCLOUD_DROP_DRY_RUN");
       log_packet_diagnostic("point_cloud_callback", packet, "dry_run_drop", max_safe_points);
       ++cloud_packets_dropped_;
       return;
@@ -472,6 +597,7 @@ private:
     maybe_log_packet_sample("imu_callback", packet, max_safe_points);
 
     if (debug_dry_run_no_publish_) {
+      mark_lifecycle("MARK_091_CALLBACK_IMU_DROP_DRY_RUN");
       log_packet_diagnostic("imu_callback", packet, "dry_run_drop", max_safe_points);
       ++imu_packets_dropped_;
       return;
@@ -550,6 +676,22 @@ private:
   bool publish_pointcloud_{true};
   bool publish_imu_{true};
   bool debug_dry_run_no_publish_{false};
+  bool debug_stage_stop_after_node_init_{false};
+  bool debug_stage_stop_after_params_{false};
+  bool debug_stage_stop_after_publishers_{false};
+  bool debug_stage_stop_after_timer_{false};
+  bool debug_stage_stop_before_sdk_init_{false};
+  bool debug_stage_stop_after_sdk_init_{false};
+  bool debug_stage_stop_after_callbacks_registered_{false};
+  bool debug_stage_stop_before_sdk_start_{false};
+  bool debug_stage_stop_after_sdk_start_{false};
+  bool debug_disable_livox_sdk_{false};
+  bool debug_disable_callbacks_{false};
+  bool debug_disable_timers_{false};
+  bool debug_disable_publishers_{false};
+  bool debug_log_lifecycle_markers_{true};
+  bool stage_stop_requested_{false};
+  std::string stage_stop_reason_;
   int max_points_per_packet_{static_cast<int>(kDefaultMaxPointsPerPacket)};
   int diagnostic_log_every_n_packets_{250};
   bool sdk_initialized_{false};
@@ -562,6 +704,8 @@ private:
   std::atomic<uint64_t> bad_alloc_drops_{0};
   std::atomic<uint64_t> diagnostic_packets_seen_{0};
   std::mutex queue_mutex_;
+  mutable std::mutex marker_mutex_;
+  std::string last_marker_;
   std::deque<CloudFrame> cloud_queue_;
   std::deque<ImuSample> imu_queue_;
   rclcpp::TimerBase::SharedPtr publish_timer_;
@@ -573,7 +717,13 @@ int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
   try {
-    rclcpp::spin(std::make_shared<LivoxSdkBridgeNode>());
+    auto node = std::make_shared<LivoxSdkBridgeNode>();
+    if (node->stage_stop_requested()) {
+      node.reset();
+      rclcpp::shutdown();
+      return 0;
+    }
+    rclcpp::spin(node);
   } catch (const std::exception & ex) {
     RCLCPP_FATAL(rclcpp::get_logger("livox_sdk_bridge_node"), "%s", ex.what());
     rclcpp::shutdown();

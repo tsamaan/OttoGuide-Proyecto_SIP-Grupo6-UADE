@@ -62,6 +62,20 @@ def generate_launch_description():
             default_value="250",
             description="Emit one SDK2 packet diagnostic sample every N callbacks.",
         ),
+        DeclareLaunchArgument("debug_stage_stop_after_node_init", default_value="false"),
+        DeclareLaunchArgument("debug_stage_stop_after_params", default_value="false"),
+        DeclareLaunchArgument("debug_stage_stop_after_publishers", default_value="false"),
+        DeclareLaunchArgument("debug_stage_stop_after_timer", default_value="false"),
+        DeclareLaunchArgument("debug_stage_stop_before_sdk_init", default_value="false"),
+        DeclareLaunchArgument("debug_stage_stop_after_sdk_init", default_value="false"),
+        DeclareLaunchArgument("debug_stage_stop_after_callbacks_registered", default_value="false"),
+        DeclareLaunchArgument("debug_stage_stop_before_sdk_start", default_value="false"),
+        DeclareLaunchArgument("debug_stage_stop_after_sdk_start", default_value="false"),
+        DeclareLaunchArgument("debug_disable_livox_sdk", default_value="false"),
+        DeclareLaunchArgument("debug_disable_callbacks", default_value="false"),
+        DeclareLaunchArgument("debug_disable_timers", default_value="false"),
+        DeclareLaunchArgument("debug_disable_publishers", default_value="false"),
+        DeclareLaunchArgument("debug_log_lifecycle_markers", default_value="true"),
         Node(
             package="ottoguide_livox_sdk_bridge",
             executable="livox_sdk_bridge_node",
@@ -84,6 +98,34 @@ def generate_launch_description():
                     LaunchConfiguration("diagnostic_log_every_n_packets"),
                     value_type=int,
                 ),
+                "debug_stage_stop_after_node_init": ParameterValue(
+                    LaunchConfiguration("debug_stage_stop_after_node_init"), value_type=bool),
+                "debug_stage_stop_after_params": ParameterValue(
+                    LaunchConfiguration("debug_stage_stop_after_params"), value_type=bool),
+                "debug_stage_stop_after_publishers": ParameterValue(
+                    LaunchConfiguration("debug_stage_stop_after_publishers"), value_type=bool),
+                "debug_stage_stop_after_timer": ParameterValue(
+                    LaunchConfiguration("debug_stage_stop_after_timer"), value_type=bool),
+                "debug_stage_stop_before_sdk_init": ParameterValue(
+                    LaunchConfiguration("debug_stage_stop_before_sdk_init"), value_type=bool),
+                "debug_stage_stop_after_sdk_init": ParameterValue(
+                    LaunchConfiguration("debug_stage_stop_after_sdk_init"), value_type=bool),
+                "debug_stage_stop_after_callbacks_registered": ParameterValue(
+                    LaunchConfiguration("debug_stage_stop_after_callbacks_registered"), value_type=bool),
+                "debug_stage_stop_before_sdk_start": ParameterValue(
+                    LaunchConfiguration("debug_stage_stop_before_sdk_start"), value_type=bool),
+                "debug_stage_stop_after_sdk_start": ParameterValue(
+                    LaunchConfiguration("debug_stage_stop_after_sdk_start"), value_type=bool),
+                "debug_disable_livox_sdk": ParameterValue(
+                    LaunchConfiguration("debug_disable_livox_sdk"), value_type=bool),
+                "debug_disable_callbacks": ParameterValue(
+                    LaunchConfiguration("debug_disable_callbacks"), value_type=bool),
+                "debug_disable_timers": ParameterValue(
+                    LaunchConfiguration("debug_disable_timers"), value_type=bool),
+                "debug_disable_publishers": ParameterValue(
+                    LaunchConfiguration("debug_disable_publishers"), value_type=bool),
+                "debug_log_lifecycle_markers": ParameterValue(
+                    LaunchConfiguration("debug_log_lifecycle_markers"), value_type=bool),
             }],
         ),
     ])

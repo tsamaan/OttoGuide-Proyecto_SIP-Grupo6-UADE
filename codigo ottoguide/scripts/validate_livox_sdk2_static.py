@@ -108,6 +108,40 @@ def validate_bridge_sources(failures: List[str]) -> None:
     require_contains(node, r"packet_dot_count_is_safe", "Node guards Livox dot_num before payload parsing", failures)
     require_contains(node, r"max_points_per_packet", "Node exposes configurable max points per packet", failures)
     require_contains(node, r"debug_dry_run_no_publish", "Node exposes dry-run mode without ROS publishing", failures)
+    require_contains(node, r"debug_disable_livox_sdk", "Node can disable Livox SDK2 for staged diagnosis", failures)
+    require_contains(node, r"debug_disable_callbacks", "Node can disable SDK2 callbacks for staged diagnosis", failures)
+    require_contains(
+        node,
+        r"debug_stage_stop_before_sdk_init",
+        "Node can stop before SDK2 init",
+        failures,
+    )
+    require_contains(
+        node,
+        r"debug_stage_stop_after_sdk_init",
+        "Node can stop after SDK2 init",
+        failures,
+    )
+    require_contains(
+        node,
+        r"debug_stage_stop_after_callbacks_registered",
+        "Node can stop after callback registration",
+        failures,
+    )
+    require_contains(
+        node,
+        r"debug_stage_stop_before_sdk_start",
+        "Node can stop before SDK2 start",
+        failures,
+    )
+    require_contains(
+        node,
+        r"debug_stage_stop_after_sdk_start",
+        "Node can stop after SDK2 start",
+        failures,
+    )
+    require_contains(node, r"MARK_040_SDK_INIT_START", "Node logs SDK2 init start marker", failures)
+    require_contains(node, r"MARK_060_SDK_START_START", "Node logs SDK2 start marker", failures)
     require_contains(node, r"std::bad_alloc", "Node catches std::bad_alloc around packet handling", failures)
     require_contains(node, r"packet_timestamp_hex", "Node logs Livox packet timestamp diagnostics", failures)
     require_contains(node, r"publish_queued_messages", "Node publishes from ROS timer path", failures)
@@ -117,6 +151,20 @@ def validate_bridge_sources(failures: List[str]) -> None:
     require_contains(launch, r"mid360_sdk2_bridge\.json", "Launch resolves MID360 SDK2 config", failures)
     require_contains(launch, r"max_points_per_packet", "Launch exposes max_points_per_packet", failures)
     require_contains(launch, r"debug_dry_run_no_publish", "Launch exposes debug_dry_run_no_publish", failures)
+    require_contains(launch, r"debug_disable_livox_sdk", "Launch exposes debug_disable_livox_sdk", failures)
+    require_contains(launch, r"debug_disable_callbacks", "Launch exposes debug_disable_callbacks", failures)
+    require_contains(
+        launch,
+        r"debug_stage_stop_before_sdk_init",
+        "Launch exposes staged stop before SDK2 init",
+        failures,
+    )
+    require_contains(
+        launch,
+        r"debug_stage_stop_after_sdk_start",
+        "Launch exposes staged stop after SDK2 start",
+        failures,
+    )
     require_contains(readme, r"Do not run.*livox_ros_driver2", "README warns against dual Livox drivers", failures)
 
 

@@ -26,6 +26,14 @@ claiming compatibility with `livox_ros_driver2`'s `/utlidar/imu` behavior.
 - `max_points_per_packet`: hard safety cap before decoding SDK2 point payloads. Default: `96`
 - `debug_dry_run_no_publish`: decode/log SDK2 callbacks without publishing ROS messages. Default: `false`
 - `diagnostic_log_every_n_packets`: emit one packet diagnostic sample every N callbacks. Default: `250`
+- `debug_disable_livox_sdk`: construct the ROS node without calling Livox SDK2.
+- `debug_disable_callbacks`: initialize/start SDK2 without registering data callbacks.
+- `debug_disable_publishers`: do not create ROS publishers.
+- `debug_disable_timers`: do not create ROS timers.
+- `debug_stage_stop_before_sdk_init`, `debug_stage_stop_after_sdk_init`,
+  `debug_stage_stop_after_callbacks_registered`, `debug_stage_stop_before_sdk_start`,
+  `debug_stage_stop_after_sdk_start`: exit after printing lifecycle markers for staged HIL diagnosis.
+- `debug_log_lifecycle_markers`: mirror lifecycle markers through ROS logging and `stderr`. Default: `true`
 
 ## Network
 
@@ -75,3 +83,9 @@ ros2 launch ottoguide_livox_sdk_bridge mid360_sdk2_bridge.launch.py \
   debug_dry_run_no_publish:=true \
   diagnostic_log_every_n_packets:=1
 ```
+
+The staged diagnostic markers include `MARK_040_SDK_INIT_START`,
+`MARK_041_SDK_INIT_OK`, `MARK_050_CALLBACK_REGISTER_START`,
+`MARK_051_CALLBACK_REGISTER_OK`, `MARK_060_SDK_START_START`,
+`MARK_061_SDK_START_OK`, `MARK_080_CALLBACK_POINTCLOUD_ENTER`, and
+`MARK_090_CALLBACK_IMU_ENTER`.
