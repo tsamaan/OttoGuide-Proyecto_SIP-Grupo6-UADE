@@ -29,3 +29,37 @@ ros2 launch ottoguide_livox_sdk_bridge scan_gate.launch.py
 - Finite ranges > 0 en el escaneo procesado.
 - Sin errores TF ni crasheos por load DDS.
 - Sin activación de SLAM o Nav2.
+
+## Gate SLAM diagnostico sin navegacion - 2026-05-23
+
+Resultado: `SLAM_BLOCKED_BY_ODOM_TF`.
+
+Ejecucion:
+- HEAD y `origin/robot` auditados al inicio: `2eb4a65`, ahead/behind `0 0`.
+- `slam_toolbox`: instalado, con `async_slam_toolbox_node` disponible.
+- `tf2_ros`: disponible, con `tf2_echo` y `static_transform_publisher`.
+- Map saver: disponible via `nav2_map_server map_saver_cli`.
+- Scan gate log de auditoria: `logs/scan_gate_before_slam_20260523_051655.log` (no versionado).
+
+Scan observado:
+- `/utlidar/cloud`: visible.
+- `/livox/imu`: visible.
+- `/scan`: visible.
+- `LaserScan.frame_id`: `utlidar_lidar`.
+- `scan_count=9743`, `scan_length=723`, `finite=42`, `inf=681`, `nan=0`.
+
+Bloqueo TF/odom:
+- `/tf`: no visible.
+- `/tf_static`: no visible.
+- `/odom`: no visible.
+- `base_link`: no detectado.
+- Transform `base_link -> utlidar_lidar`: no disponible.
+- Transform `odom -> base_link`: no disponible.
+- Transform `map -> odom`: no disponible.
+
+Decision del gate:
+No se ejecuto `slam_toolbox` porque falta la cadena minima de TF/odom para mapeo. No se publico TF temporal porque el bloqueo no es solo `base_link -> utlidar_lidar`; tambien falta `/odom` y `odom -> base_link`.
+
+Siguiente accion tecnica:
+Resolver `odom -> base_link` y validar una TF estatica calibrada `base_link -> utlidar_lidar` antes del siguiente gate SLAM sin navegacion.
+
