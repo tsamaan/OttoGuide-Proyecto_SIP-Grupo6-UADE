@@ -38,11 +38,18 @@ def _node_env() -> dict:
     the mandatory Foxy and Livox SDK2 paths if not already present.  This
     makes the launch work both from an interactive shell (where ROS is already
     sourced) and from non-interactive SSH invocations (where it is not).
+
+    The mandatory paths below are the exact paths set by sourcing
+    /opt/ros/foxy/setup.bash on the Unitree G1 (aarch64-linux-gnu), plus
+    /usr/local/lib which is required by liblivox_lidar_sdk_shared.so.
     """
-    foxy_lib = "/opt/ros/foxy/lib"
-    foxy_arch = "/opt/ros/foxy/lib/aarch64-linux-gnu"
-    livox_lib = "/usr/local/lib"
-    mandatory = [foxy_lib, foxy_arch, livox_lib]
+    mandatory = [
+        "/opt/ros/foxy/opt/yaml_cpp_vendor/lib",
+        "/opt/ros/foxy/opt/rviz_ogre_vendor/lib",
+        "/opt/ros/foxy/lib/aarch64-linux-gnu",
+        "/opt/ros/foxy/lib",
+        "/usr/local/lib",
+    ]
 
     current = os.environ.get("LD_LIBRARY_PATH", "")
     parts = [p for p in current.split(":") if p] if current else []
