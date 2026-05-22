@@ -25,6 +25,24 @@ def _default_config_path() -> str:
     return "config/livox/mid360_sdk2_bridge.json"
 
 
+def _node_env() -> dict:
+    """Return environment variables needed for the node process.
+
+    Under ROS2 Foxy, the node subprocess launched via ros2 launch does not
+    automatically inherit LD_LIBRARY_PATH from the parent shell.  Without
+    /opt/ros/foxy/lib (and /usr/local/lib for Livox SDK2) in LD_LIBRARY_PATH,
+    the dynamic linker cannot resolve rclcpp / rmw symbols and the process
+    crashes with SIGSEGV at startup (exit code -11) before MARK_010.
+    Passing the current value of LD_LIBRARY_PATH as additional_env ensures
+    the child process inherits it regardless of how the launch was invoked.
+    """
+    ld_path = os.environ.get("LD_LIBRARY_PATH", "")
+    env = {}
+    if ld_path:
+        env["LD_LIBRARY_PATH"] = ld_path
+    return env
+
+
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -81,6 +99,7 @@ def generate_launch_description():
             executable="livox_sdk_bridge_node",
             name="livox_sdk_bridge_node",
             output="screen",
+            additional_env=_node_env(),
             parameters=[{
                 "config_path": LaunchConfiguration("config_path"),
                 "frame_id": LaunchConfiguration("frame_id"),
