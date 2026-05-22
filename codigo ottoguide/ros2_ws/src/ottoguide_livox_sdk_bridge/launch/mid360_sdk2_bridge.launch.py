@@ -28,19 +28,29 @@ def _default_config_path() -> str:
 def _node_env() -> dict:
     """Return environment variables needed for the node process.
 
-    Under ROS2 Foxy, the node subprocess launched via ros2 launch does not
-    automatically inherit LD_LIBRARY_PATH from the parent shell.  Without
-    /opt/ros/foxy/lib (and /usr/local/lib for Livox SDK2) in LD_LIBRARY_PATH,
-    the dynamic linker cannot resolve rclcpp / rmw symbols and the process
-    crashes with SIGSEGV at startup (exit code -11) before MARK_010.
-    Passing the current value of LD_LIBRARY_PATH as additional_env ensures
-    the child process inherits it regardless of how the launch was invoked.
+    Under ROS2 Foxy on the Unitree robot, the node subprocess does not
+    automatically inherit LD_LIBRARY_PATH when launched from a non-interactive
+    SSH session.  Without /opt/ros/foxy/lib in LD_LIBRARY_PATH the dynamic
+    linker cannot resolve rclcpp / rmw symbols and the process crashes with
+    SIGSEGV (exit code -11) before MARK_010.
+
+    Strategy: start from the current environment value if set, then append
+    the mandatory Foxy and Livox SDK2 paths if not already present.  This
+    makes the launch work both from an interactive shell (where ROS is already
+    sourced) and from non-interactive SSH invocations (where it is not).
     """
-    ld_path = os.environ.get("LD_LIBRARY_PATH", "")
-    env = {}
-    if ld_path:
-        env["LD_LIBRARY_PATH"] = ld_path
-    return env
+    foxy_lib = "/opt/ros/foxy/lib"
+    foxy_arch = "/opt/ros/foxy/lib/aarch64-linux-gnu"
+    livox_lib = "/usr/local/lib"
+    mandatory = [foxy_lib, foxy_arch, livox_lib]
+
+    current = os.environ.get("LD_LIBRARY_PATH", "")
+    parts = [p for p in current.split(":") if p] if current else []
+    for path in mandatory:
+        if path not in parts:
+            parts.append(path)
+    return {"LD_LIBRARY_PATH": ":".join(parts)}
+
 
 
 def generate_launch_description():
