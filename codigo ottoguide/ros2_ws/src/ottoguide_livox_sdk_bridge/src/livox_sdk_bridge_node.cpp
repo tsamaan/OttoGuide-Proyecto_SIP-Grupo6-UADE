@@ -146,12 +146,14 @@ public:
       return;
     }
 
-    if (!debug_disable_timers_) {
+    if (!debug_disable_timers_ && !debug_disable_livox_sdk_) {
       publish_timer_ = create_wall_timer(
         kPublishTimerPeriod,
         std::bind(&LivoxSdkBridgeNode::publish_queued_messages, this));
+      mark_lifecycle("MARK_030_TIMER_CREATED");
+    } else {
+      mark_lifecycle("MARK_031_TIMER_DISABLED");
     }
-    mark_lifecycle("MARK_030_TIMER_CREATED");
     if (debug_stage_stop_after_timer_) {
       request_stage_stop("debug_stage_stop_after_timer");
       return;
