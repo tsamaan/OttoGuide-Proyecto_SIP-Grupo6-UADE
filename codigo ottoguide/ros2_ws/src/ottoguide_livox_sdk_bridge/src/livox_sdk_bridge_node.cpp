@@ -241,9 +241,11 @@ private:
       last_marker_ = marker;
     }
 
-    if (debug_log_lifecycle_markers_) {
-      RCLCPP_INFO(get_logger(), "%s", marker.c_str());
+    if (!debug_log_lifecycle_markers_) {
+      return;
     }
+
+    RCLCPP_INFO(get_logger(), "%s", marker.c_str());
     std::cerr << marker << std::endl;
   }
 
@@ -435,8 +437,10 @@ private:
       packet == nullptr ? 0U : static_cast<unsigned>(packet->dot_num),
       packet_timestamp_hex(packet).c_str(),
       static_cast<unsigned long>(bad_alloc_drops_.load()));
-    std::cerr << "MARK_BAD_ALLOC context=" << context << " last_marker=" << marker
-              << " what=" << ex.what() << std::endl;
+    if (debug_log_lifecycle_markers_) {
+      std::cerr << "MARK_BAD_ALLOC context=" << context << " last_marker=" << marker
+                << " what=" << ex.what() << std::endl;
+    }
   }
 
   template<typename PointT>
