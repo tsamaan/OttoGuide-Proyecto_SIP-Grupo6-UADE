@@ -61,15 +61,15 @@ class TestSettingsValidation:
 
     def test_mock_mode_returns_mock_adapter(self) -> None:
         """
-        @TASK: Verificar que ROBOT_MODE=mock retorna MockRobotAdapter
+        @TASK: Verificar que ROBOT_MODE=mock retorna MockHardwareAPI
         @INPUT: ROBOT_MODE=mock
-        @OUTPUT: Instancia de MockRobotAdapter
+        @OUTPUT: Instancia de MockHardwareAPI
         """
         with patch.dict(os.environ, {"ROBOT_MODE": "mock"}, clear=True):
             get_settings.cache_clear()
             adapter = get_hardware_adapter()
-            from hardware.mock_adapter import MockRobotAdapter
-            assert isinstance(adapter, MockRobotAdapter)
+            from hardware.mock_adapter import MockHardwareAPI
+            assert isinstance(adapter, MockHardwareAPI)
             get_settings.cache_clear()
 
     def test_sim_mode_returns_sim_adapter(self) -> None:

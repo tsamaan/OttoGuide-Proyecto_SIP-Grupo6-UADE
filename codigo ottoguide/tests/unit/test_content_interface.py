@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # @TASK: Tests unitarios para el contrato de contenido del tour (TourScript, ConversationManager)
-# @INPUT: TourScript/ZoneContent desde api.schemas; ConversationManager desde src.interaction
+# @INPUT: TourScript/WaypointContent desde api.schemas; ConversationManager desde src.interaction
 # @OUTPUT: Verificacion de validacion Pydantic, carga de script y comportamiento de zona
 # @CONTEXT: Ejecutable sin hardware fisico ni unitree_sdk2py ni Ollama
 # @SECURITY: Sin I/O de red; mocks de estrategias NLP para aislar ConversationManager
@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from api.schemas import TourScript, ZoneContent
+from api.schemas import TourScript, WaypointContent
 
 
 # ---------------------------------------------------------------------------
@@ -23,24 +23,24 @@ from api.schemas import TourScript, ZoneContent
 
 VALID_SCRIPT_DATA = {
     "version": "1.0.0",
-    "zones": [
+    "waypoints": [
         {
-            "zone_id": "entrada",
+            "waypoint_id": "entrada",
+            "interaction_type": "llm_qa",
             "system_prompt": "Eres OttoGuide en la entrada.",
-            "trigger_waypoints": [{"x": 0.0, "y": 0.0, "yaw_rad": 0.0}],
-            "allowed_intents": ["bienvenida", "pregunta_carrera"],
+            "pose_2d": {"x": 0.0, "y": 0.0, "theta": 0.0},
         },
         {
-            "zone_id": "planta_baja",
+            "waypoint_id": "planta_baja",
+            "interaction_type": "llm_qa",
             "system_prompt": "Eres OttoGuide en la planta baja.",
-            "trigger_waypoints": [],
-            "allowed_intents": ["pregunta_biblioteca"],
+            "pose_2d": {"x": 1.0, "y": 0.0, "theta": 0.0},
         },
         {
-            "zone_id": "patio",
+            "waypoint_id": "patio",
+            "interaction_type": "llm_qa",
             "system_prompt": "Eres OttoGuide en el patio.",
-            "trigger_waypoints": [],
-            "allowed_intents": ["pregunta_actividades"],
+            "pose_2d": {"x": 2.0, "y": 0.0, "theta": 0.0},
         },
     ],
 }
@@ -96,13 +96,13 @@ class TestTourScriptValidation:
         """
         @TASK: Verificar que un JSON bien formado produce un TourScript valido
         @INPUT: VALID_SCRIPT_DATA
-        @OUTPUT: TourScript con 3 zonas
+        @OUTPUT: TourScript con 3 waypoints
         @SECURITY: Sin I/O de red
         """
         script = TourScript.model_validate(VALID_SCRIPT_DATA)
         assert script.version == "1.0.0"
-        assert len(script.zones) == 3
-        assert script.zones[0].zone_id == "entrada"
+        assert len(script.waypoints) == 3
+        assert script.waypoints[0].waypoint_id == "entrada"
 
     def test_missing_version_raises_validation_error(self) -> None:
         """
@@ -114,76 +114,74 @@ class TestTourScriptValidation:
         with pytest.raises(ValidationError):
             TourScript.model_validate(data)
 
-    def test_empty_zones_raises_validation_error(self) -> None:
+    def test_empty_waypoints_raises_validation_error(self) -> None:
         """
-        @TASK: Verificar que zones=[] causa ValidationError (min_length=1)
-        @INPUT: JSON con zones vacio
+        @TASK: Verificar que waypoints=[] causa ValidationError (min_length=1)
+        @INPUT: JSON con waypoints vacio
         @OUTPUT: pydantic.ValidationError
         """
-        data = {**VALID_SCRIPT_DATA, "zones": []}
+        data = {**VALID_SCRIPT_DATA, "waypoints": []}
         with pytest.raises(ValidationError):
             TourScript.model_validate(data)
 
-    def test_zone_missing_zone_id_raises_validation_error(self) -> None:
+    def test_waypoint_missing_waypoint_id_raises_validation_error(self) -> None:
         """
-        @TASK: Verificar que ZoneContent sin zone_id causa ValidationError
-        @INPUT: Zona sin campo zone_id
+        @TASK: Verificar que WaypointContent sin waypoint_id causa ValidationError
+        @INPUT: Waypoint sin campo waypoint_id
         @OUTPUT: pydantic.ValidationError
         """
-        bad_zone = {
+        bad_waypoint = {
+            "interaction_type": "llm_qa",
             "system_prompt": "Sin zona id.",
-            "trigger_waypoints": [],
-            "allowed_intents": [],
+            "pose_2d": {"x": 0.0, "y": 0.0, "theta": 0.0},
         }
         with pytest.raises(ValidationError):
-            ZoneContent.model_validate(bad_zone)
+            WaypointContent.model_validate(bad_waypoint)
 
-    def test_zone_missing_system_prompt_raises_validation_error(self) -> None:
+    def test_waypoint_missing_interaction_type_raises_validation_error(self) -> None:
         """
-        @TASK: Verificar que ZoneContent sin system_prompt causa ValidationError
-        @INPUT: Zona sin campo system_prompt
+        @TASK: Verificar que WaypointContent sin interaction_type causa ValidationError
+        @INPUT: Waypoint sin campo interaction_type
         @OUTPUT: pydantic.ValidationError
         """
-        bad_zone = {
-            "zone_id": "entrada",
-            "trigger_waypoints": [],
-            "allowed_intents": [],
+        bad_waypoint = {
+            "waypoint_id": "entrada",
+            "system_prompt": "Prompt de prueba.",
+            "pose_2d": {"x": 0.0, "y": 0.0, "theta": 0.0},
         }
         with pytest.raises(ValidationError):
-            ZoneContent.model_validate(bad_zone)
+            WaypointContent.model_validate(bad_waypoint)
 
     def test_extra_fields_ignored(self) -> None:
         """
-        @TASK: Verificar que campos extra en ZoneContent son ignorados (extra=ignore)
-        @INPUT: ZoneContent con campo desconocido 'nota_equipo_contenido'
-        @OUTPUT: ZoneContent valido sin error
+        @TASK: Verificar que campos extra en WaypointContent son ignorados (extra=ignore)
+        @INPUT: WaypointContent con campo desconocido 'nota_equipo_contenido'
+        @OUTPUT: WaypointContent valido sin error
         """
         data = {
-            "zone_id": "entrada",
+            "waypoint_id": "entrada",
+            "interaction_type": "llm_qa",
             "system_prompt": "Prompt de prueba.",
-            "trigger_waypoints": [],
-            "allowed_intents": [],
+            "pose_2d": {"x": 0.0, "y": 0.0, "theta": 0.0},
             "nota_equipo_contenido": "Revisar en marzo",
         }
-        zone = ZoneContent.model_validate(data)
-        assert zone.zone_id == "entrada"
-        assert not hasattr(zone, "nota_equipo_contenido")
+        waypoint = WaypointContent.model_validate(data)
+        assert waypoint.waypoint_id == "entrada"
+        assert not hasattr(waypoint, "nota_equipo_contenido")
 
     def test_mvp_script_file_is_valid(self) -> None:
         """
         @TASK: Verificar que data/mvp_tour_script.json es un TourScript valido
         @INPUT: Archivo de plantilla del MVP
-        @OUTPUT: TourScript con las 3 zonas UADE (entrada, planta_baja, patio)
+        @OUTPUT: TourScript con los 5 waypoints UADE (I, 1, 2, 3, F)
         @CONTEXT: Garantia de que la plantilla del equipo de contenido es correcta
         """
         script_path = Path(__file__).resolve().parents[2] / "data" / "mvp_tour_script.json"
         raw = script_path.read_text(encoding="utf-8")
         data = json.loads(raw)
         script = TourScript.model_validate(data)
-        zone_ids = [z.zone_id for z in script.zones]
-        assert "entrada" in zone_ids
-        assert "planta_baja" in zone_ids
-        assert "patio" in zone_ids
+        waypoint_ids = [w.waypoint_id for w in script.waypoints]
+        assert waypoint_ids == ["I", "1", "2", "3", "F"]
 
 
 # ---------------------------------------------------------------------------

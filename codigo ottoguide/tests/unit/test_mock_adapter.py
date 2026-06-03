@@ -173,7 +173,7 @@ class TestMockAdapterGetState:
         adapter = MockRobotAdapter()
         state = await adapter.get_state()
         assert "adapter" in state
-        assert state["adapter"] == "MockRobotAdapter"
+        assert state["adapter"] == "MockHardwareAPI"
         assert "state" in state
         assert "position" in state
         assert "x" in state["position"]
