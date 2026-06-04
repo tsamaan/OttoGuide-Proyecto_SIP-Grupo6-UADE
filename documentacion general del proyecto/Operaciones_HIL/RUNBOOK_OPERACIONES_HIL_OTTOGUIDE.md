@@ -244,13 +244,13 @@ documentacion general del proyecto/Operaciones_HIL/RUNBOOK_PROXIMA_SESION_FISICA
 - `RUNBOOK_LIVOX_SDK2_BRIDGE.md`: configuracion y validacion Livox SDK2.
 - `RUNBOOK_PACKET_CAPTURE_HIL.md`: captura pasiva y analisis Wireshark.
 - `RUNBOOK_PROXIMA_SESION_FISICA_DDS_FOXY.md`: siguiente ventana fisica DDS Foxy.
-- `REPORTE_HIL_*`: evidencia historica de scan gate, odom/TF, Unitree DDS, Odometer_service, SVO y SDK probes.
+- `Historico/Operaciones_HIL_Reportes/REPORTE_HIL_*`: evidencia historica de scan gate, odom/TF, Unitree DDS, Odometer_service, SVO y SDK probes.
 - `ARQUITECTURA_OPERATIVA_RC1.md`, `ROS2_INTEGRATION.md`, `MEMORIA_ARQUITECTONICA_MVP.md`: marco arquitectonico vigente.
 - `AppPhone/*`, `Historico/*`, `Hardware_Reference/*`: contexto secundario/historico.
 
 ## 16. Historico preservado
 
-Los reportes `REPORTE_HIL_*` no deben borrarse ni reescribirse: son bitacoras de evidencia por fecha. Los documentos AppPhone/Unitree Go/Explore y factory plane `192.168.12.x` quedan como investigacion secundaria; la ruta vigente para OttoGuide sigue siendo SDK2/DDS en `192.168.123.x`.
+Los reportes `Historico/Operaciones_HIL_Reportes/REPORTE_HIL_*` no deben borrarse ni reescribirse: son bitacoras de evidencia por fecha. Los documentos AppPhone/Unitree Go/Explore y factory plane `192.168.12.x` quedan como investigacion secundaria; la ruta vigente para OttoGuide sigue siendo SDK2/DDS en `192.168.123.x`.
 
 ## 17. Checklist final
 
