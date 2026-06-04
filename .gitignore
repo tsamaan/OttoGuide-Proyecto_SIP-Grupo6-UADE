@@ -12,6 +12,8 @@ env/
 *.log
 *.bag
 *.db3
+*.db3-wal
+*.db3-shm
 *.mcap
 build/
 install/
@@ -20,6 +22,8 @@ log/
 # Local HIL/GitOps session artifacts
 artifacts/*_current_path.txt
 artifacts/*.bundle
+artifacts/rosbags/
+artifacts/rosbag_extract_*/
 
 # Local Codex / SSH / robot access artifacts
 .codex_ssh/
