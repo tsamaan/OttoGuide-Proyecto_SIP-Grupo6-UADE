@@ -24,6 +24,7 @@ artifacts/*_current_path.txt
 artifacts/*.bundle
 artifacts/rosbags/
 artifacts/rosbag_extract_*/
+artifacts/handoff_offline_*/
 
 # Local Codex / SSH / robot access artifacts
 .codex_ssh/
