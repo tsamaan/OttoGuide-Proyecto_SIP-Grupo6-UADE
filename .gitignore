@@ -49,3 +49,5 @@ network_robot_after_*.txt
 *.bak
 *.orig
 *.rej
+
+artifacts/maps/
