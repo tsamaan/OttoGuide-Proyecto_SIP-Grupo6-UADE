@@ -54,3 +54,5 @@ artifacts/maps/
 *.pgm
 *.mp4
 artifacts/evidence/
+*.ply
+*.pcd
