@@ -53,3 +53,4 @@ network_robot_after_*.txt
 artifacts/maps/
 *.pgm
 *.mp4
+artifacts/evidence/
