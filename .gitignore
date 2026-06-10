@@ -51,3 +51,5 @@ network_robot_after_*.txt
 *.rej
 
 artifacts/maps/
+*.pgm
+*.mp4
