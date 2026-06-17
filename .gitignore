@@ -56,3 +56,8 @@ artifacts/maps/
 artifacts/evidence/
 *.ply
 *.pcd
+artifacts/
+artifacts/physical_mapping_route_*/
+artifacts/_audit/
+artifacts/_quarantine/
+*.tar.gz
