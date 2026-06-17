@@ -1,0 +1,357 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+BASE_DEFAULT="/home/unitree/Desktop/Ottoguide/OttoGuide-Proyecto_SIP-Grupo6-UADE/codigo ottoguide"
+BASE="${BASE:-$BASE_DEFAULT}"
+ART="$BASE/artifacts"
+LATEST="$ART/ottoguide_map_latest_run_id"
+SENSOR_LATEST="$ART/sensor_stack_recovery_latest_session"
+
+COMMAND="${1:-help}"
+shift || true
+LABEL="office_short_remote_control_raw"
+DURATION=""
+BAG_NAME=""
+
+usage() {
+  cat <<'USAGE'
+Uso rapido:
+
+1. Con robot encendido, parado/en piso y control remoto listo:
+   ./tools/hil/ottoguide-map prep
+
+2. Iniciar grabacion:
+   ./tools/hil/ottoguide-map start --label "office_short_remote_control_raw"
+
+3. Mover robot con control remoto humano.
+
+4. Ver estado:
+   ./tools/hil/ottoguide-map status
+
+5. Detener:
+   ./tools/hil/ottoguide-map stop
+
+6. Finalizar:
+   ./tools/hil/ottoguide-map finalize
+
+7. Empaquetar:
+   ./tools/hil/ottoguide-map package
+
+Comandos:
+  prep
+  start --label LABEL [--bag-name NAME]
+  timed --duration SECONDS --label LABEL [--bag-name NAME]
+  status
+  stop
+  finalize
+  package
+  help
+
+Seguridad:
+  No publica /cmd_vel. No mueve el robot. No requiere /tf para captura raw.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --label|--route-label) LABEL="${2:?missing label}"; shift 2 ;;
+    --duration) DURATION="${2:?missing duration}"; shift 2 ;;
+    --bag-name) BAG_NAME="${2:?missing bag name}"; shift 2 ;;
+    -h|--help) COMMAND="help"; shift ;;
+    *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+load_ros() {
+  set +u
+  source /opt/ros/foxy/setup.bash
+  if [[ -f "$BASE/ros2_ws/install/setup.bash" ]]; then
+    source "$BASE/ros2_ws/install/setup.bash"
+  fi
+  set -u
+  export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
+  if [[ -z "${CYCLONEDDS_URI:-}" && -f "$BASE/config/cyclonedds.foxy.xml" ]]; then
+    export CYCLONEDDS_URI="file://$BASE/config/cyclonedds.foxy.xml"
+  fi
+}
+
+topic_exists() {
+  ros2 topic list 2>/dev/null | grep -Fxq "$1"
+}
+
+print_topic_status() {
+  for topic in /utlidar/cloud /livox/imu /scan /tf /tf_static /odom /map /map_metadata /cmd_vel; do
+    if topic_exists "$topic"; then
+      echo "PASS $topic"
+    else
+      echo "MISSING $topic"
+    fi
+  done
+}
+
+sensor_stack_alive() {
+  pgrep -af "ros2 launch .*scan_gate.launch.py|livox_sdk_bridge_node|pointcloud_to_laserscan_node" >/dev/null 2>&1
+}
+
+start_sensor_stack() {
+  RUN_ID="$(date +%Y%m%d_%H%M%S)"
+  SESSION="$ART/sensor_stack_recovery_$RUN_ID"
+  mkdir -p "$SESSION/logs" "$SESSION/state"
+  echo "$SESSION" > "$SENSOR_LATEST"
+  (
+    cd "$BASE"
+    load_ros
+    export OTTOGUIDE_ROOT="$BASE"
+    ros2 launch ottoguide_livox_sdk_bridge scan_gate.launch.py
+  ) > "$SESSION/logs/sensor_stack.log" 2>&1 &
+  SENSOR_PID=$!
+  echo "$SENSOR_PID" > "$SESSION/state/sensor_stack_pid.txt"
+  echo "Started sensor stack: PID=$SENSOR_PID SESSION=$SESSION"
+  sleep 8
+}
+
+prep() {
+  cd "$BASE"
+  load_ros
+  mkdir -p "$ART"
+  echo "ROS_DISTRO=${ROS_DISTRO:-}"
+  echo "ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-}"
+  echo "RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-}"
+  echo "CYCLONEDDS_URI=${CYCLONEDDS_URI:-}"
+
+  echo "Current topics:"
+  ros2 topic list | sort || true
+
+  if topic_exists /utlidar/cloud && topic_exists /scan; then
+    echo "Sensor stack already available. Not relaunching."
+  else
+    echo "Sensor topics missing; attempting sensor-only scan_gate stack."
+    start_sensor_stack
+  fi
+
+  echo "Post-prep topics:"
+  ros2 topic list | sort || true
+  print_topic_status
+
+  if ! topic_exists /utlidar/cloud && ! topic_exists /scan; then
+    echo "PREP FAIL: neither /utlidar/cloud nor /scan is available" >&2
+    exit 3
+  fi
+  if ! topic_exists /tf || ! topic_exists /tf_static; then
+    echo "PREP PARTIAL: /tf or /tf_static missing. Raw capture is allowed; direct map export is not guaranteed."
+  fi
+  echo "PREP PASS: raw sensor capture can be used if robot is physically safe."
+}
+
+new_run() {
+  RUN_ID="$(date +%Y%m%d_%H%M%S)"
+  SESSION="$ART/ottoguide_map_$RUN_ID"
+  mkdir -p "$SESSION/logs" "$SESSION/rosbags" "$SESSION/maps/raw" "$SESSION/maps/cleaned" "$SESSION/state" "$SESSION/manifests" "$SESSION/reports"
+  echo "$RUN_ID" > "$LATEST"
+  echo "$SESSION" > "$SESSION/state/session_dir.txt"
+  echo "$LABEL" > "$SESSION/state/route_label.txt"
+}
+
+get_latest() {
+  if [[ ! -f "$LATEST" ]]; then
+    echo "No latest run id found: $LATEST" >&2
+    exit 1
+  fi
+  RUN_ID="$(cat "$LATEST")"
+  SESSION="$ART/ottoguide_map_$RUN_ID"
+  if [[ ! -d "$SESSION" ]]; then
+    echo "Session dir not found: $SESSION" >&2
+    exit 1
+  fi
+}
+
+build_topics_file() {
+  local f="$1"
+  : > "$f"
+  for topic in \
+    /utlidar/cloud \
+    /livox/imu \
+    /scan \
+    /tf \
+    /tf_static \
+    /odom \
+    /map \
+    /map_metadata \
+    /slam_toolbox/graph_visualization \
+    /slam_toolbox/scan_visualization \
+    /cmd_vel
+  do
+    if topic_exists "$topic"; then
+      echo "$topic" >> "$f"
+    fi
+  done
+  ros2 topic list 2>/dev/null | grep -Ei "cmd|vel|odom|sport|low|state|joint|imu|unitree|wireless|joy|remote|controller" >> "$f" || true
+  sort -u "$f" -o "$f"
+}
+
+write_baseline() {
+  {
+    date
+    hostname
+    whoami
+    pwd
+    echo "LABEL=$LABEL"
+    echo "ROS_DISTRO=${ROS_DISTRO:-}"
+    echo "ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-}"
+    echo "RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-}"
+    echo "CYCLONEDDS_URI=${CYCLONEDDS_URI:-}"
+    echo "Topics:"
+    ros2 topic list | sort || true
+  } > "$SESSION/logs/baseline.log" 2>&1 || true
+  timeout 5s ros2 topic echo /utlidar/cloud > "$SESSION/logs/cloud_sample.log" 2>&1 || true
+  timeout 5s ros2 topic echo /scan > "$SESSION/logs/scan_sample.log" 2>&1 || true
+  timeout 5s ros2 topic echo /livox/imu > "$SESSION/logs/imu_sample.log" 2>&1 || true
+}
+
+start_recording() {
+  cd "$BASE"
+  load_ros
+  if ! topic_exists /utlidar/cloud && ! topic_exists /scan; then
+    echo "START REFUSED: neither /utlidar/cloud nor /scan exists. Run prep first." >&2
+    exit 3
+  fi
+  new_run
+  write_baseline
+  TOPICS_FILE="$SESSION/state/topics_to_record.txt"
+  build_topics_file "$TOPICS_FILE"
+  if ! grep -Fxq /utlidar/cloud "$TOPICS_FILE" && ! grep -Fxq /scan "$TOPICS_FILE"; then
+    echo "START REFUSED: no raw sensor topics selected" >&2
+    exit 3
+  fi
+  BAG_DIR="$SESSION/rosbags/${BAG_NAME:-ottoguide_map_$RUN_ID}"
+  echo "$BAG_DIR" > "$SESSION/state/bag_dir.txt"
+  mapfile -t TOPICS < "$TOPICS_FILE"
+  echo "Recording topics:"
+  cat "$TOPICS_FILE"
+  ros2 bag record -o "$BAG_DIR" "${TOPICS[@]}" > "$SESSION/logs/rosbag_record.log" 2>&1 &
+  BAG_PID=$!
+  echo "$BAG_PID" > "$SESSION/state/rosbag_pid.txt"
+  echo "RUN_ID=$RUN_ID"
+  echo "SESSION=$SESSION"
+  echo "BAG_DIR=$BAG_DIR"
+  echo "Recording started."
+  echo
+  echo "Use:"
+  echo "./tools/hil/ottoguide-map status"
+  echo "./tools/hil/ottoguide-map stop"
+  echo "./tools/hil/ottoguide-map finalize"
+  echo "./tools/hil/ottoguide-map package"
+}
+
+stop_recording() {
+  cd "$BASE"
+  load_ros
+  get_latest
+  BAG_PID="$(cat "$SESSION/state/rosbag_pid.txt" 2>/dev/null || true)"
+  BAG_DIR="$(cat "$SESSION/state/bag_dir.txt" 2>/dev/null || true)"
+  if [[ -n "$BAG_PID" ]] && ps -p "$BAG_PID" >/dev/null 2>&1; then
+    echo "Stopping rosbag PID=$BAG_PID with SIGINT"
+    kill -INT "$BAG_PID"
+    while ps -p "$BAG_PID" >/dev/null 2>&1; do
+      sleep 1
+    done
+  else
+    echo "No live rosbag PID found."
+  fi
+  if [[ -n "$BAG_DIR" && -d "$BAG_DIR" ]]; then
+    ros2 bag info "$BAG_DIR" > "$SESSION/logs/rosbag_info.log" 2>&1 || true
+    cat "$SESSION/logs/rosbag_info.log" || true
+  fi
+  generate_manifests
+}
+
+generate_manifests() {
+  get_latest
+  find "$SESSION" -type f -printf "%s %p\n" | sort -nr > "$SESSION/manifests/FILES_SIZES.txt" || true
+  (cd "$SESSION" && find . -type f ! -path './manifests/SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum) > "$SESSION/manifests/SHA256SUMS.txt" 2>/dev/null || true
+}
+
+finalize_run() {
+  cd "$BASE"
+  load_ros
+  get_latest
+  BAG_DIR="$(cat "$SESSION/state/bag_dir.txt" 2>/dev/null || true)"
+  if [[ -n "$BAG_DIR" && -d "$BAG_DIR" && ! -f "$SESSION/logs/rosbag_info.log" ]]; then
+    ros2 bag info "$BAG_DIR" > "$SESSION/logs/rosbag_info.log" 2>&1 || true
+  fi
+  generate_manifests
+  MAP_BASE="$SESSION/maps/raw/ottoguide_map_$RUN_ID"
+  if topic_exists /map; then
+    ros2 run nav2_map_server map_saver_cli -f "$MAP_BASE" > "$SESSION/logs/map_saver.log" 2>&1 || true
+  else
+    echo "MAP_EXPORT_SKIPPED_NO_MAP_TOPIC" > "$SESSION/logs/map_saver.log"
+  fi
+  cat > "$SESSION/README.md" <<README
+# OttoGuide map/raw sensor capture
+
+RUN_ID: $RUN_ID
+Label: $(cat "$SESSION/state/route_label.txt" 2>/dev/null || true)
+Session: $SESSION
+Bag: $BAG_DIR
+
+This is a raw sensor capture. It can be replayed offline.
+If /tf or /map were missing during capture, direct map export is not guaranteed.
+The agent did not publish /cmd_vel and did not move the robot.
+README
+  echo "FINALIZED SESSION=$SESSION"
+  cat "$SESSION/logs/map_saver.log" || true
+}
+
+status_run() {
+  cd "$BASE"
+  load_ros
+  get_latest
+  BAG_DIR="$(cat "$SESSION/state/bag_dir.txt" 2>/dev/null || true)"
+  BAG_PID="$(cat "$SESSION/state/rosbag_pid.txt" 2>/dev/null || true)"
+  echo "RUN_ID=$RUN_ID"
+  echo "SESSION=$SESSION"
+  echo "BAG_DIR=$BAG_DIR"
+  if [[ -n "$BAG_PID" ]]; then
+    if ps -p "$BAG_PID" >/dev/null 2>&1; then
+      echo "ROSBag PID $BAG_PID alive"
+    else
+      echo "ROSBag PID $BAG_PID not alive"
+    fi
+  fi
+  du -sh "$BAG_DIR" 2>/dev/null || true
+  echo "Topics available:"
+  ros2 topic list | sort || true
+  echo "Recent rosbag log:"
+  tail -40 "$SESSION/logs/rosbag_record.log" 2>/dev/null || true
+}
+
+package_run() {
+  get_latest
+  TAR="/tmp/ottoguide_map_${RUN_ID}.tar.gz"
+  tar -czf "$TAR" -C "$ART" "ottoguide_map_$RUN_ID"
+  sha256sum "$TAR" > "$TAR.sha256"
+  echo "TAR=$TAR"
+  echo "SHA256=$TAR.sha256"
+  echo "PowerShell copy command:"
+  echo "scp -i \"\$env:USERPROFILE\\.ssh\\id_ed25519_ottoguide_robot\" unitree@192.168.123.164:$TAR \"C:\\Users\\lucas\\Documents\\OttoGuide-Proyecto_SIP-Grupo6-UADE\\artifacts\\\""
+}
+
+case "$COMMAND" in
+  prep) prep ;;
+  start) start_recording ;;
+  timed)
+    if [[ -z "$DURATION" ]]; then
+      echo "--duration required for timed" >&2
+      exit 2
+    fi
+    start_recording
+    sleep "$DURATION"
+    stop_recording
+    ;;
+  status) status_run ;;
+  stop) stop_recording ;;
+  finalize) finalize_run ;;
+  package) package_run ;;
+  help|-h|--help) usage ;;
+  *) echo "Unknown command: $COMMAND" >&2; usage; exit 2 ;;
+esac
