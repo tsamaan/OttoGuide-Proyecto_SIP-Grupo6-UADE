@@ -4,7 +4,7 @@
   <name>ottoguide_livox_sdk_bridge</name>
   <version>0.1.0</version>
   <description>Minimal Livox SDK2 to ROS 2 bridge for OttoGuide MID360 HIL mapping.</description>
-  <maintainer email="ottoguide@cegs.solutions">OttoGuide Team</maintainer>
+  <maintainer email="LucasCap12@users.noreply.github.com">OttoGuide Team</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
