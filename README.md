@@ -89,6 +89,8 @@ Los procedimientos operativos viven en runbooks dedicados. Este `README.md` no d
 - [Livox SDK2 bridge](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_LIVOX_SDK2_BRIDGE.md>)
 - [OttoGuide map quickstart](<documentacion general del proyecto/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md>)
 - [ODOM/TF offline analysis](<documentacion general del proyecto/Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md>)
+- [ODOM bridge contract](<documentacion general del proyecto/Arquitectura/ODOM_BRIDGE_CONTRACT.md>)
+- [Preflight ODOM/TF](<documentacion general del proyecto/Operaciones_HIL/PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md>)
 - [Demo local](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_DEMO_LOCAL.md>)
 - [Packet capture HIL](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_PACKET_CAPTURE_HIL.md>)
 
@@ -130,8 +132,10 @@ Pendiente:
 | Backlog | [TODO.md](<TODO.md>) |
 | Arquitectura operativa | [ARQUITECTURA_OPERATIVA_RC1.md](<documentacion general del proyecto/Arquitectura/ARQUITECTURA_OPERATIVA_RC1.md>) |
 | `ROS 2` / `DDS` | [ROS2_INTEGRATION.md](<documentacion general del proyecto/Arquitectura/ROS2_INTEGRATION.md>) |
+| Contrato ODOM bridge | [ODOM_BRIDGE_CONTRACT.md](<documentacion general del proyecto/Arquitectura/ODOM_BRIDGE_CONTRACT.md>) |
 | Protocolo HIL | [HIL_TESTING_PROTOCOL.md](<documentacion general del proyecto/Operaciones_HIL/HIL_TESTING_PROTOCOL.md>) |
 | Preflight sensores | [PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md](<documentacion general del proyecto/Operaciones_HIL/PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md>) |
+| Preflight ODOM/TF | [PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md](<documentacion general del proyecto/Operaciones_HIL/PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md>) |
 | ODOM/TF offline | [ODOM_TF_OFFLINE_ANALYSIS_20260618.md](<documentacion general del proyecto/Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md>) |
 | Quickstart de mapeo | [OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md](<documentacion general del proyecto/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md>) |
 | Auditorias HIL | [Auditorias](<documentacion general del proyecto/Auditorias/>) |

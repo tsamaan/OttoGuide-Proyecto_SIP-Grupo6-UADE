@@ -2,6 +2,10 @@
 
 Indice de visualizacion offline para evidencia HIL, rosbags y configuraciones RViz.
 
+## Proposito
+
+Usar RViz para inspeccionar rosbags, clouds, LaserScan y TF sintetico de diagnostico. Esta carpeta no valida navegacion fisica ni mapa navegable.
+
 ## Documentos
 
 | Documento | Uso |
@@ -15,6 +19,22 @@ Las configuraciones RViz versionadas viven en:
 ```text
 codigo ottoguide/tools/hil/rviz/
 ```
+
+## Entradas esperadas
+
+- Rosbag local o replay simulado.
+- Config RViz versionada bajo `codigo ottoguide/tools/hil/rviz/`.
+- TF real solo si proviene de evidencia HIL; TF identidad solo como diagnostico offline.
+
+## Comandos seguros
+
+```bash
+bash "codigo ottoguide/tools/hil/open_rviz_config.sh" 2d
+bash "codigo ottoguide/tools/hil/open_rviz_config.sh" current
+bash "codigo ottoguide/tools/hil/replay_rosbag_rviz_slow.sh"
+```
+
+Guardar capturas de pantalla, logs de replay y configuracion RViz usada como evidencia local.
 
 ## Uso seguro
 

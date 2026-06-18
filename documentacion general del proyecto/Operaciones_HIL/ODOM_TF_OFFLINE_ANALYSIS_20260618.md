@@ -234,3 +234,14 @@ Decision:
 - Mantener el `odom_bridge` como contrato futuro, no implementado ni activado.
 - Preparar la siguiente sesion fisica como preflight read-only centrado en descubrir fuente real de odometria y medir extrinsecos.
 - Usar `Offline_Replay_SLAM/README.md`, `Replay_RViz/README.md` y `PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md` como puntos de entrada.
+
+## 11. Contrato offline del futuro odom_bridge
+
+El contrato formal vive en `documentacion general del proyecto/Arquitectura/ODOM_BRIDGE_CONTRACT.md`.
+
+Resumen:
+
+- Define condiciones futuras para publicar `/odom` como `nav_msgs/msg/Odometry`.
+- Rechaza `LowState`, `SportModeState`, IMU sola, joints solos, TF identidad temporal y mapa estacionario como odometria traslacional por si solos.
+- Requiere fuente con pose XY/yaw o twist corporal validable, flags explicitos y covarianzas conservadoras.
+- No implementa publicacion runtime, no inicializa ROS 2, no habilita navegacion fisica y no publica `/cmd_vel`.

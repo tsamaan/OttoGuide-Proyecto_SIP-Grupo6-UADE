@@ -17,6 +17,23 @@ Indice operativo para trabajo offline de replay, SLAM y sandbox Nav2 sin robot f
 - No afirmar mapa navegable a partir de mapa estacionario o TF sintetico.
 - Requerir bags con `/scan`, `/tf`, `/tf_static` y fuente de odometria validada para pruebas representativas.
 
+## Entradas esperadas
+
+- Rosbags locales versionados fuera de Git o bajo `artifacts/`.
+- `/scan` con `frame_id` conocido.
+- TF/odom sintetico solo para diagnostico offline, claramente etiquetado.
+- Fuente real de odometria solo si fue validada contra `ODOM_BRIDGE_CONTRACT.md`.
+
+## Comandos seguros
+
+```bash
+ros2 bag info <bag_dir>
+bash "codigo ottoguide/tools/hil/replay_rosbag_local.sh" <bag_dir>
+ros2 run rviz2 rviz2 -d "codigo ottoguide/tools/hil/rviz/ottoguide_nav2_offline_sandbox.rviz"
+```
+
+Estos comandos no deben ejecutarse contra hardware fisico ni usarse como evidencia de navegacion.
+
 ## Bloqueos actuales
 
 - El artifact `20260618_081438` no contiene `/odom`, `/tf`, `/tf_static`, `/map` ni `/map_metadata` en runtime.

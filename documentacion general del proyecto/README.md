@@ -30,11 +30,13 @@ Advertencia: el README maestro publico del proyecto vive en `../README.md` desde
 | `Arquitectura/ARQUITECTURA_OPERATIVA_RC1.md` | Contrato operativo RC1 y flujo E2E. |
 | `Arquitectura/ROS2_INTEGRATION.md` | Frontera entre Capa 4 Python, `ROS 2`, `DDS` y `SDK2`. |
 | `Arquitectura/MEMORIA_ARQUITECTONICA_MVP.md` | Memoria academica y decisiones de diseno del MVP. |
+| `Arquitectura/ODOM_BRIDGE_CONTRACT.md` | Contrato offline del futuro `odom_bridge`, sin nodo ROS runtime ni validacion fisica. |
 | `Arquitectura/OTTOGUIDE_HIL_ARCHITECTURE_AND_RUNTIME.md` | Topologia HIL, runtime observado y limites de seguridad. |
 | `Arquitectura/ROBOT_FACTORY_BASELINE_AND_OTTOGUIDE_EVOLUTION.md` | Baseline factory y evolucion controlada hacia OttoGuide. |
 | `Operaciones_HIL/README_codigo_ottoguide.md` | Indice operativo de codigo, `libs/` air-gapped y topologia HIL. |
 | `Operaciones_HIL/HIL_TESTING_PROTOCOL.md` | Protocolo fisico HIL, seguridad, mapeo y apagado. |
 | `Operaciones_HIL/PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md` | Preflight de sensores y certificacion pendiente de validacion HIL fisica. |
+| `Operaciones_HIL/PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md` | Preflight read-only para descubrir fuente real de TF/odom sin mover robot. |
 | `Operaciones_HIL/RUNBOOK_LIVOX_SDK2_BRIDGE.md` | Build, arranque y validacion progresiva del bridge Livox SDK2 propio. |
 | `Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md` | Quickstart del ejecutable `ottoguide-map` para captura/mapeo supervisado. |
 | `Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md` | Analisis offline ODOM/TF y proximos pasos seguros. |

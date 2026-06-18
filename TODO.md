@@ -33,8 +33,10 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [PENDING_HIL] Validar que `ENTER` en `hil_capture_mapping_bundle.sh` cierra recorder antes de guardar mapa; validar `Ctrl+C` como aborto controlado por separado.
 - [PENDING_HIL] Validar que `timeout 60 map_saver_cli` es suficiente en mapa UADE real.
 - [PENDING_HIL] Validar en sesion fisica fuente real para `/odom` o canal DDS HG con pose/twist corporal.
+- [PENDING_HIL] Identificar fuente real Unitree/DDS con pose XY o twist corporal.
 - [PENDING_HIL] Medir extrinseco `base_link` -> `utlidar_lidar`.
 - [PENDING_HIL] Validar presencia, frecuencia y frame semantics de `/tf`, `/tf_static`, `/odom`, `/map` y `/map_metadata` en runtime real.
+- [PENDING_HIL] Validar `/tf`, `/tf_static` y `/odom` en sesion fisica read-only.
 
 ## PENDING_DOC
 
@@ -69,6 +71,7 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [PENDING_CODE] Agregar metricas de latencia: `Damp()`, `Move()`, Nav2 goal result, AMCL update y telemetria WebSocket.
 - [PENDING_CODE] Separar MVC formalmente: modelos de dominio, controladores de caso de uso, vistas HTTP/WS.
 - [PENDING_CODE] Implementar `odom_bridge` solo si se confirma una fuente traslacional valida; debe quedar deshabilitado por defecto y no publicar `/cmd_vel`.
+- [PENDING_CODE] Implementar nodo ROS 2 `odom_bridge` solo despues de confirmar fuente traslacional valida.
 
 ## DONE_CONFIRMED
 
@@ -81,6 +84,8 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [DONE_CONFIRMED] Mover tooling/config/launch propios bajo `codigo ottoguide/`.
 - [DONE_CONFIRMED] Mirror Lucas `main` sincronizado una vez con canónico `robot` en `89c4c7f`.
 - [DONE_CONFIRMED] Remotos locales no canonicos eliminados para evitar push accidental.
+- [DONE_CONFIRMED] Documentar contrato formal offline del futuro `odom_bridge`.
+- [DONE_CONFIRMED] Agregar tests offline del contrato `odom_bridge` sin robot ni ROS runtime obligatorio.
 
 ## DECIDED_NOT_IMPLEMENT
 
@@ -96,6 +101,7 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [UNKNOWN_REQUIRES_REVIEW] Auditar repo/rama externa del pilar IA/voz (`ottoguide-ia`) antes de cualquier merge o integracion con `audio_bridge.py`.
 - [UNKNOWN_REQUIRES_REVIEW] Revisar si `robot_ssh.py` puede convertirse en herramienta sanitizada versionable o debe permanecer local.
 - [UNKNOWN_REQUIRES_REVIEW] Evaluar si `LowState`/`SportModeState` aportan datos suficientes para odometria o solo IMU/FSM/joints.
+- [UNKNOWN_REQUIRES_REVIEW] Determinar si existe fuente DDS HG distinta de `LowState`/`SportModeState` que exponga pose/twist.
 
 ## Reglas de operación
 
