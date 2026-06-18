@@ -35,6 +35,9 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 
 ## PENDING_DOC
 
+- [PENDING_DOC] Auditar `planificacion/` para decidir si se mantiene como carpeta raiz academica o si se documenta su indice interno.
+- [PENDING_DOC] Auditar documentacion HTML externa del pilar IA/voz antes de integrarla como documentacion vigente.
+- [PENDING_DOC] Incorporar HTML externo `documento-tecnico-ottoguide-movimiento.html` solo si aparece en workspace y aporta valor historico no cubierto por reportes existentes.
 - [PENDING_DOC] Documentar resultado de la prueba fisica de mapeo en `HIL_TESTING_PROTOCOL.md`.
 - [PENDING_DOC] Documentar autenticacion, tokens, nonce o binding si aparecen en captura.
 - [PENDING_DOC] Agregar checklist GO/NO-GO especifico para mapeo con responsable de hardstop.
@@ -53,6 +56,8 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [PENDING_CODE] Integrar salida del LLM a `AudioClient` solo si no bloquea `TourOrchestrator` ni interfiere con `LocoClient`.
 - [PENDING_CODE] Agregar tests con mock de `AudioClient` para TTS nativo, volumen y fallback.
 - [PENDING_CODE] Consolidar definitivamente `hardware/real_adapter.py` y `src/hardware/robot_hardware_api.py` bajo un solo contrato.
+- [PENDING_CODE] Consolidar `api/` vs `src/api/` y eliminar superficie FastAPI legacy cuando exista plan de migracion validado.
+- [PENDING_CODE] Consolidar `hardware/` vs `src/hardware/` sin romper mocks, tests ni adaptadores HIL.
 - [PENDING_CODE] Formalizar `src/infrastructure/unitree/` como frontera para SDK2, REST factory, UDP factory y audio nativo.
 - [PENDING_CODE] Evitar imports cruzados entre `api/` legacy y `src/api/`; definir una unica superficie FastAPI.
 - [PENDING_CODE] Convertir readiness de `/tour/start` en servicio de aplicacion testeable.
@@ -65,6 +70,10 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [DONE_CONFIRMED] Mantener `UnitreeFactoryRestClient` en modo read-only hasta completar payload/ACK/autenticacion.
 - [DONE_CONFIRMED] Mantener prohibicion de control simultaneo: app oficial, control remoto manual y OttoGuide `/tour/start`.
 - [DONE_CONFIRMED] Mantener `TODO.md` como backlog post-RC1 y no como runbook operativo.
+- [DONE_CONFIRMED] Consolidar documentacion propia del proyecto bajo `documentacion general del proyecto/`.
+- [DONE_CONFIRMED] Eliminar `docs/` como ubicacion documental vigente.
+- [DONE_CONFIRMED] Aplicar raiz limpia con carpetas raiz principales `codigo ottoguide/`, `documentacion general del proyecto/` y `planificacion/`.
+- [DONE_CONFIRMED] Mover tooling/config/launch propios bajo `codigo ottoguide/`.
 
 ## DECIDED_NOT_IMPLEMENT
 
@@ -77,6 +86,8 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 ## UNKNOWN_REQUIRES_REVIEW
 
 - [UNKNOWN_REQUIRES_REVIEW] Evaluar parser pasivo de telemetria UDP como fuente secundaria de `/status`, sin control de locomocion.
+- [UNKNOWN_REQUIRES_REVIEW] Auditar repo/rama externa del pilar IA/voz (`ottoguide-ia`) antes de cualquier merge o integracion con `audio_bridge.py`.
+- [UNKNOWN_REQUIRES_REVIEW] Revisar si `robot_ssh.py` puede convertirse en herramienta sanitizada versionable o debe permanecer local.
 
 ## Reglas de operación
 
@@ -84,4 +95,6 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - Las tareas `PENDING_HIL` requieren robot fisico, operador responsable, hardstop disponible y autorizacion explicita.
 - Las tareas `PENDING_CODE` no deben ejecutarse durante operacion fisica ni sin autorizacion separada de refactor post-RC1.
 - Las tareas relacionadas con plano factory deben permanecer read-only hasta que exista evidencia HIL y autorizacion explicita.
+- No mezclar reorganizacion documental/tooling con cambios funcionales de audio, ROS package o control fisico.
+- Todo cambio de estructura debe preservar rutas en scripts o actualizar referencias con validacion.
 - No ejecutar `git add`, `git commit`, `git push`, `merge`, `rebase`, comandos de locomocion, `/cmd_vel`, `LocoClient.Move` ni `/rest/remote/packet/*` desde este backlog.

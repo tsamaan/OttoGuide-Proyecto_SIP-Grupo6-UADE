@@ -52,7 +52,10 @@ La ruta primaria operativa de OttoGuide es `SDK2/DDS Unicast` hacia `192.168.123
 ├── codigo ottoguide/
 │   ├── src/
 │   ├── scripts/
+│   ├── tools/
 │   ├── config/
+│   ├── launch/
+│   ├── ros2_ws/
 │   └── libs/
 └── documentacion general del proyecto/
     ├── README.md
@@ -68,9 +71,13 @@ La ruta primaria operativa de OttoGuide es `SDK2/DDS Unicast` hacia `192.168.123
 - `TODO.md`: backlog post-`RC1` y validaciones HIL pendientes.
 - `codigo ottoguide/src/`: lógica de aplicación y módulos runtime.
 - `codigo ottoguide/scripts/`: orquestadores y utilidades HIL.
+- `codigo ottoguide/tools/`: herramientas HIL, auditoría offline, RViz y validadores.
 - `codigo ottoguide/config/`: configuración operativa.
+- `codigo ottoguide/launch/`: launch files ROS 2/offline.
 - `codigo ottoguide/libs/`: dependencias vendorizadas air-gapped preservadas.
 - `documentacion general del proyecto/`: documentación técnica profunda e histórica.
+
+La raíz del repositorio se mantiene limpia: documentación propia en `documentacion general del proyecto/` y código, tooling, launch files y configuración runtime dentro de `codigo ottoguide/`.
 
 ## Roadmap de Ejecución Rápida
 
@@ -80,6 +87,8 @@ Los procedimientos operativos viven en runbooks dedicados. Este `README.md` no d
 - [Deploy](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_DEPLOY.md>)
 - [Protocolo HIL](<documentacion general del proyecto/Operaciones_HIL/HIL_TESTING_PROTOCOL.md>)
 - [Livox SDK2 bridge](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_LIVOX_SDK2_BRIDGE.md>)
+- [OttoGuide map quickstart](<documentacion general del proyecto/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md>)
+- [ODOM/TF offline analysis](<documentacion general del proyecto/Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md>)
 - [Demo local](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_DEMO_LOCAL.md>)
 - [Packet capture HIL](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_PACKET_CAPTURE_HIL.md>)
 
@@ -123,4 +132,7 @@ Pendiente:
 | `ROS 2` / `DDS` | [ROS2_INTEGRATION.md](<documentacion general del proyecto/Arquitectura/ROS2_INTEGRATION.md>) |
 | Protocolo HIL | [HIL_TESTING_PROTOCOL.md](<documentacion general del proyecto/Operaciones_HIL/HIL_TESTING_PROTOCOL.md>) |
 | Preflight sensores | [PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md](<documentacion general del proyecto/Operaciones_HIL/PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md>) |
+| ODOM/TF offline | [ODOM_TF_OFFLINE_ANALYSIS_20260618.md](<documentacion general del proyecto/Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md>) |
+| Quickstart de mapeo | [OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md](<documentacion general del proyecto/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md>) |
+| Auditorias HIL | [Auditorias](<documentacion general del proyecto/Auditorias/>) |
 | AppPhone / APK | [README_AppPhone.md](<documentacion general del proyecto/AppPhone/README_AppPhone.md>) |

@@ -14,7 +14,7 @@ Displays:
 
 Uso:
 
-1. Terminal A: `tools/hil/replay_rosbag_local.sh`
+1. Terminal A: `codigo ottoguide/tools/hil/replay_rosbag_local.sh`
 2. Terminal B: `rviz2`
 3. Configurar displays.
 4. Capturar video o screenshots.

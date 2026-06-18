@@ -35,6 +35,9 @@ id_rsa*
 *.pub.local
 
 # Local SSH/network diagnostics
+codigo ottoguide/tools/robot_ssh.py
+codigo ottoguide/tools/robot_ssh.local.py
+codigo ottoguide/tools/*ssh*.local.py
 ssh_key_acl_fix*.txt
 network_robot_before_*.txt
 network_robot_after_*.txt

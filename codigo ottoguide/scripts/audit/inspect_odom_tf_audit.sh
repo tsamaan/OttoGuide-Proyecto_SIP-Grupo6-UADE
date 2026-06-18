@@ -3,7 +3,12 @@
 # No ROS runtime required. No robot connection. No topic publication.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if git -C "${SCRIPT_DIR}" rev-parse --show-toplevel >/dev/null 2>&1; then
+  REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+else
+  REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+fi
 ARTIFACT_NAME="ottoguide_odom_tf_audit_20260618_081438.tar.gz"
 ARTIFACT_PATH="${REPO_ROOT}/artifacts/_audit/${ARTIFACT_NAME}"
 EXPECTED_SHA256="DB0C2CC33AB77FBEC4B056EABE9551B32D9BC5F16680920689FE92FE9F295AA5"
