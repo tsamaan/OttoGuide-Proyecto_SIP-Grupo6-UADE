@@ -137,3 +137,25 @@
 - /cmd_vel: No grabado.
 - Conclusión: El bag contiene exitosamente la data base sensoria con las frecuencias y timestamps esperados para 15 segundos, validando que ottoguide-map produce datasets íntegros de Livox SDK2 sin requerir movimiento físico. Las caídas al parsear las PointCloud2 completas son un issue conocido de ros2cli en ROS 2 Foxy, sin impacto en la validez del bag.
 - Próximo paso: Desplegar el robot físicamente, ejecutar la captura real con movimiento y recuperar el dataset pesado en la workstation de procesamiento ODOM/TF.
+
+## Iteración — mirror LucasCap12 y validación corta previa a captura física
+
+- Fecha: 2026-06-18
+- HEAD canónico local: f1526aa
+- HEAD robot: f1526aa
+- Mirror LucasCap12: PASS. main=f1526aaddc98ad1f3ba369e2b1959146130b3607, robot=f1526aaddc98ad1f3ba369e2b1959146130b3607
+- Remotos locales finales: origin → https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git (único)
+- Validación corta: FAIL — ros2 bag record SEGFAULT (exit -11) durante captura de 20 s
+- Bag validación corta: ottoguide_map_20260619_033111 (parcial, sin metadata.yaml)
+- Tamaño: 4 MiB (db3-wal sin flush; bag corrupto/incompleto)
+- Topics suscriptos antes del crash: /utlidar/cloud, /scan, /livox/imu (todos confirmados activos)
+- Counts: no disponibles (metadata.yaml ausente; SQLite error 10 disk I/O al intentar ros2 bag info)
+- /cmd_vel: No grabado. No publicado.
+- Nav2: No ejecutado.
+- Diagnóstico crash: ros2cli `topic echo` segfault es issue conocido de Foxy con PointCloud2. El segfault en `ros2 bag record` es nuevo; db3-wal de 4 MiB sin checkpoint indica crash en las primeras tramas. Posible causa: agotamiento de memoria o condición de carrera en inicialización concurrente del subscriber con alta tasa de mensajes PointCloud2.
+- Artifact liviano: map_validation_20s_analysis_20260619_033218.light.tar.gz (980 bytes, metadatos de sesión fallida)
+- SCP: PASS
+- Captura larga: PENDIENTE de confirmación explícita del operador físico
+- Comando preparado: `./tools/hil/ottoguide-map timed --duration 180` (ver paso 8 de la sesión)
+- Conclusión: Mirror hacia LucasCap12 ejecutado y verificado. La validación corta de 20 s falló por segfault en ros2 bag record; el stack de sensores siguió activo (topics publicados). El crash de ros2 bag record puede ser intermitente (como el scan_gate -11 previo) o sensible a la carga de PointCloud2. La captura larga de 180 s debe intentarse con el operador físico presente y el robot en modo quieto.
+- Próximo paso: Confirmar si se intenta la captura larga (180 s) o si se re-intenta la validación corta antes.
