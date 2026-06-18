@@ -70,6 +70,9 @@ load_ros() {
   fi
   set -u
   export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
+  export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+  export OTTOGUIDE_ROOT="$BASE"
+  export LD_LIBRARY_PATH="/opt/ros/foxy/opt/yaml_cpp_vendor/lib:/opt/ros/foxy/opt/rviz_ogre_vendor/lib:/opt/ros/foxy/lib/aarch64-linux-gnu:/opt/ros/foxy/lib:/usr/local/lib:${LD_LIBRARY_PATH:-}"
   if [[ -z "${CYCLONEDDS_URI:-}" && -f "$BASE/config/cyclonedds.foxy.xml" ]]; then
     export CYCLONEDDS_URI="file://$BASE/config/cyclonedds.foxy.xml"
   fi
@@ -113,6 +116,11 @@ start_sensor_stack() {
 prep() {
   cd "$BASE"
   load_ros
+
+  if pgrep -f livox_ros_driver2 >/dev/null 2>&1; then
+    echo "PREP FAIL: livox_ros_driver2 is active. Must use scan_gate stack instead." >&2
+    exit 3
+  fi
   mkdir -p "$ART"
   echo "ROS_DISTRO=${ROS_DISTRO:-}"
   echo "ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-}"
@@ -136,6 +144,11 @@ prep() {
   if ! topic_exists /utlidar/cloud && ! topic_exists /scan; then
     echo "PREP FAIL: neither /utlidar/cloud nor /scan is available" >&2
     exit 3
+  fi
+  if topic_exists /cmd_vel; then
+    if ros2 topic info /cmd_vel | grep -q "Publisher count: [1-9]"; then
+      echo "PREP WARNING: /cmd_vel has active publishers."
+    fi
   fi
   if ! topic_exists /tf || ! topic_exists /tf_static; then
     echo "PREP PARTIAL: /tf or /tf_static missing. Raw capture is allowed; direct map export is not guaranteed."
