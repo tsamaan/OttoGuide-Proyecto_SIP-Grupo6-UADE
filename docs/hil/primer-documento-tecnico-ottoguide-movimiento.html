@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Primer documento técnico - OttoGuide movimiento, HIL y preparación de autonomía</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fb;
+        --surface: #ffffff;
+        --text: #1d2433;
+        --muted: #5f6b7a;
+        --border: #d8dee8;
+        --accent: #146c94;
+        --accent-soft: #e7f5fb;
+        --success: #2f7d4f;
+        --warning: #9a6a12;
+        --shadow: 0 18px 45px rgba(21, 31, 46, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.6;
+      }
+
+      a {
+        color: var(--accent);
+      }
+
+      .page {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 40px 0 64px;
+      }
+
+      .hero {
+        padding: 40px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--accent);
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.2;
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 820px;
+        font-size: clamp(2rem, 4vw, 3.4rem);
+      }
+
+      .lead {
+        max-width: 760px;
+        margin: 18px 0 0;
+        color: var(--muted);
+        font-size: 1.1rem;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 28px;
+        margin-top: 28px;
+      }
+
+      .toc {
+        position: sticky;
+        top: 20px;
+        align-self: start;
+        padding: 20px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .toc h2 {
+        margin: 0 0 12px;
+        font-size: 1rem;
+      }
+
+      .toc ol {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding-left: 20px;
+      }
+
+      .content {
+        display: grid;
+        gap: 20px;
+      }
+
+      section {
+        padding: 28px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      h2 {
+        margin: 0 0 16px;
+        font-size: 1.6rem;
+      }
+
+      h3 {
+        margin: 24px 0 10px;
+        font-size: 1.1rem;
+      }
+
+      p {
+        margin: 0 0 14px;
+      }
+
+      ul,
+      ol {
+        margin-top: 0;
+        padding-left: 24px;
+      }
+
+      li + li {
+        margin-top: 5px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .card {
+        padding: 18px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fbfcfe;
+      }
+
+      .card h3 {
+        margin-top: 0;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        margin: 0 8px 8px 0;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.88rem;
+        font-weight: 700;
+      }
+
+      .note {
+        margin-top: 16px;
+        padding: 14px 16px;
+        border-left: 4px solid var(--accent);
+        background: var(--accent-soft);
+      }
+
+      .success {
+        border-left-color: var(--success);
+        background: #edf8f1;
+      }
+
+      .warning {
+        border-left-color: var(--warning);
+        background: #fff7e6;
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 5px;
+        background: #eef1f6;
+        font-family: "Cascadia Code", Consolas, monospace;
+        font-size: 0.9em;
+      }
+
+      pre {
+        overflow: auto;
+        margin: 12px 0 0;
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #f2f5f9;
+      }
+
+      pre code {
+        padding: 0;
+        background: transparent;
+      }
+
+      table {
+        width: 100%;
+        margin: 12px 0 0;
+        border-collapse: collapse;
+        font-size: 0.94rem;
+      }
+
+      th,
+      td {
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        vertical-align: top;
+      }
+
+      th {
+        background: #f2f5f9;
+        text-align: left;
+      }
+
+      @media (max-width: 860px) {
+        .page {
+          width: min(100% - 20px, 720px);
+          padding-top: 20px;
+        }
+
+        .hero,
+        section {
+          padding: 22px;
+        }
+
+        .layout,
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .toc {
+          position: static;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <p class="eyebrow">Infraestructura HIL y preparación de autonomía</p>
+        <h1>Primer documento técnico - OttoGuide movimiento, HIL y preparación de autonomía</h1>
+        <p class="lead">
+          Base inicial del pilar de movimiento para un robot co-guía universitario: conexión física, sensores, captura reproducible, mapeo offline y preparación segura de navegación futura.
+        </p>
+      </header>
+
+      <div class="layout">
+        <nav class="toc" aria-label="Indice del documento">
+          <h2>Indice</h2>
+          <ol>
+            <li><a href="#objetivo">Objetivo</a></li>
+            <li><a href="#repositorios">Repositorios y ramas</a></li>
+            <li><a href="#componentes">Componentes del sistema</a></li>
+            <li><a href="#entidades">Entidades técnicas principales</a></li>
+            <li><a href="#flujos">Flujos principales</a></li>
+            <li><a href="#captura">Captura, mapeo y navegación</a></li>
+            <li><a href="#interfaces">Interfaces operativas</a></li>
+            <li><a href="#api">API, endpoints e interfaces ROS</a></li>
+            <li><a href="#stack">Stack técnico definido</a></li>
+            <li><a href="#infra">Infraestructura HIL y arquitectura</a></li>
+            <li><a href="#mvp">MVP técnico propuesto</a></li>
+            <li><a href="#decisiones">Decisiones MVP cerradas</a></li>
+            <li><a href="#fuera-alcance">Fuera del alcance actual</a></li>
+            <li><a href="#pendientes">Pendientes y no verificados</a></li>
+            <li><a href="#proximos">Proximos pasos</a></li>
+          </ol>
+        </nav>
+
+        <div class="content">
+          <section id="objetivo">
+            <h2>1. Objetivo</h2>
+            <p>
+              OttoGuide propone un robot co-guía para visitas universitarias de UADE, orientado a mejorar una experiencia concreta: recorridos de admisión más memorables, homogéneos y diferenciados, aprovechando un activo tecnológico existente sin reemplazar el rol humano del guía.
+            </p>
+            <p>
+              Este documento cubre el pilar de movimiento, HIL, sensores y preparación de autonomía. Su objetivo es dejar una base técnica validada para:
+            </p>
+            <ul>
+              <li>Conectar de forma segura con el robot real Unitree G1 EDU / Ottoman.</li>
+              <li>Validar el entorno físico, red HIL y runtime ROS.</li>
+              <li>Leer sensores y registrar datos del entorno.</li>
+              <li>Generar artifacts reproducibles para replay y análisis offline.</li>
+              <li>Preparar el camino hacia mapeo, waypoints y navegación autónoma futura.</li>
+              <li>Operar scripts de captura sin comandos de movimiento ni publicación de <code>/cmd_vel</code>.</li>
+            </ul>
+            <div class="note">
+              Este documento no desarrolla en profundidad el pilar de interacción con IA. Ese pilar se vincula con conversación, experiencia verbal y APIs de IA; aquí el foco es movimiento, sensores, HIL, artifacts y seguridad.
+            </div>
+          </section>
+
+          <section id="repositorios">
+            <h2>2. Repositorios y ramas</h2>
+            <div class="grid">
+              <article class="card">
+                <h3>Repositorio canónico</h3>
+                <p><code>https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git</code></p>
+                <p><span class="tag">Configurado por OttoGuide</span></p>
+              </article>
+              <article class="card">
+                <h3>Rama de robot físico</h3>
+                <p><code>robot</code> representa el baseline técnico validado para operación HIL y robot real.</p>
+                <p><span class="tag">Validado en robot real</span></p>
+              </article>
+              <article class="card">
+                <h3>Baseline actual</h3>
+                <p><code>b07d362</code> - <code>docs(hil): document robot runtime and add map executable</code>.</p>
+                <p><span class="tag">Validado en robot real</span></p>
+              </article>
+              <article class="card">
+                <h3>Ruta robot</h3>
+                <p>Repo: <code>/home/unitree/Desktop/Ottoguide/OttoGuide-Proyecto_SIP-Grupo6-UADE</code></p>
+                <p>Codigo: <code>codigo ottoguide</code></p>
+              </article>
+            </div>
+            <div class="note success">
+              <strong>Uso de la rama:</strong> <code>robot</code> concentra tooling HIL, captura raw, documentación técnica y configuración necesaria para operar sobre el robot físico sin mezclarlo con artifacts pesados.
+            </div>
+          </section>
+
+          <section id="componentes">
+            <h2>3. Componentes del sistema</h2>
+            <div class="grid">
+              <article class="card"><h3>Notebook HIL</h3><p>Estación de operación por SSH, GitOps y análisis offline.</p><span class="tag">Observado en red HIL</span><p><code>192.168.123.101/24</code></p></article>
+              <article class="card"><h3>Companion PC</h3><p>Host Ubuntu/ROS que ejecuta el stack de sensores y scripts HIL.</p><span class="tag">Validado en robot real</span><p><code>192.168.123.164</code></p></article>
+              <article class="card"><h3>Locomotion controller</h3><p>Controlador de locomoción observado por red. No fue controlado desde software.</p><span class="tag">Observado en red HIL</span><p><code>192.168.123.161</code></p></article>
+              <article class="card"><h3>Sensor stack</h3><p><code>scan_gate</code>, Livox bridge y <code>pointcloud_to_laserscan</code>.</p><span class="tag">Validado en robot real</span></article>
+              <article class="card"><h3>LiDAR Livox MID360</h3><p>Fuente de nube raw en <code>/utlidar/cloud</code>.</p><span class="tag">Validado en robot real</span></article>
+              <article class="card"><h3>IMU</h3><p>Datos inerciales publicados en <code>/livox/imu</code>.</p><span class="tag">Validado en robot real</span></article>
+              <article class="card"><h3>ROS 2 Foxy</h3><p>Runtime de comunicación robótica usado en companion.</p><span class="tag">Validado en robot real</span></article>
+              <article class="card"><h3>CycloneDDS</h3><p>RMW <code>rmw_cyclonedds_cpp</code>, multicast deshabilitado y peers fijos.</p><span class="tag">Configurado por OttoGuide</span></article>
+              <article class="card"><h3>ottoguide-map</h3><p>Ejecutable de campo para prep, captura raw, cierre, finalización y paquete.</p><span class="tag">Configurado por OttoGuide</span></article>
+              <article class="card"><h3>Control remoto humano</h3><p>Medio permitido para mover el robot durante primeras capturas.</p><span class="tag">Decisión MVP</span></article>
+              <article class="card"><h3>Artifacts offline</h3><p>Rosbags, manifiestos, hashes y paquetes fuera de Git.</p><span class="tag">Configurado por OttoGuide</span></article>
+              <article class="card"><h3>GitHub</h3><p>Versionado del baseline técnico y documentación compartible.</p><span class="tag">Configurado por OttoGuide</span></article>
+            </div>
+          </section>
+
+          <section id="entidades">
+            <h2>4. Entidades técnicas principales</h2>
+            <p>Estas entidades ordenan el flujo técnico del pilar de movimiento y permiten hablar de captura, mapeo y navegación sin mezclar estados validados con pendientes.</p>
+            <div>
+              <span class="tag">RUN_ID</span>
+              <span class="tag">SESSION</span>
+              <span class="tag">BAG_DIR</span>
+              <span class="tag">Rosbag</span>
+              <span class="tag">Topic ROS</span>
+              <span class="tag">Frame</span>
+              <span class="tag">Map PGM/YAML</span>
+              <span class="tag">Waypoint</span>
+              <span class="tag">Sensor stack</span>
+              <span class="tag">Artifact package</span>
+              <span class="tag">Safety gate</span>
+              <span class="tag">Endpoint/API</span>
+              <span class="tag">Estado validado</span>
+            </div>
+            <div class="grid">
+              <article class="card"><h3>Identificadores de captura</h3><p><code>RUN_ID</code>, <code>SESSION</code> y <code>BAG_DIR</code> trazan cada corrida, su carpeta de trabajo y el rosbag resultante.</p></article>
+              <article class="card"><h3>Datos robóticos</h3><p>Un rosbag contiene topics ROS, frames y mensajes de sensores para replay/offline.</p></article>
+              <article class="card"><h3>Mapa y waypoints</h3><p>PGM/YAML y waypoints son resultados posteriores al mapeo; no están validados como producto final en el runtime actual.</p></article>
+              <article class="card"><h3>Safety gate</h3><p>Conjunto de reglas que impiden mover el robot desde scripts de captura y evitan publicar <code>/cmd_vel</code>.</p></article>
+            </div>
+          </section>
+
+          <section id="flujos">
+            <h2>5. Flujos principales</h2>
+            <h3>Preflight de campo</h3>
+            <pre><code>./tools/hil/ottoguide-map prep</code></pre>
+            <p>Valida ROS/CycloneDDS, sensor stack y topics raw. Fue ejecutado en validación documental: PASS para captura raw y PARTIAL por falta de TF/map.</p>
+
+            <h3>Captura raw</h3>
+            <pre><code>./tools/hil/ottoguide-map start --label "office_short_remote_control_raw"</code></pre>
+            <p>Inicia grabación de sensores disponibles. No fue ejecutado durante esta validación documental.</p>
+
+            <h3>Monitoreo</h3>
+            <pre><code>./tools/hil/ottoguide-map status</code></pre>
+            <p>Consulta PID, estado del rosbag, tamano y logs de la sesion.</p>
+
+            <h3>Stop limpio</h3>
+            <pre><code>./tools/hil/ottoguide-map stop</code></pre>
+            <p>Cierra el rosbag con SIGINT al PID, evitando cortes bruscos.</p>
+
+            <h3>Finalizacion</h3>
+            <pre><code>./tools/hil/ottoguide-map finalize</code></pre>
+            <p>Genera <code>ros2 bag info</code>, manifiestos, hashes y solo intenta mapa si existe <code>/map</code>.</p>
+
+            <h3>Empaquetado</h3>
+            <pre><code>./tools/hil/ottoguide-map package</code></pre>
+            <p>Crea un paquete transferible a notebook para análisis offline.</p>
+
+            <h3>Análisis offline</h3>
+            <p>Incluye replay del rosbag, reconstrucción o provisión de TF, SLAM, limpieza de mapa, waypoints y validación offline antes de cualquier prueba física de navegación.</p>
+          </section>
+
+          <section id="captura">
+            <h2>6. Captura, mapeo y navegación</h2>
+            <div class="grid">
+              <article class="card">
+                <h3>Captura raw</h3>
+                <p><span class="tag">Disponible parcialmente</span></p>
+                <p>Validada con <code>/utlidar/cloud</code>, <code>/livox/imu</code> y <code>/scan</code>. Sirve para rosbag y replay/offline aunque no haya TF.</p>
+              </article>
+              <article class="card">
+                <h3>Mapeo completo</h3>
+                <p><span class="tag">Pendiente de validación</span></p>
+                <p>Requiere <code>/tf</code>, <code>/tf_static</code>, <code>/odom</code> y <code>/map</code>. No se presenta como mapa apto para navegación.</p>
+              </article>
+              <article class="card">
+                <h3>Navegacion autonoma</h3>
+                <p><span class="tag">No validada</span></p>
+                <p>Requiere mapa, localización, safety gates, Nav2 físico por validar y control seguro de <code>/cmd_vel</code>.</p>
+              </article>
+              <article class="card">
+                <h3>Interpretacion actual</h3>
+                <p>El MVP actual debe centrarse en captura sensorial y trazabilidad. La autonomía física queda fuera hasta nueva evidencia.</p>
+              </article>
+            </div>
+            <div class="note warning">
+              <strong>Límite técnico:</strong> la ausencia de TF, odometría y mapa impide presentar navegación autónoma o mapeo completo como validado.
+            </div>
+          </section>
+
+          <section id="interfaces">
+            <h2>7. Interfaces operativas</h2>
+            <pre><code>cd "/home/unitree/Desktop/Ottoguide/OttoGuide-Proyecto_SIP-Grupo6-UADE/codigo ottoguide"
+./tools/hil/ottoguide-map prep
+./tools/hil/ottoguide-map start --label "office_short_remote_control_raw"
+./tools/hil/ottoguide-map status
+./tools/hil/ottoguide-map stop
+./tools/hil/ottoguide-map finalize
+./tools/hil/ottoguide-map package</code></pre>
+            <div class="note warning">
+              <strong>Prerequisitos físicos:</strong> robot en piso, estable, zona despejada, operador humano con control remoto, nadie cerca de las piernas y robot no sentado. El script solo graba; el movimiento debe ser humano por control remoto.
+            </div>
+          </section>
+
+          <section id="api">
+            <h2>8. API, endpoints e interfaces ROS</h2>
+            <h3>APIs HTTP presentes en código</h3>
+            <table>
+              <tr><th>Endpoint/API</th><th>Estado</th><th>Evidencia</th></tr>
+              <tr><td><code>POST /tour/start</code></td><td>Presente en código, no observado en runtime</td><td><code>src/api/server.py</code></td></tr>
+              <tr><td><code>POST /tour/pause</code></td><td>Presente en código, no observado en runtime</td><td><code>src/api/server.py</code></td></tr>
+              <tr><td><code>POST /emergency</code></td><td>Presente en código, no observado en runtime</td><td><code>src/api/server.py</code></td></tr>
+              <tr><td><code>GET /status</code></td><td>Presente en código, no observado en runtime</td><td><code>src/api/server.py</code></td></tr>
+              <tr><td>WebSocket telemetry</td><td>Presente en código, no observado en runtime</td><td><code>src/api/websocket_manager.py</code></td></tr>
+              <tr><td>Ollama <code>/api/generate</code></td><td>Loopback observado, no expuesto por red HIL</td><td><code>127.0.0.1:11434</code></td></tr>
+            </table>
+
+            <h3>Interfaces ROS activas</h3>
+            <table>
+              <tr><th>Topic</th><th>Tipo</th><th>Publisher</th><th>Frame</th><th>Uso</th></tr>
+              <tr><td><code>/utlidar/cloud</code></td><td><code>sensor_msgs/msg/PointCloud2</code></td><td><code>livox_sdk_bridge_node</code></td><td><code>utlidar_lidar</code></td><td>Nube LiDAR raw</td></tr>
+              <tr><td><code>/livox/imu</code></td><td><code>sensor_msgs/msg/Imu</code></td><td><code>livox_sdk_bridge_node</code></td><td><code>utlidar_lidar</code></td><td>IMU</td></tr>
+              <tr><td><code>/scan</code></td><td><code>sensor_msgs/msg/LaserScan</code></td><td><code>pointcloud_to_laserscan</code></td><td><code>utlidar_lidar</code></td><td>LaserScan 2D</td></tr>
+            </table>
+
+            <h3>Interfaces ROS pendientes</h3>
+            <p><code>/tf</code>, <code>/tf_static</code>, <code>/odom</code>, <code>/map</code>, <code>/map_metadata</code> y <code>/cmd_vel</code> están faltantes en el runtime actual. <code>/cmd_vel</code> no debe publicarse desde scripts de captura.</p>
+          </section>
+
+          <section id="stack">
+            <h2>9. Stack técnico definido</h2>
+            <div class="grid">
+              <article class="card"><h3>Ubuntu</h3><p>Ubuntu 20.04.6 LTS sobre arquitectura <code>aarch64</code>.</p><span class="tag">Validado en robot real</span></article>
+              <article class="card"><h3>Kernel</h3><p><code>5.10.104-tegra</code>.</p><span class="tag">Validado en robot real</span></article>
+              <article class="card"><h3>ROS 2 Foxy</h3><p>Runtime robótico de sensores y tooling.</p><span class="tag">Validado en robot real</span></article>
+              <article class="card"><h3>CycloneDDS</h3><p><code>rmw_cyclonedds_cpp</code> con <code>config/cyclonedds.foxy.xml</code>.</p><span class="tag">Configurado por OttoGuide</span></article>
+              <article class="card"><h3>Livox bridge</h3><p>Publica nube LiDAR e IMU.</p><span class="tag">Validado en robot real</span></article>
+              <article class="card"><h3>pointcloud_to_laserscan</h3><p>Transforma nube raw en <code>/scan</code>.</p><span class="tag">Validado en robot real</span></article>
+              <article class="card"><h3>ottoguide-map</h3><p>Ejecutable de campo versionado.</p><span class="tag">Configurado por OttoGuide</span></article>
+              <article class="card"><h3>Git/GitHub</h3><p>Versionado de baseline, runbooks y documentación.</p><span class="tag">Configurado por OttoGuide</span></article>
+            </div>
+            <div class="note warning">
+              Los paquetes Nav2/SLAM pueden estar presentes en el entorno, pero Nav2 físico no fue validado y no debe presentarse como operativo.
+            </div>
+          </section>
+
+          <section id="infra">
+            <h2>10. Infraestructura HIL y arquitectura</h2>
+            <pre><code>Notebook HIL 192.168.123.101
+        |
+        | SSH / scp / GitOps
+        v
+Companion PC 192.168.123.164
+        |
+        | ROS 2 Foxy / CycloneDDS / sensores
+        v
+Locomotion controller 192.168.123.161</code></pre>
+            <p>La arquitectura es mixta:</p>
+            <ul>
+              <li>SSH cliente-servidor para operación conservadora.</li>
+              <li>ROS/DDS peer-to-peer para datos de sensores.</li>
+              <li>GitHub para versionado del baseline.</li>
+              <li>Artifacts offline para análisis y trazabilidad.</li>
+              <li>Control remoto humano para primeras capturas.</li>
+              <li>Criterio edge / air-gapped para un MVP que pueda operar sin depender de cloud durante el recorrido.</li>
+            </ul>
+            <div class="note">
+              El host <code>192.168.123.120</code> fue detectado pero no identificado. No forma parte del flujo operativo documentado y no debe tocarse.
+            </div>
+          </section>
+
+          <section id="mvp">
+            <h2>11. MVP técnico propuesto</h2>
+            <p>El MVP del pilar movimiento no es demostrar autonomía total de inmediato. Es construir una base confiable y trazable para llegar a ella.</p>
+            <div class="grid">
+              <article class="card"><h3>Disponible</h3><ul><li>Conexión HIL estable.</li><li>Robot sincronizado a baseline.</li><li>Sensores raw activos.</li><li><code>ottoguide-map prep</code> validado.</li></ul></article>
+              <article class="card"><h3>Preparado</h3><ul><li>Captura raw reproducible.</li><li>Empaquetado de artifacts.</li><li>Replay offline.</li><li>Manifiestos y hashes.</li></ul></article>
+              <article class="card"><h3>Pendiente técnico</h3><ul><li>Reconstrucción/provisión de TF.</li><li>SLAM/mapa.</li><li>Waypoints.</li><li>Validación de localización.</li></ul></article>
+              <article class="card"><h3>Futuro controlado</h3><ul><li>Navegación física controlada.</li><li>Safety gates.</li><li>Validación de <code>/cmd_vel</code>.</li><li>Pruebas incrementales.</li></ul></article>
+            </div>
+            <div class="note success">
+              <strong>Alcance recomendado:</strong> defender como MVP técnico la captura raw validada, la trazabilidad de artifacts y el camino verificable hacia mapa/waypoints/navegación, no una autonomía física aún no probada.
+            </div>
+          </section>
+
+          <section id="decisiones">
+            <h2>12. Decisiones MVP cerradas</h2>
+            <ul>
+              <li>No mover el robot desde scripts de captura.</li>
+              <li>No publicar <code>/cmd_vel</code>.</li>
+              <li>Usar control remoto humano en primeras capturas.</li>
+              <li>Mantener artifacts pesados fuera de Git.</li>
+              <li>Usar <code>ottoguide-map</code> como ejecutable de campo.</li>
+              <li>Usar <code>b07d362</code> como baseline actual.</li>
+              <li>Aceptar raw capture sin TF para replay/offline.</li>
+              <li>Exigir TF/odom/map para mapping completo.</li>
+              <li>Dejar navegación autónoma fuera hasta nueva validación.</li>
+              <li>Documentar puertos cerrados como no expuestos observados, no como bloqueos del fabricante.</li>
+            </ul>
+          </section>
+
+          <section id="fuera-alcance">
+            <h2>13. Fuera del alcance actual</h2>
+            <ul>
+              <li>IA conversacional en detalle.</li>
+              <li>Navegación autónoma física.</li>
+              <li>Repetición automática del recorrido.</li>
+              <li>Publicación de <code>/cmd_vel</code>.</li>
+              <li>Modificación o activación de locomoción.</li>
+              <li>APIs oficiales Unitree no validadas.</li>
+              <li>Operacion cloud como dependencia del recorrido.</li>
+              <li>Reemplazo total del guía humano.</li>
+            </ul>
+          </section>
+
+          <section id="pendientes">
+            <h2>14. Pendientes y no verificados</h2>
+            <div class="grid">
+              <article class="card">
+                <h3>Pendiente técnico</h3>
+                <p><code>/tf</code>, <code>/tf_static</code>, <code>/odom</code>, <code>/map</code>, <code>/map_metadata</code>, Nav2 físico, SLAM runtime y safety gate de locomoción.</p>
+              </article>
+              <article class="card">
+                <h3>Pendiente documental</h3>
+                <p>Datos oficiales de fábrica, APIs oficiales Unitree, puertos oficiales del fabricante y significado de servicios <code>4000</code>, <code>1026</code>, <code>23366</code>, <code>23367</code>.</p>
+              </article>
+              <article class="card">
+                <h3>Pendiente operativo</h3>
+                <p>Captura raw real, copia de artifacts, replay offline, provisión de TF, mapa, waypoints y validación segura de navegación.</p>
+              </article>
+              <article class="card">
+                <h3>No verificado</h3>
+                <p>Todo dato de fabricante o autonomía física que no tenga evidencia runtime u oficial debe quedar marcado como no verificado.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="proximos">
+            <h2>15. Próximos pasos</h2>
+            <ol>
+              <li>Revisar este HTML con el equipo.</li>
+              <li>Ejecutar captura raw con robot en piso, estable y zona despejada.</li>
+              <li>Empaquetar artifacts.</li>
+              <li>Copiar artifacts al notebook.</li>
+              <li>Reproducir rosbag offline.</li>
+              <li>Reconstruir o proveer TF.</li>
+              <li>Generar mapa.</li>
+              <li>Definir waypoints.</li>
+              <li>Validar navegación offline.</li>
+              <li>Recién después planificar navegación física controlada.</li>
+            </ol>
+            <div class="note success">
+              <strong>Criterio de avance:</strong> cada paso debe dejar evidencia reproducible antes de pasar de captura raw a mapping, y de mapping a navegación física.
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
