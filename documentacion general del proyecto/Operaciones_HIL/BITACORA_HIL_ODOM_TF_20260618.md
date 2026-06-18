@@ -159,3 +159,26 @@
 - Comando preparado: `./tools/hil/ottoguide-map timed --duration 180` (ver paso 8 de la sesión)
 - Conclusión: Mirror hacia LucasCap12 ejecutado y verificado. La validación corta de 20 s falló por segfault en ros2 bag record; el stack de sensores siguió activo (topics publicados). El crash de ros2 bag record puede ser intermitente (como el scan_gate -11 previo) o sensible a la carga de PointCloud2. La captura larga de 180 s debe intentarse con el operador físico presente y el robot en modo quieto.
 - Próximo paso: Confirmar si se intenta la captura larga (180 s) o si se re-intenta la validación corta antes.
+
+## Iteración — aislamiento de segfault rosbag2
+
+- Fecha: 2026-06-19.
+- HEAD local: `1407433`.
+- HEAD robot: `f1526aa`.
+- Commit bitácora fallo validación: `1407433 docs(hil): record rosbag validation failure`, pusheado a `origin/robot`.
+- Preflight: `ottoguide-map prep` PASS (`PREP_CODE=0`); 1.8 TB libres; robot con solo logs históricos untracked.
+- scan_gate control: launch PID `19428` inició y expuso `/utlidar/cloud`, `/livox/imu` y `/scan`; su `livox_sdk_bridge_node` murió con `exit code -11`. Había además un `scan_gate` preexistente (`PID 10657`) que mantuvo los topics activos durante la matriz. Los procesos creados por esta iteración fueron detenidos al final.
+- imu_only: FAIL, `EXIT=139`, muerte temprana, sin `metadata.yaml`.
+- scan_only: FAIL, `EXIT=139`, muerte temprana, sin `metadata.yaml`.
+- cloud_only: FAIL, `EXIT=139`, muerte temprana, sin `metadata.yaml`.
+- cloud_imu: FAIL, `EXIT=139`, muerte temprana, sin `metadata.yaml`.
+- scan_imu: FAIL, `EXIT=139`, muerte temprana, sin `metadata.yaml`.
+- cloud_scan: FAIL, `EXIT=139`, muerte temprana, sin `metadata.yaml`.
+- full: FAIL, `EXIT=139`, muerte temprana, sin `metadata.yaml`.
+- full_repeat: no ejecutado porque `full` no pasó limpiamente.
+- Crash: los siete procesos `ros2 bag record` segfaultearon pocos segundos después de suscribirse y dejaron DB3/WAL parciales sin flush.
+- /cmd_vel: topic ausente; no publicado ni grabado.
+- dmesg/coredump: sin evidencia útil capturada.
+- Artifact: `rosbag_record_isolation_20260619_034433.light.tar.gz`, 92 KB, copiado al host local. Bags DB3 pesados permanecen solo en el robot.
+- Conclusión: `imu_only` también falla, por lo que el problema se clasifica como rosbag2/SQLite o entorno runtime general, no como carga exclusiva de PointCloud2. La presencia de un scan_gate preexistente debe eliminarse como variable en el próximo diagnóstico.
+- Próximo paso: no ejecutar captura larga; repetir un control mínimo con un único stack sensor y un topic sintético o de baja tasa, capturando backtrace/core del proceso `ros2 bag record` sin instalar paquetes.
