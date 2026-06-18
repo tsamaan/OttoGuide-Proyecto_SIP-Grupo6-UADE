@@ -83,3 +83,37 @@
 - Artifact liviano: raw_capture_short_20260619_024718.light.tar.gz (contiene contexto, pero no el bag).
 - Conclusión: El stack de adquisición base (bridge Livox + pointcloud_to_laserscan) se comportó de forma completamente estable y sin fugas de memoria o caídas abruptas durante 1 minuto de grabación a disco SSD del robot. La base algorítmica de sensado se encuentra lista para el análisis ODOM/TF offline.
 - Próximo paso: Descargar localmente los rosbags pesados desde el robot, actualizar el ODOM_TF_OFFLINE_ANALYSIS_20260618.md, y proceder con el replay y el mapeo.
+
+## Iteración — validación del ejecutable operativo de captura/mapeo
+
+- Fecha: 2026-06-18
+- HEAD local: 8b69f1c
+- HEAD robot: 3288c92 (Pendiente de actualización)
+- Ejecutables auditados: codigo ottoguide/tools/hil/ottoguide-map, hil_capture_mapping_bundle.sh, office_sensor_capture.sh
+- Cambios realizados: Se inyectó LD_LIBRARY_PATH faltante, ROS_DOMAIN_ID=0 y validación estricta contra livox_ros_driver2 en ottoguide-map.
+- Validaciones locales: git diff --check y bash -n exitosos. Sin llamadas inseguras no bloqueadas a Nav2/movimiento en raw mode.
+- Commit/push: 8b69f1c tools(hil): align mapping capture executable with validated scan gate
+- Robot actualizado: FALSO. Requiere comando manual.
+- ottoguide-map prep: Pendiente.
+- ottoguide-map timed/raw: Pendiente.
+- Topics esperados: /utlidar/cloud, /livox/imu, /scan
+- /cmd_vel: No publica.
+- Movimiento: Bloqueado en raw.
+- Nav2: Bloqueado en raw.
+- Conclusión: El orquestador de captura `ottoguide-map` ha sido alineado con el stack Livox SDK2 + CycloneDDS y validado estáticamente. Está listo para ser descargado y ejecutado en el robot.
+- Próximo paso: Ejecutar git pull en el robot y luego correr la validación física segura (ottoguide-map prep + timed 15).
+
+## Iteración — validación en robot del ejecutable ottoguide-map
+
+- Fecha: 2026-06-18
+- HEAD robot: 8b69f1c
+- ottoguide-map prep: Ejecutado exitosamente. Confirmó el stack base y rechazó uso si faltan componentes.
+- ottoguide-map timed/raw: Ejecutado (timed 15). PID 13162 finalizó limpiamente.
+- Topics observados: /utlidar/cloud, /livox/imu, /scan.
+- Rosbag: 15.63s, 166.4 MiB.
+- /cmd_vel: No publica.
+- Movimiento: Ninguno (sensor-only).
+- Nav2: No ejecutado.
+- Artifact: ottoguide_map_validation_20260619_030256.light.tar.gz
+- Conclusión: El orquestador `ottoguide-map` opera de manera segura y correcta sobre el robot, registrando los topics validados mediante CycloneDDS sin interferir en la locomoción.
+- Próximo paso: Realizar recorrido físico humano con el control remoto e invocar `ottoguide-map start` para grabar el dataset definitivo del pasillo/oficina.
