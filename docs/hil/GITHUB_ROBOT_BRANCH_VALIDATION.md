@@ -14,18 +14,25 @@ Rama esperada:
 robot
 ```
 
-HEAD esperado:
+HEAD esperado (referencia histórica de esta auditoría):
 
 ```text
 fad510f
+```
+
+HEAD canónico vigente al 2026-06-18:
+
+```text
+2b7fc5c
 ```
 
 ## Remotos locales
 
 | Remoto | URL observada | Uso |
 |---|---|---|
-| `target-uade` | `https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git` | Repo GitHub esperado del equipo |
-| `g1-edu` | `https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git` | Remoto G1 EDU observado |
+| `origin` / `grupo` / `target-uade` | `https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git` | Repo canónico del equipo |
+
+Nota GitOps: legacy mirror removed; canonical repository is `https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git`.
 
 ## Estado local
 
