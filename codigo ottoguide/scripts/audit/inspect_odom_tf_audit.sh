@@ -53,6 +53,9 @@ PRIORITY_FILES=(
   "critical_topics_info.txt"
   "cyclonedds_configs.txt"
   "ros_graph_overview.txt"
+  "topic_candidates_odom_tf_state.txt"
+  "processes_tf_odom_candidates.txt"
+  "grep_tf_odom_references.txt"
 )
 
 echo ""
