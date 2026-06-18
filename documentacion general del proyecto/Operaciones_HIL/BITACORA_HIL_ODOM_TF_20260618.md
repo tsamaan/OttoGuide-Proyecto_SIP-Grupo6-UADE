@@ -207,3 +207,31 @@
 - Artifact: `rosbag_clean_diagnostic_20260619_035203.light.tar.gz`, 12 KB, copiado al host local.
 - Conclusión: rosbag2/SQLite/Python funciona con CycloneDDS y carga sintética baja. El bloqueo inmediato vuelve al stack sensor limpio: ambos nodos murieron `-11`; FastDDS no es una alternativa válida en esta sesión.
 - Próximo paso: no ejecutar captura larga; aislar nuevamente Livox y PCL en un entorno recién limpiado, capturando exit code/backtrace, y cerrar manualmente el publisher sintético residual antes de otra prueba.
+
+## Iteración — aislamiento limpio del stack sensor Livox/PCL
+
+- Fecha: 2026-06-19.
+- HEAD local: `256dd4d`.
+- HEAD robot: `f1526aa`.
+- Commit bitácora previo: `256dd4d docs(hil): record clean rosbag diagnostic`, pusheado a `origin/robot`.
+- Limpieza de procesos: PASS. El publisher sintético residual PID `20832` ignoró SIGINT y fue cerrado con SIGTERM según el procedimiento; no quedaron procesos Livox, PCL, scan_gate o rosbag residuales al cierre.
+- official_sdk_sample: PASS, `EXIT=124`; cloud e IMU recibidos durante 25 s con el binario oficial `livox_lidar_quick_start`.
+- livox_callbacks_disabled: PASS, `EXIT=124`.
+- livox_dryrun_callbacks: PASS, `EXIT=124`.
+- livox_no_timers: PASS, `EXIT=124`.
+- livox_no_publishers: PASS, `EXIT=124`.
+- livox_full_1: PASS, `EXIT=124`.
+- livox_full_2: PASS, `EXIT=124`.
+- livox_full_3: PASS, `EXIT=124`.
+- pcl_no_input: PASS, `EXIT=124`.
+- bridge_pcl_manual: FAIL. El bridge siguió vivo tras 25 s, pero `pointcloud_to_laserscan_node` murió; `/utlidar/cloud` y `/livox/imu` permanecieron publicados y `/scan` no quedó disponible.
+- scan_gate_1: FAIL/intermitente. Livox y PCL murieron con `exit code -11` y el launch terminó con `EXIT=0`.
+- scan_gate_2: PASS, `EXIT=124`.
+- scan_gate_3: PASS, `EXIT=124`.
+- gdb_livox: no reprodujo crash; `GDB_EXIT=124`, sin backtrace de señal. El bridge continuó publicando hasta más de 70.000 paquetes cloud durante la ventana gdb.
+- Crash: reproducible de forma intermitente al introducir PCL con datos Livox reales; Livox aislado, sample oficial y todas las variantes del bridge fueron estables.
+- /cmd_vel: ausente; no publicado ni grabado.
+- dmesg/coredump: sin evidencia útil capturada.
+- Artifact: `sensor_stack_isolation_v2_20260619_040823.light.tar.gz`, 142 KB, copiado al host local.
+- Conclusión: el foco queda en `pointcloud_to_laserscan` al consumir PointCloud2 real y en la interacción/timing del launch conjunto. El bridge Livox aislado no reprodujo crash en esta matriz.
+- Próximo paso: no ejecutar captura larga; repetir PCL con bridge vivo bajo gdb y revisar compatibilidad/tamaño/layout del PointCloud2 entregado, sin modificar código todavía.
