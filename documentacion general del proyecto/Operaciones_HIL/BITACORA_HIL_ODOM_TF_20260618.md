@@ -261,3 +261,28 @@
 - Artifact: `pcl_realdata_postreboot_20260619_044414.light.tar.gz`, 117 KB, copiado al host local.
 - Conclusión: el reinicio físico limpió el estado que acompañaba el crash intermitente; SDK2, bridge, PCL con datos reales y scan_gate fueron estables en esta sesión. El layout PointCloud2 queda pendiente de captura con QoS sensor-data compatible.
 - Próximo paso: realizar una única validación corta de rosbag full, sin captura larga; si pasa, clasificar el crash previo como estado intermitente limpiado por reboot.
+
+## Iteración — validación corta rosbag full post-reboot con ottoguide-map
+
+- Fecha: 2026-06-18
+- HEAD local: 6af9782
+- HEAD robot: f1526aa
+- Commit bitácora previo: 6af9782 docs(hil): record post-reboot pcl stability
+- Mirror LucasCap12: PASS (actualizado y eliminado temporal)
+- Prep: PASS
+- Topics prep: /utlidar/cloud, /livox/imu, /scan confirmados.
+- Timed 30s: PASS (TIMED_CODE=0)
+- Bag: ottoguide_map_20260619_050055
+- Duración: 29.995s
+- Tamaño: 331.4 MiB
+- Topics grabados: /utlidar/cloud, /scan, /livox/imu
+- Counts: /scan: 43271, /utlidar/cloud: 44261, /livox/imu: 6000
+- metadata.yaml: PASS
+- /cmd_vel: No grabado. No publicado.
+- Nav2: No ejecutado.
+- Movimiento: Ninguno (sensor-only).
+- Crash: NO (sin segfaults en rosbag2, pointcloud_to_laserscan ni livox_sdk_bridge).
+- dmesg/coredump: Sin evidencias relevantes, comportamiento limpio.
+- Artifact: ottoguide_map_short_validation_20260619_050017.light.tar.gz
+- Conclusión: El stack operativo completo (bridge Livox SDK2, PCL a LaserScan y ros2 bag record) operó sin fallos post-reboot, registrando un dataset sano y completo de 331 MB. La falla previa `exit -11` de ros2 bag record no es persistente y el hardware/OS está en estado limpio.
+- Próximo paso: Preparar la captura larga de 180s con el operador físico y control remoto manual, asegurando no intervenir en los componentes validados.
