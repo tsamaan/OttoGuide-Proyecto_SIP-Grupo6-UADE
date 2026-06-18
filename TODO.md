@@ -37,6 +37,9 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [PENDING_HIL] Medir extrinseco `base_link` -> `utlidar_lidar`.
 - [PENDING_HIL] Validar presencia, frecuencia y frame semantics de `/tf`, `/tf_static`, `/odom`, `/map` y `/map_metadata` en runtime real.
 - [PENDING_HIL] Validar `/tf`, `/tf_static` y `/odom` en sesion fisica read-only.
+- [PENDING_HIL] Actualizar el repo del robot por `git merge --ff-only origin/robot` cuando haya DNS/GitHub disponible y el working tree este limpio o los logs untracked esten archivados fuera del repo.
+- [PENDING_HIL] Corregir o seleccionar config CycloneDDS compatible con Foxy; la config activa `/home/unitree/cyclonedds_ws/cyclonedds.xml` falla por `Interfaces: unknown element`.
+- [PENDING_HIL] Revalidar `/scan`, `/utlidar/cloud` y `/livox/imu` luego de cargar un entorno DDS Foxy valido; en la sesion read-only 2026-06-18 no hubo publishers visibles.
 
 ## PENDING_DOC
 
@@ -102,6 +105,7 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [UNKNOWN_REQUIRES_REVIEW] Revisar si `robot_ssh.py` puede convertirse en herramienta sanitizada versionable o debe permanecer local.
 - [UNKNOWN_REQUIRES_REVIEW] Evaluar si `LowState`/`SportModeState` aportan datos suficientes para odometria o solo IMU/FSM/joints.
 - [UNKNOWN_REQUIRES_REVIEW] Determinar si existe fuente DDS HG distinta de `LowState`/`SportModeState` que exponga pose/twist.
+- [UNKNOWN_REQUIRES_REVIEW] Investigar por que `ros2 topic hz` en Foxy produjo `Segmentation fault` al consultar topics ausentes durante la sesion read-only 2026-06-18.
 
 ## Reglas de operación
 

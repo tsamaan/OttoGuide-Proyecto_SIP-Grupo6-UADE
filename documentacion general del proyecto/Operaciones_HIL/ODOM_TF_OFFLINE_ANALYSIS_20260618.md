@@ -245,3 +245,57 @@ Resumen:
 - Rechaza `LowState`, `SportModeState`, IMU sola, joints solos, TF identidad temporal y mapa estacionario como odometria traslacional por si solos.
 - Requiere fuente con pose XY/yaw o twist corporal validable, flags explicitos y covarianzas conservadoras.
 - No implementa publicacion runtime, no inicializa ROS 2, no habilita navegacion fisica y no publica `/cmd_vel`.
+
+## 12. Sesion HIL read-only 2026-06-18
+
+Sesion SSH read-only ejecutada contra el companion PC `192.168.123.164`.
+No se ejecuto navegacion fisica, no se publico `/cmd_vel`, no se ejecuto
+`ottoguide-map start` y no se invocaron comandos de locomocion.
+
+### Git en robot
+
+- Repo detectado: `/home/unitree/Desktop/Ottoguide/OttoGuide-Proyecto_SIP-Grupo6-UADE`.
+- HEAD robot observado: `2b7fc5c`.
+- HEAD canonico local esperado para esta etapa: `e85420c`.
+- `git fetch origin robot` fallo por DNS: `Could not resolve host: github.com`.
+- No se hizo `merge --ff-only` porque el robot tenia archivos de logs untracked
+  y no habia conectividad GitHub.
+
+### ROS/DDS observado
+
+- `/opt/ros/foxy/bin/ros2` disponible.
+- Tras `source /opt/ros/foxy/setup.bash`: `ROS_DISTRO=foxy`.
+- Entorno inicial sin `RMW_IMPLEMENTATION` ni `CYCLONEDDS_URI`.
+- Config activa historica `/home/unitree/cyclonedds_ws/cyclonedds.xml`
+  falla con ROS 2 Foxy/CycloneDDS: `Interfaces: unknown element`.
+- El config versionado candidato
+  `codigo ottoguide/config/cyclonedds.foxy.xml` evita ese error, pero el grafo
+  visible sigue limitado a `/parameter_events` y `/rosout`.
+
+### Topics y TF
+
+Con el config Foxy candidato en una shell temporal:
+
+- Presentes: `/parameter_events`, `/rosout`.
+- Ausentes: `/scan`, `/utlidar/cloud`, `/livox/imu`, `/tf`, `/tf_static`,
+  `/odom`, `/map`, `/map_metadata`, `/cmd_vel`.
+- `ros2 topic echo /scan` reporto que el topic no estaba publicado.
+- `ros2 topic hz` sobre topics ausentes produjo `Segmentation fault`; tratar
+  este comando como no confiable si el topic no existe en Foxy en este entorno.
+- `tf2_echo base_link utlidar_lidar`, `tf2_echo odom base_link` y
+  `tf2_echo map odom` no pudieron validar transforms porque no hay TF runtime.
+
+### Unitree/DDS
+
+Busqueda acotada en el repo viejo del robot encontro referencias a `unitree_hg`
+y `LowState` en tooling/SITL, pero no evidencia runtime de una fuente DDS con
+pose XY/yaw/twist corporal. `LowState` sigue sin alcanzar como fuente de
+`/odom` segun el contrato offline.
+
+### Clasificacion
+
+- GO replay offline: solo con artifacts/bags ya capturados, no con runtime vivo
+  de esta sesion.
+- GO static TF provisional: solo diagnostico offline; no validado fisicamente.
+- GO odom_bridge runtime: NO.
+- GO Nav2 fisico: NO.

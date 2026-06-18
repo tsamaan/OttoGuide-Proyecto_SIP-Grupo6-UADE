@@ -29,6 +29,12 @@ git rev-parse --short HEAD
 git remote -v
 ```
 
+Nota de sesion read-only 2026-06-18:
+
+- Robot observado en `2b7fc5c` mientras el canonico local estaba en `e85420c`.
+- `git fetch origin robot` fallo por DNS (`Could not resolve host: github.com`).
+- No actualizar con `merge --ff-only` si existen logs untracked sin clasificar.
+
 ## Preflight ROS/CycloneDDS
 
 ```bash
@@ -36,6 +42,15 @@ printenv ROS_DISTRO
 printenv RMW_IMPLEMENTATION
 printenv CYCLONEDDS_URI
 ```
+
+Nota de sesion read-only 2026-06-18:
+
+- La config activa `/home/unitree/cyclonedds_ws/cyclonedds.xml` fallo con
+  `Interfaces: unknown element` en Foxy/CycloneDDS.
+- El config versionado `codigo ottoguide/config/cyclonedds.foxy.xml` evito ese
+  error en shell temporal, pero no aparecieron publishers de sensores.
+- Si un topic no existe, evitar usar `ros2 topic hz` como primera prueba: en
+  esa sesion produjo `Segmentation fault` sobre topics ausentes.
 
 ## Checks read-only de topics
 
