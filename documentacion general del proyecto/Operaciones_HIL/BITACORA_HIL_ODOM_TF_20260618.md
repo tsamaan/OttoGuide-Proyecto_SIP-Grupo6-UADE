@@ -235,3 +235,29 @@
 - Artifact: `sensor_stack_isolation_v2_20260619_040823.light.tar.gz`, 142 KB, copiado al host local.
 - Conclusión: el foco queda en `pointcloud_to_laserscan` al consumir PointCloud2 real y en la interacción/timing del launch conjunto. El bridge Livox aislado no reprodujo crash en esta matriz.
 - Próximo paso: no ejecutar captura larga; repetir PCL con bridge vivo bajo gdb y revisar compatibilidad/tamaño/layout del PointCloud2 entregado, sin modificar código todavía.
+
+## Iteración — PCL con PointCloud2 real bajo gdb post-reboot
+
+- Fecha: 2026-06-19.
+- HEAD local: `fc82487`.
+- HEAD robot: `f1526aa`.
+- Commit bitácora previo: `fc82487 docs(hil): record sensor stack isolation results`, pusheado a `origin/robot`.
+- Reboot/batería: robot reiniciado físicamente; uptime inicial observado de 3 minutos.
+- Conectividad: ping 4/4 y SSH OK en `192.168.123.164`.
+- Internet robot: default route por `usb1` y resolución DNS de `github.com` disponibles; no se usó Git remoto.
+- official_sdk_sample: PASS, `EXIT=124`; cloud e IMU recibidos durante 25 s.
+- cloud metadata: no capturada; el inspector ROS 2 usó QoS reliable y el publisher ofreció QoS incompatible (`RELIABILITY_QOS_POLICY`).
+- pcl_real_default_1: PASS bajo gdb, `PCL_EXIT=124`, sin señal ni backtrace.
+- pcl_real_default_2: PASS bajo gdb, `PCL_EXIT=124`, sin señal ni backtrace.
+- pcl_real_default_3: PASS bajo gdb, `PCL_EXIT=124`, sin señal ni backtrace.
+- pcl_real_max16: PASS bajo gdb, `PCL_EXIT=124`, sin señal ni backtrace.
+- pcl_real_max1: PASS bajo gdb, `PCL_EXIT=124`, sin señal ni backtrace.
+- scan_gate_after_pcl_1: PASS, `EXIT=124`.
+- scan_gate_after_pcl_2: PASS, `EXIT=124`.
+- gdb/backtrace: no se reprodujo SIGSEGV; no hubo backtrace de crash.
+- Crash: no reproducido después del reinicio físico en cinco pruebas PCL con datos reales y dos pruebas scan_gate.
+- /cmd_vel: ausente; no publicado ni grabado.
+- dmesg/coredump: sin evidencia útil capturada.
+- Artifact: `pcl_realdata_postreboot_20260619_044414.light.tar.gz`, 117 KB, copiado al host local.
+- Conclusión: el reinicio físico limpió el estado que acompañaba el crash intermitente; SDK2, bridge, PCL con datos reales y scan_gate fueron estables en esta sesión. El layout PointCloud2 queda pendiente de captura con QoS sensor-data compatible.
+- Próximo paso: realizar una única validación corta de rosbag full, sin captura larga; si pasa, clasificar el crash previo como estado intermitente limpiado por reboot.
