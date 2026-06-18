@@ -147,11 +147,11 @@ Parámetros iniciales sugeridos para trabajo offline (placeholder):
 
 ### Qué se puede probar sin robot
 
-- `tools/hil/replay_rosbag_local.sh` sobre bags en `artifacts/` o `codigo ottoguide/logs/bags/`.
-- RViz con configs en `tools/hil/rviz/` (replay 2D, cloud, offline sandbox).
-- `tools/hil/nav2_offline_smoke_test.sh` y sandbox en `docs/hil/NAV2_OFFLINE_SANDBOX_2026-06-10.md`.
-- Análisis de mapas con `tools/hil/analyze_map_yaml.py`.
-- Inspección del artifact ODOM/TF: `scripts/audit/inspect_odom_tf_audit.sh`.
+- `codigo ottoguide/tools/hil/replay_rosbag_local.sh` sobre bags en `artifacts/` o `codigo ottoguide/logs/bags/`.
+- RViz con configs en `codigo ottoguide/tools/hil/rviz/` (replay 2D, cloud, offline sandbox).
+- `codigo ottoguide/tools/hil/nav2_offline_smoke_test.sh` y sandbox en `documentacion general del proyecto/Operaciones_HIL/Offline_Replay_SLAM/NAV2_OFFLINE_SANDBOX_2026-06-10.md`.
+- Analisis de mapas con `codigo ottoguide/tools/hil/analyze_map_yaml.py`.
+- Inspeccion del artifact ODOM/TF: `codigo ottoguide/scripts/audit/inspect_odom_tf_audit.sh`.
 
 ### Qué bags/artifacts hacen falta
 
@@ -163,13 +163,13 @@ Parámetros iniciales sugeridos para trabajo offline (placeholder):
 
 ```bash
 # Inspección del artifact (solo lectura)
-bash scripts/audit/inspect_odom_tf_audit.sh
+bash "codigo ottoguide/scripts/audit/inspect_odom_tf_audit.sh"
 
 # Info de bag local (requiere ROS 2 en Linux/WSL)
 ros2 bag info artifacts/handoff_offline_20260604/rosbags/hil_mapping_stationary_retry_20260605_070755
 
 # Replay con clock simulado (sin publicar cmd_vel)
-bash tools/hil/replay_rosbag_local.sh <bag_dir>
+bash "codigo ottoguide/tools/hil/replay_rosbag_local.sh" <bag_dir>
 ```
 
 ### Qué queda bloqueado hasta sesión física

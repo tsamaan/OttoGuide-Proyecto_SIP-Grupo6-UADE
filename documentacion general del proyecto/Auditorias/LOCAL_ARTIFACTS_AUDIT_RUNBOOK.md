@@ -11,15 +11,15 @@ Audit `artifacts/` on the Windows notebook, identify heavy files, duplicates, an
 From the repository root:
 
 ```powershell
-python tools/hil/audit_local_artifacts.py --artifacts-dir artifacts
+python "codigo ottoguide/tools/hil/audit_local_artifacts.py" --artifacts-dir artifacts
 ```
 
 Useful variants:
 
 ```powershell
-python tools/hil/audit_local_artifacts.py --artifacts-dir artifacts --dry-run
-python tools/hil/audit_local_artifacts.py --artifacts-dir artifacts --large-threshold-mb 100
-python tools/hil/audit_local_artifacts.py --artifacts-dir artifacts --hash-large-files
+python "codigo ottoguide/tools/hil/audit_local_artifacts.py" --artifacts-dir artifacts --dry-run
+python "codigo ottoguide/tools/hil/audit_local_artifacts.py" --artifacts-dir artifacts --large-threshold-mb 100
+python "codigo ottoguide/tools/hil/audit_local_artifacts.py" --artifacts-dir artifacts --hash-large-files
 ```
 
 The script writes reports under:

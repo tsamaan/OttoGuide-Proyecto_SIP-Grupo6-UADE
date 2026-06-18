@@ -1,6 +1,6 @@
 # OttoGuide Map Executable Quickstart
 
-`tools/hil/ottoguide-map` is a field helper for raw office sensor capture on the Unitree G1 companion PC.
+`codigo ottoguide/tools/hil/ottoguide-map` is a field helper for raw office sensor capture on the Unitree G1 companion PC.
 
 Use it when the robot is already powered on, standing/on the floor, stable, the area is clear, and a human operator will move it with the remote control. The script records data only. It does not move the robot and does not publish `/cmd_vel`.
 
@@ -8,18 +8,18 @@ Use it when the robot is already powered on, standing/on the floor, stable, the 
 
 ```bash
 cd "/home/unitree/Desktop/Ottoguide/OttoGuide-Proyecto_SIP-Grupo6-UADE/codigo ottoguide"
-./tools/hil/ottoguide-map prep
-./tools/hil/ottoguide-map start --label "office_short_remote_control_raw"
-./tools/hil/ottoguide-map status
-./tools/hil/ottoguide-map stop
-./tools/hil/ottoguide-map finalize
-./tools/hil/ottoguide-map package
+"codigo ottoguide/tools/hil/ottoguide-map" prep
+"codigo ottoguide/tools/hil/ottoguide-map" start --label "office_short_remote_control_raw"
+"codigo ottoguide/tools/hil/ottoguide-map" status
+"codigo ottoguide/tools/hil/ottoguide-map" stop
+"codigo ottoguide/tools/hil/ottoguide-map" finalize
+"codigo ottoguide/tools/hil/ottoguide-map" package
 ```
 
 Timed capture option:
 
 ```bash
-./tools/hil/ottoguide-map timed --duration 300 --label "office_short_remote_control_raw"
+"codigo ottoguide/tools/hil/ottoguide-map" timed --duration 300 --label "office_short_remote_control_raw"
 ```
 
 ## Raw Capture Vs Mapping

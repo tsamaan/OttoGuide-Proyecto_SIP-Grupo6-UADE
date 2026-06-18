@@ -106,7 +106,7 @@ cd "/home/unitree/Desktop/Ottoguide/OttoGuide-Proyecto_SIP-Grupo6-UADE/codigo ot
 Run:
 
 ```bash
-./tools/hil/physical_mapping_route.sh --preflight-only
+"codigo ottoguide/tools/hil/physical_mapping_route.sh" --preflight-only
 ```
 
 The preflight records baseline state and checks `/utlidar/cloud`, `/scan`, `/tf`, `/tf_static`, optional `/odom`, `/map`, `/map_metadata`, `/livox/imu`, and `/cmd_vel` info without publishing anything.
@@ -131,13 +131,13 @@ Only start after the operator confirms the robot is already at the real start po
 Manual mode:
 
 ```bash
-./tools/hil/physical_mapping_route.sh --mode start --route-label "ruta_real_mvp_lima3_lima2"
+"codigo ottoguide/tools/hil/physical_mapping_route.sh" --mode start --route-label "ruta_real_mvp_lima3_lima2"
 ```
 
 Timed 30 minute mode:
 
 ```bash
-./tools/hil/physical_mapping_route.sh --mode timed --duration 1800 --route-label "ruta_real_mvp_lima3_lima2"
+"codigo ottoguide/tools/hil/physical_mapping_route.sh" --mode timed --duration 1800 --route-label "ruta_real_mvp_lima3_lima2"
 ```
 
 The script starts `ros2 bag record` in the background, stores the PID, and closes timed runs with SIGINT. It never uses `timeout` around `ros2 bag record`.
@@ -145,7 +145,7 @@ The script starts `ros2 bag record` in the background, stores the PID, and close
 ## Status
 
 ```bash
-./tools/hil/physical_mapping_status.sh
+"codigo ottoguide/tools/hil/physical_mapping_status.sh"
 ```
 
 Watch `/cmd_vel` publishers, `/scan`, `/utlidar/cloud`, TF, odom, map growth, SLAM warnings, and dynamic obstacles.
@@ -153,7 +153,7 @@ Watch `/cmd_vel` publishers, `/scan`, `/utlidar/cloud`, TF, odom, map growth, SL
 ## Stop
 
 ```bash
-./tools/hil/physical_mapping_stop.sh
+"codigo ottoguide/tools/hil/physical_mapping_stop.sh"
 ```
 
 This sends SIGINT to the recorded rosbag PID and does not kill drivers or unrelated processes.
@@ -161,7 +161,7 @@ This sends SIGINT to the recorded rosbag PID and does not kill drivers or unrela
 ## Finalize
 
 ```bash
-./tools/hil/physical_mapping_finalize.sh
+"codigo ottoguide/tools/hil/physical_mapping_finalize.sh"
 ```
 
 Finalize runs `ros2 bag info`, exports a raw map with `map_saver_cli` if `/map` is active, writes session `README.md`, file sizes, and hashes.
@@ -169,7 +169,7 @@ Finalize runs `ros2 bag info`, exports a raw map with `map_saver_cli` if `/map` 
 ## Package And Copy
 
 ```bash
-./tools/hil/physical_mapping_package_for_transfer.sh
+"codigo ottoguide/tools/hil/physical_mapping_package_for_transfer.sh"
 ```
 
 The package is written to `/tmp/physical_mapping_route_<RUN_ID>.tar.gz`, and the script prints the Windows `scp` command.
@@ -179,7 +179,7 @@ The package is written to `/tmp/physical_mapping_route_<RUN_ID>.tar.gz`, and the
 Raw files under `maps/raw/` are immutable evidence. Derived maps can be created under `maps/cleaned/`:
 
 ```bash
-python3 tools/hil/physical_mapping_clean_map.py \
+python3 "codigo ottoguide/tools/hil/physical_mapping_clean_map.py" \
   --input-yaml artifacts/physical_mapping_route_<RUN_ID>/maps/raw/ottoguide_route_real_<RUN_ID>.yaml \
   --output-dir artifacts/physical_mapping_route_<RUN_ID>/maps/cleaned \
   --crop 0 0 400 400

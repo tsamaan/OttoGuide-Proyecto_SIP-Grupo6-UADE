@@ -16,8 +16,8 @@ El usuario reportó que RViz abría vacío, no mostraba el mapa ni los puntos, y
 
 ## Comandos de Uso Final
 Para reproducir la grabación y visualizar correctamente, usar dos terminales:
-1. RViz2 auto-configurado: `./tools/hil/open_rviz_config.sh [2d|current|accumulated]`
-2. Reproducción de datos (lenta y estable): `./tools/hil/replay_rosbag_rviz_slow.sh`
+1. RViz2 auto-configurado: `"codigo ottoguide/tools/hil/open_rviz_config.sh" [2d|current|accumulated]`
+2. Reproduccion de datos (lenta y estable): `"codigo ottoguide/tools/hil/replay_rosbag_rviz_slow.sh"`
 
 ## Tipos de Visualización (Limitaciones)
 - **Mapa 2D (`/map`)**: Es el mapa bidimensional publicado por `slam_toolbox`.

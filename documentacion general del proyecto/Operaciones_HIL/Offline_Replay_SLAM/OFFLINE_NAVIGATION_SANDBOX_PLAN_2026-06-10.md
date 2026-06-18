@@ -15,7 +15,7 @@ El objetivo de este sandbox offline es preparar el entorno de simulación, la co
 
 ## 2. Activos disponibles
 - **Mapa 2D exportado**: `artifacts/maps/ottoguide_hil_stationary_map.yaml` y `.pgm`
-- **Waypoints template**: `config/navigation/waypoints_ottoguide_template.yaml`
+- **Waypoints template**: `codigo ottoguide/config/navigation/waypoints_ottoguide_template.yaml`
 - Grabaciones diagnósticas (MP4) de la sesión de captura.
 - Scripts de análisis QA de mapas y de previsualización de waypoints.
 

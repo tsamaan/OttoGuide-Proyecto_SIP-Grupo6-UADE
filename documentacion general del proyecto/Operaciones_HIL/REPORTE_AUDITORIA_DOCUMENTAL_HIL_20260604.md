@@ -15,7 +15,7 @@ Objetivos:
 
 - Markdown total leidos en `documentacion general del proyecto`: 32
 - Markdown leidos en `Operaciones_HIL`: 16
-- Runbook nuevo leido desde ubicacion temporal: `codigo ottoguide/docs/RUNBOOK_PROXIMA_SESION_FISICA_DDS_FOXY.md`
+- Runbook nuevo leido originalmente desde ubicacion temporal; fuente vigente: `documentacion general del proyecto/Operaciones_HIL/RUNBOOK_PROXIMA_SESION_FISICA_DDS_FOXY.md`
 
 ## 3. Duplicados exactos
 

@@ -37,11 +37,11 @@ Archivos versionados relevantes:
 
 - `codigo ottoguide/tools/hil/ottoguide-map`
 - `codigo ottoguide/tools/hil/office_sensor_capture.sh`
-- `codigo ottoguide/docs/hil/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md`
-- `docs/hil/GITHUB_ROBOT_BRANCH_VALIDATION.md`
-- `docs/hil/OTTOGUIDE_HIL_ARCHITECTURE_AND_RUNTIME.md`
-- `docs/hil/ROBOT_FACTORY_BASELINE_AND_OTTOGUIDE_EVOLUTION.md`
-- `docs/hil/ROBOT_NETWORK_PORTS_API_INVENTORY.md`
+- `documentacion general del proyecto/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md`
+- `documentacion general del proyecto/Historico/Operaciones_HIL_Reportes/GitOps/GITHUB_ROBOT_BRANCH_VALIDATION.md`
+- `documentacion general del proyecto/Arquitectura/OTTOGUIDE_HIL_ARCHITECTURE_AND_RUNTIME.md`
+- `documentacion general del proyecto/Arquitectura/ROBOT_FACTORY_BASELINE_AND_OTTOGUIDE_EVOLUTION.md`
+- `documentacion general del proyecto/Auditorias/ROBOT_NETWORK_PORTS_API_INVENTORY.md`
 
 ## 4. Red HIL
 

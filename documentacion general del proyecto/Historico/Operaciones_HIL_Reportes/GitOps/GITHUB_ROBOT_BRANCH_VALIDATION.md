@@ -79,9 +79,9 @@ Interpretacion: Git autenticado/local ve el repo y ramas, pero la vista publica/
 | `codigo ottoguide/tools/hil/physical_mapping_finalize.sh` | Encontrado |
 | `codigo ottoguide/tools/hil/physical_mapping_package_for_transfer.sh` | Encontrado |
 | `codigo ottoguide/tools/hil/physical_mapping_clean_map.py` | Encontrado |
-| `docs/hil/LOCAL_ARTIFACTS_AUDIT_RUNBOOK.md` | Encontrado |
-| `docs/hil/PHYSICAL_MAPPING_ROUTE_RUNBOOK.md` | Encontrado |
-| `tools/hil/audit_local_artifacts.py` | Encontrado |
+| `documentacion general del proyecto/Auditorias/LOCAL_ARTIFACTS_AUDIT_RUNBOOK.md` | Reubicado tras consolidacion documental |
+| `documentacion general del proyecto/Operaciones_HIL/Mapeo/PHYSICAL_MAPPING_ROUTE_RUNBOOK.md` | Reubicado tras consolidacion documental |
+| `codigo ottoguide/tools/hil/audit_local_artifacts.py` | Reubicado tras raiz limpia estricta |
 | `.gitignore` | Encontrado |
 
 ## Archivos esperados no encontrados en el baseline `target-uade/robot:fad510f`
@@ -90,7 +90,7 @@ Interpretacion: Git autenticado/local ve el repo y ramas, pero la vista publica/
 |---|---|
 | `codigo ottoguide/tools/hil/ottoguide-map` | No encontrado en `target-uade/robot:fad510f` |
 | `codigo ottoguide/tools/hil/office_sensor_capture.sh` | No encontrado en `target-uade/robot:fad510f` |
-| `codigo ottoguide/docs/hil/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md` | No encontrado en `target-uade/robot:fad510f` |
+| `documentacion general del proyecto/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md` | No encontrado en `target-uade/robot:fad510f`; reubicado tras consolidacion documental |
 
 Estos archivos fueron reportados como creados en el robot/local runtime, pero no estaban validados como subidos a GitHub en la rama `robot` al momento de auditar el baseline `fad510f`. La sincronizacion posterior debe agregarlos en un nuevo commit.
 

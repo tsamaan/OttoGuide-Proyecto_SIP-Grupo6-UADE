@@ -86,8 +86,9 @@ rosbags, manifests, hashes, reports, future map/waypoint extraction
 | `codigo ottoguide/config/` | Configuracion ROS/DDS, incluido CycloneDDS. |
 | `codigo ottoguide/ros2_ws/src/ottoguide_livox_sdk_bridge/` | Bridge Livox y `scan_gate`. |
 | `codigo ottoguide/tools/hil/` | Scripts HIL de auditoria, mapping y captura. |
-| `codigo ottoguide/docs/hil/` | Runbooks HIL dentro de codigo robot. |
-| `docs/hil/` | Documentacion versionable de operacion y auditoria. |
+| `documentacion general del proyecto/Operaciones_HIL/` | Runbooks HIL vigentes, quickstarts y procedimientos offline. |
+| `documentacion general del proyecto/Auditorias/` | Auditorias SRE, red, puertos y evidencia de validacion documental. |
+| `documentacion general del proyecto/Historico/Operaciones_HIL_Reportes/` | Reportes HIL historicos preservados como evidencia, no fuente operativa primaria. |
 | `artifacts/` | Evidencia local, rosbags, logs y paquetes fuera del flujo de commit. |
 
 ## Seguridad operacional

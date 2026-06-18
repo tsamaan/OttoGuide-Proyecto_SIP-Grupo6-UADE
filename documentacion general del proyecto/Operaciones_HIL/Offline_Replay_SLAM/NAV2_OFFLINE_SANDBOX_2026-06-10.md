@@ -37,14 +37,14 @@ Debido a que `nav2_lifecycle_manager` no está instalado, el Smoke Test fallará
 ## 5. Cómo correr smoke test
 En WSL (Ubuntu-24.04), ejecutar:
 ```bash
-./tools/hil/nav2_offline_smoke_test.sh artifacts/maps/ottoguide_hil_stationary_map.yaml
+"codigo ottoguide/tools/hil/nav2_offline_smoke_test.sh" artifacts/maps/ottoguide_hil_stationary_map.yaml
 ```
 *Si faltan paquetes (como nav2_lifecycle_manager), el script abortará proactivamente antes de correr ROS.*
 
 ## 6. Cómo abrir RViz
 En WSL o nativo con GUI support, ejecutar:
 ```bash
-ros2 run rviz2 rviz2 -d tools/hil/rviz/ottoguide_nav2_offline_sandbox.rviz
+ros2 run rviz2 rviz2 -d "codigo ottoguide/tools/hil/rviz/ottoguide_nav2_offline_sandbox.rviz"
 ```
 
 ## 7. Por qué el mapa actual no sirve para navegación real
@@ -67,7 +67,7 @@ ros2 run rviz2 rviz2 -d tools/hil/rviz/ottoguide_nav2_offline_sandbox.rviz
 ## 10. Resultado smoke test WSL
 - **Paquetes instalados**: `ros-jazzy-navigation2`, `ros-jazzy-nav2-bringup`.
 - **Paquetes detectados**: Se detectaron exitosamente `nav2_bringup`, `nav2_map_server`, `nav2_lifecycle_manager`, `nav2_planner`, `nav2_controller`, `nav2_bt_navigator`, `nav2_amcl`, `nav2_costmap_2d`, `tf2_ros`, `robot_state_publisher`.
-- **Comando ejecutado**: `./tools/hil/nav2_offline_smoke_test.sh artifacts/maps/ottoguide_hil_stationary_map.yaml`
+- **Comando ejecutado**: `"codigo ottoguide/tools/hil/nav2_offline_smoke_test.sh" artifacts/maps/ottoguide_hil_stationary_map.yaml`
 - **Resultado del smoke test**: PASS (map_server activado exitosamente).
 - **/map publicado**: Sí, el lifecycle manager logró configurar y activar map_server (estado Active en ROS).
 - **Logs locales generados**: Bajo `artifacts/logs/nav2_offline_smoke_<timestamp>/launch.log`.
