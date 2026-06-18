@@ -182,3 +182,28 @@
 - Artifact: `rosbag_record_isolation_20260619_034433.light.tar.gz`, 92 KB, copiado al host local. Bags DB3 pesados permanecen solo en el robot.
 - Conclusión: `imu_only` también falla, por lo que el problema se clasifica como rosbag2/SQLite o entorno runtime general, no como carga exclusiva de PointCloud2. La presencia de un scan_gate preexistente debe eliminarse como variable en el próximo diagnóstico.
 - Próximo paso: no ejecutar captura larga; repetir un control mínimo con un único stack sensor y un topic sintético o de baja tasa, capturando backtrace/core del proceso `ros2 bag record` sin instalar paquetes.
+
+## Iteración — diagnóstico limpio de rosbag2
+
+- Fecha: 2026-06-19.
+- HEAD local: `1b3ebdb`.
+- HEAD robot: `f1526aa`.
+- Commit bitácora previo: `1b3ebdb docs(hil): record rosbag isolation results`, pusheado a `origin/robot`.
+- Limpieza de procesos: los procesos preexistentes `scan_gate`, Livox, PCL y rosbag fueron señalados con SIGINT y desaparecieron antes del caso sintético. Al finalizar quedó un publisher sintético `ros2 topic pub` PID `20832` que ignoró SIGINT directo y al process group; no se usó SIGTERM ni `kill -9`.
+- Synthetic CycloneDDS: PASS; `EXIT=124`, metadata válida, SQLite3 íntegro, 194 mensajes en 19.300 s y bag de 24.8 KiB.
+- Synthetic FastDDS: FAIL/INVÁLIDO; `EXIT=124` pero produjo `bad_alloc`, no generó `metadata.yaml` y dejó un publisher residual.
+- scan_gate limpio: FAIL; el launch inició pero `livox_sdk_bridge_node` y `pointcloud_to_laserscan_node` murieron con `exit code -11` antes de habilitar la matriz sensor.
+- imu_only: no ejecutado por fallo de `scan_gate` limpio.
+- scan_only: no ejecutado por fallo de `scan_gate` limpio.
+- cloud_only: no ejecutado por fallo de `scan_gate` limpio.
+- cloud_imu: no ejecutado por fallo de `scan_gate` limpio.
+- scan_imu: no ejecutado por fallo de `scan_gate` limpio.
+- cloud_scan: no ejecutado por fallo de `scan_gate` limpio.
+- full: no ejecutado por fallo de `scan_gate` limpio.
+- full_repeat: no ejecutado.
+- Crash: rosbag2 con CycloneDDS no reprodujo el crash usando un topic String sintético; el crash limpio observado corresponde al stack sensor `scan_gate` antes de iniciar rosbag sensor.
+- /cmd_vel: ausente; no publicado ni grabado.
+- dmesg/coredump: sin evidencia útil capturada.
+- Artifact: `rosbag_clean_diagnostic_20260619_035203.light.tar.gz`, 12 KB, copiado al host local.
+- Conclusión: rosbag2/SQLite/Python funciona con CycloneDDS y carga sintética baja. El bloqueo inmediato vuelve al stack sensor limpio: ambos nodos murieron `-11`; FastDDS no es una alternativa válida en esta sesión.
+- Próximo paso: no ejecutar captura larga; aislar nuevamente Livox y PCL en un entorno recién limpiado, capturando exit code/backtrace, y cerrar manualmente el publisher sintético residual antes de otra prueba.
