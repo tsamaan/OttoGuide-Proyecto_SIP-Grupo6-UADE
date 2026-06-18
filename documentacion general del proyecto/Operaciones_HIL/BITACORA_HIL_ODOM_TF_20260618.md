@@ -67,3 +67,19 @@
 - Artifact: scan_gate_stability_20260619_023847.light.tar.gz
 - Conclusión: El crash no es reproducible en la sesión actual. scan_gate completo operó de forma estable durante 5 corridas de 45 segundos, procesando las pointclouds y emitiendo laserscans. El sistema se encuentra estable, la falla original pudo deberse a un estado corrupto pre-existente o a un issue de inicialización en frío ya disipado.
 - Próximo paso: Proceder con la prueba física / de integración siguiente, asumiendo que scan_gate es estable en entorno limpio.
+
+## Iteración — captura raw sensor-only corta
+
+- Fecha: 2026-06-18
+- HEAD robot: 3288c92
+- scan_gate: Ejecutado en background, pid 10657.
+- Topics previos: /utlidar/cloud, /livox/imu, /scan confirmados activos antes del rosbag.
+- Rosbag: timeout de 60s exitoso (BAG_EXIT=124).
+- Topics grabados: /utlidar/cloud (88035 msgs), /scan (86091 msgs), /livox/imu (11900 msgs).
+- Tamaño bag: 659.2 MiB (660M).
+- /cmd_vel: Unknown topic.
+- Movimiento: Ninguno (sensor-only).
+- Nav2: No ejecutado.
+- Artifact liviano: raw_capture_short_20260619_024718.light.tar.gz (contiene contexto, pero no el bag).
+- Conclusión: El stack de adquisición base (bridge Livox + pointcloud_to_laserscan) se comportó de forma completamente estable y sin fugas de memoria o caídas abruptas durante 1 minuto de grabación a disco SSD del robot. La base algorítmica de sensado se encuentra lista para el análisis ODOM/TF offline.
+- Próximo paso: Descargar localmente los rosbags pesados desde el robot, actualizar el ODOM_TF_OFFLINE_ANALYSIS_20260618.md, y proceder con el replay y el mapeo.
