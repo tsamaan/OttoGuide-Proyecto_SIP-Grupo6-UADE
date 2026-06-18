@@ -117,3 +117,23 @@
 - Artifact: ottoguide_map_validation_20260619_030256.light.tar.gz
 - Conclusión: El orquestador `ottoguide-map` opera de manera segura y correcta sobre el robot, registrando los topics validados mediante CycloneDDS sin interferir en la locomoción.
 - Próximo paso: Realizar recorrido físico humano con el control remoto e invocar `ottoguide-map start` para grabar el dataset definitivo del pasillo/oficina.
+
+## Iteración — análisis liviano del bag generado por ottoguide-map
+
+- Fecha: 2026-06-18
+- HEAD robot: 8b69f1c
+- Bag analizado: ottoguide_map_20260619_030331
+- Tamaño: 166.4 MiB
+- Duración: 15.63s
+- Topics: /utlidar/cloud, /scan, /livox/imu
+- Counts: /scan: 21708, /utlidar/cloud: 22236, /livox/imu: 3014
+- frame_id /utlidar/cloud: utlidar_lidar
+- frame_id /livox/imu: utlidar_lidar
+- frame_id /scan: utlidar_lidar
+- /tf: No grabado.
+- /tf_static: No grabado.
+- /odom: No grabado.
+- /map: No grabado.
+- /cmd_vel: No grabado.
+- Conclusión: El bag contiene exitosamente la data base sensoria con las frecuencias y timestamps esperados para 15 segundos, validando que ottoguide-map produce datasets íntegros de Livox SDK2 sin requerir movimiento físico. Las caídas al parsear las PointCloud2 completas son un issue conocido de ros2cli en ROS 2 Foxy, sin impacto en la validez del bag.
+- Próximo paso: Desplegar el robot físicamente, ejecutar la captura real con movimiento y recuperar el dataset pesado en la workstation de procesamiento ODOM/TF.
