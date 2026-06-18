@@ -32,6 +32,9 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [PENDING_HIL] Medir latencia real de `Damp()` en robot suspendido.
 - [PENDING_HIL] Validar que `ENTER` en `hil_capture_mapping_bundle.sh` cierra recorder antes de guardar mapa; validar `Ctrl+C` como aborto controlado por separado.
 - [PENDING_HIL] Validar que `timeout 60 map_saver_cli` es suficiente en mapa UADE real.
+- [PENDING_HIL] Validar en sesion fisica fuente real para `/odom` o canal DDS HG con pose/twist corporal.
+- [PENDING_HIL] Medir extrinseco `base_link` -> `utlidar_lidar`.
+- [PENDING_HIL] Validar presencia, frecuencia y frame semantics de `/tf`, `/tf_static`, `/odom`, `/map` y `/map_metadata` en runtime real.
 
 ## PENDING_DOC
 
@@ -45,6 +48,7 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [PENDING_DOC] Actualizar `APK_CONNECTIVITY_ANALYSIS.md` con resultados de `.pcap`.
 - [PENDING_DOC] Actualizar `ROS2_INTEGRATION.md` si se integra `AudioClient`.
 - [PENDING_DOC] Actualizar `README.md` cuando `UnitreeAudioAdapter` pase de backlog a runtime.
+- [PENDING_DOC] Completar replay/SLAM offline con artifact ODOM/TF si se reinyecta una captura posterior o bags con `/scan` + `/tf` + `/odom`.
 
 ## PENDING_CODE
 
@@ -64,6 +68,7 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [PENDING_CODE] Agregar `/status` extendido con estado de Nav2, mapa cargado, sensores y diagnostico factory.
 - [PENDING_CODE] Agregar metricas de latencia: `Damp()`, `Move()`, Nav2 goal result, AMCL update y telemetria WebSocket.
 - [PENDING_CODE] Separar MVC formalmente: modelos de dominio, controladores de caso de uso, vistas HTTP/WS.
+- [PENDING_CODE] Implementar `odom_bridge` solo si se confirma una fuente traslacional valida; debe quedar deshabilitado por defecto y no publicar `/cmd_vel`.
 
 ## DONE_CONFIRMED
 
@@ -74,6 +79,8 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [DONE_CONFIRMED] Eliminar `docs/` como ubicacion documental vigente.
 - [DONE_CONFIRMED] Aplicar raiz limpia con carpetas raiz principales `codigo ottoguide/`, `documentacion general del proyecto/` y `planificacion/`.
 - [DONE_CONFIRMED] Mover tooling/config/launch propios bajo `codigo ottoguide/`.
+- [DONE_CONFIRMED] Mirror Lucas `main` sincronizado una vez con canónico `robot` en `89c4c7f`.
+- [DONE_CONFIRMED] Remotos locales no canonicos eliminados para evitar push accidental.
 
 ## DECIDED_NOT_IMPLEMENT
 
@@ -88,6 +95,7 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [UNKNOWN_REQUIRES_REVIEW] Evaluar parser pasivo de telemetria UDP como fuente secundaria de `/status`, sin control de locomocion.
 - [UNKNOWN_REQUIRES_REVIEW] Auditar repo/rama externa del pilar IA/voz (`ottoguide-ia`) antes de cualquier merge o integracion con `audio_bridge.py`.
 - [UNKNOWN_REQUIRES_REVIEW] Revisar si `robot_ssh.py` puede convertirse en herramienta sanitizada versionable o debe permanecer local.
+- [UNKNOWN_REQUIRES_REVIEW] Evaluar si `LowState`/`SportModeState` aportan datos suficientes para odometria o solo IMU/FSM/joints.
 
 ## Reglas de operación
 

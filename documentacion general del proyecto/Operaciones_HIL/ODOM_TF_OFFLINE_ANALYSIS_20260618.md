@@ -216,3 +216,21 @@ Condiciones para **no** avanzar:
 - Nav2 físico listo para operar.
 - Disponibilidad runtime de `/odom`, `/tf` o topics Unitree HG en ROS 2.
 - Que el peer `192.168.123.161` provea odometría usable sin bridge adicional.
+
+## 10. Actualizacion post-sync GitOps 2026-06-18
+
+Se releyo el artifact local `artifacts/_audit/ottoguide_odom_tf_audit_20260618_081438.tar.gz` despues de sincronizar el mirror y limpiar remotos locales.
+
+Resultado:
+
+- SHA256 observado: `DB0C2CC33AB77FBEC4B056EABE9551B32D9BC5F16680920689FE92FE9F295AA5` (coincide con el esperado).
+- `ros_graph_overview.txt` confirma nuevamente `/livox/imu`, `/scan` y `/utlidar/cloud`; no confirma `/odom`, `/tf`, `/tf_static`, `/map` ni `/map_metadata`.
+- `topic_candidates_odom_tf_state.txt` solo lista `/livox/imu`.
+- `processes_tf_odom_candidates.txt` muestra `scan_gate.launch.py`, `livox_sdk_bridge_node` y `pointcloud_to_laserscan`; no muestra nodo activo de odometria o TF.
+- `unitree_sdk_state_references.txt` contiene referencias amplias de DDS/Unitree, pero no evidencia runtime ROS de pose XY o twist corporal.
+
+Decision:
+
+- Mantener el `odom_bridge` como contrato futuro, no implementado ni activado.
+- Preparar la siguiente sesion fisica como preflight read-only centrado en descubrir fuente real de odometria y medir extrinsecos.
+- Usar `Offline_Replay_SLAM/README.md`, `Replay_RViz/README.md` y `PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md` como puntos de entrada.
