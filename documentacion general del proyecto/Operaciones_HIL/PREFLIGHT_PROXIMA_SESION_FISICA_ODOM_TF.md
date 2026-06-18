@@ -35,6 +35,15 @@ Nota de sesion read-only 2026-06-18:
 - `git fetch origin robot` fallo por DNS (`Could not resolve host: github.com`).
 - No actualizar con `merge --ff-only` si existen logs untracked sin clasificar.
 
+Nota de iteracion sensor-gate 2026-06-18:
+
+- El robot tenia default route por `usb1`, pero `ping 1.1.1.1`, DNS GitHub y
+  TCP 443 a GitHub fallaron.
+- Antes de Git, confirmar internet USB real.
+- No mover `codigo ottoguide/logs/` completo: en el repo viejo incluye manifests
+  versionados. Si hace falta limpiar, archivar solo archivos `??` listados por
+  `git status --short --untracked-files=all`.
+
 ## Preflight ROS/CycloneDDS
 
 ```bash

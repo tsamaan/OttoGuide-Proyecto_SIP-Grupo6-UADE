@@ -299,3 +299,47 @@ pose XY/yaw/twist corporal. `LowState` sigue sin alcanzar como fuente de
 - GO static TF provisional: solo diagnostico offline; no validado fisicamente.
 - GO odom_bridge runtime: NO.
 - GO Nav2 fisico: NO.
+
+## 13. Iteracion sensor-gate 2026-06-18
+
+Nueva iteracion SSH read-only contra `192.168.123.164` para intentar preparar
+actualizacion Git y, solo si el robot quedaba en `7c03d55`, levantar
+`scan_gate` sensor-only.
+
+### Red e internet USB
+
+- `eth0`: `192.168.123.164/24`.
+- `usb1`: `10.21.209.158/24`, default route via `10.21.209.7`.
+- `/etc/resolv.conf`: nameserver `127.0.0.53`.
+- `ping -c 2 1.1.1.1`: 100% packet loss.
+- `getent hosts github.com`: sin resultado.
+- probe TCP `github.com:443`: FAIL.
+
+Conclusion: en esta iteracion no habia internet USB/GitHub operativo desde el
+robot. No se pudo hacer `git fetch origin robot`.
+
+### Git y logs
+
+- HEAD robot inicial/final: `2b7fc5c`.
+- HEAD canonico local esperado: `7c03d55`.
+- Remoto robot: `https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git`.
+- Se intento archivar `codigo ottoguide/logs/`, pero esa carpeta contiene
+  manifests versionados en el repo viejo del robot. Se restauro la carpeta
+  completa para no dejar deletions ni mezclar cambios.
+- Estado final robot: sin modificaciones tracked; permanecen logs untracked
+  bajo `codigo ottoguide/logs/`.
+
+### Fases no ejecutadas
+
+No se ejecuto `scan_gate`, no se midieron topics y no se ejecutaron tests del
+contrato `odom_bridge` porque el robot no pudo actualizarse a `7c03d55`.
+
+Artifact liviano generado en robot:
+
+```text
+/tmp/odom_tf_sensor_gate_20260618_codex.light.tar.gz
+tamano observado: 2.1 KB
+```
+
+La copia local via `scp` quedo bloqueada por el runner local, por lo que el
+artifact permanece disponible en el robot.

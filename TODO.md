@@ -40,6 +40,8 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [PENDING_HIL] Actualizar el repo del robot por `git merge --ff-only origin/robot` cuando haya DNS/GitHub disponible y el working tree este limpio o los logs untracked esten archivados fuera del repo.
 - [PENDING_HIL] Corregir o seleccionar config CycloneDDS compatible con Foxy; la config activa `/home/unitree/cyclonedds_ws/cyclonedds.xml` falla por `Interfaces: unknown element`.
 - [PENDING_HIL] Revalidar `/scan`, `/utlidar/cloud` y `/livox/imu` luego de cargar un entorno DDS Foxy valido; en la sesion read-only 2026-06-18 no hubo publishers visibles.
+- [PENDING_HIL] Activar o reparar internet USB/DNS del robot antes de intentar `git fetch origin robot`; en la iteracion sensor-gate 2026-06-18 fallaron `1.1.1.1`, DNS GitHub y TCP 443.
+- [PENDING_HIL] Archivar solo logs untracked puntuales del robot; no mover `codigo ottoguide/logs/` completo porque en el repo viejo contiene manifests versionados.
 
 ## PENDING_DOC
 
