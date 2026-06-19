@@ -66,10 +66,11 @@ case_tap_identity_rejects_mismatched_binary() {
   )
 }
 
-case_bridge_identity_matches_argv0_suffix() {
+case_bridge_identity_matches_configured_executable() {
   (
     source "$WRAPPER"
-    bash -c 'exec -a "/fake/lib/ottoguide_unitree_capture_bridge/bridge_node" sleep 30' &
+    BRIDGE_EXECUTABLE="/fake/lib/ottoguide_unitree_capture_bridge/bridge_node"
+    bash -c "exec -a \"$BRIDGE_EXECUTABLE\" sleep 30" &
     local pid=$!
     trap 'kill -9 "$pid" 2>/dev/null || true' RETURN
     sleep 0.2
@@ -80,11 +81,32 @@ case_bridge_identity_matches_argv0_suffix() {
 case_bridge_identity_rejects_unrelated_argv0() {
   (
     source "$WRAPPER"
+    BRIDGE_EXECUTABLE="/fake/lib/ottoguide_unitree_capture_bridge/bridge_node"
     bash -c 'exec -a "/usr/bin/some_other_tool" sleep 30' &
     local pid=$!
     trap 'kill -9 "$pid" 2>/dev/null || true' RETURN
     sleep 0.2
     if is_bridge_process "$pid"; then
+      return 1
+    fi
+    return 0
+  )
+}
+
+case_bridge_identity_requires_exact_path_not_suffix() {
+  # is_bridge_process compares against the exact configured
+  # BRIDGE_EXECUTABLE, not a generic path suffix - a process whose argv0
+  # merely *ends with* the same components but lives under a different
+  # prefix must not match.
+  (
+    source "$WRAPPER"
+    BRIDGE_EXECUTABLE="/fake/lib/ottoguide_unitree_capture_bridge/bridge_node"
+    bash -c 'exec -a "/some/other/prefix/fake/lib/ottoguide_unitree_capture_bridge/bridge_node" sleep 30' &
+    local pid=$!
+    trap 'kill -9 "$pid" 2>/dev/null || true' RETURN
+    sleep 0.2
+    if is_bridge_process "$pid"; then
+      echo "matched on suffix instead of requiring an exact path" >&2
       return 1
     fi
     return 0
@@ -263,8 +285,9 @@ case_assert_no_publishers_blocks_on_active() {
 
 run "is_tap_process matches the real configured binary" case_tap_identity_matches_real_binary
 run "is_tap_process rejects a process running a different binary" case_tap_identity_rejects_mismatched_binary
-run "is_bridge_process matches via argv0 suffix" case_bridge_identity_matches_argv0_suffix
+run "is_bridge_process matches the exact configured executable" case_bridge_identity_matches_configured_executable
 run "is_bridge_process rejects unrelated argv0" case_bridge_identity_rejects_unrelated_argv0
+run "is_bridge_process requires an exact path match, not a suffix" case_bridge_identity_requires_exact_path_not_suffix
 run "the wrapper's own process never self-matches tap or bridge" case_wrapper_never_self_matches
 run "a process merely mentioning the names as a text argument does not match" case_text_argument_mentioning_names_does_not_self_match
 run "publisher_status: real Foxy 'Unknown topic' on rc=1 is SAFE_ZERO (regression)" case_publisher_status_unknown_topic_is_safe_zero

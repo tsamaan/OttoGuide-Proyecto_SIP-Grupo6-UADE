@@ -16,12 +16,10 @@
 #                             other than 0/1 - must NOT be treated as safe
 #   FAKE_ROS2_TOPICS_STR        newline-separated topic list for `topic list`
 #   FAKE_ROS2_TOPIC_LIST_FAIL=1 makes `topic list` fail
-#   FAKE_ROS2_RUN_CREATE_SOCKET=0 makes `run ... bridge_node` never bind the
-#       IPC socket (simulates a bridge that fails to come up)
-#   FAKE_BRIDGE_ARGV0           argv[0] to present for the spawned bridge
-#       process (defaults to the real install/lib path suffix)
-#   FAKE_BRIDGE_NODE_PY         path to the python helper that binds the
-#       fake IPC socket and waits for SIGINT/SIGTERM
+#
+# Note: cmd_start no longer calls `ros2 run` (see fixtures/fake_bridge_node.py
+# and BRIDGE_EXECUTABLE instead) - this fixture only ever needs to answer
+# `topic info` / `topic list`.
 set -u
 
 respond_publisher_info() {
@@ -66,20 +64,6 @@ case "${1:-}" in
         ;;
       *) exit 1 ;;
     esac
-    ;;
-  run)
-    pkg="${2:-}"
-    exe="${3:-}"
-    if [[ "$pkg" != "ottoguide_unitree_capture_bridge" || "$exe" != "bridge_node" ]]; then
-      echo "fake ros2: unexpected run target $pkg/$exe" >&2
-      exit 1
-    fi
-    argv0="${FAKE_BRIDGE_ARGV0:-/fake/lib/ottoguide_unitree_capture_bridge/bridge_node}"
-    if [[ "${FAKE_ROS2_RUN_CREATE_SOCKET:-1}" == "1" ]]; then
-      exec -a "$argv0" python3 "$FAKE_BRIDGE_NODE_PY" "${IPC_SOCK:-/tmp/ottoguide_unitree_capture.sock}"
-    else
-      exec -a "$argv0" sleep 60
-    fi
     ;;
   *) exit 1 ;;
 esac

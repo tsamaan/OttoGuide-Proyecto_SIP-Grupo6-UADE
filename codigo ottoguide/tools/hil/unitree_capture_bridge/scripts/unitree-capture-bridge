@@ -11,7 +11,50 @@ NET_IFACE="${NET_IFACE:-eth0}"
 DDS_DOMAIN="${DDS_DOMAIN:-0}"
 ROS_FOXY_SETUP="${ROS_FOXY_SETUP:-/opt/ros/foxy/setup.bash}"
 ROS_QUERY_TIMEOUT="${ROS_QUERY_TIMEOUT:-8}"
-BRIDGE_EXECUTABLE_SUFFIX="/lib/ottoguide_unitree_capture_bridge/bridge_node"
+BRIDGE_EXECUTABLE="${BRIDGE_EXECUTABLE:-$ROS2_WS/install/ottoguide_unitree_capture_bridge/lib/ottoguide_unitree_capture_bridge/bridge_node}"
+
+# --- Tap runtime isolation -------------------------------------------------
+#
+# The native tap must resolve libddscxx/libddsc from the Unitree SDK
+# (RUNPATH), not whatever CycloneDDS build happens to be on
+# LD_LIBRARY_PATH. source_ros() exports a ROS-flavored LD_LIBRARY_PATH (and
+# CYCLONEDDS_URI / ROS_DOMAIN_ID / RMW_IMPLEMENTATION, which the tap's own
+# ChannelFactory::Init(domain, iface) call does not need and must not be
+# influenced by) into the *current shell*, which would otherwise leak into
+# any child launched with `&` directly. The tap is therefore always
+# launched through `env` with an explicit, minimal library path and those
+# ROS-only variables removed - regardless of whether source_ros() ran
+# first in this same shell.
+SDK_ROOT="${SDK_ROOT:-/home/unitree/unitree_sdk2}"
+TAP_LD_LIBRARY_PATH="${TAP_LD_LIBRARY_PATH:-$SDK_ROOT/lib/aarch64:$SDK_ROOT/thirdparty/lib/aarch64}"
+TAP_ISOLATION_UNSET_VARS=(CYCLONEDDS_URI ROS_DOMAIN_ID RMW_IMPLEMENTATION AMENT_PREFIX_PATH COLCON_PREFIX_PATH PYTHONPATH CMAKE_PREFIX_PATH)
+
+build_tap_env_args() {
+  TAP_ENV_ARGS=()
+  local v
+  for v in "${TAP_ISOLATION_UNSET_VARS[@]}"; do
+    TAP_ENV_ARGS+=(-u "$v")
+  done
+  TAP_ENV_ARGS+=("LD_LIBRARY_PATH=$TAP_LD_LIBRARY_PATH")
+}
+
+# Runs `ldd` against the tap binary inside the exact isolated environment
+# it will actually be launched with, and confirms libddscxx/libddsc resolve
+# from $SDK_ROOT specifically (not merely "somewhere", which could still be
+# an incompatible CycloneDDS build picked up from the default search path).
+validate_tap_runtime_libraries() {
+  build_tap_env_args
+  local ldd_out rc expected_sdk
+  ldd_out="$(env "${TAP_ENV_ARGS[@]}" ldd "$TAP_BIN" 2>&1)"
+  rc=$?
+  echo "$ldd_out"
+  [[ "$rc" -eq 0 ]] || return 1
+  grep -qi "not found" <<<"$ldd_out" && return 1
+  expected_sdk="$(readlink -f "$SDK_ROOT" 2>/dev/null || echo "$SDK_ROOT")"
+  grep -F "libddscxx.so.0 => $expected_sdk" <<<"$ldd_out" >/dev/null || return 1
+  grep -F "libddsc.so.0 => $expected_sdk" <<<"$ldd_out" >/dev/null || return 1
+  return 0
+}
 
 IPC_SOCK="${IPC_SOCK:-/tmp/ottoguide_unitree_capture.sock}"
 TAP_PID_FILE="${TAP_PID_FILE:-/tmp/ottoguide_unitree_capture_tap.pid}"
@@ -98,11 +141,10 @@ is_tap_process() {
 }
 
 is_bridge_process() {
-  local pid="$1" token
+  local pid="$1" token expected
+  expected="$(readlink -f "$BRIDGE_EXECUTABLE" 2>/dev/null || echo "$BRIDGE_EXECUTABLE")"
   while IFS= read -r token; do
-    case "$token" in
-      *"$BRIDGE_EXECUTABLE_SUFFIX") return 0 ;;
-    esac
+    [[ "$token" == "$expected" ]] && return 0
   done < <(proc_cmdline_tokens "$pid")
   return 1
 }
@@ -271,6 +313,8 @@ cmd_start() {
   [[ "$DDS_DOMAIN" == "0" ]] || fail "DDS_DOMAIN must remain 0"
   ip link show "$NET_IFACE" >/dev/null 2>&1 || fail "interface $NET_IFACE missing"
   [[ -x "$TAP_BIN" ]] || fail "native tap missing; run build"
+  [[ -x "$BRIDGE_EXECUTABLE" ]] || fail "bridge executable missing or not executable: $BRIDGE_EXECUTABLE"
+  validate_tap_runtime_libraries || fail "tap DDS libraries do not resolve to \$SDK_ROOT ($SDK_ROOT) in isolation"
   [[ -z "$(read_live_pid "$TAP_PID_FILE")" ]] || fail "tap already running"
   [[ -z "$(read_live_pid "$BRIDGE_PID_FILE")" ]] || fail "bridge already running"
   assert_no_foreign_bridge_processes
@@ -279,27 +323,38 @@ cmd_start() {
   assert_no_publishers /odom
   assert_no_navigation
 
-  ros2 run ottoguide_unitree_capture_bridge bridge_node >"$BRIDGE_LOG" 2>&1 &
+  "$BRIDGE_EXECUTABLE" >"$BRIDGE_LOG" 2>&1 &
   local bridge_pid=$!
-  echo "$bridge_pid" >"$BRIDGE_PID_FILE"
   for _ in {1..100}; do
     [[ -S "$IPC_SOCK" ]] && break
     kill -0 "$bridge_pid" 2>/dev/null || break
     sleep 0.1
   done
   if [[ ! -S "$IPC_SOCK" ]] || ! kill -0 "$bridge_pid" 2>/dev/null; then
-    stop_owned_process "$BRIDGE_PID_FILE" bridge bridge || true
+    kill -TERM "$bridge_pid" 2>/dev/null || true
     fail "bridge did not create IPC socket"
   fi
+  if ! pid_matches_kind "$bridge_pid" bridge; then
+    kill -TERM "$bridge_pid" 2>/dev/null || true
+    fail "bridge process identity verification failed for pid=$bridge_pid"
+  fi
+  echo "$bridge_pid" >"$BRIDGE_PID_FILE"
 
-  "$TAP_BIN" "$NET_IFACE" "$DDS_DOMAIN" >"$TAP_LOG" 2>&1 &
-  local tap_pid=$!
-  echo "$tap_pid" >"$TAP_PID_FILE"
+  build_tap_env_args
+  env "${TAP_ENV_ARGS[@]}" "$TAP_BIN" "$NET_IFACE" "$DDS_DOMAIN" >"$TAP_LOG" 2>&1 &
+  local tap_pid=$! tap_fail_log
   sleep 2
   if ! kill -0 "$tap_pid" 2>/dev/null; then
-    cmd_stop || true
-    fail "native tap exited during startup"
+    tap_fail_log="$(tail -5 "$TAP_LOG" 2>/dev/null || true)"
+    stop_owned_process "$BRIDGE_PID_FILE" bridge bridge || true
+    fail "native tap exited during startup: ${tap_fail_log:-no tap log captured}"
   fi
+  if ! pid_matches_kind "$tap_pid" tap; then
+    kill -TERM "$tap_pid" 2>/dev/null || true
+    stop_owned_process "$BRIDGE_PID_FILE" bridge bridge || true
+    fail "tap process identity verification failed for pid=$tap_pid"
+  fi
+  echo "$tap_pid" >"$TAP_PID_FILE"
   log "started bridge=$bridge_pid tap=$tap_pid"
 }
 
