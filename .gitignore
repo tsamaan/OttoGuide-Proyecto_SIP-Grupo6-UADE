@@ -34,6 +34,12 @@ id_ed25519*
 id_rsa*
 *.pub.local
 
+# Local AI/agent workspaces and hidden local tool directories
+/.*/
+!/.gitignore
+!/.github/
+!/.github/**
+
 # Local SSH/network diagnostics
 codigo ottoguide/tools/robot_ssh.py
 codigo ottoguide/tools/robot_ssh.local.py
@@ -63,4 +69,6 @@ artifacts/
 artifacts/physical_mapping_route_*/
 artifacts/_audit/
 artifacts/_quarantine/
+*.light.tar.gz
 *.tar.gz
+metadata.yaml
