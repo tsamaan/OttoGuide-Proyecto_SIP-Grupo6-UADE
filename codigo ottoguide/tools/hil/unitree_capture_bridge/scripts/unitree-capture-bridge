@@ -143,23 +143,35 @@ assert_no_foreign_bridge_processes() {
 #
 # publisher_status never collapses "ros2 failed to answer" into "zero
 # publishers". It returns one of:
-#   SAFE_ZERO_PUBLISHERS           - query succeeded, topic has no publisher
+#   SAFE_ZERO_PUBLISHERS           - topic genuinely has no publisher
 #   UNSAFE_ACTIVE_PUBLISHERS:<n>   - query succeeded, n>0 publishers exist
 #   UNKNOWN_ROS_QUERY_FAILED       - ros2 exited non-zero or timed out
 #   UNKNOWN_TOPIC_INFO_UNPARSEABLE - ros2 exited 0 but output had no usable count
 # Callers in build/start/validate must block on any UNKNOWN_* status;
 # `status` may surface it without blocking.
+#
+# Real ROS 2 Foxy reports a nonexistent topic as the single line
+# `Unknown topic '<topic>'` on EXIT CODE 1, not 0 (confirmed against the
+# robot's actual ros2 CLI - the offline fixture originally modeled this
+# case as exit 0, which is why this went unnoticed until a real physical
+# session). That exact line, and only that exact line (trimmed, with no
+# extra warnings/errors around it), on rc 0 or 1, is treated as a genuine
+# absence of any publisher - never a generic substring match, which could
+# otherwise misclassify an unrelated error that merely mentions the phrase.
 
 publisher_status() {
-  local topic="$1" info rc count
+  local topic="$1" info rc count trimmed expected_unknown
   info="$(timeout "$ROS_QUERY_TIMEOUT" ros2 topic info "$topic" -v 2>&1)"
   rc=$?
-  if [[ "$rc" -ne 0 ]]; then
-    echo "UNKNOWN_ROS_QUERY_FAILED"
+  info="${info//$'\r'/}"
+  trimmed="$(printf '%s' "$info" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  expected_unknown="Unknown topic '$topic'"
+  if [[ ( "$rc" == "0" || "$rc" == "1" ) && "$trimmed" == "$expected_unknown" ]]; then
+    echo "SAFE_ZERO_PUBLISHERS"
     return 0
   fi
-  if grep -q "Unknown topic" <<<"$info"; then
-    echo "SAFE_ZERO_PUBLISHERS"
+  if [[ "$rc" -ne 0 ]]; then
+    echo "UNKNOWN_ROS_QUERY_FAILED"
     return 0
   fi
   count="$(sed -nE 's/^[[:space:]]*Publisher count:[[:space:]]*([0-9]+).*/\1/p' <<<"$info" | head -1)"

@@ -142,7 +142,42 @@ run_publisher_status() {
 }
 
 case_publisher_status_unknown_topic_is_safe_zero() {
+  # Regression case: real ROS 2 Foxy reports a nonexistent topic as
+  # "Unknown topic '<topic>'" on EXIT CODE 1, not 0. This is exactly the
+  # condition that produced UNKNOWN_ROS_QUERY_FAILED during the physical
+  # session of 2026-06-20 and blocked the bridge from starting.
   [[ "$(run_publisher_status unknown)" == "SAFE_ZERO_PUBLISHERS" ]]
+}
+
+case_publisher_status_unknown_topic_rc0_is_also_safe_zero() {
+  # Compatibility: some ros2 CLI builds/distros report the same exact
+  # message on exit code 0 instead of 1. Both must be treated as safe.
+  [[ "$(run_publisher_status unknown-rc0)" == "SAFE_ZERO_PUBLISHERS" ]]
+}
+
+case_publisher_status_unknown_like_text_is_unsafe() {
+  # Text that merely mentions "Unknown topic" but is not the exact
+  # expected line must never be treated as safe - only an exact match is
+  # trusted, to avoid silently absorbing some other, unrelated error.
+  [[ "$(run_publisher_status unknown-like)" == "UNKNOWN_ROS_QUERY_FAILED" ]]
+}
+
+case_publisher_status_unknown_exact_message_wrong_rc_is_unsafe() {
+  # The exact "Unknown topic" line is only trusted on rc 0 or 1. Any other
+  # exit code with that same text must still block.
+  [[ "$(run_publisher_status unknown-wrong-rc)" == "UNKNOWN_ROS_QUERY_FAILED" ]]
+}
+
+case_publisher_status_works_for_odom_topic_too() {
+  (
+    source "$WRAPPER"
+    export PATH="$FIXTURES/bin:$PATH"
+    export ROS_QUERY_TIMEOUT=2
+    export FAKE_ROS2_PUB_ODOM=unknown
+    [[ "$(publisher_status /odom)" == "SAFE_ZERO_PUBLISHERS" ]] || exit 1
+    export FAKE_ROS2_PUB_ODOM=one
+    [[ "$(publisher_status /odom)" == "UNSAFE_ACTIVE_PUBLISHERS:1" ]] || exit 1
+  )
 }
 
 case_publisher_status_zero_publishers_is_safe() {
@@ -200,6 +235,18 @@ case_assert_no_publishers_allows_safe_zero() {
   )
 }
 
+case_assert_no_publishers_allows_real_foxy_unknown_topic() {
+  # The exact scenario observed on the robot: rc=1, "Unknown topic
+  # '/cmd_vel'". This must NOT block start/validate.
+  (
+    source "$WRAPPER"
+    export PATH="$FIXTURES/bin:$PATH"
+    export ROS_QUERY_TIMEOUT=2
+    export FAKE_ROS2_PUB_CMD_VEL=unknown
+    assert_no_publishers /cmd_vel
+  )
+}
+
 case_assert_no_publishers_blocks_on_active() {
   if (
     source "$WRAPPER"
@@ -220,7 +267,11 @@ run "is_bridge_process matches via argv0 suffix" case_bridge_identity_matches_ar
 run "is_bridge_process rejects unrelated argv0" case_bridge_identity_rejects_unrelated_argv0
 run "the wrapper's own process never self-matches tap or bridge" case_wrapper_never_self_matches
 run "a process merely mentioning the names as a text argument does not match" case_text_argument_mentioning_names_does_not_self_match
-run "publisher_status: nonexistent topic with successful query is SAFE_ZERO" case_publisher_status_unknown_topic_is_safe_zero
+run "publisher_status: real Foxy 'Unknown topic' on rc=1 is SAFE_ZERO (regression)" case_publisher_status_unknown_topic_is_safe_zero
+run "publisher_status: 'Unknown topic' on rc=0 is also SAFE_ZERO (compat)" case_publisher_status_unknown_topic_rc0_is_also_safe_zero
+run "publisher_status: text merely resembling 'Unknown topic' is UNKNOWN" case_publisher_status_unknown_like_text_is_unsafe
+run "publisher_status: exact 'Unknown topic' message on an unexpected rc is UNKNOWN" case_publisher_status_unknown_exact_message_wrong_rc_is_unsafe
+run "publisher_status: works generically for /odom too" case_publisher_status_works_for_odom_topic_too
 run "publisher_status: zero publishers is SAFE_ZERO" case_publisher_status_zero_publishers_is_safe
 run "publisher_status: one publisher is UNSAFE" case_publisher_status_one_publisher_is_unsafe
 run "publisher_status: many publishers is UNSAFE" case_publisher_status_many_publishers_is_unsafe
@@ -230,6 +281,7 @@ run "publisher_status: unparseable garbage output is UNKNOWN" case_publisher_sta
 run "publisher_status: ros2 timeout is UNKNOWN" case_publisher_status_timeout_is_unknown
 run "assert_no_publishers blocks (fail-closed) on UNKNOWN" case_assert_no_publishers_blocks_on_unknown
 run "assert_no_publishers allows SAFE_ZERO_PUBLISHERS" case_assert_no_publishers_allows_safe_zero
+run "assert_no_publishers allows the real Foxy unknown-topic case (regression)" case_assert_no_publishers_allows_real_foxy_unknown_topic
 run "assert_no_publishers blocks on active publishers" case_assert_no_publishers_blocks_on_active
 
 echo

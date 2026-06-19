@@ -3,7 +3,17 @@
 # Behavior is fully controlled by environment variables so each test case can
 # script the exact response it needs:
 #   FAKE_ROS2_PUB_CMD_VEL / FAKE_ROS2_PUB_ODOM
-#       zero|one|many|unknown|fail|empty|garbage|timeout  (default: zero)
+#       zero|one|many|unknown|unknown-rc0|unknown-like|unknown-wrong-rc|
+#       fail|empty|garbage|timeout  (default: zero)
+#       - unknown:           real Foxy behavior - exact "Unknown topic"
+#                             line on exit code 1
+#       - unknown-rc0:       same exact line but on exit code 0 (legacy/
+#                             other-distro compatibility case)
+#       - unknown-like:      text that mentions "Unknown topic" but is not
+#                             the exact expected line - must NOT be treated
+#                             as safe
+#       - unknown-wrong-rc:  the exact expected line but on an exit code
+#                             other than 0/1 - must NOT be treated as safe
 #   FAKE_ROS2_TOPICS_STR        newline-separated topic list for `topic list`
 #   FAKE_ROS2_TOPIC_LIST_FAIL=1 makes `topic list` fail
 #   FAKE_ROS2_RUN_CREATE_SOCKET=0 makes `run ... bridge_node` never bind the
@@ -29,7 +39,10 @@ respond_publisher_info() {
       ;;
     one) echo "Publisher count: 1" ;;
     many) echo "Publisher count: 3" ;;
-    unknown) echo "Unknown topic '$topic'" ;;
+    unknown) echo "Unknown topic '$topic'"; exit 1 ;;
+    unknown-rc0) echo "Unknown topic '$topic'" ;;
+    unknown-like) echo "Unknown topic for '$topic' (extra context)"; exit 1 ;;
+    unknown-wrong-rc) echo "Unknown topic '$topic'"; exit 2 ;;
     fail) echo "fake ros2: daemon unreachable" >&2; exit 1 ;;
     empty) : ;;
     garbage) echo "totally unexpected output format, no publisher count here" ;;
