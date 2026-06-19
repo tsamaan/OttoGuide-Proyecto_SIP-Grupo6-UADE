@@ -9,12 +9,15 @@ BUILD_SCRIPT="$BRIDGE_ROOT/native/build_on_robot.sh"
 TAP_BIN="${TAP_BIN:-/tmp/ottoguide_unitree_capture_tap}"
 NET_IFACE="${NET_IFACE:-eth0}"
 DDS_DOMAIN="${DDS_DOMAIN:-0}"
+ROS_FOXY_SETUP="${ROS_FOXY_SETUP:-/opt/ros/foxy/setup.bash}"
+ROS_QUERY_TIMEOUT="${ROS_QUERY_TIMEOUT:-8}"
+BRIDGE_EXECUTABLE_SUFFIX="/lib/ottoguide_unitree_capture_bridge/bridge_node"
 
-IPC_SOCK="/tmp/ottoguide_unitree_capture.sock"
-TAP_PID_FILE="/tmp/ottoguide_unitree_capture_tap.pid"
-BRIDGE_PID_FILE="/tmp/ottoguide_unitree_capture_bridge.pid"
-TAP_LOG="/tmp/ottoguide_unitree_capture_tap.log"
-BRIDGE_LOG="/tmp/ottoguide_unitree_capture_bridge.log"
+IPC_SOCK="${IPC_SOCK:-/tmp/ottoguide_unitree_capture.sock}"
+TAP_PID_FILE="${TAP_PID_FILE:-/tmp/ottoguide_unitree_capture_tap.pid}"
+BRIDGE_PID_FILE="${BRIDGE_PID_FILE:-/tmp/ottoguide_unitree_capture_bridge.pid}"
+TAP_LOG="${TAP_LOG:-/tmp/ottoguide_unitree_capture_tap.log}"
+BRIDGE_LOG="${BRIDGE_LOG:-/tmp/ottoguide_unitree_capture_bridge.log}"
 
 EXPECTED_TOPICS=(
   /unitree/remote_joy
@@ -26,13 +29,34 @@ EXPECTED_TOPICS=(
 )
 
 log() { echo "[capture-bridge] $*"; }
-fail() { echo "[capture-bridge] ERROR: $*" >&2; return 1; }
+# Exits immediately rather than returning a status. A plain `return 1` here
+# is silently neutralized whenever the caller (cmd_start, cmd_validate, ...)
+# is itself invoked from inside an `if`/`while`/`until` condition: bash
+# disables errexit for the whole dynamic scope of such a condition, so a
+# bare `assert_no_publishers /cmd_vel` statement would stop aborting the
+# moment some caller does `if unitree-capture-bridge start; then ...`. Every
+# call site here treats fail() as an unconditional hard stop, so exiting
+# directly removes the dependency on errexit semantics entirely.
+fail() { echo "[capture-bridge] ERROR: $*" >&2; exit 1; }
 
+# Sources the Foxy + workspace overlays without permanently weakening
+# `set -u`: the caller's nounset state is detected via `$-` and restored
+# exactly, so a setup.bash that references an unset variable (e.g.
+# COLCON_TRACE) cannot raise "unbound variable" while we are not the one
+# who decided nounset should be off. Errors from the `source` commands
+# themselves are never swallowed (errexit stays enabled throughout).
 source_ros() {
+  local had_nounset=0
+  case "$-" in *u*) had_nounset=1 ;; esac
   set +u
-  source /opt/ros/foxy/setup.bash
-  [[ -f "$ROS2_WS/install/setup.bash" ]] && source "$ROS2_WS/install/setup.bash"
-  set -u
+  : "${COLCON_TRACE:=}"
+  source "$ROS_FOXY_SETUP"
+  if [[ -f "$ROS2_WS/install/setup.bash" ]]; then
+    source "$ROS2_WS/install/setup.bash"
+  fi
+  if [[ "$had_nounset" == "1" ]]; then
+    set -u
+  fi
   export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
   export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
   local cyclone="$OTTOGUIDE_ROOT/config/cyclonedds.foxy.xml"
@@ -47,23 +71,122 @@ read_live_pid() {
   [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && echo "$pid"
 }
 
-pid_has_identity() {
-  local pid="$1" expected="$2"
-  [[ -r "/proc/$pid/cmdline" ]] || return 1
-  tr '\0' ' ' < "/proc/$pid/cmdline" | grep -Fq -- "$expected"
+# --- Process identity (Phase G) -------------------------------------------
+#
+# Identity is established via /proc, never via a broad `pgrep -f` substring
+# search: any process whose argv merely *mentions* the tap/bridge name as a
+# text argument (a `cat`, `tail -f`, editor, or this very audit tooling)
+# would otherwise match and be misclassified as a foreign bridge process.
+
+proc_exe_realpath() {
+  local pid="$1"
+  readlink -f "/proc/$pid/exe" 2>/dev/null || true
 }
 
-publisher_count() {
-  local topic="$1" info
-  info="$(ros2 topic info "$topic" -v 2>/dev/null || true)"
-  sed -nE 's/^[[:space:]]*Publisher count:[[:space:]]*([0-9]+).*/\1/p' <<<"$info" | head -1
+proc_cmdline_tokens() {
+  local pid="$1"
+  [[ -r "/proc/$pid/cmdline" ]] || return 1
+  tr '\0' '\n' < "/proc/$pid/cmdline"
+}
+
+is_tap_process() {
+  local pid="$1" exe expected
+  exe="$(proc_exe_realpath "$pid")"
+  [[ -n "$exe" ]] || return 1
+  expected="$(readlink -f "$TAP_BIN" 2>/dev/null || echo "$TAP_BIN")"
+  [[ "$exe" == "$expected" ]]
+}
+
+is_bridge_process() {
+  local pid="$1" token
+  while IFS= read -r token; do
+    case "$token" in
+      *"$BRIDGE_EXECUTABLE_SUFFIX") return 0 ;;
+    esac
+  done < <(proc_cmdline_tokens "$pid")
+  return 1
+}
+
+pid_matches_kind() {
+  local pid="$1" kind="$2"
+  case "$kind" in
+    tap) is_tap_process "$pid" ;;
+    bridge) is_bridge_process "$pid" ;;
+    *) return 1 ;;
+  esac
+}
+
+list_other_pids() {
+  local dir pid
+  for dir in /proc/[0-9]*; do
+    pid="${dir#/proc/}"
+    [[ "$pid" == "$$" ]] && continue
+    echo "$pid"
+  done
+}
+
+assert_no_foreign_bridge_processes() {
+  local tap_pid bridge_pid pid
+  tap_pid="$(read_live_pid "$TAP_PID_FILE")"
+  bridge_pid="$(read_live_pid "$BRIDGE_PID_FILE")"
+  for pid in $(list_other_pids); do
+    if is_tap_process "$pid" 2>/dev/null; then
+      [[ -n "$tap_pid" && "$pid" == "$tap_pid" ]] || fail "foreign tap process detected: pid=$pid"
+    fi
+    if is_bridge_process "$pid" 2>/dev/null; then
+      [[ -n "$bridge_pid" && "$pid" == "$bridge_pid" ]] || fail "foreign bridge process detected: pid=$pid"
+    fi
+  done
+}
+
+# --- ROS safety queries: fail-closed (Phase H) ----------------------------
+#
+# publisher_status never collapses "ros2 failed to answer" into "zero
+# publishers". It returns one of:
+#   SAFE_ZERO_PUBLISHERS           - query succeeded, topic has no publisher
+#   UNSAFE_ACTIVE_PUBLISHERS:<n>   - query succeeded, n>0 publishers exist
+#   UNKNOWN_ROS_QUERY_FAILED       - ros2 exited non-zero or timed out
+#   UNKNOWN_TOPIC_INFO_UNPARSEABLE - ros2 exited 0 but output had no usable count
+# Callers in build/start/validate must block on any UNKNOWN_* status;
+# `status` may surface it without blocking.
+
+publisher_status() {
+  local topic="$1" info rc count
+  info="$(timeout "$ROS_QUERY_TIMEOUT" ros2 topic info "$topic" -v 2>&1)"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    echo "UNKNOWN_ROS_QUERY_FAILED"
+    return 0
+  fi
+  if grep -q "Unknown topic" <<<"$info"; then
+    echo "SAFE_ZERO_PUBLISHERS"
+    return 0
+  fi
+  count="$(sed -nE 's/^[[:space:]]*Publisher count:[[:space:]]*([0-9]+).*/\1/p' <<<"$info" | head -1)"
+  if [[ -z "$count" ]]; then
+    echo "UNKNOWN_TOPIC_INFO_UNPARSEABLE"
+    return 0
+  fi
+  if [[ "$count" == "0" ]]; then
+    echo "SAFE_ZERO_PUBLISHERS"
+  else
+    echo "UNSAFE_ACTIVE_PUBLISHERS:$count"
+  fi
 }
 
 assert_no_publishers() {
-  local topic="$1" count
-  count="$(publisher_count "$topic")"
-  count="${count:-0}"
-  [[ "$count" == "0" ]] || fail "$topic has $count publisher(s)"
+  local topic="$1" status
+  status="$(publisher_status "$topic")"
+  case "$status" in
+    SAFE_ZERO_PUBLISHERS) return 0 ;;
+    UNSAFE_ACTIVE_PUBLISHERS:*)
+      fail "$topic has ${status#UNSAFE_ACTIVE_PUBLISHERS:} publisher(s)" ;;
+    UNKNOWN_ROS_QUERY_FAILED)
+      fail "$topic publisher query failed (ros2 unavailable/timeout) - treated as unsafe" ;;
+    UNKNOWN_TOPIC_INFO_UNPARSEABLE)
+      fail "$topic publisher query returned unparseable output - treated as unsafe" ;;
+    *) fail "$topic publisher query returned unexpected status: $status" ;;
+  esac
 }
 
 assert_no_navigation() {
@@ -72,23 +195,8 @@ assert_no_navigation() {
   fi
 }
 
-assert_no_foreign_bridge_processes() {
-  local tap_pid bridge_pid matches
-  tap_pid="$(read_live_pid "$TAP_PID_FILE")"
-  bridge_pid="$(read_live_pid "$BRIDGE_PID_FILE")"
-  matches="$(pgrep -af 'ottoguide_unitree_capture_tap|ottoguide_unitree_capture_bridge' || true)"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    local pid="${line%% *}"
-    [[ "$pid" == "$tap_pid" || "$pid" == "$bridge_pid" ]] || {
-      echo "$line" >&2
-      fail "foreign or stale bridge process detected"
-    }
-  done <<<"$matches"
-}
-
 stop_owned_process() {
-  local file="$1" identity="$2" label="$3"
+  local file="$1" kind="$2" label="$3"
   local pid
   pid="$(read_live_pid "$file")"
   if [[ -z "$pid" ]]; then
@@ -96,14 +204,14 @@ stop_owned_process() {
     log "$label already stopped"
     return 0
   fi
-  pid_has_identity "$pid" "$identity" || fail "$label PID $pid identity mismatch"
+  pid_matches_kind "$pid" "$kind" || fail "$label PID $pid identity mismatch"
   kill -INT "$pid"
   for _ in {1..50}; do
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.1
   done
   if kill -0 "$pid" 2>/dev/null; then
-    pid_has_identity "$pid" "$identity" || fail "$label identity changed before SIGTERM"
+    pid_matches_kind "$pid" "$kind" || fail "$label identity changed before SIGTERM"
     kill -TERM "$pid"
     for _ in {1..30}; do
       kill -0 "$pid" 2>/dev/null || break
@@ -168,7 +276,7 @@ cmd_start() {
     sleep 0.1
   done
   if [[ ! -S "$IPC_SOCK" ]] || ! kill -0 "$bridge_pid" 2>/dev/null; then
-    stop_owned_process "$BRIDGE_PID_FILE" ottoguide_unitree_capture_bridge bridge || true
+    stop_owned_process "$BRIDGE_PID_FILE" bridge bridge || true
     fail "bridge did not create IPC socket"
   fi
 
@@ -189,8 +297,8 @@ cmd_status() {
   echo "BRIDGE_PID=$(read_live_pid "$BRIDGE_PID_FILE")"
   echo "IPC_SOCKET=$([[ -S "$IPC_SOCK" ]] && echo READY || echo ABSENT)"
   ros2 topic list 2>/dev/null | grep '^/unitree/' || true
-  echo "CMD_VEL_PUBLISHERS=$(publisher_count /cmd_vel)"
-  echo "ODOM_PUBLISHERS=$(publisher_count /odom)"
+  echo "CMD_VEL_STATUS=$(publisher_status /cmd_vel)"
+  echo "ODOM_STATUS=$(publisher_status /odom)"
 }
 
 cmd_validate() {
@@ -198,15 +306,17 @@ cmd_validate() {
   local tap_pid bridge_pid topic missing=0
   tap_pid="$(read_live_pid "$TAP_PID_FILE")"
   bridge_pid="$(read_live_pid "$BRIDGE_PID_FILE")"
-  [[ -n "$tap_pid" ]] && pid_has_identity "$tap_pid" "$TAP_BIN" || fail "tap process invalid"
-  [[ -n "$bridge_pid" ]] && pid_has_identity "$bridge_pid" ottoguide_unitree_capture_bridge || fail "bridge process invalid"
+  [[ -n "$tap_pid" ]] && pid_matches_kind "$tap_pid" tap || fail "tap process invalid"
+  [[ -n "$bridge_pid" ]] && pid_matches_kind "$bridge_pid" bridge || fail "bridge process invalid"
   [[ -S "$IPC_SOCK" ]] || fail "IPC socket missing"
   assert_no_foreign_bridge_processes
   assert_no_publishers /cmd_vel
   assert_no_publishers /odom
   assert_no_navigation
-  local topics
-  topics="$(ros2 topic list)"
+  local topics rc
+  topics="$(timeout "$ROS_QUERY_TIMEOUT" ros2 topic list 2>&1)"
+  rc=$?
+  [[ "$rc" -eq 0 ]] || fail "ros2 topic list query failed (rc=$rc) - cannot validate topic allowlist"
   for topic in "${EXPECTED_TOPICS[@]}"; do
     if ! grep -Fxq "$topic" <<<"$topics"; then
       echo "MISSING_TOPIC=$topic" >&2
@@ -221,8 +331,8 @@ cmd_validate() {
 }
 
 cmd_stop() {
-  stop_owned_process "$TAP_PID_FILE" "$TAP_BIN" tap
-  stop_owned_process "$BRIDGE_PID_FILE" ottoguide_unitree_capture_bridge bridge
+  stop_owned_process "$TAP_PID_FILE" tap tap
+  stop_owned_process "$BRIDGE_PID_FILE" bridge bridge
   [[ -S "$IPC_SOCK" ]] && rm -f "$IPC_SOCK"
   [[ ! -S "$IPC_SOCK" ]] || fail "IPC socket remains"
 }
@@ -231,13 +341,18 @@ cmd_help() {
   echo "Usage: $(basename "$0") {plan|build|start|status|stop|validate|help}"
 }
 
-case "${1:-help}" in
-  plan) cmd_plan ;;
-  build) cmd_build ;;
-  start) cmd_start ;;
-  status) cmd_status ;;
-  stop) cmd_stop ;;
-  validate) cmd_validate ;;
-  help|-h|--help) cmd_help ;;
-  *) cmd_help; exit 2 ;;
-esac
+# Only dispatch a command when executed directly. When sourced (as the test
+# suites in test/ do, to exercise the functions above in isolation with fake
+# ros2/pgrep/ip binaries on PATH) no command runs automatically.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  case "${1:-help}" in
+    plan) cmd_plan ;;
+    build) cmd_build ;;
+    start) cmd_start ;;
+    status) cmd_status ;;
+    stop) cmd_stop ;;
+    validate) cmd_validate ;;
+    help|-h|--help) cmd_help ;;
+    *) cmd_help; exit 2 ;;
+  esac
+fi
