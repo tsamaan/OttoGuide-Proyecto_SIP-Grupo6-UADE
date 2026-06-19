@@ -286,3 +286,38 @@
 - Artifact: ottoguide_map_short_validation_20260619_050017.light.tar.gz
 - Conclusión: El stack operativo completo (bridge Livox SDK2, PCL a LaserScan y ros2 bag record) operó sin fallos post-reboot, registrando un dataset sano y completo de 331 MB. La falla previa `exit -11` de ros2 bag record no es persistente y el hardware/OS está en estado limpio.
 - Próximo paso: Preparar la captura larga de 180s con el operador físico y control remoto manual, asegurando no intervenir en los componentes validados.
+
+## Iteración — validación en robot del plan de captura total y discovery de topics
+
+- Fecha: 2026-06-19
+- HEAD local: `3646116` (36461169e4c2e26840598bcb3d773a59497eb2d3)
+- HEAD mirror main: `3646116` (36461169e4c2e26840598bcb3d773a59497eb2d3) — MATCH
+- HEAD mirror robot: `3646116` (36461169e4c2e26840598bcb3d773a59497eb2d3) — MATCH
+- HEAD robot antes: `f1526aa`
+- HEAD robot después: `36461169` (`3646116`)
+- Método de actualización: bundle fast-forward via SCP (`git fetch /tmp/ottoguide_robot_update.bundle` + `git merge --ff-only`). Fetch directo HTTPS bloqueado por autenticación (sin credenciales en robot).
+- Archivos verificados en robot: `ottoguide-map` ✅, `analyze_capture_sqlite.py` ✅, `PLAN_CAPTURA_TOTAL_REPLAY_PROGRESIVO_G1.md` ✅
+- Validación estática robot: `bash -n` PASS, `python3 -m py_compile` PASS
+- `ottoguide-map plan`: PASS — dry-run sin bag; descubrió 3 topics, no inició rosbag, no publicó nada, no movió robot
+- Código de salida plan: 0
+- Sensor base: `/utlidar/cloud` PRESENT (`sensor_msgs/msg/PointCloud2`, pub:1, node:`livox_sdk_bridge_node`, QoS BEST_EFFORT/VOLATILE), `/livox/imu` PRESENT (`sensor_msgs/msg/Imu`, pub:1, node:`livox_sdk_bridge_node`), `/scan` PRESENT (`sensor_msgs/msg/LaserScan`, pub:1, node:`pointcloud_to_laserscan`)
+- Topics Nivel 1 presentes (wirelesscontroller, api/sport): NINGUNO — ausentes del DDS ROS2
+- Topics Nivel 2 presentes (sportmodestate, lowstate, odom, secondary_imu, odommodestate): NINGUNO — ausentes del DDS ROS2
+- Topics Nivel 3 presentes (tf, tf_static, map, slam, localization): NINGUNO — ausentes
+- Endpoints de control observados: ninguno — `/cmd_vel` ausente, `/api/sport/request` ausente, `/api/sport/response` ausente
+- `/cmd_vel`: AUSENTE — sin publishers — OK para captura
+- Nodos relevantes: `/livox_sdk_bridge_node` (publisher /utlidar/cloud + /livox/imu), `/pointcloud_to_laserscan` (publisher /scan)
+- Servicios relevantes: solo servicios de parámetros RCL estándar de los dos nodos del scan_gate stack (describe_parameters, get_parameters, list_parameters, set_parameters, set_parameters_atomically, get_parameter_types). Ningún servicio Unitree SDK en DDS ROS2.
+- Acciones relevantes: NINGUNA — `ros2 action list -t` devuelto vacío
+- Topics seleccionados por plan: `/utlidar/cloud`, `/livox/imu`, `/scan` (3 topics, orden correcto)
+- Topics omitidos por plan: ninguno de los presentes — discovery correcto
+- Topics presente pero omitidos por plan: NINGUNO — PLAN_DISCOVERY_OK
+- Procesos Unitree nativos observados (NO DDS ROS2): `master_service`, `ota_pipe_service`, `videohub_pc4` (x2) — corren fuera del dominio ROS2; no exponen topics ROS2
+- Rosbag iniciado: NO
+- Nav2 iniciado: NO
+- Movimiento: NO
+- Artifact: `total_capture_plan_validation_20260619_210602.light.tar.gz` (4.5 KB), copiado a `artifacts/hil_evidence_light/`
+- SCP: PASS (ambos artifacts del run copiados)
+- Diagnosis DDS SDK: los topics Unitree G1 DDS (`/sportmodestate`, `/lowstate`, `/wirelesscontroller`, etc.) NO son visibles en `ROS_DOMAIN_ID=0` con CycloneDDS Foxy. El servicio `master_service` del G1 opera en su propio stack DDS nativo (posiblemente `ROS_DOMAIN_ID=1` o DDS domain separado). Requiere auditoría de dominio DDS, interfaz y procesos del G1 SDK en próxima sesión.
+- Conclusión: El robot fue actualizado a `3646116` sin incidencias. El tooling nuevo (`ottoguide-map plan`, `discover_record_topics`, `cmd_vel_precheck`, manifiestos) funciona correctamente en el robot. La captura total de sensor base (L1) está lista. Los topics SDK (L2) y navegación (L3) no están disponibles en el dominio ROS2 actual — el DDS nativo del G1 requiere activación o bridging explícito antes del próximo recorrido.
+- Próximo paso: auditar el dominio DDS nativo del G1 (`ROS_DOMAIN_ID=1` o DDS standalone), identificar si `master_service` publica en un dominio diferente, y configurar el bridge necesario antes de la captura de recorrido humano.
