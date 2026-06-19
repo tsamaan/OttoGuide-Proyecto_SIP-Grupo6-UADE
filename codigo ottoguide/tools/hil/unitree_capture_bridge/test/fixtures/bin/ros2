@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Fake `ros2` CLI for offline wrapper tests. Never touches a real ROS graph.
+# Behavior is fully controlled by environment variables so each test case can
+# script the exact response it needs:
+#   FAKE_ROS2_PUB_CMD_VEL / FAKE_ROS2_PUB_ODOM
+#       zero|one|many|unknown|fail|empty|garbage|timeout  (default: zero)
+#   FAKE_ROS2_TOPICS_STR        newline-separated topic list for `topic list`
+#   FAKE_ROS2_TOPIC_LIST_FAIL=1 makes `topic list` fail
+#   FAKE_ROS2_RUN_CREATE_SOCKET=0 makes `run ... bridge_node` never bind the
+#       IPC socket (simulates a bridge that fails to come up)
+#   FAKE_BRIDGE_ARGV0           argv[0] to present for the spawned bridge
+#       process (defaults to the real install/lib path suffix)
+#   FAKE_BRIDGE_NODE_PY         path to the python helper that binds the
+#       fake IPC socket and waits for SIGINT/SIGTERM
+set -u
+
+respond_publisher_info() {
+  local topic="$1" mode
+  case "$topic" in
+    /cmd_vel) mode="${FAKE_ROS2_PUB_CMD_VEL:-zero}" ;;
+    /odom) mode="${FAKE_ROS2_PUB_ODOM:-zero}" ;;
+    *) mode="zero" ;;
+  esac
+  case "$mode" in
+    zero)
+      echo "Type: std_msgs/msg/Empty"
+      echo "Publisher count: 0"
+      echo "Subscription count: 0"
+      ;;
+    one) echo "Publisher count: 1" ;;
+    many) echo "Publisher count: 3" ;;
+    unknown) echo "Unknown topic '$topic'" ;;
+    fail) echo "fake ros2: daemon unreachable" >&2; exit 1 ;;
+    empty) : ;;
+    garbage) echo "totally unexpected output format, no publisher count here" ;;
+    timeout) sleep 30 ;;
+    *) echo "Publisher count: 0" ;;
+  esac
+}
+
+case "${1:-}" in
+  topic)
+    case "${2:-}" in
+      info) respond_publisher_info "${3:-}" ;;
+      list)
+        if [[ "${FAKE_ROS2_TOPIC_LIST_FAIL:-0}" == "1" ]]; then
+          echo "fake ros2: topic list failed" >&2
+          exit 1
+        fi
+        if [[ -n "${FAKE_ROS2_TOPICS_STR:-}" ]]; then
+          printf '%s\n' "$FAKE_ROS2_TOPICS_STR"
+        fi
+        ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  run)
+    pkg="${2:-}"
+    exe="${3:-}"
+    if [[ "$pkg" != "ottoguide_unitree_capture_bridge" || "$exe" != "bridge_node" ]]; then
+      echo "fake ros2: unexpected run target $pkg/$exe" >&2
+      exit 1
+    fi
+    argv0="${FAKE_BRIDGE_ARGV0:-/fake/lib/ottoguide_unitree_capture_bridge/bridge_node}"
+    if [[ "${FAKE_ROS2_RUN_CREATE_SOCKET:-1}" == "1" ]]; then
+      exec -a "$argv0" python3 "$FAKE_BRIDGE_NODE_PY" "${IPC_SOCK:-/tmp/ottoguide_unitree_capture.sock}"
+    else
+      exec -a "$argv0" sleep 60
+    fi
+    ;;
+  *) exit 1 ;;
+esac
