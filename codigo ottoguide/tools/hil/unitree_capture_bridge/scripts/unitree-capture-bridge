@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BRIDGE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+OTTOGUIDE_ROOT="${OTTOGUIDE_ROOT:-$(cd "$BRIDGE_ROOT/../../.." && pwd)}"
+ROS2_WS="$OTTOGUIDE_ROOT/ros2_ws"
+BUILD_SCRIPT="$BRIDGE_ROOT/native/build_on_robot.sh"
+TAP_BIN="${TAP_BIN:-/tmp/ottoguide_unitree_capture_tap}"
+NET_IFACE="${NET_IFACE:-eth0}"
+DDS_DOMAIN="${DDS_DOMAIN:-0}"
+
+IPC_SOCK="/tmp/ottoguide_unitree_capture.sock"
+TAP_PID_FILE="/tmp/ottoguide_unitree_capture_tap.pid"
+BRIDGE_PID_FILE="/tmp/ottoguide_unitree_capture_bridge.pid"
+TAP_LOG="/tmp/ottoguide_unitree_capture_tap.log"
+BRIDGE_LOG="/tmp/ottoguide_unitree_capture_bridge.log"
+
+EXPECTED_TOPICS=(
+  /unitree/remote_joy
+  /unitree/lowstate_imu
+  /unitree/secondary_imu
+  /unitree/fsm_state
+  /unitree/lowstate_summary
+  /unitree/sdk_health
+)
+
+log() { echo "[capture-bridge] $*"; }
+fail() { echo "[capture-bridge] ERROR: $*" >&2; return 1; }
+
+source_ros() {
+  set +u
+  source /opt/ros/foxy/setup.bash
+  [[ -f "$ROS2_WS/install/setup.bash" ]] && source "$ROS2_WS/install/setup.bash"
+  set -u
+  export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
+  export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+  local cyclone="$OTTOGUIDE_ROOT/config/cyclonedds.foxy.xml"
+  [[ -f "$cyclone" ]] && export CYCLONEDDS_URI="file://$cyclone"
+}
+
+read_live_pid() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  local pid
+  pid="$(cat "$file" 2>/dev/null || true)"
+  [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && echo "$pid"
+}
+
+pid_has_identity() {
+  local pid="$1" expected="$2"
+  [[ -r "/proc/$pid/cmdline" ]] || return 1
+  tr '\0' ' ' < "/proc/$pid/cmdline" | grep -Fq -- "$expected"
+}
+
+publisher_count() {
+  local topic="$1" info
+  info="$(ros2 topic info "$topic" -v 2>/dev/null || true)"
+  sed -nE 's/^[[:space:]]*Publisher count:[[:space:]]*([0-9]+).*/\1/p' <<<"$info" | head -1
+}
+
+assert_no_publishers() {
+  local topic="$1" count
+  count="$(publisher_count "$topic")"
+  count="${count:-0}"
+  [[ "$count" == "0" ]] || fail "$topic has $count publisher(s)"
+}
+
+assert_no_navigation() {
+  if pgrep -af 'nav2|bt_navigator|controller_server|planner_server|slam_toolbox' >/dev/null; then
+    fail "Nav2 or SLAM process detected"
+  fi
+}
+
+assert_no_foreign_bridge_processes() {
+  local tap_pid bridge_pid matches
+  tap_pid="$(read_live_pid "$TAP_PID_FILE")"
+  bridge_pid="$(read_live_pid "$BRIDGE_PID_FILE")"
+  matches="$(pgrep -af 'ottoguide_unitree_capture_tap|ottoguide_unitree_capture_bridge' || true)"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local pid="${line%% *}"
+    [[ "$pid" == "$tap_pid" || "$pid" == "$bridge_pid" ]] || {
+      echo "$line" >&2
+      fail "foreign or stale bridge process detected"
+    }
+  done <<<"$matches"
+}
+
+stop_owned_process() {
+  local file="$1" identity="$2" label="$3"
+  local pid
+  pid="$(read_live_pid "$file")"
+  if [[ -z "$pid" ]]; then
+    [[ -f "$file" ]] && rm -f "$file"
+    log "$label already stopped"
+    return 0
+  fi
+  pid_has_identity "$pid" "$identity" || fail "$label PID $pid identity mismatch"
+  kill -INT "$pid"
+  for _ in {1..50}; do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    pid_has_identity "$pid" "$identity" || fail "$label identity changed before SIGTERM"
+    kill -TERM "$pid"
+    for _ in {1..30}; do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
+  fi
+  kill -0 "$pid" 2>/dev/null && fail "$label did not stop"
+  rm -f "$file"
+  log "$label stopped"
+}
+
+cmd_plan() {
+  cat <<EOF
+=== UNITREE CAPTURE BRIDGE PLAN ===
+No process will be started.
+Native DDS: interface=$NET_IFACE domain=$DDS_DOMAIN
+Required receive channels:
+  rt/lowstate
+  rt/secondary_imu
+  rt/sportmodestate
+Optional diagnostic channel:
+  rt/lf/lowstate
+Human intent source:
+  wireless_remote from rt/lowstate only
+IPC:
+  AF_UNIX SOCK_DGRAM $IPC_SOCK
+ROS allowlist:
+$(printf '  %s\n' "${EXPECTED_TOPICS[@]}")
+EOF
+}
+
+cmd_build() {
+  [[ "$DDS_DOMAIN" == "0" ]] || fail "DDS_DOMAIN must remain 0"
+  OUT="$TAP_BIN" bash "$BUILD_SCRIPT"
+  source_ros
+  cd "$ROS2_WS"
+  colcon build --packages-select ottoguide_unitree_capture_bridge --symlink-install
+  source "$ROS2_WS/install/setup.bash"
+  ros2 pkg executables ottoguide_unitree_capture_bridge
+}
+
+cmd_start() {
+  [[ "$DDS_DOMAIN" == "0" ]] || fail "DDS_DOMAIN must remain 0"
+  ip link show "$NET_IFACE" >/dev/null 2>&1 || fail "interface $NET_IFACE missing"
+  [[ -x "$TAP_BIN" ]] || fail "native tap missing; run build"
+  [[ -z "$(read_live_pid "$TAP_PID_FILE")" ]] || fail "tap already running"
+  [[ -z "$(read_live_pid "$BRIDGE_PID_FILE")" ]] || fail "bridge already running"
+  assert_no_foreign_bridge_processes
+  source_ros
+  assert_no_publishers /cmd_vel
+  assert_no_publishers /odom
+  assert_no_navigation
+
+  ros2 run ottoguide_unitree_capture_bridge bridge_node >"$BRIDGE_LOG" 2>&1 &
+  local bridge_pid=$!
+  echo "$bridge_pid" >"$BRIDGE_PID_FILE"
+  for _ in {1..100}; do
+    [[ -S "$IPC_SOCK" ]] && break
+    kill -0 "$bridge_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if [[ ! -S "$IPC_SOCK" ]] || ! kill -0 "$bridge_pid" 2>/dev/null; then
+    stop_owned_process "$BRIDGE_PID_FILE" ottoguide_unitree_capture_bridge bridge || true
+    fail "bridge did not create IPC socket"
+  fi
+
+  "$TAP_BIN" "$NET_IFACE" "$DDS_DOMAIN" >"$TAP_LOG" 2>&1 &
+  local tap_pid=$!
+  echo "$tap_pid" >"$TAP_PID_FILE"
+  sleep 2
+  if ! kill -0 "$tap_pid" 2>/dev/null; then
+    cmd_stop || true
+    fail "native tap exited during startup"
+  fi
+  log "started bridge=$bridge_pid tap=$tap_pid"
+}
+
+cmd_status() {
+  source_ros 2>/dev/null || true
+  echo "TAP_PID=$(read_live_pid "$TAP_PID_FILE")"
+  echo "BRIDGE_PID=$(read_live_pid "$BRIDGE_PID_FILE")"
+  echo "IPC_SOCKET=$([[ -S "$IPC_SOCK" ]] && echo READY || echo ABSENT)"
+  ros2 topic list 2>/dev/null | grep '^/unitree/' || true
+  echo "CMD_VEL_PUBLISHERS=$(publisher_count /cmd_vel)"
+  echo "ODOM_PUBLISHERS=$(publisher_count /odom)"
+}
+
+cmd_validate() {
+  source_ros
+  local tap_pid bridge_pid topic missing=0
+  tap_pid="$(read_live_pid "$TAP_PID_FILE")"
+  bridge_pid="$(read_live_pid "$BRIDGE_PID_FILE")"
+  [[ -n "$tap_pid" ]] && pid_has_identity "$tap_pid" "$TAP_BIN" || fail "tap process invalid"
+  [[ -n "$bridge_pid" ]] && pid_has_identity "$bridge_pid" ottoguide_unitree_capture_bridge || fail "bridge process invalid"
+  [[ -S "$IPC_SOCK" ]] || fail "IPC socket missing"
+  assert_no_foreign_bridge_processes
+  assert_no_publishers /cmd_vel
+  assert_no_publishers /odom
+  assert_no_navigation
+  local topics
+  topics="$(ros2 topic list)"
+  for topic in "${EXPECTED_TOPICS[@]}"; do
+    if ! grep -Fxq "$topic" <<<"$topics"; then
+      echo "MISSING_TOPIC=$topic" >&2
+      missing=1
+    fi
+  done
+  [[ "$missing" == "0" ]] || fail "topic allowlist incomplete"
+  local unexpected
+  unexpected="$(grep '^/unitree/' <<<"$topics" | grep -Fvx -f <(printf '%s\n' "${EXPECTED_TOPICS[@]}") || true)"
+  [[ -z "$unexpected" ]] || fail "unexpected /unitree topics: $unexpected"
+  echo "CAPTURE_BRIDGE_VALIDATE_PASS"
+}
+
+cmd_stop() {
+  stop_owned_process "$TAP_PID_FILE" "$TAP_BIN" tap
+  stop_owned_process "$BRIDGE_PID_FILE" ottoguide_unitree_capture_bridge bridge
+  [[ -S "$IPC_SOCK" ]] && rm -f "$IPC_SOCK"
+  [[ ! -S "$IPC_SOCK" ]] || fail "IPC socket remains"
+}
+
+cmd_help() {
+  echo "Usage: $(basename "$0") {plan|build|start|status|stop|validate|help}"
+}
+
+case "${1:-help}" in
+  plan) cmd_plan ;;
+  build) cmd_build ;;
+  start) cmd_start ;;
+  status) cmd_status ;;
+  stop) cmd_stop ;;
+  validate) cmd_validate ;;
+  help|-h|--help) cmd_help ;;
+  *) cmd_help; exit 2 ;;
+esac

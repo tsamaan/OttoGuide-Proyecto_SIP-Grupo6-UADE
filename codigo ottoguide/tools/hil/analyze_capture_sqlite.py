@@ -24,6 +24,7 @@ import textwrap
 import yaml
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import List
 
 # ---------------------------------------------------------------------------
 # Topic classification for OttoGuide G1 EDU 8 progressive replay plan
@@ -36,18 +37,12 @@ SENSOR_BASE = {
 }
 
 ROBOT_STATE_SDK = {
-    "/sportmodestate",
-    "/lf/sportmodestate",
-    "/lowstate",
-    "/lf/lowstate",
-    "/rt/lowstate",
-    "/rt/lf/lowstate",
-    "/rt/odommodestate",
-    "/rt/lf/odommodestate",
-    "/rt/secondary_imu",
-    "/rt/lf/secondary_imu",
-    "/rt/wirelesscontroller",
-    "/wirelesscontroller",
+    "/unitree/remote_joy",
+    "/unitree/lowstate_imu",
+    "/unitree/secondary_imu",
+    "/unitree/fsm_state",
+    "/unitree/lowstate_summary",
+    "/unitree/sdk_health",
 }
 
 NAVIGATION_MAP = {
@@ -93,18 +88,32 @@ def classify_topic(name: str) -> str:
     return "other"
 
 
-def replay_level(name: str, group: str) -> list[str]:
+def replay_level(name: str, group: str) -> List[str]:
     """Return which replay levels this topic contributes to."""
     levels = []
-    if group == "sensor_base":
-        levels.append("L1_temporal")
-    if group in ("robot_state_sdk",):
-        levels.extend(["L1_temporal", "L2_odom_sdk"])
-    if group == "navigation_map":
-        levels.extend(["L1_temporal", "L2_odom_sdk", "L3_slam_nav"])
-    if group == "safety_control" and name == "/cmd_vel":
-        levels.append("L1_temporal")   # presence-only audit, not publishing
-    return levels if levels else ["L1_temporal"]
+    if name in SENSOR_BASE:
+        levels.append("L0_sensor_base")
+    if name == "/unitree/remote_joy":
+        levels.append("L1_temporal_intent")
+    if name == "/odom":
+        levels.append("L2_validated_odometry")
+    if name in {"/tf", "/tf_static", "/map", "/map_metadata"}:
+        levels.append("L3_localization")
+    return levels if levels else ["capture_context"]
+
+
+def max_timestamp_gap(cur: sqlite3.Cursor, topic_id: int):
+    previous = None
+    maximum = None
+    for (timestamp,) in cur.execute(
+        "SELECT timestamp FROM messages WHERE topic_id = ? ORDER BY timestamp",
+        (topic_id,),
+    ):
+        if previous is not None:
+            gap = (timestamp - previous) / 1e9
+            maximum = gap if maximum is None else max(maximum, gap)
+        previous = timestamp
+    return maximum
 
 
 # ---------------------------------------------------------------------------
@@ -201,8 +210,6 @@ def analyze_bag(bag_dir: Path, out_dir: Path) -> dict:
             tid, cnt, ts_min, ts_max = row
             topic_stats[tid] = {"count": cnt, "ts_min": ts_min, "ts_max": ts_max}
 
-    con.close()
-
     # ---- Build per-topic records --------------------------------------------
     topic_records = []
     all_topic_names = set()
@@ -217,6 +224,7 @@ def analyze_bag(bag_dir: Path, out_dir: Path) -> dict:
 
         span_s = (ts_max - ts_min) / 1e9 if (ts_min and ts_max and ts_max > ts_min) else None
         hz = cnt / span_s if (span_s and span_s > 0) else None
+        max_gap_s = max_timestamp_gap(cur, tid) if cnt > 1 else None
 
         group = classify_topic(tn)
         levels = replay_level(tn, group)
@@ -228,6 +236,7 @@ def analyze_bag(bag_dir: Path, out_dir: Path) -> dict:
             "count": cnt,
             "span_s": round(span_s, 3) if span_s else None,
             "hz_avg": round(hz, 3) if hz else None,
+            "max_gap_s": round(max_gap_s, 6) if max_gap_s is not None else None,
             "group": group,
             "replay_levels": levels,
             "topic_id_db": tid,
@@ -245,12 +254,14 @@ def analyze_bag(bag_dir: Path, out_dir: Path) -> dict:
                 "count": minfo.get("message_count_meta", 0),
                 "span_s": None,
                 "hz_avg": None,
+                "max_gap_s": None,
                 "group": group,
                 "replay_levels": levels,
                 "topic_id_db": None,
                 "count_meta": minfo.get("message_count_meta", 0),
             })
 
+    con.close()
     topic_records.sort(key=lambda r: r["name"])
 
     # ---- Presence checks ----------------------------------------------------
@@ -278,10 +289,24 @@ def analyze_bag(bag_dir: Path, out_dir: Path) -> dict:
         if any(p in t.lower() for p in ["sport", "lowstate", "wireless", "secondary_imu", "odommodestate"])
     ]
 
-    # Level readiness
-    l1_ready = bool(sensor_present)
-    l2_ready = bool(sdk_present) or bool(nav_present - {"/map", "/map_metadata"})
-    l3_ready = bool({"/tf", "/tf_static"} & present) and bool({"/map"} & present)
+    # Level readiness. Presence of IMU, joints, FSM, or LowState never satisfies L2.
+    records_by_name = {record["name"]: record for record in topic_records}
+    l0_ready = len(sensor_missing) == 0
+    continuity_topics = SENSOR_BASE | {"/unitree/remote_joy"}
+    continuity = {
+        topic: records_by_name.get(topic, {}).get("max_gap_s")
+        for topic in sorted(continuity_topics)
+    }
+    continuity_ready = all(
+        gap is not None and gap <= 1.0 for gap in continuity.values()
+    )
+    l1_ready = l0_ready and "/unitree/remote_joy" in present and continuity_ready
+    odom_record = records_by_name.get("/odom")
+    l2_ready = bool(
+        l1_ready and odom_record and
+        odom_record.get("type") == "nav_msgs/msg/Odometry"
+    )
+    l3_ready = l2_ready and ("/tf" in present) and ("/tf_static" in present) and ("/map" in present)
 
     # ---- Build result dict --------------------------------------------------
     result = {
@@ -305,14 +330,18 @@ def analyze_bag(bag_dir: Path, out_dir: Path) -> dict:
             "cmd_vel_present": cmd_vel_present,
             "api_sport_present": api_sport_present,
             "unitree_candidates_found": sorted(unitree_candidates_present),
+            "continuity_max_gap_s": continuity,
+            "continuity_threshold_s": 1.0,
         },
         "replay_readiness": {
+            "L0_sensor_base": l0_ready,
             "L1_temporal": l1_ready,
             "L2_odom_sdk": l2_ready,
             "L3_slam_nav": l3_ready,
-            "L1_note": "Needs sensor_base topics for time-correlated playback",
-            "L2_note": "Needs SDK state (sportmodestate/lowstate/odom) for state-based replay",
-            "L3_note": "Needs /tf, /tf_static, /map for SLAM/nav replay",
+            "L0_note": "Needs /utlidar/cloud, /livox/imu, and /scan",
+            "L1_note": "Needs L0 + /unitree/remote_joy with maximum gaps <= 1 second",
+            "L2_note": "Needs L1 + nav_msgs/msg/Odometry on /odom; IMU, joints, LowState, and FSM do not satisfy L2",
+            "L3_note": "Needs validated L2 plus /tf, /tf_static, and /map",
         },
     }
 
@@ -332,7 +361,7 @@ def write_json(result: dict, out_dir: Path):
 
 def write_csv(topic_records: list, out_dir: Path):
     p = out_dir / "capture_topic_matrix.csv"
-    fields = ["name", "type", "count", "hz_avg", "span_s", "group", "replay_levels"]
+    fields = ["name", "type", "count", "hz_avg", "span_s", "max_gap_s", "group", "replay_levels"]
     with open(p, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         w.writeheader()
@@ -369,9 +398,10 @@ def write_markdown(result: dict, topic_records: list, out_dir: Path):
         "",
         f"| Level | Ready | Note |",
         f"|-------|-------|------|",
-        f"| L1 – Temporal replay       | {bool_icon(rd['L1_temporal'])} | {rd['L1_note']} |",
-        f"| L2 – Odom / SDK state      | {bool_icon(rd['L2_odom_sdk'])} | {rd['L2_note']} |",
-        f"| L3 – SLAM / Nav            | {bool_icon(rd['L3_slam_nav'])} | {rd['L3_note']} |",
+        f"| L0 – Sensor base           | {bool_icon(rd['L0_sensor_base'])} | {rd['L0_note']} |",
+        f"| L1 – Teach & Replay        | {bool_icon(rd['L1_temporal'])} | {rd['L1_note']} |",
+        f"| L2 – State-corrected odom  | {bool_icon(rd['L2_odom_sdk'])} | {rd['L2_note']} |",
+        f"| L3 – Localized Nav / SLAM  | {bool_icon(rd['L3_slam_nav'])} | {rd['L3_note']} |",
         "",
         "---",
         "",
@@ -393,19 +423,21 @@ def write_markdown(result: dict, topic_records: list, out_dir: Path):
         "### Safety / control audit",
         f"- `/cmd_vel` present: {bool_icon(pr['cmd_vel_present'])} {'← AUDIT: check publisher count in next live capture' if pr['cmd_vel_present'] else ''}",
         f"- API sport topics present: {bool_icon(pr['api_sport_present'])}",
+        f"- Continuity threshold: {pr['continuity_threshold_s']:.1f} s maximum gap",
         "",
         "---",
         "",
         "## Topic Matrix",
         "",
-        "| Topic | Type | Count | Hz avg | Group | Replay levels |",
-        "|-------|------|------:|-------:|-------|---------------|",
+        "| Topic | Type | Count | Hz avg | Max gap s | Group | Replay levels |",
+        "|-------|------|------:|-------:|----------:|-------|---------------|",
     ]
 
     for r in topic_records:
         hz = f"{r['hz_avg']:.2f}" if r["hz_avg"] else "—"
+        gap = f"{r['max_gap_s']:.6f}" if r["max_gap_s"] is not None else "—"
         lvls = " ".join(r["replay_levels"])
-        lines.append(f"| `{r['name']}` | `{r['type']}` | {r['count']:,} | {hz} | {r['group']} | {lvls} |")
+        lines.append(f"| `{r['name']}` | `{r['type']}` | {r['count']:,} | {hz} | {gap} | {r['group']} | {lvls} |")
 
     lines += [
         "",
@@ -415,26 +447,32 @@ def write_markdown(result: dict, topic_records: list, out_dir: Path):
         "",
     ]
 
+    rd_l0 = rd["L0_sensor_base"]
     rd_l1 = rd["L1_temporal"]
     rd_l2 = rd["L2_odom_sdk"]
     rd_l3 = rd["L3_slam_nav"]
 
-    if rd_l1 and not rd_l2 and not rd_l3:
+    if rd_l0 and not rd_l1:
         lines.append(
-            "This capture contains **sensor-base data only** (LiDAR + IMU + scan). "
-            "It is useful for **L1 temporal replay** and sensor stability validation. "
-            "It does **not** contain SDK state, odometry, TF, or map topics — insufficient for L2/L3 replay. "
-            "The next capture must include `/sportmodestate`, `/lowstate`, `/odom`, `/tf`, `/tf_static`."
+            "This capture contains **L0 sensor-base data only** (LiDAR + IMU + scan). "
+            "It lacks a wireless remote control input topic (`/unitree/remote_joy` or `/wirelesscontroller`) "
+            "which is required for **L1 Teach & Replay** intention tracking."
         )
-    elif rd_l1 and rd_l2 and not rd_l3:
+    elif rd_l1 and not rd_l2:
         lines.append(
-            "This capture supports **L1 temporal** and **L2 SDK/odom replay**. "
-            "TF and map topics are missing — **L3 SLAM/nav replay** is not yet possible."
+            "This capture supports **L1 Teach & Replay**. "
+            "Odometry topic (`/odom`) is missing — **L2 State-corrected replay** is not yet ready. "
+            "Note: raw IMU, joint states, LowState or FSM topics do not satisfy L2 odom requirements."
         )
-    elif rd_l1 and rd_l2 and rd_l3:
+    elif rd_l2 and not rd_l3:
         lines.append(
-            "This capture supports **all three replay levels** (L1/L2/L3). "
-            "Full progressive replay is possible."
+            "This capture supports **L1 Teach & Replay** and **L2 State-corrected replay**. "
+            "Map or transformation topics (`/tf`, `/tf_static`, `/map`) are missing — **L3 localized navigation** is not possible."
+        )
+    elif rd_l3:
+        lines.append(
+            "This capture contains the required topic set for **L0/L1/L2/L3 analysis**. "
+            "Physical navigation still requires a separate authorized validation."
         )
     else:
         lines.append(
@@ -447,16 +485,16 @@ def write_markdown(result: dict, topic_records: list, out_dir: Path):
         "| Missing | Needed for |",
         "|---------|-----------|",
     ]
-    if not pr["robot_state_sdk_present"]:
-        lines.append("| SDK state topics (sportmodestate, lowstate, etc.) | L2 SDK/odom replay |")
-    if "/odom" not in pr["navigation_map_present"]:
-        lines.append("| `/odom` | L2 odom replay |")
+    if not rd_l0:
+        lines.append("| Sensor base topics (/utlidar/cloud, /livox/imu, /scan) | L0 Sensor base |")
+    if not rd_l1:
+        lines.append("| Joystick input (/unitree/remote_joy) | L1 Teach & Replay |")
+    if not rd_l2:
+        lines.append("| Validated odometry (/odom) | L2 State-corrected odom |")
     if "/tf" not in pr["navigation_map_present"] or "/tf_static" not in pr["navigation_map_present"]:
-        lines.append("| `/tf`, `/tf_static` | L3 SLAM/nav |")
+        lines.append("| `/tf`, `/tf_static` | L3 Localized Nav / SLAM |")
     if "/map" not in pr["navigation_map_present"]:
-        lines.append("| `/map` | L3 SLAM/nav |")
-    if not pr["navigation_map_present"]:
-        lines.append("| All navigation topics | L2 + L3 |")
+        lines.append("| `/map` | L3 Localized Nav / SLAM |")
 
     lines += [
         "",
@@ -505,9 +543,10 @@ def main():
     rd = result["replay_readiness"]
     print(f"  Duration     : {result['duration_s']:.2f} s")
     print(f"  Topics found : {len(topic_records)}")
-    print(f"  L1 temporal  : {'READY' if rd['L1_temporal'] else 'NOT READY'}")
-    print(f"  L2 odom/SDK  : {'READY' if rd['L2_odom_sdk'] else 'NOT READY'}")
-    print(f"  L3 SLAM/nav  : {'READY' if rd['L3_slam_nav'] else 'NOT READY'}")
+    print(f"  L0 sensors   : {'READY' if rd['L0_sensor_base'] else 'NOT READY'}")
+    print(f"  L1 intention : {'READY' if rd['L1_temporal'] else 'NOT READY'}")
+    print(f"  L2 odometry  : {'READY' if rd['L2_odom_sdk'] else 'NOT READY'}")
+    print(f"  L3 localized : {'READY' if rd['L3_slam_nav'] else 'NOT READY'}")
     print()
 
 

@@ -25,7 +25,6 @@ shift || true
 LABEL="office_short_remote_control_raw"
 DURATION=""
 BAG_NAME=""
-CMD_VEL_OVERRIDE="${CMD_VEL_OVERRIDE:-}"
 
 # ---------------------------------------------------------------------------
 # Heavy topics: NOT sampled with topic echo --once (avoid memory/latency spike)
@@ -45,49 +44,34 @@ HEAVY_TOPIC_PATTERNS=(
 # Priority order is preserved; dedupe applied.
 # ---------------------------------------------------------------------------
 CANDIDATE_TOPICS=(
+  # --- Sensor base (L0) ---
   /utlidar/cloud
   /livox/imu
   /scan
+  # --- Unitree capture bridge ROS topics (L1 candidate) ---
+  # These are published by ottoguide_unitree_capture_bridge, NOT by ros2 topic list on Unitree DDS.
+  # They appear in ros2 topic list only when the capture bridge is running.
+  /unitree/remote_joy
+  /unitree/lowstate_imu
+  /unitree/secondary_imu
+  /unitree/fsm_state
+  /unitree/lowstate_summary
+  /unitree/sdk_health
+  # --- Navigation / localization (L3) ---
   /tf
   /tf_static
   /odom
   /map
   /map_metadata
-  /cmd_vel
-  /wirelesscontroller
-  /sportmodestate
-  /lf/sportmodestate
-  /lowstate
-  /lf/lowstate
-  /rt/lowstate
-  /rt/lf/lowstate
-  /rt/odommodestate
-  /rt/lf/odommodestate
-  /rt/secondary_imu
-  /rt/lf/secondary_imu
-  /rt/wirelesscontroller
-  /api/sport/request
-  /api/sport/response
 )
 
-# ---------------------------------------------------------------------------
-# Pattern families for dynamic discovery (case-insensitive grep)
-# ---------------------------------------------------------------------------
-DYNAMIC_PATTERNS=(
-  slam
-  localization
-  relocalization
-  navigation
-  trajectory
-  waypoint
-  motion
-  sport
-  lowstate
-  wireless
-  secondary_imu
-  odommodestate
-  lf/
-  rt/
+UNITREE_CAPTURE_TOPICS=(
+  /unitree/remote_joy
+  /unitree/lowstate_imu
+  /unitree/secondary_imu
+  /unitree/fsm_state
+  /unitree/lowstate_summary
+  /unitree/sdk_health
 )
 
 usage() {
@@ -129,14 +113,13 @@ Comandos:
   help
 
 Variables de entorno:
-  CMD_VEL_OVERRIDE=1           (permitir grabacion aunque /cmd_vel tenga publishers)
   BASE=/ruta                   (base del codigo)
   ROS_DOMAIN_ID=N
   RMW_IMPLEMENTATION=rmw_...
 
 Seguridad:
   No publica /cmd_vel. No mueve el robot.
-  Bloquea si /cmd_vel tiene publishers activos (CMD_VEL_PUBLISHER_PRESENT).
+  Bloquea si /cmd_vel o /odom tienen publishers activos.
   No requiere /tf ni /odom para captura raw.
 USAGE
 }
@@ -228,6 +211,41 @@ cmd_vel_precheck() {
   } | tee "$out_file"
 }
 
+odom_precheck() {
+  local out_file="${1:-/dev/null}"
+  {
+    echo "ODOM_PRECHECK at $(date)"
+    if ! topic_exists /odom; then
+      echo "RESULT: OK_NOT_PRESENT"
+      return 0
+    fi
+    local info
+    info=$(ros2 topic info /odom 2>/dev/null || true)
+    echo "$info"
+    if echo "$info" | grep -qE "Publisher count: [1-9]"; then
+      echo "RESULT: ODOM_PUBLISHER_PRESENT"
+      return 1
+    fi
+    echo "RESULT: OK_NO_PUBLISHERS"
+  } | tee "$out_file"
+}
+
+require_unitree_capture_topics() {
+  local topics topic missing=0
+  topics=$(ros2 topic list 2>/dev/null || true)
+  for topic in "${UNITREE_CAPTURE_TOPICS[@]}"; do
+    if ! grep -Fxq "$topic" <<<"$topics"; then
+      echo "MISSING_UNITREE_CAPTURE_TOPIC=$topic" >&2
+      missing=1
+    fi
+  done
+  [[ "$missing" == "0" ]]
+}
+
+assert_no_navigation_processes() {
+  ! pgrep -af 'nav2|bt_navigator|controller_server|planner_server|slam_toolbox' >/dev/null
+}
+
 # ---------------------------------------------------------------------------
 # Dynamic topic discovery
 # discover_record_topics -> writes deduplicated list to $1
@@ -248,12 +266,7 @@ discover_record_topics() {
     fi
   done
 
-  # 2. Add dynamic pattern matches
-  for pattern in "${DYNAMIC_PATTERNS[@]}"; do
-    echo "$all_topics" | grep -iF "$pattern" >> "$tmp_ordered" || true
-  done
-
-  # 3. Dedupe preserving first occurrence order, write to output
+  # 2. Dedupe preserving first occurrence order, write to output
   awk '!seen[$0]++' "$tmp_ordered" > "$out_file"
   rm -f "$tmp_ordered"
 }
@@ -396,9 +409,18 @@ prep() {
 
   if topic_exists /cmd_vel; then
     if ros2 topic info /cmd_vel 2>/dev/null | grep -qE "Publisher count: [1-9]"; then
-      echo "PREP WARNING: /cmd_vel has active publishers — start/timed will block unless CMD_VEL_OVERRIDE=1."
+      echo "PREP FAIL: /cmd_vel has active publishers." >&2
+      exit 3
     fi
   fi
+  odom_precheck /dev/null || {
+    echo "PREP FAIL: /odom has active publishers." >&2
+    exit 3
+  }
+  assert_no_navigation_processes || {
+    echo "PREP FAIL: Nav2 or SLAM process detected." >&2
+    exit 3
+  }
 
   if ! topic_exists /tf || ! topic_exists /tf_static; then
     echo "PREP PARTIAL: /tf or /tf_static missing. Raw capture allowed; direct map export not guaranteed."
@@ -437,18 +459,36 @@ plan_dryrun() {
   fi
 
   echo ""
-  echo "=== Topic discovery (would record) ==="
+  echo "=== ROS TOPICS DISCOVERED (would record) ==="
   local tmp_file
   tmp_file=$(mktemp)
   discover_record_topics "$tmp_file" 2>/dev/null || true
   if [[ -s "$tmp_file" ]]; then
-    cat "$tmp_file"
+    # Show sensor base and unitree bridge topics separately for clarity
+    echo "--- Sensor base ---"
+    grep -E '^/utlidar/|^/livox/|^/scan$' "$tmp_file" || echo "  (none)"
+    echo "--- Unitree capture bridge (/unitree/*) ---"
+    grep -E '^/unitree/' "$tmp_file" || echo "  (none — start capture bridge first)"
+    echo "--- Other ROS topics ---"
+    grep -vE '^/utlidar/|^/livox/|^/scan$|^/unitree/' "$tmp_file" || echo "  (none)"
     echo ""
     echo "Total topics would be recorded: $(wc -l < "$tmp_file")"
   else
     echo "(no matching topics found)"
   fi
   rm -f "$tmp_file"
+
+  echo ""
+  echo "=== NATIVE DDS CHANNELS EXPECTED VIA CAPTURE BRIDGE ==="
+  echo "  These channels are subscribed by the native tap (unitree_capture_tap)."
+  echo "  They are NOT visible in ros2 topic list — only accessible via Unitree SDK2."
+  echo "  DDS domain: 0, interface: eth0"
+  echo "  rt/lowstate         ~1052 Hz  (IMU + wireless_remote + mode_machine)"
+  echo "  rt/secondary_imu    ~1052 Hz  (torso IMU)"
+  echo "  rt/sportmodestate   ~100 Hz   (FSM mode)"
+  echo "  rt/lf/lowstate      optional diagnostic channel; never remote source"
+  echo "  NOTE: These topics do NOT appear in ros2 topic list."
+  echo "        Use 'unitree-capture-bridge plan' for native tap status."
 
   echo ""
   echo "=== /cmd_vel audit ==="
@@ -460,6 +500,30 @@ plan_dryrun() {
     echo "cmd_vel: CMD_VEL_PUBLISHER_PRESENT — would block recording"
   fi
   rm -f "$tmp_cv"
+
+  echo ""
+  echo "=== /odom audit ==="
+  if odom_precheck /dev/null >/dev/null 2>&1; then
+    echo "odom: OK"
+  else
+    echo "odom: ODOM_PUBLISHER_PRESENT — would block recording"
+  fi
+
+  echo ""
+  echo "=== Capture bridge completeness ==="
+  if require_unitree_capture_topics; then
+    echo "unitree capture topics: COMPLETE"
+  else
+    echo "unitree capture topics: INCOMPLETE — would block recording"
+  fi
+
+  echo ""
+  echo "=== Nav2 / SLAM audit ==="
+  if assert_no_navigation_processes; then
+    echo "navigation processes: NONE"
+  else
+    echo "navigation processes: PRESENT — would block recording"
+  fi
 
   echo ""
   echo "=== PLAN COMPLETE — no bag started ==="
@@ -502,23 +566,29 @@ start_recording() {
     exit 3
   fi
 
+  cmd_vel_precheck /dev/null || {
+    echo "START REFUSED: CMD_VEL_PUBLISHER_PRESENT" >&2
+    exit 3
+  }
+  odom_precheck /dev/null || {
+    echo "START REFUSED: ODOM_PUBLISHER_PRESENT" >&2
+    exit 3
+  }
+  assert_no_navigation_processes || {
+    echo "START REFUSED: NAV2_OR_SLAM_PROCESS_PRESENT" >&2
+    exit 3
+  }
+  require_unitree_capture_topics || {
+    echo "START REFUSED: UNITREE_CAPTURE_TOPICS_INCOMPLETE" >&2
+    exit 3
+  }
+
   new_run
 
   # --- Pre-record audit ------------------------------------------------
   pre_record_audit "$SESSION/logs"
-
-  # --- /cmd_vel safety check -------------------------------------------
-  local cv_result_file="$SESSION/logs/cmd_vel_precheck.txt"
-  if ! cmd_vel_precheck "$cv_result_file"; then
-    if [[ -n "$CMD_VEL_OVERRIDE" ]]; then
-      echo "CMD_VEL_PUBLISHER_PRESENT — OVERRIDE ACTIVE, continuing."
-    else
-      echo "START REFUSED: CMD_VEL_PUBLISHER_PRESENT" >&2
-      echo "  /cmd_vel has active publishers. This is a safety block."
-      echo "  Set CMD_VEL_OVERRIDE=1 only if you understand the risk."
-      exit 3
-    fi
-  fi
+  cmd_vel_precheck "$SESSION/logs/cmd_vel_precheck.txt"
+  odom_precheck "$SESSION/logs/odom_precheck.txt"
 
   # --- Dynamic topic discovery -----------------------------------------
   local topics_file="$SESSION/logs/topics_selected_for_record.txt"
