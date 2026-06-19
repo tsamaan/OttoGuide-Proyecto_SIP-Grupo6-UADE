@@ -141,7 +141,9 @@ cmd_build() {
   source_ros
   cd "$ROS2_WS"
   colcon build --packages-select ottoguide_unitree_capture_bridge --symlink-install
+  set +u
   source "$ROS2_WS/install/setup.bash"
+  set -u
   ros2 pkg executables ottoguide_unitree_capture_bridge
 }
 
