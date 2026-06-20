@@ -81,6 +81,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     hardware: Optional[RobotHardwareInterface] = None
     nav_bridge = None
+    conversation_manager = None
 
     # STEP 1: Instalar handlers de senales al arrancar el event loop
     _install_signal_handlers(asyncio.get_running_loop())
@@ -104,10 +105,12 @@ async def lifespan(app: FastAPI):
             LOGGER.info("[BOOT] ROBOT_MODE=real. Inicializando AsyncNav2Bridge obligatorio.")
             await nav_bridge.start()
 
+        conversation_manager = _get_conversation_manager_stub(settings)
+
         orchestrator = TourOrchestrator(
             hardware_api=hardware,
             nav_bridge=nav_bridge,
-            conversation_manager=_get_conversation_manager_stub(settings),
+            conversation_manager=conversation_manager,
             vision_processor=_get_vision_processor_stub(),
             telemetry_manager=telemetry_manager,
             mission_audit_logger=MISSION_AUDIT_LOGGER,

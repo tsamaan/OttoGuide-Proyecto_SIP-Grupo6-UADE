@@ -43,7 +43,7 @@ class StartQRFSMTourRequest(BaseModel):
     """Payload para iniciar recorrido reactivo por QR sin waypoints digitales."""
     model_config = ConfigDict(extra="forbid")
 
-    tour_id: str = Field(default="uade-qr-fsm-001", min_length=1)
+    tour_id: str = Field(default="qr-fsm-tour-001", min_length=1)
 
 
 class StartQRFSMTourResponse(BaseModel):

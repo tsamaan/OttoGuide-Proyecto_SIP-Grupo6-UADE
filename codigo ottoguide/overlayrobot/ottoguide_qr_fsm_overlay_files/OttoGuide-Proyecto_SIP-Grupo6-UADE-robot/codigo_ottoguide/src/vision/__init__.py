@@ -4,8 +4,8 @@ from .qr_detector import QRDetection, QRDetector
 __all__ = [
     "CameraModel",
     "OdometryVector",
-    "QRDetection",
-    "QRDetector",
     "PoseEstimate",
     "VisionProcessor",
+    "QRDetection",
+    "QRDetector",
 ]

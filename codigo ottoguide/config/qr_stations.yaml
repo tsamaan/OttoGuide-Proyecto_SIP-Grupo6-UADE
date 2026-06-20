@@ -1,0 +1,42 @@
+# @TASK: Configurar estaciones QR del recorrido UADE para Ottoman.
+# @CONTEXT: El software no usa mapas ni waypoints; cada QR leído decide el audio y el estado lógico.
+start:
+  id: "inicio"
+  name: "Entrada Lima 3 — Bienvenida"
+  audio_path: "audio/I_bienvenida.wav"
+  turn_to_students_deg: 0
+  turn_to_front_deg: 180
+
+stations:
+  QR_MOLINETES:
+    id: "molinetes"
+    name: "Molinetes"
+    audio_path: "audio/P01_molinetes.wav"
+    turn_to_students_deg: 180
+    turn_to_front_deg: -180
+    is_final: false
+
+  QR_HALL_CENTRAL:
+    id: "hall_central"
+    name: "Hall Central"
+    audio_path: "audio/P02_hall_central.wav"
+    turn_to_students_deg: 180
+    turn_to_front_deg: -180
+    is_final: false
+
+  QR_PASILLO_LIMA2:
+    id: "pasillo_lima2"
+    name: "Pasillo Lima 2"
+    audio_path: "audio/P03_pasillo_lima2.wav"
+    turn_to_students_deg: 180
+    turn_to_front_deg: -180
+    is_final: false
+
+  QR_OFICINAS_GESTION:
+    id: "fin"
+    name: "Oficinas de gestión — Cierre y preguntas"
+    audio_path: "audio/F_cierre.wav"
+    turn_to_students_deg: 180
+    turn_to_front_deg: 0
+    is_final: true
+    llm_zone_id: "F"

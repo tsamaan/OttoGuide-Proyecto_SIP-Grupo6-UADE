@@ -29,12 +29,12 @@ from .schemas import (
     QuestionRequest,
     QuestionResponse,
     ScriptReloadResponse,
+    StartQRFSMTourRequest,
+    StartQRFSMTourResponse,
     StartTourRequest,
     StartTourResponse,
     StatusResponse,
     TourScript,
-    StartQRFSMTourRequest,
-    StartQRFSMTourResponse,
 )
 
 LOGGER = logging.getLogger("otto_guide.api.router")

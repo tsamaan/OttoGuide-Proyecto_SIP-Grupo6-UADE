@@ -69,22 +69,8 @@ class Settings(BaseSettings):
     AUDIO_SAMPLE_RATE: int = 16000
     AUDIO_WAKE_CYCLE_S: int = 3
 
-    # --- QR FSM reactiva sin waypoints digitales ---
-    QR_FSM_ENABLED: bool = True
-    QR_STATIONS_CONFIG_PATH: str = "config/qr_stations.yaml"
-    QR_CAMERA_INDEX: int = 0
-    QR_STABLE_FRAMES: int = 4
-    QR_PRE_STOP_DELAY_S: float = 5.0
-    QR_COOLDOWN_S: float = 10.0
-    QR_FORWARD_SPEED_MPS: float = 0.12
-    QR_APPROACH_SPEED_MPS: float = 0.06
-    QR_TURN_ANGULAR_Z: float = 0.35
-    QR_MAX_TURN_DURATION_S: float = 8.0
-    QR_PREVENT_REPEATED: bool = True
-    QR_WAV_PLAYER_CMD: str = "aplay"
-    QR_MP3_PLAYER_CMD: str = "mpg123"
 
-    # @CONTEXT: Alias de compatibilidad con la integracion overlay anterior.
+    # --- QR FSM reactiva sin waypoints digitales ---
     QR_FSM_CONFIG_PATH: str = "config/qr_stations.yaml"
     QR_FSM_CAMERA_INDEX: int = 0
     QR_FSM_STABLE_FRAMES: int = 4

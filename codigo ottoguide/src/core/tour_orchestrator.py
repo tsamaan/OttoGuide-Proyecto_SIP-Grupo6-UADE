@@ -228,6 +228,8 @@ class TourOrchestrator(StateMachine):
         self._context: TourContext = TourContext()
         self._odometry_task: Optional[asyncio.Task[None]] = None
         self._nav_task: Optional[asyncio.Task[None]] = None
+        self._qr_fsm_task: Optional[asyncio.Task[None]] = None
+        self._qr_fsm: Optional[object] = None
         self._interaction_done_event: asyncio.Event = asyncio.Event()
         self._pending_audio: np.ndarray = np.zeros(1, dtype=np.float32)
         self._pending_language: str = "es"
@@ -334,6 +336,140 @@ class TourOrchestrator(StateMachine):
             plan.tour_id,
             len(plan.waypoints),
         )
+
+    async def dispatch_qr_fsm_tour(self, *, tour_id: str = "qr-fsm-tour-001") -> None:
+        """
+        @TASK: Despachar recorrido reactivo guiado únicamente por eventos QR.
+        @INPUT: tour_id — identificador de sesión para auditoría.
+        @OUTPUT: Estado NAVIGATING y tarea _qr_fsm_loop activa como _qr_fsm_task.
+        @CONTEXT: No usa waypoints, mapas, GPS ni coordenadas; el QR es el único interruptor lógico.
+        @SECURITY: Rechaza tours concurrentes si el orquestador no está en IDLE.
+        """
+        from config.settings import get_settings
+
+        if self.state_id != "idle":
+            raise RuntimeError(
+                f"dispatch_qr_fsm_tour() rechazado: estado actual es '{self.state_id}', se requiere 'idle'."
+            )
+
+        settings = get_settings()
+        if not settings.QR_FSM_ENABLED:
+            raise RuntimeError("dispatch_qr_fsm_tour() rechazado: QR_FSM_ENABLED=false.")
+
+        self._context.waypoint_plan = []
+        self._context.current_waypoint_index = 0
+        self._context.tour_id = tour_id
+        self._context.last_error = None
+
+        self._schedule_audit_event(
+            event_type="TOUR_START",
+            node_id="I",
+            payload={"tour_id": tour_id, "mode": "qr_fsm_no_waypoints"},
+        )
+
+        await self.start_tour()
+
+        self._qr_fsm = self._build_qr_fsm_controller()
+        self._qr_fsm_task = asyncio.create_task(self._qr_fsm_loop(), name=f"qr-fsm-loop-{tour_id}")
+        LOGGER.info("[Orchestrator] dispatch_qr_fsm_tour aceptado. tour_id=%s", tour_id)
+
+    def _build_qr_fsm_controller(self):
+        """
+        @TASK: Construir la FSM QR y sus dependencias.
+        @CONTEXT: Import lazy para no abrir cámara ni validar audios durante el boot.
+        """
+        from pathlib import Path
+        from config.settings import get_settings
+        from src.core.local_audio_player import LocalAudioPlayer
+        from src.core.otto_qr_fsm import (
+            ConversationManagerLLMAdapter,
+            OttoQRAsyncFSM,
+            QRStationRegistry,
+        )
+        from src.core.qr_motion_driver import QRMotionDriver
+        from src.vision.qr_detector import QRDetector
+
+        settings = get_settings()
+        project_root = Path(__file__).resolve().parents[2]
+
+        registry_path = project_root / settings.QR_STATIONS_CONFIG_PATH
+        registry = QRStationRegistry(registry_path)
+        detector = QRDetector(
+            camera_index=settings.QR_CAMERA_INDEX,
+            stable_frames=settings.QR_STABLE_FRAMES,
+        )
+        audio_player = LocalAudioPlayer(
+            project_root=project_root,
+            wav_player_cmd=settings.QR_WAV_PLAYER_CMD,
+            mp3_player_cmd=settings.QR_MP3_PLAYER_CMD,
+        )
+        motion = QRMotionDriver(
+            hardware=self._hardware_api,
+            forward_speed_mps=settings.QR_FORWARD_SPEED_MPS,
+            approach_speed_mps=settings.QR_APPROACH_SPEED_MPS,
+            turn_angular_z=settings.QR_TURN_ANGULAR_Z,
+            move_tick_ms=getattr(settings, "QR_FSM_MOVE_TICK_MS", 250),
+        )
+        llm = ConversationManagerLLMAdapter(self._conversation_manager)
+
+        return OttoQRAsyncFSM(
+            registry=registry,
+            detector=detector,
+            audio_player=audio_player,
+            motion=motion,
+            llm=llm,
+            pre_stop_delay_s=settings.QR_PRE_STOP_DELAY_S,
+            cooldown_s=settings.QR_COOLDOWN_S,
+            max_turn_duration_s=settings.QR_MAX_TURN_DURATION_S,
+            prevent_repeated_qr=settings.QR_PREVENT_REPEATED,
+        )
+
+    async def _qr_fsm_loop(self) -> None:
+        """
+        @TASK: Ejecutar FSM QR como tarea de navegación principal sin waypoints digitales.
+        @CONTEXT: QR ausente/desconocido no aborta; la FSM solo reacciona ante QR conocidos.
+        """
+        controller = self._qr_fsm or self._build_qr_fsm_controller()
+        self._qr_fsm = controller
+
+        try:
+            events = await controller.run()
+
+            self._schedule_audit_event(
+                event_type="TOUR_END",
+                node_id="F",
+                payload={
+                    "tour_id": self._context.tour_id,
+                    "mode": "qr_fsm_no_waypoints",
+                    "events": events,
+                },
+            )
+
+            if self.state_id == "navigating":
+                await self.finish_tour()
+
+        except asyncio.CancelledError:
+            LOGGER.info("[Orchestrator] _qr_fsm_loop cancelado.")
+            await controller.stop()
+            self._qr_fsm_task = None
+            raise
+
+        except Exception as exc:
+            LOGGER.error("[Orchestrator] Error en FSM QR: %s", exc)
+            self._context.last_error = str(exc)
+            try:
+                await self._hardware_api.move(
+                    MotionCommand(linear_x=0.0, angular_z=0.0, duration_ms=0)
+                )
+            except Exception:
+                pass
+
+            if self.state_id == "navigating":
+                await self.finish_tour()
+
+        finally:
+            self._qr_fsm_task = None
+            self._qr_fsm = None
 
     async def request_interaction(
         self,
@@ -450,6 +586,8 @@ class TourOrchestrator(StateMachine):
         self._context.last_error = reason
         LOGGER.critical("[Orchestrator] EMERGENCY STOP solicitado. Razon: %s", reason)
 
+        await self._cancel_qr_fsm_task_safe()
+
         await self.trigger_emergency()
 
     # ------------------------------------------------------------------
@@ -512,6 +650,7 @@ class TourOrchestrator(StateMachine):
                 pass
 
         self._odometry_task = None
+        await self._cancel_qr_fsm_task_safe()
         LOGGER.info("[Orchestrator] on_exit_navigating: Tarea de odometria cancelada.")
 
     async def on_enter_interacting(self) -> None:
@@ -917,6 +1056,24 @@ class TourOrchestrator(StateMachine):
             except asyncio.CancelledError:
                 pass
         self._odometry_task = None
+
+    async def _cancel_qr_fsm_task_safe(self) -> None:
+        """
+        @TASK: Cancelar _qr_fsm_task de forma segura sin propagar CancelledError al caller
+        @INPUT: Sin parametros; opera sobre el atributo de instancia _qr_fsm_task
+        @OUTPUT: _qr_fsm_task.cancel() invocado; tarea awaited; _qr_fsm_task = None para estado limpio
+        @CONTEXT: Utilitario invocado desde on_exit_navigating, emergency_stop y rutas de cierre.
+        @SECURITY: La FSM QR puede estar dormida en cooldown o bloqueada en I/O; cancelarla evita
+                   que sobreviva al tour o interfiera con shutdown.
+        """
+        if self._qr_fsm_task is not None and not self._qr_fsm_task.done():
+            self._qr_fsm_task.cancel()
+            try:
+                await self._qr_fsm_task
+            except asyncio.CancelledError:
+                pass
+        self._qr_fsm_task = None
+        self._qr_fsm = None
 
     def _resolve_logical_waypoint_id(self) -> str:
         """
