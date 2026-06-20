@@ -61,6 +61,7 @@ network_robot_after_*.txt
 
 artifacts/maps/
 *.pgm
+!codigo ottoguide/tests/fixtures/offline_navigation/*.pgm
 *.mp4
 artifacts/evidence/
 *.ply

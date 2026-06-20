@@ -55,3 +55,15 @@ Antes de enviar el primer comando de velocidad automático (`/cmd_vel`) al hardw
 
 ---
 **Nota de Riesgos:** Intentar navegación con el mapa actual puede resultar en trayectorias espurias hacia lo "desconocido" y colisiones debido a que no hay contexto del entorno.
+
+---
+
+## 8. Actualización 2026-06-20 — Baseline estático del sandbox
+
+Se completó una fase de auditoría y preparación estática (sin levantar el stack Nav2 completo, sin nodos ROS, sin robot) sobre el sandbox offline ya existente (`codigo ottoguide/launch/offline_nav_sandbox.launch.py` y `codigo ottoguide/config/navigation/nav2_offline_sandbox_params.yaml`). Resultados:
+
+- **Matriz de paquetes ROS locales**: documentada en [OFFLINE_NAVIGATION_LOCAL_CAPABILITIES.md](OFFLINE_NAVIGATION_LOCAL_CAPABILITIES.md), verificada en WSL `Ubuntu-24.04` con ROS 2 `jazzy`. Todos los paquetes Nav2 base, `tf2_ros`, `robot_state_publisher` y `rviz2` están disponibles. El paquete `nav2_loopback_sim` (usado por los launch de loopback simulation de `nav2_bringup`) **no** está instalado localmente.
+- **Mapa sintético versionado**: se creó `codigo ottoguide/tests/fixtures/offline_navigation/offline_sandbox_test_map.pgm` y `.yaml`, con paredes, pasillo y un obstáculo, marcado explícitamente como `SYNTHETIC_TEST_MAP`, `NOT_UADE_MAP`, `NOT_METRICALLY_VALIDATED` y `NOT_FOR_PHYSICAL_NAVIGATION`. El default de `map_yaml` en el launch ahora apunta a este mapa versionado en lugar de `artifacts/maps/ottoguide_hil_stationary_map.yaml`.
+- **Verificador de aislamiento estático**: `codigo ottoguide/tools/hil/offline_navigation/verify_sandbox_isolation.py`, que inspecciona archivos locales (sin red, sin grafo ROS) y produce un veredicto JSON `PASS`/`FAIL`.
+- **Tests puros**: `codigo ottoguide/tests/unit/test_offline_navigation_sandbox_isolation.py`, ejecutables sin ROS.
+- **No se completó en esta fase**: levantar el stack Nav2 completo, ejecutar nodos, publicar tópicos, ni validar L2 (odometría) o L3 (localización/mapa), que permanecen `NOT_READY` (ver [PROGRESO_ODOMETRIA_OFFLINE.md](PROGRESO_ODOMETRIA_OFFLINE.md)). El detalle de readiness por capa está en [OFFLINE_NAVIGATION_SANDBOX_READINESS.md](OFFLINE_NAVIGATION_SANDBOX_READINESS.md).

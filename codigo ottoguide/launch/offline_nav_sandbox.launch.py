@@ -11,7 +11,9 @@ CODE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = CODE_ROOT.parent
 PARAMS_FILE = str(CODE_ROOT / "config" / "navigation" / "nav2_offline_sandbox_params.yaml")
 RVIZ_DEFAULT = str(CODE_ROOT / "tools" / "hil" / "rviz" / "ottoguide_nav2_offline_sandbox.rviz")
-MAP_DEFAULT = str(REPO_ROOT / "artifacts" / "maps" / "ottoguide_hil_stationary_map.yaml")
+MAP_DEFAULT = str(
+    CODE_ROOT / "tests" / "fixtures" / "offline_navigation" / "offline_sandbox_test_map.yaml"
+)
 
 
 def generate_launch_description():
@@ -19,7 +21,10 @@ def generate_launch_description():
     map_yaml_arg = DeclareLaunchArgument(
         'map_yaml',
         default_value=MAP_DEFAULT,
-        description='Ruta al archivo yaml del mapa. NOTA: default es un artefacto local no versionable.'
+        description=(
+            'Ruta al archivo yaml del mapa. Default: mapa sintetico versionado '
+            '(SYNTHETIC_TEST_MAP, NOT_UADE_MAP, NOT_FOR_PHYSICAL_NAVIGATION).'
+        )
     )
 
     use_rviz_arg = DeclareLaunchArgument(
@@ -66,6 +71,8 @@ def generate_launch_description():
 
     # Sandbox offline unicamente: sin navegacion real, sin hardware fisico,
     # sin controller_server y sin /cmd_vel.
+    # Requiere entorno con ROS_LOCALHOST_ONLY=1 y ROS_DOMAIN_ID explicito
+    # (no el default 0) para aislar este sandbox del resto de la red ROS.
 
     return LaunchDescription([
         map_yaml_arg,
