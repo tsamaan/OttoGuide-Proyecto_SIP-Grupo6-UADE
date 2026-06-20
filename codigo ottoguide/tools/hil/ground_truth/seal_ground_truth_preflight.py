@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import validate_ground_truth_session as contract
@@ -41,7 +42,8 @@ class TransactionError(Exception):
                  rollback_failures: list[str],
                  temp_remaining: int,
                  bak_remaining: int,
-                 lock_released: bool):
+                 lock_released: bool,
+                 targets_modified: bool):
         super().__init__(str(original_error))
         self.original_error = original_error
         self.error_category = error_category
@@ -52,6 +54,7 @@ class TransactionError(Exception):
         self.temp_remaining = temp_remaining
         self.bak_remaining = bak_remaining
         self.lock_released = lock_released
+        self.targets_modified = targets_modified
 
 
 def is_allowed_evidence_error(err: str) -> bool:
@@ -85,7 +88,7 @@ def validate_reseal_base(session: Path) -> dict:
         return res
     for err in res["errors"]:
         if not is_allowed_evidence_error(err):
-            raise ValueError(f"session has non-evidence structural errors: {err}")
+            raise ContractError(f"session has non-evidence structural errors: {err}")
     return res
 
 
@@ -179,17 +182,25 @@ def remove_target(path: Path) -> None:
 
 
 def read_object(path: Path, label: str) -> tuple[dict, bytes]:
-    raw = path.read_bytes()
-    data = json.loads(raw.decode("utf-8"))
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        raise EvidenceError(f"{label} file does not exist: {path}")
+    except OSError as e:
+        raise EvidenceError(f"Failed to read {label} file: {e}")
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeError) as e:
+        raise EvidenceError(f"{label} JSON/Unicode parsing failed: {e}")
     if not isinstance(data, dict):
-        raise ValueError(f"{label} must contain a JSON object")
+        raise EvidenceError(f"{label} must contain a JSON object")
     errors: list[str] = []
     if label == "hardware_inventory":
         contract.validate_inventory(data, errors)
     else:
         contract.validate_review(data, errors)
     if errors:
-        raise ValueError(f"{label} structural errors: " + "; ".join(errors))
+        raise EvidenceError(f"{label} structural errors: " + "; ".join(errors))
     return data, raw
 
 
@@ -230,15 +241,24 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
             validate_reseal_base(session)
         else:
             if not before_report["ok"]:
-                raise ValueError("session is structurally invalid before sealing: " + "; ".join(before_report["errors"]))
+                raise ContractError("session is structurally invalid before sealing: " + "; ".join(before_report["errors"]))
 
         # Lock acquisition via O_EXCL
         try:
             lock_fd = os.open(str(lock_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            os.close(lock_fd)
             lock_acquired = True
+            try:
+                lock_data = {
+                    "transaction_id": transaction_id,
+                    "pid": os.getpid(),
+                    "timestamp_utc": datetime.now(timezone.utc).isoformat()
+                }
+                payload = (json.dumps(lock_data) + "\n").encode("utf-8")
+                os.write(lock_fd, payload)
+            finally:
+                os.close(lock_fd)
         except FileExistsError:
-            raise FileExistsError(f"Sealing transaction is already in progress: lock file {lock_path} exists")
+            raise LockError(f"Sealing transaction is already in progress: lock file {lock_path} exists")
 
         manifest = json.loads(manifest_target.read_text(encoding="utf-8"))
         status_before = manifest.get("physical_readiness_status", "NOT_REVIEWED")
@@ -278,7 +298,7 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
         if existed_manifest:
             old_manifest_bytes = manifest_target.read_bytes()
 
-        # Create backups if targets exist (15.3)
+        # Create backups if targets exist
         if existed_inventory:
             create_backup(inventory_target, bak_inventory)
         if existed_review:
@@ -286,13 +306,13 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
         if existed_manifest:
             create_backup(manifest_target, bak_manifest)
 
-        # Write staging files (15.2)
+        # Write staging files
         stage_write(tmp_inventory, inventory_raw)
         stage_write(tmp_review, review_raw)
         stage_write(tmp_manifest, manifest_raw)
 
         targets_modified = True
-        # Replace targets (15.4)
+        # Replace targets
         # 1. hardware inventory
         os.replace(tmp_inventory, inventory_target)
         # 2. human review
@@ -300,12 +320,12 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
         # 3. manifest (logical commit point)
         os.replace(tmp_manifest, manifest_target)
 
-        # 15.5 Validación posterior
+        # 1. Validación posterior
         after = contract.validate(session)
         if not after["ok"]:
             raise ValueError("post-write session validation failed: " + "; ".join(after["errors"]))
 
-        # comprobar hashes
+        # 2. comprobar hashes
         current_inv_hash = hashlib.sha256(inventory_target.read_bytes()).hexdigest()
         current_rev_hash = hashlib.sha256(review_target.read_bytes()).hexdigest()
         if current_inv_hash != inventory_hash or current_rev_hash != review_hash:
@@ -321,7 +341,7 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
 
         status_after = after_manifest.get("physical_readiness_status", "NOT_REVIEWED")
 
-        # Clean up temporary and backup files
+        # 3 & 4. Clean up temporary and backup files
         temp_remaining = 0
         bak_remaining = 0
         for p in (tmp_inventory, tmp_review, tmp_manifest):
@@ -337,29 +357,42 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
                 except Exception:
                     bak_remaining += 1
 
-        # Release lock
-        lock_released = False
-        if lock_acquired:
-            if lock_path.exists():
-                try:
-                    os.unlink(lock_path)
-                    lock_released = True
-                except Exception:
-                    pass
-            else:
-                lock_released = True
-        else:
-            lock_released = True
-
-        if temp_remaining != 0 or bak_remaining != 0 or not lock_released:
+        # 5. Comprobar residuos
+        if temp_remaining != 0 or bak_remaining != 0:
             reasons = []
             if temp_remaining != 0:
                 reasons.append(f"{temp_remaining} temporary files remaining")
             if bak_remaining != 0:
                 reasons.append(f"{bak_remaining} backup files remaining")
-            if not lock_released:
-                reasons.append("lock file could not be released")
+            # 6. lanzar error sin liberar el lock
             raise CleanupError("Cleanup failed: " + ", ".join(reasons))
+
+        # 7. Liberar el lock como última operación
+        lock_released = False
+        if lock_acquired:
+            try:
+                if lock_path.exists():
+                    try:
+                        content = lock_path.read_text(encoding="utf-8").strip()
+                        data = json.loads(content)
+                        if not isinstance(data, dict) or data.get("transaction_id") != transaction_id:
+                            raise LockError("Lock ownership check failed: transaction ID mismatch")
+                    except Exception as e:
+                        if isinstance(e, LockError):
+                            raise
+                        raise LockError(f"Lock ownership check failed: {e}")
+
+                    try:
+                        os.unlink(lock_path)
+                    except Exception as e:
+                        raise OperationalError(f"Failed to delete own lock file: {e}")
+                lock_released = True
+            except Exception as e:
+                raise e
+
+        # 8. comprobar que el lock fue eliminado
+        if lock_path.exists():
+            raise LockError("Lock file still exists after successful release attempt")
 
         return {
             "ok": True,
@@ -375,13 +408,14 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
             "rollback_performed": False,
             "rollback_verified": False,
             "rollback_failures": [],
-            "temporary_files_remaining": temp_remaining,
-            "backup_files_remaining": bak_remaining,
-            "lock_released": lock_released
+            "temporary_files_remaining": 0,
+            "backup_files_remaining": 0,
+            "lock_released": lock_released,
+            "targets_modified": True
         }
 
     except Exception as original_error:
-        rollback_performed = True
+        rollback_performed = targets_modified
 
         # Perform verified rollback
         # 1. Restore targets if they were modified
@@ -407,20 +441,6 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
                 except Exception as e:
                     rollback_failures.append(f"Failed to delete backup file {p.name}: {e}")
                     bak_remaining += 1
-
-        # 3. Release lock
-        lock_released = False
-        if lock_acquired:
-            if lock_path.exists():
-                try:
-                    os.unlink(lock_path)
-                    lock_released = True
-                except Exception as e:
-                    rollback_failures.append(f"Failed to delete lock file: {e}")
-            else:
-                lock_released = True
-        else:
-            lock_released = True
 
         # 4. Final validation of restored state if manifest exists and is readable
         if existed_manifest and manifest_target.is_file():
@@ -450,15 +470,37 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
             except Exception as e:
                 rollback_failures.append(f"Failed to validate restored session: {e}")
 
-        rollback_verified = (len(rollback_failures) == 0)
+        # 3. Release lock after rollback and its verifications
+        lock_released = False
+        if lock_acquired:
+            if lock_path.exists():
+                try:
+                    try:
+                        content = lock_path.read_text(encoding="utf-8").strip()
+                        data = json.loads(content)
+                        if not isinstance(data, dict) or data.get("transaction_id") != transaction_id:
+                            raise LockError("Lock ownership check failed: transaction ID mismatch")
+
+                        os.unlink(lock_path)
+                        lock_released = True
+                    except Exception as e:
+                        rollback_failures.append(f"Failed to release lock file in rollback: {e}")
+                except Exception as e:
+                    rollback_failures.append(f"Lock release failure in rollback: {e}")
+            else:
+                lock_released = True
+        else:
+            lock_released = not lock_path.exists()
+
+        rollback_verified = (len(rollback_failures) == 0) and lock_released
 
         # Classification rules:
-        if not rollback_verified:
-            category = "ROLLBACK"
-        elif targets_modified:
-            category = "OPERATIONAL"
-        elif isinstance(original_error, (FileExistsError, ValueError, json.JSONDecodeError, UnicodeError)):
+        if isinstance(original_error, (ContractError, EvidenceError, ValueError, FileExistsError, json.JSONDecodeError, UnicodeError)) and not targets_modified:
             category = "CONTRACT"
+        elif not rollback_verified:
+            category = "ROLLBACK"
+        elif isinstance(original_error, LockError):
+            category = "ROLLBACK"
         else:
             category = "OPERATIONAL"
 
@@ -474,7 +516,8 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
                 rollback_failures=rollback_failures,
                 temp_remaining=temp_remaining,
                 bak_remaining=bak_remaining,
-                lock_released=lock_released
+                lock_released=lock_released,
+                targets_modified=targets_modified
             )
         except TypeError:
             raise TransactionError(
@@ -486,7 +529,8 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
                 rollback_failures=rollback_failures,
                 temp_remaining=temp_remaining,
                 bak_remaining=bak_remaining,
-                lock_released=lock_released
+                lock_released=lock_released,
+                targets_modified=targets_modified
             )
 
 
@@ -497,6 +541,7 @@ def main() -> int:
     parser.add_argument("human_review", type=Path)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+    lock_path = args.session_dir / "calibration" / ".gtseal.lock"
     try:
         result = seal(args.session_dir, args.hardware_inventory, args.human_review, args.force)
         print(json.dumps(result, indent=2, sort_keys=True))
@@ -518,7 +563,9 @@ def main() -> int:
             "original_error": str(exc.original_error),
             "temporary_files_remaining": exc.temp_remaining,
             "backup_files_remaining": exc.bak_remaining,
-            "lock_released": exc.lock_released
+            "lock_released": exc.lock_released,
+            "targets_modified": exc.targets_modified,
+            "lock_path": str(lock_path)
         }
         print(json.dumps(err_res, indent=2, sort_keys=True))
         return exit_code
@@ -526,7 +573,8 @@ def main() -> int:
         print(json.dumps({
             "ok": False,
             "error_category": "OPERATIONAL",
-            "error": str(exc)
+            "error": str(exc),
+            "lock_path": str(lock_path)
         }, sort_keys=True))
         return 1
 
