@@ -558,31 +558,47 @@ class FailSafeTests(unittest.TestCase):
 
     def test_transaction_failure_during_validation(self):
         import unittest.mock as mock
+        # Preparar y sellar inicialmente la sesión para que tenga evidencia previa
         s = prepare.prepare(self.root, self.args("GT_TX_FAIL_VAL", self.templates / "route_spec.example.json"))
         self.copy_events(s)
+        seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+
         manifest_before = (s / "session_manifest.json").read_bytes()
+        orig_inv = (s / "calibration" / "hardware_inventory.json").read_bytes()
+        orig_rev = (s / "calibration" / "human_review.json").read_bytes()
 
         calls = 0
         original_validate = validate.validate
         def mock_validate(session_dir):
             nonlocal calls
             calls += 1
-            if calls == 1:
-                return original_validate(session_dir)
-            else:
+            if calls == 3:
                 return {"ok": False, "errors": ["Mocked post-write validation error"]}
+            else:
+                return original_validate(session_dir)
 
-        with mock.patch("validate_ground_truth_session.validate", side_effect=mock_validate):
+        orig_replace = os.replace
+        replace_calls = []
+        def track_replace(src, dst):
+            if "stage.tmp" in str(src):
+                replace_calls.append((str(src), str(dst)))
+            return orig_replace(src, dst)
+
+        with mock.patch("validate_ground_truth_session.validate", side_effect=mock_validate), \
+             mock.patch("os.replace", side_effect=track_replace):
             with self.assertRaises(seal.TransactionError) as ctx:
-                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json", force=True)
             self.assertTrue(ctx.exception.rollback_performed)
             self.assertTrue(ctx.exception.rollback_verified)
             self.assertEqual(ctx.exception.temp_remaining, 0)
             self.assertEqual(ctx.exception.bak_remaining, 0)
             self.assertTrue(ctx.exception.lock_released)
+            self.assertEqual(ctx.exception.error_category, "OPERATIONAL")
+
+        self.assertEqual(len(replace_calls), 3)
         self.assertEqual((s / "session_manifest.json").read_bytes(), manifest_before)
-        self.assertFalse((s / "calibration" / "hardware_inventory.json").exists())
-        self.assertFalse((s / "calibration" / "human_review.json").exists())
+        self.assertEqual((s / "calibration" / "hardware_inventory.json").read_bytes(), orig_inv)
+        self.assertEqual((s / "calibration" / "human_review.json").read_bytes(), orig_rev)
         for p in s.rglob("*"):
             if p.is_file():
                 self.assertFalse(p.name.endswith(".tmp") or p.name.endswith(".bak") or p.name.endswith(".backup"))
@@ -875,6 +891,178 @@ class FailSafeTests(unittest.TestCase):
                 seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
             self.assertFalse(ctx.exception.rollback_verified)
             self.assertTrue(len(ctx.exception.rollback_failures) > 0)
+
+    def test_logical_report_mismatch_during_rollback(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_LOGICAL_MISMATCH", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+
+        calls = 0
+        real_validate = validate.validate
+        def mock_validate(session_dir):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return real_validate(session_dir)
+            elif calls == 2:
+                return {"ok": False, "errors": ["Mocked post-write validation error"]}
+            else:
+                res = real_validate(session_dir)
+                res_copy = dict(res)
+                res_copy["physical_ready"] = not res["physical_ready"]
+                return res_copy
+
+        orig_replace = os.replace
+        def track_replace(src, dst):
+            if "stage.tmp" in str(src):
+                raise RuntimeError("Fail before replace to trigger rollback")
+            return orig_replace(src, dst)
+
+        with mock.patch("validate_ground_truth_session.validate", side_effect=mock_validate), \
+             mock.patch("os.replace", side_effect=track_replace):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json", force=True)
+            self.assertFalse(ctx.exception.rollback_verified)
+            self.assertTrue(any("Restored session state is not logically equivalent" in f for f in ctx.exception.rollback_failures))
+
+    def test_cleanup_temp_failure(self):
+        import unittest.mock as mock
+        from pathlib import Path
+        s = prepare.prepare(self.root, self.args("GT_CLEAN_TEMP_FAIL", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+
+        orig_unlink = os.unlink
+        def fake_unlink(path):
+            if "stage.tmp" in str(path):
+                raise PermissionError("Mocked temp file delete failure")
+            return orig_unlink(path)
+
+        orig_exists = Path.exists
+        def fake_exists(self):
+            if "stage.tmp" in str(self):
+                return True
+            return orig_exists(self)
+
+        with mock.patch("os.unlink", side_effect=fake_unlink), \
+             mock.patch("pathlib.Path.exists", new=fake_exists):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+            self.assertFalse(ctx.exception.rollback_verified)
+            self.assertEqual(ctx.exception.error_category, "ROLLBACK")
+
+    def test_cleanup_backup_failure(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_CLEAN_BAK_FAIL", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+
+        orig_unlink = os.unlink
+        def fake_unlink(path):
+            if "backup.bak" in str(path):
+                raise PermissionError("Mocked backup delete failure")
+            return orig_unlink(path)
+
+        with mock.patch("os.unlink", side_effect=fake_unlink):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json", force=True)
+            self.assertFalse(ctx.exception.rollback_verified)
+            self.assertEqual(ctx.exception.error_category, "ROLLBACK")
+
+    def test_cleanup_lock_release_failure(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_LOCK_REL_FAIL", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+
+        orig_unlink = os.unlink
+        def fake_unlink(path):
+            if ".gtseal.lock" in str(path):
+                raise PermissionError("Mocked lock delete failure")
+            return orig_unlink(path)
+
+        with mock.patch("os.unlink", side_effect=fake_unlink):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+            self.assertFalse(ctx.exception.rollback_verified)
+            self.assertEqual(ctx.exception.error_category, "ROLLBACK")
+
+    def test_operational_os_error_returns_exit_1(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_OS_ERROR_FAIL", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+
+        orig_open = os.open
+        def fake_open(path, flags, mode=0o777):
+            if "stage.tmp" in str(path):
+                raise OSError(28, "No space left on device")
+            return orig_open(path, flags, mode)
+
+        with mock.patch("os.open", side_effect=fake_open):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+            self.assertTrue(ctx.exception.rollback_verified)
+            self.assertEqual(ctx.exception.error_category, "OPERATIONAL")
+
+    def test_permission_error_returns_exit_1(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_PERM_ERROR_FAIL", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+
+        orig_replace = os.replace
+        def fake_replace(src, dst):
+            if "stage.tmp" in str(src):
+                raise PermissionError("Permission denied")
+            return orig_replace(src, dst)
+
+        with mock.patch("os.replace", side_effect=fake_replace):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+            self.assertTrue(ctx.exception.rollback_verified)
+            self.assertEqual(ctx.exception.error_category, "OPERATIONAL")
+
+    def test_file_exists_error_by_lock_returns_exit_3(self):
+        s = prepare.prepare(self.root, self.args("GT_LOCK_EXIST_FAIL", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        lock_path = s / "calibration" / ".gtseal.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text("lock", encoding="utf-8")
+        try:
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+            self.assertEqual(ctx.exception.error_category, "CONTRACT")
+        finally:
+            if lock_path.exists():
+                os.unlink(lock_path)
+
+    def test_rollback_incomplete_returns_exit_1(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_INCOMPLETE_ROLLBACK", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+
+        orig_replace = os.replace
+        calls = 0
+        def fake_replace(src, dst):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("Initial replace failure")
+            else:
+                raise OSError("Fail during rollback replace")
+
+        with mock.patch("os.replace", side_effect=fake_replace):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+            self.assertFalse(ctx.exception.rollback_verified)
+            self.assertEqual(ctx.exception.error_category, "ROLLBACK")
+
+    def test_success_exiges_clean_state(self):
+        s = prepare.prepare(self.root, self.args("GT_SUCCESS_CLEAN", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        res = seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["temporary_files_remaining"], 0)
+        self.assertEqual(res["backup_files_remaining"], 0)
+        self.assertTrue(res["lock_released"])
 
 
 if __name__ == "__main__":

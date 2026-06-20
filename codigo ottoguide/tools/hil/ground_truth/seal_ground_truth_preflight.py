@@ -11,9 +11,30 @@ from pathlib import Path
 import validate_ground_truth_session as contract
 
 
+class ContractError(ValueError):
+    pass
+
+
+class EvidenceError(ValueError):
+    pass
+
+
+class LockError(FileExistsError):
+    pass
+
+
+class OperationalError(OSError):
+    pass
+
+
+class CleanupError(OperationalError):
+    pass
+
+
 class TransactionError(Exception):
     def __init__(self,
                  original_error: Exception,
+                 error_category: str,
                  transaction_id: str,
                  rollback_performed: bool,
                  rollback_verified: bool,
@@ -23,6 +44,7 @@ class TransactionError(Exception):
                  lock_released: bool):
         super().__init__(str(original_error))
         self.original_error = original_error
+        self.error_category = error_category
         self.transaction_id = transaction_id
         self.rollback_performed = rollback_performed
         self.rollback_verified = rollback_verified
@@ -199,15 +221,16 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
     old_inventory_bytes = None
     old_review_bytes = None
     old_manifest_bytes = None
+    before_report = None
 
     try:
         # 1. Preparación
+        before_report = contract.validate(session)
         if force:
             validate_reseal_base(session)
         else:
-            before = contract.validate(session)
-            if not before["ok"]:
-                raise ValueError("session is structurally invalid before sealing: " + "; ".join(before["errors"]))
+            if not before_report["ok"]:
+                raise ValueError("session is structurally invalid before sealing: " + "; ".join(before_report["errors"]))
 
         # Lock acquisition via O_EXCL
         try:
@@ -316,12 +339,27 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
 
         # Release lock
         lock_released = False
-        if lock_acquired and lock_path.exists():
-            try:
-                os.unlink(lock_path)
+        if lock_acquired:
+            if lock_path.exists():
+                try:
+                    os.unlink(lock_path)
+                    lock_released = True
+                except Exception:
+                    pass
+            else:
                 lock_released = True
-            except Exception:
-                pass
+        else:
+            lock_released = True
+
+        if temp_remaining != 0 or bak_remaining != 0 or not lock_released:
+            reasons = []
+            if temp_remaining != 0:
+                reasons.append(f"{temp_remaining} temporary files remaining")
+            if bak_remaining != 0:
+                reasons.append(f"{bak_remaining} backup files remaining")
+            if not lock_released:
+                reasons.append("lock file could not be released")
+            raise CleanupError("Cleanup failed: " + ", ".join(reasons))
 
         return {
             "ok": True,
@@ -381,21 +419,55 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
                     rollback_failures.append(f"Failed to delete lock file: {e}")
             else:
                 lock_released = True
+        else:
+            lock_released = True
 
         # 4. Final validation of restored state if manifest exists and is readable
         if existed_manifest and manifest_target.is_file():
             try:
-                contract.validate(session)
+                restored_report = contract.validate(session)
+                if before_report is not None:
+                    # Compare ok, decision, physical_ready, errors, blocking_reasons
+                    # Normalizar listas mediante ordenamiento
+                    ok_match = restored_report.get("ok") == before_report.get("ok")
+                    decision_match = restored_report.get("decision") == before_report.get("decision")
+                    ready_match = restored_report.get("physical_ready") == before_report.get("physical_ready")
+
+                    errors_before = sorted(before_report.get("errors", []))
+                    errors_restored = sorted(restored_report.get("errors", []))
+                    errors_match = errors_before == errors_restored
+
+                    blockers_before = sorted(before_report.get("blocking_reasons", []))
+                    blockers_restored = sorted(restored_report.get("blocking_reasons", []))
+                    blockers_match = blockers_before == blockers_restored
+
+                    if not (ok_match and decision_match and ready_match and errors_match and blockers_match):
+                        rollback_failures.append(
+                            f"Restored session state is not logically equivalent to state before transaction. "
+                            f"Before: ok={before_report.get('ok')}, decision={before_report.get('decision')}, ready={before_report.get('physical_ready')}, errors={errors_before}, blockers={blockers_before}. "
+                            f"Restored: ok={restored_report.get('ok')}, decision={restored_report.get('decision')}, ready={restored_report.get('physical_ready')}, errors={errors_restored}, blockers={blockers_restored}."
+                        )
             except Exception as e:
                 rollback_failures.append(f"Failed to validate restored session: {e}")
 
         rollback_verified = (len(rollback_failures) == 0)
+
+        # Classification rules:
+        if not rollback_verified:
+            category = "ROLLBACK"
+        elif targets_modified:
+            category = "OPERATIONAL"
+        elif isinstance(original_error, (FileExistsError, ValueError, json.JSONDecodeError, UnicodeError)):
+            category = "CONTRACT"
+        else:
+            category = "OPERATIONAL"
 
         try:
             class_name = f"Transaction{type(original_error).__name__}"
             dynamic_class = type(class_name, (TransactionError, type(original_error)), {})
             raise dynamic_class(
                 original_error=original_error,
+                error_category=category,
                 transaction_id=transaction_id,
                 rollback_performed=rollback_performed,
                 rollback_verified=rollback_verified,
@@ -407,6 +479,7 @@ def seal(session: Path, inventory_source: Path, review_source: Path, force: bool
         except TypeError:
             raise TransactionError(
                 original_error=original_error,
+                error_category=category,
                 transaction_id=transaction_id,
                 rollback_performed=rollback_performed,
                 rollback_verified=rollback_verified,
@@ -429,11 +502,14 @@ def main() -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     except TransactionError as exc:
-        is_contractual = isinstance(exc.original_error, (ValueError, FileExistsError, OSError, json.JSONDecodeError, UnicodeError))
-        exit_code = 3 if (is_contractual and exc.rollback_verified) else 1
+        if exc.error_category == "CONTRACT":
+            exit_code = 3
+        else:
+            exit_code = 1
 
         err_res = {
             "ok": False,
+            "error_category": exc.error_category,
             "transaction_id": exc.transaction_id,
             "transaction_completed": False,
             "rollback_performed": exc.rollback_performed,
@@ -447,7 +523,11 @@ def main() -> int:
         print(json.dumps(err_res, indent=2, sort_keys=True))
         return exit_code
     except Exception as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, sort_keys=True))
+        print(json.dumps({
+            "ok": False,
+            "error_category": "OPERATIONAL",
+            "error": str(exc)
+        }, sort_keys=True))
         return 1
 
 
