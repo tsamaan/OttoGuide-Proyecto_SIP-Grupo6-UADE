@@ -5,6 +5,7 @@ Runs without ROS: no rclpy import, no node start, no network access.
 """
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import os
@@ -17,6 +18,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 CODE_ROOT = REPO_ROOT / "codigo ottoguide"
 CHECKER_PATH = CODE_ROOT / "tools" / "hil" / "offline_navigation" / "verify_sandbox_isolation.py"
 LAUNCH_FILE = CODE_ROOT / "launch" / "offline_nav_sandbox.launch.py"
+SIMULATOR_FILE = CODE_ROOT / "tools" / "hil" / "offline_navigation" / "offline_runtime_simulator.py"
+RUNTIME_WRAPPER = CODE_ROOT / "scripts" / "run_offline_navigation_runtime.sh"
 MAP_DIR = CODE_ROOT / "tests" / "fixtures" / "offline_navigation"
 MAP_PGM = MAP_DIR / "offline_sandbox_test_map.pgm"
 MAP_YAML = MAP_DIR / "offline_sandbox_test_map.yaml"
@@ -191,6 +194,205 @@ class IsolationCheckerDetectionTests(unittest.TestCase):
             yield Path(path)
         finally:
             os.remove(path)
+
+
+class RealNamespaceTests(unittest.TestCase):
+    def test_sandbox_namespace_argument_declared_with_offline_nav_default(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        found_default = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func_name = getattr(node.func, "id", None)
+                if func_name == "DeclareLaunchArgument" and node.args:
+                    first_arg = node.args[0]
+                    if isinstance(first_arg, ast.Constant) and first_arg.value == "sandbox_namespace":
+                        for kw in node.keywords:
+                            if kw.arg == "default_value" and isinstance(kw.value, ast.Constant):
+                                found_default = kw.value.value
+        self.assertEqual(found_default, "offline_nav")
+
+    def test_at_least_one_node_applies_namespace_kwarg(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        namespace_kwarg_count = 0
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                for kw in node.keywords:
+                    if kw.arg == "namespace":
+                        namespace_kwarg_count += 1
+        self.assertGreater(namespace_kwarg_count, 0)
+
+    def test_checker_rejects_textual_only_offline_marker(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file_with_suffix(
+            "# this file just mentions the word offline in a comment\n", suffix=".py"
+        ) as tmp_launch:
+            checker.LAUNCH_FILE = tmp_launch
+            try:
+                checker.check_namespace_offline(result)
+            finally:
+                checker.LAUNCH_FILE = LAUNCH_FILE
+        self.assertIn("NO_SANDBOX_NAMESPACE_ARGUMENT_DECLARED", result["errors"])
+
+    def test_checker_accepts_real_launch_namespace(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_namespace_offline(result)
+        self.assertNotIn("NO_SANDBOX_NAMESPACE_ARGUMENT_DECLARED", result["errors"])
+        self.assertNotIn("SANDBOX_NAMESPACE_DEFAULT_NOT_OFFLINE_NAV", result["errors"])
+        self.assertNotIn("NO_NODE_APPLIES_NAMESPACE_KWARG", result["errors"])
+
+    @contextmanager
+    def _temp_file_with_suffix(self, content: str, suffix: str):
+        fd, path = tempfile.mkstemp(suffix=suffix)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
+class RuntimeModeCheckerTests(unittest.TestCase):
+    def setUp(self):
+        self._saved_environ = dict(os.environ)
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self._saved_environ)
+
+    def test_runtime_mode_localhost_only_missing_is_error(self):
+        os.environ.pop("ROS_LOCALHOST_ONLY", None)
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_localhost_only_required(result, runtime=True)
+        self.assertIn("ROS_LOCALHOST_ONLY_NOT_ENABLED", result["errors"])
+
+    def test_runtime_mode_localhost_only_wrong_value_is_error(self):
+        os.environ["ROS_LOCALHOST_ONLY"] = "0"
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_localhost_only_required(result, runtime=True)
+        self.assertIn("ROS_LOCALHOST_ONLY_NOT_ENABLED", result["errors"])
+
+    def test_runtime_mode_localhost_only_correct_value_passes(self):
+        os.environ["ROS_LOCALHOST_ONLY"] = "1"
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_localhost_only_required(result, runtime=True)
+        self.assertNotIn("ROS_LOCALHOST_ONLY_NOT_ENABLED", result["errors"])
+
+    def test_runtime_mode_domain_id_missing_is_error(self):
+        os.environ.pop("ROS_DOMAIN_ID", None)
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_domain_id_required(result, runtime=True)
+        self.assertIn("ROS_DOMAIN_ID_MISSING", result["errors"])
+
+    def test_runtime_mode_domain_id_zero_is_error(self):
+        os.environ["ROS_DOMAIN_ID"] = "0"
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_domain_id_required(result, runtime=True)
+        self.assertIn("ROS_DOMAIN_ID_IS_ZERO", result["errors"])
+
+    def test_runtime_mode_domain_id_valid_passes(self):
+        os.environ["ROS_DOMAIN_ID"] = "77"
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_domain_id_required(result, runtime=True)
+        self.assertNotIn("ROS_DOMAIN_ID_MISSING", result["errors"])
+        self.assertNotIn("ROS_DOMAIN_ID_IS_ZERO", result["errors"])
+
+    def test_static_mode_missing_vars_are_warnings_not_errors(self):
+        os.environ.pop("ROS_LOCALHOST_ONLY", None)
+        os.environ.pop("ROS_DOMAIN_ID", None)
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_localhost_only_required(result, runtime=False)
+        checker.check_domain_id_required(result, runtime=False)
+        self.assertEqual(result["errors"], [])
+        self.assertIn("ROS_LOCALHOST_ONLY_NOT_SET_IN_ENVIRONMENT", result["warnings"])
+        self.assertIn("ROS_DOMAIN_ID_NOT_SET_IN_ENVIRONMENT", result["warnings"])
+
+    def test_verify_runtime_mode_field_present(self):
+        result = checker.verify(runtime=True)
+        self.assertEqual(result["mode"], "RUNTIME")
+
+    def test_verify_static_mode_field_present(self):
+        result = checker.verify(runtime=False)
+        self.assertEqual(result["mode"], "STATIC")
+
+    def test_verify_runtime_scans_simulator_and_wrapper(self):
+        os.environ["ROS_LOCALHOST_ONLY"] = "1"
+        os.environ["ROS_DOMAIN_ID"] = "77"
+        result = checker.verify(runtime=True)
+        self.assertIn(str(SIMULATOR_FILE), result["checked_files"])
+        self.assertIn(str(RUNTIME_WRAPPER), result["checked_files"])
+
+
+class GlobalTopicAbsenceTests(unittest.TestCase):
+    def test_launch_file_has_no_global_cmd_vel_usage(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_forbidden_topics(result, [LAUNCH_FILE])
+        self.assertEqual(result["errors"], [])
+
+    def test_simulator_has_no_global_cmd_vel_usage(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_forbidden_topics(result, [SIMULATOR_FILE])
+        self.assertEqual(result["errors"], [])
+
+    def test_runtime_wrapper_has_no_global_cmd_vel_usage(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_forbidden_topics(result, [RUNTIME_WRAPPER])
+        self.assertEqual(result["errors"], [])
+
+    def test_simulator_does_not_subscribe_to_any_cmd_vel_topic(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertNotIn("create_subscription", text)
+
+
+class FrameContractTests(unittest.TestCase):
+    def test_simulator_uses_odom_and_base_link_frames(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn('ODOM_FRAME = "odom"', text)
+        self.assertIn('BASE_FRAME = "base_link"', text)
+        self.assertIn('LIDAR_FRAME = "utlidar_lidar"', text)
+
+    def test_simulator_does_not_import_hardware_modules(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(SIMULATOR_FILE))
+        forbidden = {"unitree_sdk2py", "real_adapter"}
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            for name in names:
+                self.assertFalse(
+                    any(name == f or name.startswith(f + ".") for f in forbidden),
+                    f"forbidden hardware import found: {name}",
+                )
+
+    def test_launch_declares_synthetic_static_transforms(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        self.assertIn("static_transform_publisher", text)
+        self.assertIn("map_to_odom_synthetic_tf", text)
+        self.assertIn("base_link_to_utlidar_lidar_synthetic_tf", text)
+
+
+class SimulatorParameterTests(unittest.TestCase):
+    def test_simulator_declares_expected_parameters(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        for param in ("publish_frequency_hz", "scan_range_count", "scan_range_m"):
+            self.assertIn(f'declare_parameter("{param}"', text)
+
+    def test_simulator_publishes_odom_and_scan_relative_topics(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn('create_publisher(Odometry, "odom"', text)
+        self.assertIn('create_publisher(LaserScan, "scan"', text)
+
+    def test_simulator_uses_conservative_covariance(self):
+        # rclpy is not guaranteed to be importable outside ROS, so this
+        # asserts structurally on source text rather than importing the module.
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn("POSE_COVARIANCE_CONSERVATIVE", text)
+        self.assertIn("TWIST_COVARIANCE_CONSERVATIVE", text)
+        self.assertIn("999.0", text)
 
 
 if __name__ == "__main__":

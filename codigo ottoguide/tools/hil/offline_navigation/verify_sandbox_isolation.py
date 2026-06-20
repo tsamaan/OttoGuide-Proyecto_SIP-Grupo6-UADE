@@ -33,6 +33,13 @@ FORBIDDEN_HAL_IMPORT_MODULES = {
     "src.hardware.real_adapter",
 }
 
+SIMULATOR_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "offline_runtime_simulator.py"
+)
+RUNTIME_WRAPPER = CODE_ROOT / "scripts" / "run_offline_navigation_runtime.sh"
+RUNTIME_SCAN_FILES = [LAUNCH_FILE, PARAMS_FILE, MAP_YAML, SIMULATOR_FILE, RUNTIME_WRAPPER]
+EXPECTED_REAL_NAMESPACE = "offline_nav"
+
 
 def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -145,36 +152,94 @@ def check_forbidden_bridges(result: dict, files: list[Path]) -> None:
 
 
 def check_namespace_offline(result: dict) -> None:
+    """Require a *real* ROS namespace, not just the textual word 'offline'.
+
+    A real namespace means a DeclareLaunchArgument named 'sandbox_namespace'
+    whose default value is EXPECTED_REAL_NAMESPACE, and at least one Node(...)
+    call in the launch file that passes namespace= using that argument.
+    """
     result["checked_files"].append(str(LAUNCH_FILE))
     if not LAUNCH_FILE.is_file():
+        result["errors"].append("LAUNCH_FILE_MISSING")
         return
     text = _read_text(LAUNCH_FILE)
-    if "offline" not in text.lower():
-        result["errors"].append("NO_OFFLINE_NAMESPACE_MARKER")
+    try:
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+    except SyntaxError:
+        result["errors"].append("LAUNCH_FILE_SYNTAX_ERROR")
+        return
+
+    has_namespace_arg_declaration = False
+    has_namespace_arg_correct_default = False
+    nodes_with_namespace_kwarg = 0
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func_name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+        if func_name == "DeclareLaunchArgument":
+            arg_name = None
+            default_value = None
+            if node.args:
+                first_arg = node.args[0]
+                if isinstance(first_arg, ast.Constant):
+                    arg_name = first_arg.value
+            for kw in node.keywords:
+                if kw.arg == "default_value" and isinstance(kw.value, ast.Constant):
+                    default_value = kw.value.value
+            if arg_name == "sandbox_namespace":
+                has_namespace_arg_declaration = True
+                if default_value == EXPECTED_REAL_NAMESPACE:
+                    has_namespace_arg_correct_default = True
+        if func_name == "Node":
+            for kw in node.keywords:
+                if kw.arg == "namespace":
+                    nodes_with_namespace_kwarg += 1
+
+    if not has_namespace_arg_declaration:
+        result["errors"].append("NO_SANDBOX_NAMESPACE_ARGUMENT_DECLARED")
+    elif not has_namespace_arg_correct_default:
+        result["errors"].append("SANDBOX_NAMESPACE_DEFAULT_NOT_OFFLINE_NAV")
+
+    if nodes_with_namespace_kwarg == 0:
+        result["errors"].append("NO_NODE_APPLIES_NAMESPACE_KWARG")
 
 
-def check_localhost_only_required(result: dict) -> None:
-    files_to_check = [LAUNCH_FILE, PARAMS_FILE]
+def check_localhost_only_required(result: dict, runtime: bool = False) -> None:
+    files_to_check = [LAUNCH_FILE, PARAMS_FILE, RUNTIME_WRAPPER]
     found = False
     for path in files_to_check:
         if path.is_file() and "ROS_LOCALHOST_ONLY" in _read_text(path):
             found = True
     if not found:
         result["warnings"].append("ROS_LOCALHOST_ONLY_NOT_DOCUMENTED")
-    if os.environ.get("ROS_LOCALHOST_ONLY") != "1":
-        result["warnings"].append("ROS_LOCALHOST_ONLY_NOT_SET_IN_ENVIRONMENT")
+
+    value = os.environ.get("ROS_LOCALHOST_ONLY")
+    if value != "1":
+        if runtime:
+            result["errors"].append("ROS_LOCALHOST_ONLY_NOT_ENABLED")
+        else:
+            result["warnings"].append("ROS_LOCALHOST_ONLY_NOT_SET_IN_ENVIRONMENT")
 
 
-def check_domain_id_required(result: dict) -> None:
-    files_to_check = [LAUNCH_FILE, PARAMS_FILE]
+def check_domain_id_required(result: dict, runtime: bool = False) -> None:
+    files_to_check = [LAUNCH_FILE, PARAMS_FILE, RUNTIME_WRAPPER]
     found = False
     for path in files_to_check:
         if path.is_file() and "ROS_DOMAIN_ID" in _read_text(path):
             found = True
     if not found:
         result["warnings"].append("ROS_DOMAIN_ID_NOT_DOCUMENTED")
-    if not os.environ.get("ROS_DOMAIN_ID"):
-        result["warnings"].append("ROS_DOMAIN_ID_NOT_SET_IN_ENVIRONMENT")
+
+    value = os.environ.get("ROS_DOMAIN_ID")
+    if runtime:
+        if not value:
+            result["errors"].append("ROS_DOMAIN_ID_MISSING")
+        elif value == "0":
+            result["errors"].append("ROS_DOMAIN_ID_IS_ZERO")
+    else:
+        if not value:
+            result["warnings"].append("ROS_DOMAIN_ID_NOT_SET_IN_ENVIRONMENT")
 
 
 def check_no_physical_hal_import(result: dict) -> None:
@@ -197,28 +262,29 @@ def check_no_physical_hal_import(result: dict) -> None:
                 result["errors"].append(f"PHYSICAL_HAL_IMPORT_{name}")
 
 
-def verify() -> dict:
+def verify(runtime: bool = False) -> dict:
     result = {
         "ok": True,
         "decision": "PASS",
+        "mode": "RUNTIME" if runtime else "STATIC",
         "errors": [],
         "warnings": [],
         "forbidden_matches": [],
         "checked_files": [],
     }
 
-    files_to_scan = [LAUNCH_FILE, PARAMS_FILE, MAP_YAML]
+    files_to_scan = list(RUNTIME_SCAN_FILES) if runtime else [LAUNCH_FILE, PARAMS_FILE, MAP_YAML]
 
     check_map_default_versioned(result)
     check_forbidden_ip(result, files_to_scan)
     check_forbidden_topics(result, files_to_scan)
     check_forbidden_bridges(result, files_to_scan)
     check_namespace_offline(result)
-    check_localhost_only_required(result)
-    check_domain_id_required(result)
+    check_localhost_only_required(result, runtime=runtime)
+    check_domain_id_required(result, runtime=runtime)
     check_no_physical_hal_import(result)
 
-    result["checked_files"] = sorted(set(result["checked_files"]))
+    result["checked_files"] = sorted(set(result["checked_files"]) | {str(p) for p in files_to_scan if p.is_file()})
     result["errors"] = sorted(set(result["errors"]))
     result["warnings"] = sorted(set(result["warnings"]))
 
@@ -232,9 +298,18 @@ def verify() -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--runtime",
+        action="store_true",
+        help=(
+            "Runtime isolation mode: ROS_LOCALHOST_ONLY!=1 and missing/zero "
+            "ROS_DOMAIN_ID become errors instead of warnings, and the "
+            "simulator and runtime wrapper files are also scanned."
+        ),
+    )
     args = parser.parse_args()
 
-    result = verify()
+    result = verify(runtime=args.runtime)
     payload = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

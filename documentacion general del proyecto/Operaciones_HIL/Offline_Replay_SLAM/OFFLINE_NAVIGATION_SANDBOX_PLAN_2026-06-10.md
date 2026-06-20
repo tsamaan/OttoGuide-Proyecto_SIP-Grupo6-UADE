@@ -67,3 +67,18 @@ Se completó una fase de auditoría y preparación estática (sin levantar el st
 - **Verificador de aislamiento estático**: `codigo ottoguide/tools/hil/offline_navigation/verify_sandbox_isolation.py`, que inspecciona archivos locales (sin red, sin grafo ROS) y produce un veredicto JSON `PASS`/`FAIL`.
 - **Tests puros**: `codigo ottoguide/tests/unit/test_offline_navigation_sandbox_isolation.py`, ejecutables sin ROS.
 - **No se completó en esta fase**: levantar el stack Nav2 completo, ejecutar nodos, publicar tópicos, ni validar L2 (odometría) o L3 (localización/mapa), que permanecen `NOT_READY` (ver [PROGRESO_ODOMETRIA_OFFLINE.md](PROGRESO_ODOMETRIA_OFFLINE.md)). El detalle de readiness por capa está en [OFFLINE_NAVIGATION_SANDBOX_READINESS.md](OFFLINE_NAVIGATION_SANDBOX_READINESS.md).
+
+---
+
+## 9. Actualización 2026-06-20 — Fase 2A: base de runtime ROS aislada
+
+Se levantó por primera vez runtime ROS real (no solo archivos estáticos) para el sandbox offline, bajo aislamiento explícito y sin robot. Resultados:
+
+- **Namespace real**: nuevo argumento de launch `sandbox_namespace` (default `offline_nav`), aplicado como namespace real (`namespace=` de `Node`) a `map_server`, `lifecycle_manager`, los `static_transform_publisher` y el simulador. Los tópicos resultantes son `/offline_nav/map`, `/offline_nav/odom` y `/offline_nav/scan`.
+- **Simulador sintético**: `codigo ottoguide/tools/hil/offline_navigation/offline_runtime_simulator.py`, nodo `rclpy` exclusivo del sandbox que publica `nav_msgs/Odometry` (pose fija, velocidad cero, covarianzas conservadoras) en `odom`, TF dinámico `odom`→`base_link`, y un `sensor_msgs/LaserScan` sintético determinista en `scan`. No se ubicó en `src/navigation/` para no violar la restricción de `ROS2_INTEGRATION.md` de que `rclpy` solo se usa en `nav2_bridge.py` dentro del código de aplicación.
+- **TF completo**: TF estático `map`→`odom` y `base_link`→`utlidar_lidar` (identidades sintéticas, explícitamente no extrínsecos físicos validados) agregados al launch junto con el TF dinámico del simulador.
+- **Wrapper de aislamiento**: `codigo ottoguide/scripts/run_offline_navigation_runtime.sh`, que exige ejecución en WSL, exporta `ROS_LOCALHOST_ONLY=1`, exige/asigna `ROS_DOMAIN_ID` dedicado (default `77`, nunca `0`), corre el verificador en modo runtime antes de iniciar ROS, y propaga el exit code real con limpieza de procesos hijos ante `SIGINT`/`SIGTERM`.
+- **Verificador en modo runtime**: `verify_sandbox_isolation.py --runtime` agregado; en este modo, `ROS_LOCALHOST_ONLY != 1` y `ROS_DOMAIN_ID` ausente o `0` pasan de warning a error, y se valida que el namespace sea real (no solo la palabra "offline" en texto).
+- **Smoke test ROS real**: `codigo ottoguide/tools/hil/offline_navigation/smoke_test_offline_runtime.py`, ejecutado contra el runtime real en WSL con resultado `PASS`: recibió mensajes en `/offline_nav/map`, `/offline_nav/odom` y `/offline_nav/scan`, confirmó `/tf` y `/tf_static`, confirmó ausencia de `/cmd_vel`/`/cmd_vel_nav` globales y de nodos de hardware, y cerró sin procesos huérfanos.
+- **Runbook**: [OFFLINE_NAVIGATION_SANDBOX_RUNTIME_RUNBOOK.md](OFFLINE_NAVIGATION_SANDBOX_RUNTIME_RUNBOOK.md).
+- **No se completó en esta fase**: `planner_server`, `controller_server`, `behavior_server`, `waypoint_follower`, `collision_monitor`, Simple Commander, ni ninguna forma de planificación de misiones. `ROS_RUNTIME_SANDBOX` pasa de `NOT_READY` a `PARTIAL`; L2 (odometría), L3 (localización/mapa) y navegación física permanecen `NOT_READY` sin cambios — la odometría y las TF de esta fase son explícitamente sintéticas y no constituyen evidencia de L2/L3.
