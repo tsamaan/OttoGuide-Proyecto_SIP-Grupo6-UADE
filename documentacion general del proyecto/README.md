@@ -40,6 +40,7 @@ Advertencia: el README maestro publico del proyecto vive en `../README.md` desde
 | `Operaciones_HIL/RUNBOOK_LIVOX_SDK2_BRIDGE.md` | Build, arranque y validacion progresiva del bridge Livox SDK2 propio. |
 | `Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md` | Quickstart del ejecutable `ottoguide-map` para captura/mapeo supervisado. |
 | `Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md` | Analisis offline ODOM/TF y proximos pasos seguros. |
+| `Operaciones_HIL/Offline_Replay_SLAM/PROGRESO_ODOMETRIA_OFFLINE.md` | Registro consolidado y actualizable del trabajo de odometría offline. |
 | `Operaciones_HIL/RUNBOOK_STARTUP_RC1.md` | Secuencia de arranque y criterios GO/NO-GO. |
 | `Operaciones_HIL/RUNBOOK_OPERACIONES_HIL_OTTOGUIDE.md` | Entrada vigente consolidada para operaciones HIL y siguiente sesion fisica. |
 | `Operaciones_HIL/RUNBOOK_PROXIMA_SESION_FISICA_DDS_FOXY.md` | Runbook especifico para validar CycloneDDS Foxy en la proxima ventana fisica. |
