@@ -86,7 +86,7 @@ Persisten drift neutral, convergencias rechazadas, ausencia de timestamp por pun
 
 ## 12. Próximo incremento
 
-La decisión siguiente es `REQUIRE_NEW_DATA_OR_GROUND_TRUTH`. El protocolo debe separar dos objetivos: reproducibilidad sobre un mismo recorrido y generalización entre dominios. No se implementa un filtro ni se corrige o acumula una trayectoria nueva en este incremento.
+La decisión siguiente es `REQUIRE_NEW_DATA_OR_GROUND_TRUTH`. El [Plan de Captura con Ground Truth para Odometría](PLAN_CAPTURA_GROUND_TRUTH_ODOMETRIA.md) y su tooling offline ya fueron preparados; la revisión de hardware, el GO físico y toda captura permanecen pendientes. El protocolo separa reproducibilidad same-route de generalización entre dominios. No se implementa un filtro ni se corrige o acumula una trayectoria nueva en este incremento.
 
 ### 12.1 Origen físico y contrato de comparabilidad
 
@@ -141,3 +141,4 @@ Los artefactos bajo `artifacts/offline_processing/` son locales y no necesariame
 | 2026-06-20 | Consolidación inicial | Se documentaron las capturas y los experimentos offline hasta quality-gated scan-to-submap. |
 | 2026-06-20 | Observabilidad de estacionariedad | Se evaluó la transferencia cross-capture de features derivadas de point-to-line frame-to-frame. |
 | 2026-06-20 | Contexto físico de las capturas | Se aclaró que A y B corresponden a recorridos, orígenes y regímenes de movimiento diferentes; la evaluación cross-capture se reinterpreta como domain shift. |
+| 2026-06-20 | Preparación de ground truth | Se documentó el protocolo GT-MIN/GT-CONT y se preparó tooling offline de creación y validación de sesiones; no se realizó captura física. |
