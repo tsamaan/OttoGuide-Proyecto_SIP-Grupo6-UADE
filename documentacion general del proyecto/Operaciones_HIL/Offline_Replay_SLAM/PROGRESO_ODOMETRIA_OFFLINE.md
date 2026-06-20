@@ -17,10 +17,12 @@ Entorno confirmado: Windows 11, WSL `Ubuntu-24.04`, ROS 2 Jazzy, Python 3.12.3, 
 
 | Captura | Duración | Mensajes | Actividad de joystick | Uso experimental |
 |---|---:|---:|---:|---|
-| A, `20260620_055435` | 179.937 s | 585586 | ~41.7 % | Principal para movimiento y recorrido completo |
-| B, `20260620_060729` | 600.059 s | 1967649 | ~3.2 % | Validación cruzada y ventanas neutrales largas |
+| A, `20260620_055435` | 179.937 s | 585586 | ~41.7 % | Recorrido intermitente por pasillo entre escritorios; `TRANSLATION_AND_CORRIDOR_DOMINANT` |
+| B, `20260620_060729` | 600.059 s | 1967649 | ~3.2 % | Movimiento localizado, circular y sobre sí mismo, con neutralidad prolongada; `LOCALIZED_ROTATION_AND_STATIONARY_DOMINANT` |
 
 Ambas capturas pasaron integridad, consistencia metadata/SQLite y completitud de 9/9 topics. No contienen `/odom`, `/tf`, `/tf_static`, `/map`, `/cmd_vel` ni topics de control.
+
+Las capturas se hicieron en el mismo entorno general de oficinas, pero comenzaron en puntos físicos distintos, tienen orígenes locales independientes y no comparten una orientación inicial confirmada. No son repeticiones del mismo recorrido: A cubre un trayecto espacial más amplio y predominantemente traslacional, mientras B concentra poca traslación, giros y largos períodos neutrales. Sin una referencia externa no pueden alinearse directamente ni compararse sus coordenadas absolutas, poses finales o longitudes de recorrido como error entre repeticiones.
 
 ## 4. Pipeline de captura
 
@@ -61,6 +63,8 @@ El baseline vigente es point-to-line frame-to-frame a 100 ms. La decisión actua
 
 El análisis de observabilidad construyó 1797 filas para A y 1819 para B, sin joystick ni IMU como predictores. Model C obtuvo AUC 0.8803 en A→B y 0.8936 en B→A, pero no cumplió los criterios operativos en ambos folds: A→B tuvo balanced accuracy 0.7135 y especificidad 0.4382; B→A tuvo balanced accuracy 0.7527 y recall activo 0.5598. Por los umbrales congelados se clasifica `REGISTRATION_ONLY_STATIONARITY_NOT_OBSERVABLE` y se decide `REQUIRE_NEW_DATA_OR_GROUND_TRUTH`.
 
+Los folds A→B y B→A se reinterpretan como `CROSS_DOMAIN_MOTION_TRANSFER_TEST`, no como `SAME_ROUTE_CROSS_VALIDATION`. La asimetría puede estar afectada por el régimen traslacional de A frente al régimen neutral/rotacional de B, el desbalance de clases, la geometría observada, las distribuciones de velocidad y maniobras, y las distintas duraciones. Las features contienen señal discriminante, pero no produjeron una decisión binaria transferible entre estos dos dominios. Con estas capturas no puede aislarse si el fallo corresponde al algoritmo, al threshold, al cambio de dominio o a las etiquetas indirectas: el joystick representa intención del operador, no movimiento físico medido.
+
 Las magnitudes y agregados temporales de movimiento muestran separación univariada consistente. Sin embargo, el control quality-only alcanzó solo AUC 0.6691/0.6482, mientras motion/coherence-only alcanzó 0.9745/0.8886. Retirar las magnitudes instantáneas `delta_translation` y `abs_delta_yaw` mantuvo AUC 0.8804/0.8930: el resultado depende de la familia de movimiento estimado por el registro, no exclusivamente de esas dos salidas instantáneas. Los labels permutados dieron AUC media 0.4780/0.4690.
 
 ## 9. Enfoques descartados
@@ -78,11 +82,45 @@ No se repetirán LIO directo con estas capturas, ICP individual, ICP a 250 ms, p
 
 ## 11. Bloqueos pendientes
 
-Persisten drift neutral, convergencias rechazadas, ausencia de timestamp por punto para deskew y falta de una señal de estacionariedad transferible con sensibilidad y especificidad suficientes entre capturas. La principal limitación es el cambio de distribución entre capturas y no existe ground truth independiente de pose.
+Persisten drift neutral, convergencias rechazadas, ausencia de timestamp por punto para deskew y falta de una señal de estacionariedad transferible con sensibilidad y especificidad suficientes entre capturas. La principal limitación es que A y B pertenecen a dominios de movimiento y recorridos distintos; no hay validación same-route ni ground truth independiente de pose. Esto impide separar el error del algoritmo del cambio de dominio y refuerza la decisión de adquirir evidencia estandarizada.
 
 ## 12. Próximo incremento
 
-La decisión siguiente es `REQUIRE_NEW_DATA_OR_GROUND_TRUTH`: obtener evidencia independiente y representativa que permita separar movimiento pequeño de drift de registro. No se implementa un filtro ni se corrige o acumula una trayectoria nueva en este incremento.
+La decisión siguiente es `REQUIRE_NEW_DATA_OR_GROUND_TRUTH`. El protocolo debe separar dos objetivos: reproducibilidad sobre un mismo recorrido y generalización entre dominios. No se implementa un filtro ni se corrige o acumula una trayectoria nueva en este incremento.
+
+### 12.1 Origen físico y contrato de comparabilidad
+
+Cada recorrido comparable debe tener una marca física de origen en el piso, una flecha de orientación inicial y la posición nominal del centro de referencia del robot. La tolerancia inicial provisional será de ±0.02 m en posición y ±2° en yaw. Se debe conservar una fotografía o croquis, el identificador único del recorrido y cualquier desviación observada al colocar el robot.
+
+El frame offline de una repetición comienza en `x=0`, `y=0`, `yaw=0` solo cuando la colocación está dentro de esas tolerancias. Fuera de tolerancia debe medirse y registrar una corrección inicial respaldada por una referencia externa; si no existe esa medición, la captura se marca `NOT_COMPARABLE`.
+
+### 12.2 Sesiones mínimas
+
+| Sesión | Diseño | Uso y exclusiones |
+|---|---|---|
+| `CALIBRATION` | Origen y orientación marcados, recorrido estandarizado y distancias/ángulos medidos; mínimo 2 pasadas | Verificar frames, sincronización, herramientas y ground truth; no aporta métricas finales |
+| `DEVELOPMENT` | Mismo origen y ruta estandarizada; mínimo 3 repeticiones por recorrido | Diseñar features y ajustar thresholds; no se usa como validación final |
+| `VALIDATION-SAME-ROUTE` | Mismo origen, orientación, segmentos, distancias y orden de maniobras; mínimo 3 repeticiones independientes | Validación comparable final; queda congelada y no se usa para ajustar thresholds |
+| `VALIDATION-DOMAIN-SHIFT` | Corredor traslacional, área reducida rotacional, secuencia combinada y neutralidad prolongada; mínimo 2 repeticiones por dominio | Evaluar generalización y estabilidad de thresholds; no comparar trayectorias diferentes entre sí |
+
+### 12.3 Matriz de recorridos
+
+| Recorrido | Tipo dominante | Mismo origen | Mismo trayecto | Uso | Longitud y giros esperados | Segmentos estacionarios | Repeticiones mínimas |
+|---|---|---:|---:|---|---|---|---:|
+| R1 | Pasillo traslacional | Sí | Sí | Reproducibilidad | Croquis y distancia total medidos; giros nominales anotados | Inicio, fin y al menos 2 paradas intermedias de 10 s | 3 development + 3 validation |
+| R2 | Área reducida rotacional | Sí | Sí | Rotación y estacionariedad | Centro y ángulos acumulados marcados | Inicio, entre sentidos de giro y fin, 10 s cada uno | 3 development + 3 validation |
+| R3 | Combinado | Sí | Sí | Validación integrada | Segmentos rectos y giros medidos en orden fijo | Al menos 3 paradas de 10 s | 3 development + 3 validation |
+| R4 | Recorrido libre distinto | No necesariamente | No | Domain shift | Documentados por captura, sin exigir coincidencia geométrica | Al menos 2 períodos de 30 s | 2 por variante |
+
+Cada ficha R1–R4 debe incluir identificador versionado, croquis, longitud esperada, giros esperados, orden de maniobras, segmentos estacionarios, tolerancias y cantidad efectiva de repeticiones. R1–R3 usan como tolerancias iniciales ±0.02 m y ±2°; las tolerancias de distancia y ángulo por segmento deben declararse antes de capturar según el instrumento de medición disponible.
+
+### 12.4 Ground truth y métricas separadas
+
+El ground truth mínimo debe provenir de marcas y mediciones físicas independientes del registro LiDAR: distancias de segmentos, posiciones de parada y ángulos nominales. Si se dispone de tracking externo sincronizado, debe conservarse su frame, precisión y transformación al origen marcado.
+
+Para repeticiones del mismo recorrido se permiten error final de posición y yaw, ATE, RPE, path length ratio, consistencia entre repeticiones, drift por segmento y error por maniobra. ATE/RPE requieren ground truth propio o una alineación externa definida; no se usa una repetición como verdad implícita sin declarar el método.
+
+Para recorridos diferentes solo se permiten métricas independientes por captura: drift neutral, tasa de éxito, disponibilidad, error contra ground truth propio, error por segmento, generalización de clasificadores y estabilidad de thresholds. No se calcula ATE entre A y B ni entre otros recorridos diferentes, y las métricas de validación comparable no se mezclan con las de domain shift.
 
 ## 13. Artefactos locales relacionados
 
@@ -102,3 +140,4 @@ Los artefactos bajo `artifacts/offline_processing/` son locales y no necesariame
 |---|---|---|
 | 2026-06-20 | Consolidación inicial | Se documentaron las capturas y los experimentos offline hasta quality-gated scan-to-submap. |
 | 2026-06-20 | Observabilidad de estacionariedad | Se evaluó la transferencia cross-capture de features derivadas de point-to-line frame-to-frame. |
+| 2026-06-20 | Contexto físico de las capturas | Se aclaró que A y B corresponden a recorridos, orígenes y regímenes de movimiento diferentes; la evaluación cross-capture se reinterpreta como domain shift. |
