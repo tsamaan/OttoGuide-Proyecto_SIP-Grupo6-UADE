@@ -42,6 +42,7 @@ Advertencia: el README maestro publico del proyecto vive en `../README.md` desde
 | `Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md` | Analisis offline ODOM/TF y proximos pasos seguros. |
 | `Operaciones_HIL/Offline_Replay_SLAM/PROGRESO_ODOMETRIA_OFFLINE.md` | Registro consolidado y actualizable del trabajo de odometría offline. |
 | `Operaciones_HIL/Offline_Replay_SLAM/PLAN_CAPTURA_GROUND_TRUTH_ODOMETRIA.md` | Protocolo reproducible de ground truth segmentario y continuo para validar odometría offline. |
+| `Operaciones_HIL/Offline_Replay_SLAM/RUNBOOK_CALIBRATION_GT_MIN_PREFLIGHT.md` | Runbook offline de contrato y readiness físico para una futura CALIBRATION GT-MIN. |
 | `Operaciones_HIL/RUNBOOK_STARTUP_RC1.md` | Secuencia de arranque y criterios GO/NO-GO. |
 | `Operaciones_HIL/RUNBOOK_OPERACIONES_HIL_OTTOGUIDE.md` | Entrada vigente consolidada para operaciones HIL y siguiente sesion fisica. |
 | `Operaciones_HIL/RUNBOOK_PROXIMA_SESION_FISICA_DDS_FOXY.md` | Runbook especifico para validar CycloneDDS Foxy en la proxima ventana fisica. |

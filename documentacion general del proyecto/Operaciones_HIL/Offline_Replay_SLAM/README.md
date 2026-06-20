@@ -11,6 +11,7 @@ Indice operativo para trabajo offline de replay, SLAM y sandbox Nav2 sin robot f
 | `NAV2_OFFLINE_SANDBOX_2026-06-10.md` | Evidencia y limites del sandbox offline. |
 | `PROGRESO_ODOMETRIA_OFFLINE.md` | Registro vivo de capturas, experimentos de scan matching, decisiones y readiness de odometría offline. |
 | `PLAN_CAPTURA_GROUND_TRUTH_ODOMETRIA.md` | Diseño de captura y validación independiente para trayectoria, drift y estacionariedad. |
+| `RUNBOOK_CALIBRATION_GT_MIN_PREFLIGHT.md` | Preflight estructural y GO/NO-GO declarativo para una futura CALIBRATION GT-MIN; no autoriza movimiento. |
 
 ## Uso seguro
 

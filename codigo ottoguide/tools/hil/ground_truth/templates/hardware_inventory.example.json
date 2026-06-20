@@ -1,0 +1,23 @@
+{
+  "angle_accuracy_rad": null,
+  "angle_instrument": "PENDING_HARDWARE_CONFIRMATION",
+  "angle_instrument_available": false,
+  "camera_support_available": false,
+  "distance_accuracy_m": null,
+  "distance_instrument": "PENDING_HARDWARE_CONFIRMATION",
+  "distance_instrument_available": false,
+  "external_camera_available": false,
+  "fiducial_marker_available": false,
+  "floor_markers_available": false,
+  "inventory_id": "HARDWARE_EXAMPLE_NOT_REVIEWED",
+  "notes": "Conservative example; does not assert physical availability.",
+  "orientation_marker_available": false,
+  "review_date": "",
+  "safety_observer_confirmed": false,
+  "schema_version": "1.0",
+  "storage_confirmed": false,
+  "supervised_area_confirmed": false,
+  "sync_expected_accuracy_s": null,
+  "sync_marker_available": false,
+  "sync_method": "PENDING_HARDWARE_CONFIRMATION"
+}

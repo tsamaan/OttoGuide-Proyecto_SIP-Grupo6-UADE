@@ -1,0 +1,51 @@
+{
+  "angle_accuracy_rad": 0.02,
+  "angle_instrument": "ANGLE_INSTRUMENT_PENDING_CONFIRMATION",
+  "approval_date": "",
+  "approved_by_role": "GROUND_TRUTH_PROTOCOL_REVIEWER",
+  "approved_for_phase": ["CALIBRATION"],
+  "coordinate_frame": "gt_world",
+  "distance_accuracy_m": 0.01,
+  "distance_instrument": "DISTANCE_INSTRUMENT_PENDING_CONFIRMATION",
+  "initial_yaw_rad": 0.0,
+  "measurement_method": "MARKED_SEGMENTS_WITH_INDEPENDENT_DISTANCE_AND_ANGLE_MEASUREMENTS",
+  "motion_domain": "COMBINED_STANDARDIZED",
+  "notes": "Example specification only; approval and physical resources remain pending.",
+  "origin_marker_id": "ORIGIN_MARKER_EXAMPLE",
+  "origin_position_tolerance_m": 0.02,
+  "origin_reference": "CENTER_REFERENCE_MARK_ON_FLOOR",
+  "origin_yaw_tolerance_rad": 0.034906585,
+  "route_id": "R3-EXAMPLE",
+  "route_revision": "1",
+  "schema_version": "1.0",
+  "segments": [
+    {
+      "end_marker": "STOP_S00",
+      "expected_distance_m": 0.0,
+      "expected_state": "STATIONARY",
+      "expected_yaw_change_rad": 0.0,
+      "minimum_duration_s": 60.0,
+      "notes": "Initial stationary interval.",
+      "order": 1,
+      "position_tolerance_m": 0.02,
+      "segment_id": "S00",
+      "start_marker": "ORIGIN_MARKER_EXAMPLE",
+      "yaw_tolerance_rad": 0.034906585
+    },
+    {
+      "end_marker": "STOP_S01",
+      "expected_distance_m": 1.0,
+      "expected_state": "TRANSLATING",
+      "expected_yaw_change_rad": 0.0,
+      "minimum_duration_s": 1.0,
+      "notes": "One metre straight segment.",
+      "order": 2,
+      "position_tolerance_m": 0.02,
+      "segment_id": "S01",
+      "start_marker": "STOP_S00",
+      "yaw_tolerance_rad": 0.034906585
+    }
+  ],
+  "stationary_intervals": [{"minimum_duration_s": 60.0, "segment_id": "S00"}],
+  "title": "Synthetic combined calibration route"
+}

@@ -22,6 +22,8 @@ A y B pertenecen al mismo entorno general, pero tienen rutas, orígenes y orient
 
 `GT-MIN` es `SEGMENT_LEVEL_GROUND_TRUTH`, ejecutable sin motion capture profesional. Usa origen y orientación marcados, distancias y ángulos nominales medidos, puntos de parada, eventos, tolerancia declarada del instrumento y al menos tres repeticiones por maniobra.
 
+El contrato vigente es schema `1.0`. Cada sesión referencia una [route spec de ejemplo](../../../codigo%20ottoguide/tools/hil/ground_truth/templates/route_spec.example.json), copiada y sellada por SHA-256. El [inventario físico de ejemplo](../../../codigo%20ottoguide/tools/hil/ground_truth/templates/hardware_inventory.example.json) es conservador y no afirma disponibilidad.
+
 | Maniobra mínima | Referencia segmentaria |
 |---|---|
 | Estacionario 60 s | Pose inicial/final marcada y duración medida |
@@ -91,8 +93,10 @@ Las transformaciones marcador→`gt_robot` y `gt_robot`→`lidar_sensor` están 
 Se conservan por separado timestamp ROS, timestamp SQLite, reloj de cámara, tiempo relativo y offset estimado. `ground_truth_events.csv` contiene:
 
 ```text
-timestamp_ns,relative_time_s,event_id,event_type,segment_id,expected_state,expected_x_m,expected_y_m,expected_yaw_rad,measurement_tolerance,source,notes
+timestamp_ns,relative_time_s,event_id,event_type,segment_id,expected_state,expected_x_m,expected_y_m,expected_yaw_rad,position_tolerance_m,yaw_tolerance_rad,time_tolerance_s,source,notes
 ```
+
+Las tolerancias se separan por unidad: posición en metros, yaw en radianes y tiempo en segundos. Son opcionales cuando la magnitud no aplica, finitas y no negativas cuando aparecen. Toda pose esperada y todo `SEGMENT_END` declaran las tolerancias aplicables; `SYNC_MARKER` siempre declara `time_tolerance_s`. La columna ambigua anterior fue retirada antes de existir sesiones físicas.
 
 Debe existir un `SYNC_MARKER` inicial y otro final observables en las fuentes aplicables. El offset se estima contra el tiempo relativo de la sesión; para GT-CONT se ajusta además un modelo afín para medir drift de reloj. Tolerancias provisionales para revisión física: residuo de sincronización ≤0.050 s y drift ≤0.010 s/min. Si falta un marcador, el residuo supera 0.050 s, el drift supera 0.010 s/min o el orden temporal no puede demostrarse, la fuente queda `NOT_COMPARABLE` para métricas temporales.
 
@@ -145,7 +149,9 @@ CALIBRATION verifica el sistema. DEVELOPMENT puede ajustar diseño y thresholds.
 
 ## 18. Criterios GO/NO-GO
 
-GO requiere hardware confirmado, ficha de ruta aprobada, origen verificable, tolerancias instrumentales declaradas, almacenamiento disponible, relojes identificados, doble sync planificado, herramientas PASS y revisión de seguridad física vigente. Cualquier ausencia implica NO-GO. Estado actual: `NO_GO_PENDING_HARDWARE_AND_PROTOCOL_REVIEW`.
+GO requiere hardware confirmado, ficha de ruta aprobada, origen verificable, tolerancias instrumentales declaradas, almacenamiento disponible, relojes identificados, doble sync planificado, herramientas PASS y revisión de seguridad física vigente. Cualquier ausencia implica NO-GO. Estado actual: `NO_GO_PENDING_HARDWARE_AND_HUMAN_REVIEW`.
+
+El procedimiento reproducible está en [RUNBOOK_CALIBRATION_GT_MIN_PREFLIGHT.md](RUNBOOK_CALIBRATION_GT_MIN_PREFLIGHT.md). `ok` valida estructura; `physical_ready` evalúa requisitos declarados por separado. Ni `physical_ready=true` ni una decisión JSON GO sustituyen la autorización humana o inician movimiento. El estado vigente permanece `NO_GO_PENDING_HARDWARE_AND_HUMAN_REVIEW`.
 
 ## 19. Riesgos
 
@@ -173,6 +179,8 @@ Manifest, eventos, ficha/croquis de ruta, mediciones, calibraciones, tabla de si
 - Protocolo y contratos: preparados offline.
 - `prepare_ground_truth_session.py`: implementado y probado.
 - `validate_ground_truth_session.py`: implementado y probado.
+- `assess_ground_truth_readiness.py`: implementado como evaluación read-only.
+- Schema `1.0`, route spec sellada e inventario físico: implementados.
 - Templates y tests standard-library: implementados.
 - GT-MIN físico: pendiente de revisión y ejecución.
 - GT-CONT: `PENDING_HARDWARE_CONFIRMATION`.
