@@ -86,7 +86,7 @@ Persisten drift neutral, convergencias rechazadas, ausencia de timestamp por pun
 
 ## 12. Próximo incremento
 
-La decisión siguiente es `REQUIRE_NEW_DATA_OR_GROUND_TRUTH`. El [Plan de Captura con Ground Truth para Odometría](PLAN_CAPTURA_GROUND_TRUTH_ODOMETRIA.md), su tooling schema `1.0` y el [runbook de preflight CALIBRATION GT-MIN](RUNBOOK_CALIBRATION_GT_MIN_PREFLIGHT.md) ya fueron preparados. El contrato separa tolerancias, sella route spec/inventario/revisión humana, exige doble sync y usa exit codes fail-safe sin autorizar movimiento; hardware real, revisión humana real y captura permanecen pendientes. El protocolo separa reproducibilidad same-route de generalización entre dominios. No se implementa un filtro ni se corrige o acumula una trayectoria nueva.
+La decisión siguiente es `REQUIRE_NEW_DATA_OR_GROUND_TRUTH`. El [Plan de Captura con Ground Truth para Odometría](PLAN_CAPTURA_GROUND_TRUTH_ODOMETRIA.md), su tooling versión `1.1` (schema `1.0`) y el [runbook de preflight CALIBRATION GT-MIN](RUNBOOK_CALIBRATION_GT_MIN_PREFLIGHT.md) ya fueron preparados. El contrato separa tolerancias, sella route spec/inventario/revisión humana, exige doble sync y usa exit codes fail-safe sin autorizar movimiento; hardware real, revisión humana real y captura permanecen pendientes. El protocolo separa reproducibilidad same-route de generalización entre dominios. No se implementa un filtro ni se corrige o acumula una trayectoria nueva.
 
 ### 12.1 Origen físico y contrato de comparabilidad
 
@@ -144,3 +144,4 @@ Los artefactos bajo `artifacts/offline_processing/` son locales y no necesariame
 | 2026-06-20 | Preparación de ground truth | Se documentó el protocolo GT-MIN/GT-CONT y se preparó tooling offline de creación y validación de sesiones; no se realizó captura física. |
 | 2026-06-20 | Endurecimiento de preflight GT-MIN | Se versionó schema 1.0, se selló la especificación de ruta y se añadió evaluación read-only de readiness físico; el estado permanece NO-GO. |
 | 2026-06-20 | Cierre fail-safe GT-MIN | Se añadieron exit codes inequívocos, inventario y revisión humana sellados, doble sincronización y rechazo de placeholders; no se realizó revisión ni captura física. |
+| 2026-06-20 | Finalización y Sellado Transaccional | Se actualizó a tooling versión 1.1 con validación estructural exhaustiva de schema 1.0, sellado transaccional con rollback y advertencias ante residuos/estados parciales; el estado físico sigue siendo NO_GO. |

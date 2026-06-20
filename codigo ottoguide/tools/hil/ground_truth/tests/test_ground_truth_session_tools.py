@@ -7,6 +7,7 @@ import csv
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -16,7 +17,10 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 def load(name):
     spec=importlib.util.spec_from_file_location(name,ROOT/f"{name}.py");module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
-prepare=load("prepare_ground_truth_session");validate=load("validate_ground_truth_session");seal=load("seal_ground_truth_preflight");assess=load("assess_ground_truth_readiness")
+prepare=load("prepare_ground_truth_session")
+validate=load("validate_ground_truth_session")
+seal=load("seal_ground_truth_preflight")
+assess=load("assess_ground_truth_readiness")
 
 class FailSafeTests(unittest.TestCase):
     def setUp(self):
@@ -59,7 +63,7 @@ class FailSafeTests(unittest.TestCase):
         s=self.conservative();(s/"calibration"/"hardware_inventory.json").write_text("{}",encoding="utf-8");self.assertEqual(assess.assess(s)["decision"],"INVALID");self.assertEqual(self.cli(s).returncode,3)
     def test_review_modified_after_seal_invalid(self):
         s=self.conservative();(s/"calibration"/"human_review.json").write_text("{}",encoding="utf-8");self.assertEqual(assess.assess(s)["decision"],"INVALID");self.assertEqual(self.cli(s).returncode,3)
-    def test_inventory_expired(self):self.assertEqual(assess.assess(self.go_fixture(valid_until="2020-01-01T00:00:00+00:00"))["decision"],"NO_GO")
+    def test_inventory_expired(self):self.assertEqual(assess.assess(self.go_fixture(valid_until="2020-01-01T00:00:00+00:00", inventory={"reviewed_at": "2019-01-01T00:00:00+00:00"}))["decision"],"NO_GO")
     def test_inventory_wrong_route(self):self.assertEqual(assess.assess(self.go_fixture(inventory={"valid_for_route_ids":["R9"]}))["decision"],"NO_GO")
     def test_instrument_mismatch(self):self.assertEqual(assess.assess(self.go_fixture(inventory={"distance_instrument":"OTHER_TOOL"}))["decision"],"NO_GO")
     def test_accuracy_mismatch(self):self.assertEqual(assess.assess(self.go_fixture(inventory={"distance_accuracy_m":.02}))["decision"],"NO_GO")
@@ -109,5 +113,425 @@ class FailSafeTests(unittest.TestCase):
         allowed={"__future__","argparse","ast","csv","hashlib","importlib","json","subprocess","sys","tempfile","unittest","shutil","datetime","pathlib","math","os","validate_ground_truth_session"}
         for path in (ROOT/"prepare_ground_truth_session.py",ROOT/"validate_ground_truth_session.py",ROOT/"seal_ground_truth_preflight.py",ROOT/"assess_ground_truth_readiness.py"):
             tree=ast.parse(path.read_text(encoding="utf-8"));imports={n.names[0].name.split('.')[0] for n in ast.walk(tree) if isinstance(n,ast.Import)}|{(n.module or '').split('.')[0] for n in ast.walk(tree) if isinstance(n,ast.ImportFrom)};self.assertFalse(imports-allowed,f"unexpected imports {imports-allowed}")
+
+    # Ampliando suite con requerimientos 19
+    def test_tooling_version_is_1_1(self):
+        session = prepare.prepare(self.root, self.args("GT_VERSION_TEST", self.templates / "route_spec.example.json"))
+        manifest = self.manifest(session)
+        self.assertEqual(manifest["tooling_version"], "1.1")
+
+    # Manifest tests
+    def test_manifest_string_incorrect_type(self):
+        s = self.conservative()
+        m = self.manifest(s)
+        m["operator"] = 123
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_manifest_string_empty(self):
+        s = self.conservative()
+        m = self.manifest(s)
+        m["operator"] = ""
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_manifest_optional_path_not_string(self):
+        s = self.conservative()
+        m = self.manifest(s)
+        m["rosbag_path"] = True
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_manifest_units_incorrect(self):
+        s = self.conservative()
+        m = self.manifest(s)
+        m["measurement_units"]["distance"] = "feet"
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_manifest_hash_malformed(self):
+        s = self.conservative()
+        m = self.manifest(s)
+        m["route_spec_sha256"] = "not-a-hash"
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_manifest_calibration_files_duplicates(self):
+        s = self.conservative()
+        m = self.manifest(s)
+        m["calibration_files"].append(m["calibration_files"][0])
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_manifest_calibration_file_nonexistent(self):
+        s = self.conservative()
+        m = self.manifest(s)
+        m["calibration_files"].append("calibration/nonexistent.json")
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_manifest_expected_segments_duplicates(self):
+        s = self.conservative()
+        m = self.manifest(s)
+        m["expected_segments"].append(m["expected_segments"][0])
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    # Route Spec tests
+    def test_route_spec_title_absent(self):
+        s = self.conservative()
+        route_path = s / "calibration" / "route_spec.json"
+        route = json.loads(route_path.read_text(encoding="utf-8"))
+        del route["title"]
+        route_path.write_text(json.dumps(route), encoding="utf-8")
+        m = self.manifest(s)
+        m["route_spec_sha256"] = hashlib.sha256(route_path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_route_spec_title_empty(self):
+        s = self.conservative()
+        route_path = s / "calibration" / "route_spec.json"
+        route = json.loads(route_path.read_text(encoding="utf-8"))
+        route["title"] = ""
+        route_path.write_text(json.dumps(route), encoding="utf-8")
+        m = self.manifest(s)
+        m["route_spec_sha256"] = hashlib.sha256(route_path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_route_spec_approval_date_invalid(self):
+        s = self.conservative()
+        route_path = s / "calibration" / "route_spec.json"
+        route = json.loads(route_path.read_text(encoding="utf-8"))
+        route["approval_date"] = "2026/06/20"
+        route_path.write_text(json.dumps(route), encoding="utf-8")
+        m = self.manifest(s)
+        m["route_spec_sha256"] = hashlib.sha256(route_path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_route_spec_approval_date_future(self):
+        s = self.conservative()
+        route_path = s / "calibration" / "route_spec.json"
+        route = json.loads(route_path.read_text(encoding="utf-8"))
+        route["approval_date"] = "2099-06-20"
+        route_path.write_text(json.dumps(route), encoding="utf-8")
+        m = self.manifest(s)
+        m["route_spec_sha256"] = hashlib.sha256(route_path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_route_spec_orders_non_contiguous(self):
+        s = self.conservative()
+        route_path = s / "calibration" / "route_spec.json"
+        route = json.loads(route_path.read_text(encoding="utf-8"))
+        route["segments"][1]["order"] = 4
+        route_path.write_text(json.dumps(route), encoding="utf-8")
+        m = self.manifest(s)
+        m["route_spec_sha256"] = hashlib.sha256(route_path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_route_spec_stationary_interval_unknown(self):
+        s = self.conservative()
+        route_path = s / "calibration" / "route_spec.json"
+        route = json.loads(route_path.read_text(encoding="utf-8"))
+        route["stationary_intervals"].append({"segment_id": "S99", "minimum_duration_s": 10.0})
+        route_path.write_text(json.dumps(route), encoding="utf-8")
+        m = self.manifest(s)
+        m["route_spec_sha256"] = hashlib.sha256(route_path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_route_spec_stationary_interval_not_stationary_segment(self):
+        s = self.conservative()
+        route_path = s / "calibration" / "route_spec.json"
+        route = json.loads(route_path.read_text(encoding="utf-8"))
+        route["stationary_intervals"].append({"segment_id": "S01", "minimum_duration_s": 1.0})
+        route_path.write_text(json.dumps(route), encoding="utf-8")
+        m = self.manifest(s)
+        m["route_spec_sha256"] = hashlib.sha256(route_path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_route_spec_stationary_interval_duplicate(self):
+        s = self.conservative()
+        route_path = s / "calibration" / "route_spec.json"
+        route = json.loads(route_path.read_text(encoding="utf-8"))
+        route["stationary_intervals"].append(route["stationary_intervals"][0])
+        route_path.write_text(json.dumps(route), encoding="utf-8")
+        m = self.manifest(s)
+        m["route_spec_sha256"] = hashlib.sha256(route_path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    # Inventory tests
+    def test_inventory_reviewed_at_future(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "hardware_inventory.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["reviewed_at"] = "2099-06-20T12:00:00+00:00"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["hardware_inventory_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_inventory_valid_until_before_reviewed_at(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "hardware_inventory.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["valid_until"] = "2026-06-20T11:00:00+00:00"
+        data["reviewed_at"] = "2026-06-20T12:00:00+00:00"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["hardware_inventory_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_inventory_valid_until_expired(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "hardware_inventory.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["valid_until"] = "2020-06-20T12:00:00+00:00"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["hardware_inventory_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_inventory_available_no_instrument_name(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "hardware_inventory.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["distance_instrument_available"] = True
+        data["distance_instrument"] = ""
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["hardware_inventory_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_inventory_available_no_accuracy(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "hardware_inventory.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["distance_instrument_available"] = True
+        data["distance_accuracy_m"] = None
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["hardware_inventory_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_inventory_sync_available_no_accuracy(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "hardware_inventory.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["sync_marker_available"] = True
+        data["sync_expected_accuracy_s"] = None
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["hardware_inventory_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_inventory_route_ids_duplicates(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "hardware_inventory.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["valid_for_route_ids"] = ["R3-CAL", "R3-CAL"]
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["hardware_inventory_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_inventory_bool_incorrect_type(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "hardware_inventory.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["floor_markers_available"] = "yes"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["hardware_inventory_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    # Human Review tests
+    def test_review_hash_malformed(self):
+        s = self.go_fixture()
+        m = self.manifest(s)
+        m["human_review_sha256"] = "not-a-hash"
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_review_reviewed_at_future(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "human_review.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["reviewed_at"] = "2099-06-20T12:00:00+00:00"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["human_review_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_review_go_no_authorization(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "human_review.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["movement_authorization_reference"] = ""
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["human_review_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_review_go_no_reviewed_at(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "human_review.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["reviewed_at"] = ""
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["human_review_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_review_go_no_flags(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "human_review.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["sync_plan_reviewed"] = False
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["human_review_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "NO_GO")
+
+    def test_review_bool_incorrect_type(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "human_review.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["sync_plan_reviewed"] = "not-bool"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["human_review_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
+
+    def test_review_no_go_template_valid(self):
+        s = self.conservative()
+        res = validate.validate(s)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["decision"], "NO_GO")
+
+    # Transaction tests
+    def test_transaction_success(self):
+        s = prepare.prepare(self.root, self.args("GT_TX_SUCCESS", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        result = seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["transaction_completed"])
+        self.assertEqual(result["post_seal_decision"], "NO_GO")
+        self.assertFalse(result["post_seal_physical_ready"])
+        self.assertEqual(result["rollback_performed"], False)
+        self.assertEqual(result["temporary_files_remaining"], 0)
+
+    def test_transaction_overwrite_with_force(self):
+        s = prepare.prepare(self.root, self.args("GT_TX_FORCE", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+        result = seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json", force=True)
+        self.assertTrue(result["ok"])
+
+    def test_transaction_partial_state_recovery_with_force(self):
+        s = prepare.prepare(self.root, self.args("GT_TX_PARTIAL", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        inv_path = s / "calibration" / "hardware_inventory.json"
+        inv_path.parent.mkdir(parents=True, exist_ok=True)
+        inv_path.write_text("{}", encoding="utf-8")
+        val_res = validate.validate(s)
+        self.assertTrue("partial_state: hardware inventory file present but not referenced in manifest" in val_res["warnings"])
+        result = seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json", force=True)
+        self.assertTrue(result["ok"])
+
+    def test_transaction_failure_before_replace(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_TX_FAIL_1", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        manifest_before = (s / "session_manifest.json").read_bytes()
+        with mock.patch("os.replace", side_effect=RuntimeError("Mocked failure before replace")):
+            with self.assertRaises(RuntimeError):
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+        self.assertEqual((s / "session_manifest.json").read_bytes(), manifest_before)
+        self.assertFalse((s / "calibration" / "hardware_inventory.json").exists())
+        self.assertFalse((s / "calibration" / "human_review.json").exists())
+        for p in s.rglob("*"):
+            if p.is_file():
+                self.assertFalse(p.name.endswith(".tmp") or p.name.endswith(".bak") or p.name.endswith(".backup"))
+
+    def test_transaction_failure_after_inventory_before_review(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_TX_FAIL_2", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        manifest_before = (s / "session_manifest.json").read_bytes()
+        orig_replace = os.replace
+        calls = 0
+        def fake_replace(src, dst):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("Mocked failure at human review replace")
+            return orig_replace(src, dst)
+        with mock.patch("os.replace", side_effect=fake_replace):
+            with self.assertRaises(RuntimeError):
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+        self.assertEqual((s / "session_manifest.json").read_bytes(), manifest_before)
+        self.assertFalse((s / "calibration" / "hardware_inventory.json").exists())
+        self.assertFalse((s / "calibration" / "human_review.json").exists())
+        for p in s.rglob("*"):
+            if p.is_file():
+                self.assertFalse(p.name.endswith(".tmp") or p.name.endswith(".bak") or p.name.endswith(".backup"))
+
+    def test_transaction_failure_after_review_before_manifest(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_TX_FAIL_3", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        manifest_before = (s / "session_manifest.json").read_bytes()
+        orig_replace = os.replace
+        calls = 0
+        def fake_replace(src, dst):
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise RuntimeError("Mocked failure at manifest replace")
+            return orig_replace(src, dst)
+        with mock.patch("os.replace", side_effect=fake_replace):
+            with self.assertRaises(RuntimeError):
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+        self.assertEqual((s / "session_manifest.json").read_bytes(), manifest_before)
+        self.assertFalse((s / "calibration" / "hardware_inventory.json").exists())
+        self.assertFalse((s / "calibration" / "human_review.json").exists())
+        for p in s.rglob("*"):
+            if p.is_file():
+                self.assertFalse(p.name.endswith(".tmp") or p.name.endswith(".bak") or p.name.endswith(".backup"))
+
+    def test_transaction_failure_during_validation(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_TX_FAIL_VAL", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        manifest_before = (s / "session_manifest.json").read_bytes()
+        with mock.patch("validate_ground_truth_session.validate", return_value={"ok": False, "errors": ["Mocked validation error"]}):
+            with self.assertRaises(ValueError):
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+        self.assertEqual((s / "session_manifest.json").read_bytes(), manifest_before)
+        self.assertFalse((s / "calibration" / "hardware_inventory.json").exists())
+        self.assertFalse((s / "calibration" / "human_review.json").exists())
+        for p in s.rglob("*"):
+            if p.is_file():
+                self.assertFalse(p.name.endswith(".tmp") or p.name.endswith(".bak") or p.name.endswith(".backup"))
 
 if __name__=="__main__":unittest.main(verbosity=2)

@@ -12,7 +12,7 @@ Este runbook solo prepara archivos y calcula GO/NO-GO declarativo. No conecta al
 
 ## 3. Dependencias
 
-Python 3 con standard library, checkout limpio, route spec schema `1.0`, inventario físico revisado y autorización humana independiente. No requiere paquetes adicionales.
+Python 3 con standard library, checkout limpio, route spec schema `1.0` (tooling versión 1.1), inventario físico revisado y autorización humana independiente. No requiere paquetes adicionales.
 
 ## 4. Documentos fuente
 
@@ -54,7 +54,7 @@ python3 "codigo ottoguide/tools/hil/ground_truth/seal_ground_truth_preflight.py"
   <session_dir> <hardware_inventory.json> <human_review.json>
 ```
 
-El sellador valida primero la sesión, copia ambos archivos a `calibration/`, calcula SHA-256 y registra paths, IDs y revisiones en el manifest mediante escrituras atómicas. Rechaza sobrescritura salvo `--force` y nunca cambia el status a GO. La route spec ya sellada no se modifica.
+El sellador valida primero la sesión, copia ambos archivos a `calibration/`, calcula SHA-256 y registra paths, IDs y revisiones en el manifest mediante un sellado transaccional con rollback (staging, backups y reemplazo ordenado de archivos en disco, con el manifest como commit point lógico y validación posterior). Rechaza sobrescritura salvo `--force` y nunca cambia el status a GO. La route spec ya sellada no se modifica. Si ocurre un fallo en cualquier etapa del proceso de escritura o en la validación posterior, se realiza un rollback total que restaura los archivos a su estado anterior y limpia los archivos temporales.
 
 ## 10. Validación estructural
 
