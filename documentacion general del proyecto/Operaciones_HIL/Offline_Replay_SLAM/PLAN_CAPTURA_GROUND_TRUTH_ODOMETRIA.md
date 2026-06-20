@@ -22,7 +22,7 @@ A y B pertenecen al mismo entorno general, pero tienen rutas, orígenes y orient
 
 `GT-MIN` es `SEGMENT_LEVEL_GROUND_TRUTH`, ejecutable sin motion capture profesional. Usa origen y orientación marcados, distancias y ángulos nominales medidos, puntos de parada, eventos, tolerancia declarada del instrumento y al menos tres repeticiones por maniobra.
 
-El contrato vigente es schema `1.0`. Cada sesión referencia una [route spec de ejemplo](../../../codigo%20ottoguide/tools/hil/ground_truth/templates/route_spec.example.json), copiada y sellada por SHA-256. El [inventario físico de ejemplo](../../../codigo%20ottoguide/tools/hil/ground_truth/templates/hardware_inventory.example.json) es conservador y no afirma disponibilidad.
+El contrato vigente es schema `1.0`. Cada sesión referencia una [route spec de ejemplo](../../../codigo%20ottoguide/tools/hil/ground_truth/templates/route_spec.example.json), copiada y sellada por SHA-256. El [inventario físico de ejemplo](../../../codigo%20ottoguide/tools/hil/ground_truth/templates/hardware_inventory.example.json) y la [revisión humana de ejemplo](../../../codigo%20ottoguide/tools/hil/ground_truth/templates/human_review.example.json) son conservadores y producen NO-GO. Inventario y revisión se copian a `calibration/`, se sellan por hash y se vinculan al manifest por path, ID y revisión.
 
 | Maniobra mínima | Referencia segmentaria |
 |---|---|
@@ -115,6 +115,8 @@ Debe existir un `SYNC_MARKER` inicial y otro final observables en las fuentes ap
 
 El manifest registra fase, ruta, dominio, origen, comparabilidad, precisión, sincronización y referencias relativas. Archivos grandes permanecen fuera de Git.
 
+La evidencia de preflight sellada añade `calibration/hardware_inventory.json` y `calibration/human_review.json`. Una modificación posterior que no coincida con el SHA-256 registrado vuelve el dataset `INVALID`; una revisión ausente, vencida, NO-GO o inconsistente mantiene estructura válida pero produce `physical_ready=false`.
+
 ## 14. Procedimiento de captura
 
 1. Asignar fase, ruta e ID únicos; congelar ficha y tolerancias.
@@ -151,7 +153,7 @@ CALIBRATION verifica el sistema. DEVELOPMENT puede ajustar diseño y thresholds.
 
 GO requiere hardware confirmado, ficha de ruta aprobada, origen verificable, tolerancias instrumentales declaradas, almacenamiento disponible, relojes identificados, doble sync planificado, herramientas PASS y revisión de seguridad física vigente. Cualquier ausencia implica NO-GO. Estado actual: `NO_GO_PENDING_HARDWARE_AND_HUMAN_REVIEW`.
 
-El procedimiento reproducible está en [RUNBOOK_CALIBRATION_GT_MIN_PREFLIGHT.md](RUNBOOK_CALIBRATION_GT_MIN_PREFLIGHT.md). `ok` valida estructura; `physical_ready` evalúa requisitos declarados por separado. Ni `physical_ready=true` ni una decisión JSON GO sustituyen la autorización humana o inician movimiento. El estado vigente permanece `NO_GO_PENDING_HARDWARE_AND_HUMAN_REVIEW`.
+El procedimiento reproducible está en [RUNBOOK_CALIBRATION_GT_MIN_PREFLIGHT.md](RUNBOOK_CALIBRATION_GT_MIN_PREFLIGHT.md). `ok` valida estructura y hashes; `physical_ready` exige inventario vigente, revisión humana GO consistente, origen dentro de tolerancia, doble sync, recursos confirmados y ausencia de placeholders críticos. El assess devuelve 0 para GO, 2 para NO-GO, 3 para INVALID y 1 para error inesperado. Ni `physical_ready=true` ni una decisión JSON GO sustituyen la autorización humana operativa o inician movimiento. El estado vigente permanece `NO_GO_PENDING_REAL_HARDWARE_AND_HUMAN_REVIEW`.
 
 ## 19. Riesgos
 
@@ -180,7 +182,9 @@ Manifest, eventos, ficha/croquis de ruta, mediciones, calibraciones, tabla de si
 - `prepare_ground_truth_session.py`: implementado y probado.
 - `validate_ground_truth_session.py`: implementado y probado.
 - `assess_ground_truth_readiness.py`: implementado como evaluación read-only.
+- `seal_ground_truth_preflight.py`: implementado con copias y manifest atómicos.
 - Schema `1.0`, route spec sellada e inventario físico: implementados.
+- Revisión humana sellada, cruces de hashes, doble sync y rechazo de placeholders: implementados.
 - Templates y tests standard-library: implementados.
 - GT-MIN físico: pendiente de revisión y ejecución.
 - GT-CONT: `PENDING_HARDWARE_CONFIRMATION`.

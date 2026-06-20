@@ -34,7 +34,7 @@ Registrar nombre del instrumento y accuracy no negativa y finita en manifest, ro
 
 ## 8. Sincronización
 
-Confirmar método, disponibilidad y accuracy esperada. Cada `SYNC_MARKER` debe declarar `time_tolerance_s`; se requieren marcadores inicial y final según el plan.
+Confirmar método, disponibilidad y accuracy esperada. Se requieren dos `SYNC_MARKER` con IDs distintos: uno entre `SESSION_START` y el primer `SEGMENT_START`, y otro entre el último `SEGMENT_END` y `SESSION_END`. Ambos declaran `time_tolerance_s` menor o igual a la accuracy del manifest e inventario y una fuente sin placeholders.
 
 ## 9. Preparación de sesión
 
@@ -47,31 +47,49 @@ python3 "codigo ottoguide/tools/hil/ground_truth/prepare_ground_truth_session.py
 
 El preparador copia la ruta a `calibration/route_spec.json`, registra SHA-256, genera schema `1.0` y deja `physical_readiness_status=NOT_REVIEWED`. Nunca genera GO.
 
+Antes de validar readiness, completar un inventario y una revisión humana fuera de la sesión. Sellarlos explícitamente:
+
+```bash
+python3 "codigo ottoguide/tools/hil/ground_truth/seal_ground_truth_preflight.py" \
+  <session_dir> <hardware_inventory.json> <human_review.json>
+```
+
+El sellador valida primero la sesión, copia ambos archivos a `calibration/`, calcula SHA-256 y registra paths, IDs y revisiones en el manifest mediante escrituras atómicas. Rechaza sobrescritura salvo `--force` y nunca cambia el status a GO. La route spec ya sellada no se modifica.
+
 ## 10. Validación estructural
 
 Completar eventos y ejecutar:
 
 ```bash
 python3 "codigo ottoguide/tools/hil/ground_truth/validate_ground_truth_session.py" \
-  <session_dir> --hardware-inventory <hardware_inventory.json>
+  <session_dir>
 ```
 
-`ok=true` significa contrato estructural válido. No significa readiness física.
+El validador lee route spec, inventario y revisión desde el manifest. `ok=true` significa contrato y hashes válidos; no significa readiness física. Una alteración de cualquier evidencia sellada produce `decision=INVALID`.
 
 ## 11. Evaluación de readiness
 
 ```bash
 python3 "codigo ottoguide/tools/hil/ground_truth/assess_ground_truth_readiness.py" \
-  <session_dir> <hardware_inventory.json>
+  <session_dir>
 ```
 
 El resultado es `INVALID`, `NO_GO` o `GO`. El script es read-only: no modifica manifest ni autoriza acciones.
+
+| Exit code | Decisión | Significado |
+|---:|---|---|
+| 0 | `GO` | Todas las evidencias declaradas pasan; aún requiere autorización operativa humana inmediata |
+| 2 | `NO_GO` | Estructura válida con uno o más bloqueos físicos/humanos |
+| 3 | `INVALID` | Contrato, schema, referencia o hash inválido |
+| 1 | error inesperado | Fallo de ejecución no clasificable |
 
 ## 12. Checklist humano
 
 - [ ] Route spec revisada y aprobada para CALIBRATION por un rol autorizado.
 - [ ] SHA y revisión coinciden con el manifest.
 - [ ] Instrumentos presentes y accuracies documentadas.
+- [ ] Inventario `REVIEWED_READY`, vigente, aplicable a la ruta y sellado por hash.
+- [ ] Revisión humana sellada coincide con sesión, ruta e inventario.
 - [ ] Marcas de piso, orientación y sincronización disponibles.
 - [ ] Almacenamiento, área supervisada y observador confirmados.
 - [ ] Eventos, tolerancias y doble sync revisados.
@@ -79,11 +97,11 @@ El resultado es `INVALID`, `NO_GO` o `GO`. El script es read-only: no modifica m
 
 ## 13. Criterios GO
 
-Contrato válido, manifest marcado GO por revisión humana, ruta aprobada para la fase, inventario válido, instrumentos y precisiones confirmados, sync disponible, almacenamiento, área y observador confirmados. Un GO JSON no inicia movimiento y no reemplaza autorización humana final.
+Contrato válido, manifest marcado GO por revisión humana, ruta aprobada para la fase, inventario `REVIEWED_READY` vigente y aplicable, instrumentos/precisiones consistentes, doble sync válido, origen dentro de tolerancia, almacenamiento, área y observador confirmados. Inventario y revisión deben estar sellados y sin placeholders críticos. Un GO JSON no inicia movimiento y no reemplaza la autorización humana operativa requerida inmediatamente antes de cualquier comando físico.
 
 ## 14. Criterios NO-GO
 
-Cualquier requisito físico ausente, status `NOT_REVIEWED`/`NO_GO`, ruta no aprobada, precisión desconocida, sync incompleto, falta de almacenamiento/supervisión/observador o discrepancia no estructural pendiente. El estado actual es NO-GO.
+Cualquier requisito físico ausente, status `NOT_REVIEWED`/`NO_GO`, revisión ausente/NO-GO/inconsistente, inventario vencido, ruta no aprobada, placeholder crítico, origen no comprobado, sync incompleto, falta de almacenamiento/supervisión/observador o discrepancia no estructural pendiente. El estado actual es NO-GO.
 
 ## 15. Criterios de aborto
 
@@ -95,8 +113,8 @@ No editar bags, videos, poses externas ni mediciones originales. Registrar paths
 
 ## 17. Outputs
 
-Manifest schema `1.0`, route spec sellada, eventos con tolerancias explícitas, inventario, reporte estructural JSON, reporte readiness JSON y notas de revisión humana.
+Manifest schema `1.0`, route spec sellada, eventos con tolerancias explícitas, inventario y revisión copiados/sellados, hashes de evidencia, resúmenes de sync/origen/revisión y reportes JSON.
 
 ## 18. Estado actual
 
-Tooling y documentación: preparados offline. Ejemplos: `NO_GO`. Hardware y revisión humana: pendientes. `PHYSICAL_GO_NO_GO_STATUS=NO_GO_PENDING_HARDWARE_AND_HUMAN_REVIEW`. No se ejecutó CALIBRATION.
+Tooling y documentación: preparados offline con cierre fail-safe. Templates: `NO_GO`. Hardware y revisión humana reales: pendientes. `PHYSICAL_GO_NO_GO_STATUS=NO_GO_PENDING_REAL_HARDWARE_AND_HUMAN_REVIEW`. No se ejecutó CALIBRATION.

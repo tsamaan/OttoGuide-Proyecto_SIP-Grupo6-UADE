@@ -10,9 +10,13 @@
   "fiducial_marker_available": false,
   "floor_markers_available": false,
   "inventory_id": "HARDWARE_EXAMPLE_NOT_REVIEWED",
+  "inventory_revision": "1",
+  "inventory_status": "NOT_REVIEWED",
+  "location_scope": "LOCATION_SCOPE_PLACEHOLDER",
   "notes": "Conservative example; does not assert physical availability.",
   "orientation_marker_available": false,
-  "review_date": "",
+  "reviewed_at": "",
+  "reviewed_by_role": "REVIEWER_ROLE_PLACEHOLDER",
   "safety_observer_confirmed": false,
   "schema_version": "1.0",
   "storage_confirmed": false,
@@ -20,4 +24,6 @@
   "sync_expected_accuracy_s": null,
   "sync_marker_available": false,
   "sync_method": "PENDING_HARDWARE_CONFIRMATION"
+  ,"valid_for_route_ids": []
+  ,"valid_until": ""
 }
