@@ -498,6 +498,10 @@ def validate_review(data, errors):
                     if not placeholder(val) and not is_valid_hash(val):
                         errors.append(f"human_review: {field} must be a valid 64-character lowercase hexadecimal hash or a placeholder when decision is NO_GO")
 
+    status = data.get("origin_placement_status")
+    if status not in ORIGIN_STATUS:
+        errors.append("human_review: invalid origin_placement_status")
+
     # Check boolean flags
     for field in ("sync_plan_reviewed", "safety_protocol_reviewed"):
         if field in data:
@@ -515,11 +519,23 @@ def validate_review(data, errors):
 
         # movement_authorization_reference obligatorio, sin placeholders
         auth = data.get("movement_authorization_reference")
-        if not isinstance(auth, str) or not auth.strip():
-            errors.append("human_review: movement_authorization_reference is required when decision is GO")
+        if not isinstance(auth, str) or not auth.strip() or placeholder(auth):
+            errors.append("human_review: movement_authorization_reference must not be empty or a placeholder when decision is GO")
 
-        # sync_plan_reviewed y safety_protocol_reviewed bool
-        # origin_placement_status in ORIGIN_STATUS
+        # sync_plan_reviewed and safety_protocol_reviewed must be exactly True
+        if data.get("sync_plan_reviewed") is not True:
+            errors.append("human_review: sync_plan_reviewed must be exactly True when decision is GO")
+        if data.get("safety_protocol_reviewed") is not True:
+            errors.append("human_review: safety_protocol_reviewed must be exactly True when decision is GO")
+
+        # origin_placement_status must be exactly IN_TOLERANCE
+        if data.get("origin_placement_status") != "IN_TOLERANCE":
+            errors.append("human_review: origin_placement_status must be IN_TOLERANCE when decision is GO")
+
+        # reviewed_by_role is required and cannot be a placeholder
+        role = data.get("reviewed_by_role")
+        if not isinstance(role, str) or not role.strip() or placeholder(role):
+            errors.append("human_review: reviewed_by_role is required and cannot be a placeholder when decision is GO")
 
         # errors de origen finitos y no negativos
         for field in ("origin_position_error_m", "origin_yaw_error_rad"):
@@ -613,27 +629,35 @@ def validate(session):
                     if not path.is_file():
                         errors.append(f"manifest: {field} referenced file does not exist: {val}")
 
-    manifest_hw = manifest.get("hardware_inventory")
-    manifest_rev = manifest.get("human_review")
+    hw_group = ["hardware_inventory", "hardware_inventory_sha256", "hardware_inventory_id", "hardware_inventory_revision"]
+    rev_group = ["human_review", "human_review_sha256", "human_review_id", "human_review_revision"]
+
+    for field in (hw_group + rev_group):
+        if field not in manifest:
+            errors.append(f"manifest: missing required field {field}")
+        elif not isinstance(manifest[field], str):
+            errors.append(f"manifest: {field} must be a string")
+
+    type_ok = all(field in manifest and isinstance(manifest[field], str) for field in (hw_group + rev_group))
     has_sealed = False
-    if (isinstance(manifest_hw, str) and manifest_hw.strip()) or (isinstance(manifest_rev, str) and manifest_rev.strip()):
-        has_sealed = True
+    if type_ok:
+        hw_pop = [bool(manifest[f].strip()) for f in hw_group]
+        rev_pop = [bool(manifest[f].strip()) for f in rev_group]
 
-    if has_sealed:
-        sealed_strings = [
-            "hardware_inventory", "hardware_inventory_sha256", "hardware_inventory_id", "hardware_inventory_revision",
-            "human_review", "human_review_sha256", "human_review_id", "human_review_revision"
-        ]
-        for field in sealed_strings:
-            if field not in manifest:
-                errors.append(f"manifest: missing required sealed field {field}")
-            else:
-                val = manifest.get(field)
-                if not isinstance(val, str) or not val.strip():
-                    errors.append(f"manifest: {field} must be a non-empty string when sealed evidence is present")
+        hw_any = any(hw_pop)
+        hw_all = all(hw_pop)
+        rev_any = any(rev_pop)
+        rev_all = all(rev_pop)
 
-        if (manifest_hw and not manifest_rev) or (manifest_rev and not manifest_hw):
-            errors.append("manifest: sealed evidence must be complete (both hardware_inventory and human_review must be present)")
+        if hw_any and not hw_all:
+            errors.append("manifest: incomplete hardware inventory group (all hardware fields must be populated if any is populated)")
+        if rev_any and not rev_all:
+            errors.append("manifest: incomplete human review group (all human review fields must be populated if any is populated)")
+
+        if hw_all != rev_all:
+            errors.append("manifest: hardware inventory and human review must be both sealed or both empty")
+
+        has_sealed = hw_all and rev_all
 
     # Hashes validation
     for field in ("route_spec_sha256", "hardware_inventory_sha256", "human_review_sha256"):
@@ -734,18 +758,21 @@ def validate(session):
     hw_file = session / "calibration" / "hardware_inventory.json"
     rev_file = session / "calibration" / "human_review.json"
 
-    if hw_file.is_file() and not manifest_hw:
+    m_hw = manifest.get("hardware_inventory")
+    m_rev = manifest.get("human_review")
+
+    if hw_file.is_file() and (not isinstance(m_hw, str) or not m_hw.strip()):
         warnings.append("partial_state: hardware inventory file present but not referenced in manifest")
         blockers.append("UNREFERENCED_HARDWARE_INVENTORY_PRESENT")
 
-    if rev_file.is_file() and not manifest_rev:
+    if rev_file.is_file() and (not isinstance(m_rev, str) or not m_rev.strip()):
         warnings.append("partial_state: human review file present but not referenced in manifest")
         blockers.append("UNREFERENCED_HUMAN_REVIEW_PRESENT")
 
     # Hash empty but file present
-    if manifest_hw and not manifest.get("hardware_inventory_sha256"):
+    if isinstance(m_hw, str) and m_hw.strip() and not manifest.get("hardware_inventory_sha256"):
         errors.append("manifest: hardware_inventory is referenced but hardware_inventory_sha256 is empty")
-    if manifest_rev and not manifest.get("human_review_sha256"):
+    if isinstance(m_rev, str) and m_rev.strip() and not manifest.get("human_review_sha256"):
         errors.append("manifest: human_review is referenced but human_review_sha256 is empty")
     if manifest.get("route_spec") and not manifest.get("route_spec_sha256"):
         errors.append("manifest: route_spec is referenced but route_spec_sha256 is empty")

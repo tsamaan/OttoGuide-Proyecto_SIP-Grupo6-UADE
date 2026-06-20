@@ -35,6 +35,7 @@ class FailSafeTests(unittest.TestCase):
         if sealed:seal.seal(session,self.templates/"hardware_inventory.example.json",self.templates/"human_review.example.json")
         return session
     def go_fixture(self,**overrides):
+        bypass_seal = overrides.pop("bypass_seal", False)
         route=json.loads((self.templates/"route_spec.example.json").read_text(encoding="utf-8"));route.update(route_id="R3-CAL",origin_marker_id="ORIGIN_A",origin_reference="FLOOR_CENTER_A",distance_instrument="LASER_METER_A",angle_instrument="ANGLE_GAUGE_A",approved_by_role="GT_PROTOCOL_REVIEWER",approval_date="2026-06-20",notes="Synthetic test fixture")
         for segment in route["segments"]:segment["start_marker"]=segment["start_marker"].replace("EXAMPLE","A");segment["end_marker"]=segment["end_marker"].replace("EXAMPLE","A")
         route_path=self.root/f"route_{len(list(self.root.iterdir()))}.json";route_path.write_text(json.dumps(route,sort_keys=True),encoding="utf-8")
@@ -44,6 +45,28 @@ class FailSafeTests(unittest.TestCase):
         inventory.update(overrides.get("inventory",{}));inventory_path=self.root/f"inventory_{session_id}.json";inventory_raw=(json.dumps(inventory,sort_keys=True)).encode();inventory_path.write_bytes(inventory_raw)
         review={"schema_version":"1.0","review_id":"REVIEW_A","review_revision":"1","reviewed_at":"2026-06-20T12:30:00+00:00","reviewed_by_role":"SAFETY_REVIEWER","decision":overrides.get("decision","GO"),"session_id":session_id,"route_id":"R3-CAL","route_revision":"1","route_spec_sha256":manifest["route_spec_sha256"],"hardware_inventory_id":inventory["inventory_id"],"hardware_inventory_revision":inventory["inventory_revision"],"hardware_inventory_sha256":hashlib.sha256(inventory_raw).hexdigest(),"origin_placement_status":overrides.get("origin_status","IN_TOLERANCE"),"origin_position_error_m":overrides.get("position_error",.01),"origin_yaw_error_rad":overrides.get("yaw_error",.01),"sync_plan_reviewed":True,"safety_protocol_reviewed":True,"movement_authorization_reference":overrides.get("authorization","AUTH_RECORD_001"),"notes":"Synthetic temporary fixture"}
         review.update(overrides.get("review",{}));review_path=self.root/f"review_{session_id}.json";review_path.write_text(json.dumps(review,sort_keys=True),encoding="utf-8")
+
+        if bypass_seal:
+            cal_dir = session / "calibration"
+            cal_dir.mkdir(parents=True, exist_ok=True)
+            (cal_dir / "hardware_inventory.json").write_bytes(inventory_raw)
+            (cal_dir / "human_review.json").write_text(json.dumps(review, sort_keys=True), encoding="utf-8")
+            manifest = json.loads((session / "session_manifest.json").read_text(encoding="utf-8"))
+            manifest.update({
+                "hardware_inventory": "calibration/hardware_inventory.json",
+                "hardware_inventory_sha256": hashlib.sha256(inventory_raw).hexdigest(),
+                "hardware_inventory_id": inventory["inventory_id"],
+                "hardware_inventory_revision": inventory["inventory_revision"],
+                "human_review": "calibration/human_review.json",
+                "human_review_sha256": hashlib.sha256(json.dumps(review, sort_keys=True).encode("utf-8")).hexdigest(),
+                "human_review_id": review["review_id"],
+                "human_review_revision": review["review_revision"],
+            })
+            calibrations = [item for item in manifest.get("calibration_files", []) if item not in {"calibration/hardware_inventory.json", "calibration/human_review.json"}]
+            manifest["calibration_files"] = calibrations + ["calibration/hardware_inventory.json", "calibration/human_review.json"]
+            (session / "session_manifest.json").write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            return session
+
         seal.seal(session,inventory_path,review_path);return session
     def manifest(self,session):return json.loads((session/"session_manifest.json").read_text(encoding="utf-8"))
     def put_manifest(self,session,data):(session/"session_manifest.json").write_text(json.dumps(data,sort_keys=True),encoding="utf-8")
@@ -87,10 +110,10 @@ class FailSafeTests(unittest.TestCase):
         s=self.go_fixture();self.mutate_events(s,lambda r:r[1].__setitem__("time_tolerance_s","0.06"));self.assertEqual(assess.assess(s)["decision"],"NO_GO")
     def test_comparability_pending(self):
         s=self.go_fixture();m=self.manifest(s);m["comparability_status"]="PENDING_REVIEW";self.put_manifest(s,m);self.assertEqual(assess.assess(s)["decision"],"NO_GO")
-    def test_origin_not_reviewed(self):self.assertEqual(assess.assess(self.go_fixture(origin_status="NOT_CHECKED"))["decision"],"NO_GO")
+    def test_origin_not_reviewed(self):self.assertEqual(assess.assess(self.go_fixture(origin_status="NOT_CHECKED", bypass_seal=True))["decision"],"INVALID")
     def test_origin_out_of_tolerance(self):self.assertEqual(assess.assess(self.go_fixture(position_error=.03))["decision"],"NO_GO")
     def test_review_no_go(self):self.assertEqual(assess.assess(self.go_fixture(decision="NO_GO"))["decision"],"NO_GO")
-    def test_authorization_placeholder(self):self.assertEqual(assess.assess(self.go_fixture(authorization="AUTHORIZATION_PLACEHOLDER"))["decision"],"NO_GO")
+    def test_authorization_placeholder(self):self.assertEqual(assess.assess(self.go_fixture(authorization="AUTHORIZATION_PLACEHOLDER", bypass_seal=True))["decision"],"INVALID")
     def test_go_fully_synthetic(self):
         result=assess.assess(self.go_fixture());self.assertTrue(result["ok"]);self.assertTrue(result["physical_ready"]);self.assertEqual(result["decision"],"GO")
     def test_assess_read_only(self):
@@ -409,7 +432,7 @@ class FailSafeTests(unittest.TestCase):
         m = self.manifest(s)
         m["human_review_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
         self.put_manifest(s, m)
-        self.assertEqual(validate.validate(s)["decision"], "NO_GO")
+        self.assertEqual(validate.validate(s)["decision"], "INVALID")
 
     def test_review_bool_incorrect_type(self):
         s = self.go_fixture()
@@ -463,9 +486,17 @@ class FailSafeTests(unittest.TestCase):
         s = prepare.prepare(self.root, self.args("GT_TX_FAIL_1", self.templates / "route_spec.example.json"))
         self.copy_events(s)
         manifest_before = (s / "session_manifest.json").read_bytes()
-        with mock.patch("os.replace", side_effect=RuntimeError("Mocked failure before replace")):
-            with self.assertRaises(RuntimeError):
+        orig_replace = os.replace
+        def fake_replace(src, dst):
+            if "stage.tmp" in str(src):
+                raise RuntimeError("Mocked failure before replace")
+            return orig_replace(src, dst)
+        with mock.patch("os.replace", side_effect=fake_replace):
+            with self.assertRaises(seal.TransactionError) as ctx:
                 seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+            self.assertTrue(ctx.exception.rollback_performed)
+            self.assertTrue(ctx.exception.rollback_verified)
+            self.assertTrue(ctx.exception.lock_released)
         self.assertEqual((s / "session_manifest.json").read_bytes(), manifest_before)
         self.assertFalse((s / "calibration" / "hardware_inventory.json").exists())
         self.assertFalse((s / "calibration" / "human_review.json").exists())
@@ -487,8 +518,11 @@ class FailSafeTests(unittest.TestCase):
                 raise RuntimeError("Mocked failure at human review replace")
             return orig_replace(src, dst)
         with mock.patch("os.replace", side_effect=fake_replace):
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(seal.TransactionError) as ctx:
                 seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+            self.assertTrue(ctx.exception.rollback_performed)
+            self.assertTrue(ctx.exception.rollback_verified)
+            self.assertTrue(ctx.exception.lock_released)
         self.assertEqual((s / "session_manifest.json").read_bytes(), manifest_before)
         self.assertFalse((s / "calibration" / "hardware_inventory.json").exists())
         self.assertFalse((s / "calibration" / "human_review.json").exists())
@@ -510,8 +544,11 @@ class FailSafeTests(unittest.TestCase):
                 raise RuntimeError("Mocked failure at manifest replace")
             return orig_replace(src, dst)
         with mock.patch("os.replace", side_effect=fake_replace):
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(seal.TransactionError) as ctx:
                 seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+            self.assertTrue(ctx.exception.rollback_performed)
+            self.assertTrue(ctx.exception.rollback_verified)
+            self.assertTrue(ctx.exception.lock_released)
         self.assertEqual((s / "session_manifest.json").read_bytes(), manifest_before)
         self.assertFalse((s / "calibration" / "hardware_inventory.json").exists())
         self.assertFalse((s / "calibration" / "human_review.json").exists())
@@ -524,14 +561,321 @@ class FailSafeTests(unittest.TestCase):
         s = prepare.prepare(self.root, self.args("GT_TX_FAIL_VAL", self.templates / "route_spec.example.json"))
         self.copy_events(s)
         manifest_before = (s / "session_manifest.json").read_bytes()
-        with mock.patch("validate_ground_truth_session.validate", return_value={"ok": False, "errors": ["Mocked validation error"]}):
-            with self.assertRaises(ValueError):
+
+        calls = 0
+        original_validate = validate.validate
+        def mock_validate(session_dir):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return original_validate(session_dir)
+            else:
+                return {"ok": False, "errors": ["Mocked post-write validation error"]}
+
+        with mock.patch("validate_ground_truth_session.validate", side_effect=mock_validate):
+            with self.assertRaises(seal.TransactionError) as ctx:
                 seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+            self.assertTrue(ctx.exception.rollback_performed)
+            self.assertTrue(ctx.exception.rollback_verified)
+            self.assertEqual(ctx.exception.temp_remaining, 0)
+            self.assertEqual(ctx.exception.bak_remaining, 0)
+            self.assertTrue(ctx.exception.lock_released)
         self.assertEqual((s / "session_manifest.json").read_bytes(), manifest_before)
         self.assertFalse((s / "calibration" / "hardware_inventory.json").exists())
         self.assertFalse((s / "calibration" / "human_review.json").exists())
         for p in s.rglob("*"):
             if p.is_file():
                 self.assertFalse(p.name.endswith(".tmp") or p.name.endswith(".bak") or p.name.endswith(".backup"))
+        self.assertFalse((s / "calibration" / ".gtseal.lock").exists())
 
-if __name__=="__main__":unittest.main(verbosity=2)
+    def test_manifest_missing_evidence_fields(self):
+        s = self.conservative(sealed=False)
+        m = self.manifest(s)
+        evidence_fields = [
+            "hardware_inventory", "hardware_inventory_sha256", "hardware_inventory_id", "hardware_inventory_revision",
+            "human_review", "human_review_sha256", "human_review_id", "human_review_revision"
+        ]
+        for field in evidence_fields:
+            m_copy = dict(m)
+            del m_copy[field]
+            self.put_manifest(s, m_copy)
+            res = validate.validate(s)
+            self.assertFalse(res["ok"])
+            self.assertEqual(res["decision"], "INVALID")
+
+    def test_manifest_incorrect_type_evidence_fields(self):
+        s = self.conservative(sealed=False)
+        m = self.manifest(s)
+        evidence_fields = [
+            "hardware_inventory", "hardware_inventory_sha256", "hardware_inventory_id", "hardware_inventory_revision",
+            "human_review", "human_review_sha256", "human_review_id", "human_review_revision"
+        ]
+        for field in evidence_fields:
+            m_copy = dict(m)
+            m_copy[field] = 12345
+            self.put_manifest(s, m_copy)
+            res = validate.validate(s)
+            self.assertFalse(res["ok"])
+            self.assertEqual(res["decision"], "INVALID")
+
+    def test_manifest_group_partially_populated(self):
+        s = self.conservative(sealed=False)
+        m = self.manifest(s)
+        m["hardware_inventory"] = "calibration/hardware_inventory.json"
+        self.put_manifest(s, m)
+        res = validate.validate(s)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["decision"], "INVALID")
+
+    def test_manifest_inventory_without_review(self):
+        s = self.conservative(sealed=False)
+        m = self.manifest(s)
+        m["hardware_inventory"] = "calibration/hardware_inventory.json"
+        m["hardware_inventory_sha256"] = "a" * 64
+        m["hardware_inventory_id"] = "INV1"
+        m["hardware_inventory_revision"] = "1"
+        self.put_manifest(s, m)
+        res = validate.validate(s)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["decision"], "INVALID")
+
+    def test_manifest_review_without_inventory(self):
+        s = self.conservative(sealed=False)
+        m = self.manifest(s)
+        m["human_review"] = "calibration/human_review.json"
+        m["human_review_sha256"] = "b" * 64
+        m["human_review_id"] = "REV1"
+        m["human_review_revision"] = "1"
+        self.put_manifest(s, m)
+        res = validate.validate(s)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["decision"], "INVALID")
+
+    def test_manifest_unsealed_fields_empty_valid(self):
+        s = self.conservative(sealed=False)
+        res = validate.validate(s)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["decision"], "NO_GO")
+
+    def test_review_go_sync_plan_reviewed_false_invalid(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "human_review.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["sync_plan_reviewed"] = False
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["human_review_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        res = validate.validate(s)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["decision"], "INVALID")
+
+    def test_review_go_safety_protocol_reviewed_false_invalid(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "human_review.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["safety_protocol_reviewed"] = False
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["human_review_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        res = validate.validate(s)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["decision"], "INVALID")
+
+    def test_review_go_authorization_placeholder_invalid(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "human_review.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["movement_authorization_reference"] = "TBD_PENDING_CONFIRMATION"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["human_review_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        res = validate.validate(s)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["decision"], "INVALID")
+
+    def test_review_go_origin_not_checked_invalid(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "human_review.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["origin_placement_status"] = "NOT_CHECKED"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["human_review_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        res = validate.validate(s)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["decision"], "INVALID")
+
+    def test_review_go_role_placeholder_invalid(self):
+        s = self.go_fixture()
+        path = s / "calibration" / "human_review.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["reviewed_by_role"] = "PENDING_ASSIGNMENT"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        m = self.manifest(s)
+        m["human_review_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.put_manifest(s, m)
+        res = validate.validate(s)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["decision"], "INVALID")
+
+    def test_physical_status_unchanged_correct(self):
+        s = prepare.prepare(self.root, self.args("GT_PHYS_STATUS", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        res = seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["physical_status_unchanged"])
+        self.assertEqual(res["physical_readiness_status_before"], "NOT_REVIEWED")
+        self.assertEqual(res["physical_readiness_status_after"], "NOT_REVIEWED")
+
+    def test_lock_excl(self):
+        s = prepare.prepare(self.root, self.args("GT_LOCK_TEST", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        lock_path = s / "calibration" / ".gtseal.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text("lock", encoding="utf-8")
+        with self.assertRaises(FileExistsError):
+            seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+        self.assertTrue(lock_path.exists())
+        os.unlink(lock_path)
+
+    def test_unique_stage_files(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_STAGE_UNIQUE", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+
+        orig_replace = os.replace
+        replaces = []
+        def fake_replace(src, dst):
+            replaces.append((str(src), str(dst)))
+            return orig_replace(src, dst)
+
+        with mock.patch("os.replace", side_effect=fake_replace):
+            seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+
+        self.assertEqual(len(replaces), 3)
+        for src, dst in replaces:
+            src_name = Path(src).name
+            self.assertTrue(len(src_name.split(".")[-3]) == 16)
+
+    def test_force_reseal_base_validation(self):
+        s = prepare.prepare(self.root, self.args("GT_FORCE_RESEAL", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+
+        (s / "calibration" / "human_review.json").write_text("{}", encoding="utf-8")
+        res = seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json", force=True)
+        self.assertTrue(res["ok"])
+
+        (s / "calibration" / "route_spec.json").write_text("{}", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json", force=True)
+
+    def test_force_existing_evidence_inject_failures(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_FORCE_FAILURES", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+        seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+
+        orig_inv = (s / "calibration" / "hardware_inventory.json").read_bytes()
+        orig_rev = (s / "calibration" / "human_review.json").read_bytes()
+        orig_man = (s / "session_manifest.json").read_bytes()
+
+        orig_replace = os.replace
+        def fake_replace_1(src, dst):
+            if "stage.tmp" in str(src):
+                raise RuntimeError("Point 1")
+            return orig_replace(src, dst)
+        with mock.patch("os.replace", side_effect=fake_replace_1):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json", force=True)
+            self.assertTrue(ctx.exception.rollback_verified)
+        self.assertEqual((s / "calibration" / "hardware_inventory.json").read_bytes(), orig_inv)
+        self.assertEqual((s / "calibration" / "human_review.json").read_bytes(), orig_rev)
+        self.assertEqual((s / "session_manifest.json").read_bytes(), orig_man)
+
+        calls = 0
+        def fake_replace_2(src, dst):
+            if "stage.tmp" in str(src):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise RuntimeError("Point 2")
+            return orig_replace(src, dst)
+        with mock.patch("os.replace", side_effect=fake_replace_2):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json", force=True)
+            self.assertTrue(ctx.exception.rollback_verified)
+        self.assertEqual((s / "calibration" / "hardware_inventory.json").read_bytes(), orig_inv)
+        self.assertEqual((s / "calibration" / "human_review.json").read_bytes(), orig_rev)
+        self.assertEqual((s / "session_manifest.json").read_bytes(), orig_man)
+
+        calls = 0
+        def fake_replace_3(src, dst):
+            if "stage.tmp" in str(src):
+                nonlocal calls
+                calls += 1
+                if calls == 3:
+                    raise RuntimeError("Point 3")
+            return orig_replace(src, dst)
+        with mock.patch("os.replace", side_effect=fake_replace_3):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json", force=True)
+            self.assertTrue(ctx.exception.rollback_verified)
+        self.assertEqual((s / "calibration" / "hardware_inventory.json").read_bytes(), orig_inv)
+        self.assertEqual((s / "calibration" / "human_review.json").read_bytes(), orig_rev)
+        self.assertEqual((s / "session_manifest.json").read_bytes(), orig_man)
+
+        calls = 0
+        def fake_replace_4(src, dst):
+            if "stage.tmp" in str(src):
+                nonlocal calls
+                calls += 1
+                res = orig_replace(src, dst)
+                if calls == 3:
+                    raise RuntimeError("Point 4")
+                return res
+            return orig_replace(src, dst)
+        with mock.patch("os.replace", side_effect=fake_replace_4):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json", force=True)
+            self.assertTrue(ctx.exception.rollback_verified)
+        self.assertEqual((s / "calibration" / "hardware_inventory.json").read_bytes(), orig_inv)
+        self.assertEqual((s / "calibration" / "human_review.json").read_bytes(), orig_rev)
+        self.assertEqual((s / "session_manifest.json").read_bytes(), orig_man)
+
+        with mock.patch("validate_ground_truth_session.validate", return_value={"ok": False, "errors": ["Point 5"]}):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json", force=True)
+            self.assertTrue(ctx.exception.rollback_verified)
+        self.assertEqual((s / "calibration" / "hardware_inventory.json").read_bytes(), orig_inv)
+        self.assertEqual((s / "calibration" / "human_review.json").read_bytes(), orig_rev)
+        self.assertEqual((s / "session_manifest.json").read_bytes(), orig_man)
+
+    def test_error_during_rollback(self):
+        import unittest.mock as mock
+        s = prepare.prepare(self.root, self.args("GT_FAIL_ROLLBACK", self.templates / "route_spec.example.json"))
+        self.copy_events(s)
+
+        orig_replace = os.replace
+        calls = 0
+        def fake_replace(src, dst):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("Initial replace failure")
+            else:
+                raise RuntimeError("Fail during rollback replace")
+
+        with mock.patch("os.replace", side_effect=fake_replace):
+            with self.assertRaises(seal.TransactionError) as ctx:
+                seal.seal(s, self.templates / "hardware_inventory.example.json", self.templates / "human_review.example.json")
+            self.assertFalse(ctx.exception.rollback_verified)
+            self.assertTrue(len(ctx.exception.rollback_failures) > 0)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

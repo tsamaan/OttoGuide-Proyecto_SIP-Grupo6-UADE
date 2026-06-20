@@ -182,7 +182,7 @@ Manifest, eventos, ficha/croquis de ruta, mediciones, calibraciones, tabla de si
 - `prepare_ground_truth_session.py`: implementado y probado en versión de herramientas 1.1.
 - `validate_ground_truth_session.py`: implementa validación estructural exhaustiva de schema 1.0 y advertencias/bloqueos ante residuos o estados parciales.
 - `assess_ground_truth_readiness.py`: implementado como evaluación read-only (exit codes: 0=GO, 2=NO_GO, 3=INVALID).
-- `seal_ground_truth_preflight.py`: implementa el sellado transaccional con rollback (staging, backups y reemplazo ordenado de archivos en disco, con el manifest como commit point lógico y validación posterior).
+- `seal_ground_truth_preflight.py`: implementa el sellado transaccional con lock exclusivo, transaction ID único, staging, backups, reemplazo por archivo con os.replace, y verified rollback byte por byte ante cualquier fallo de escritura o validación posterior.
 - Schema `1.0`, route spec sellada e inventario físico: implementados.
 - Revisión humana sellada, cruces de hashes, doble sync y rechazo de placeholders: implementados.
 - Templates y tests standard-library: implementados.

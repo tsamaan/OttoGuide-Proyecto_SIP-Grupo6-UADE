@@ -1,6 +1,6 @@
 # Progreso de Odometría Offline — OttoGuide
 
-**Estado:** EN INVESTIGACIÓN  
+**Estado:** EN INVESTIGACIÓN
 **Fecha inicial:** 2026-06-20
 
 ## 1. Objetivo y alcance
@@ -145,3 +145,4 @@ Los artefactos bajo `artifacts/offline_processing/` son locales y no necesariame
 | 2026-06-20 | Endurecimiento de preflight GT-MIN | Se versionó schema 1.0, se selló la especificación de ruta y se añadió evaluación read-only de readiness físico; el estado permanece NO-GO. |
 | 2026-06-20 | Cierre fail-safe GT-MIN | Se añadieron exit codes inequívocos, inventario y revisión humana sellados, doble sincronización y rechazo de placeholders; no se realizó revisión ni captura física. |
 | 2026-06-20 | Finalización y Sellado Transaccional | Se actualizó a tooling versión 1.1 con validación estructural exhaustiva de schema 1.0, sellado transaccional con rollback y advertencias ante residuos/estados parciales; el estado físico sigue siendo NO_GO. |
+| 2026-06-20 | Corrección de Rollback y Consistencia | Se corrigieron el rollback verificable (restauración por archivo con os.replace, comparación byte por byte, y RollbackError), el bloqueo exclusivo con lock file, los temporales únicos con transaction ID, la consistencia interna de revisiones GO, y la recuperación selectiva con --force; el estado físico sigue siendo NO_GO. |

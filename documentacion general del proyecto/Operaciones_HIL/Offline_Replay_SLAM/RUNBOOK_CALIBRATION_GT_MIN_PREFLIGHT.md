@@ -54,7 +54,7 @@ python3 "codigo ottoguide/tools/hil/ground_truth/seal_ground_truth_preflight.py"
   <session_dir> <hardware_inventory.json> <human_review.json>
 ```
 
-El sellador valida primero la sesión, copia ambos archivos a `calibration/`, calcula SHA-256 y registra paths, IDs y revisiones en el manifest mediante un sellado transaccional con rollback (staging, backups y reemplazo ordenado de archivos en disco, con el manifest como commit point lógico y validación posterior). Rechaza sobrescritura salvo `--force` y nunca cambia el status a GO. La route spec ya sellada no se modifica. Si ocurre un fallo en cualquier etapa del proceso de escritura o en la validación posterior, se realiza un rollback total que restaura los archivos a su estado anterior y limpia los archivos temporales.
+El sellador adquiere un bloqueo exclusivo (`.gtseal.lock`), genera un `transaction_id` único, crea copias de seguridad de la evidencia previa si existía y escribe archivos temporales de staging. Luego realiza el reemplazo ordenado de los archivos en disco (con el manifest como commit point lógico) usando `os.replace`. Finalmente realiza una validación posterior. Rechaza la sobrescritura salvo que se pase `--force` y nunca modifica el estado operativo de readiness. Si ocurre un fallo antes o durante la validación posterior, se realiza un rollback total verificado (restauración por archivo y verificación de coincidencia byte por byte de la evidencia anterior, y liberación del lock). Si la restauración falla, se propaga un error del rollback.
 
 ## 10. Validación estructural
 
