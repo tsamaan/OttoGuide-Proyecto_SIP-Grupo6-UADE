@@ -69,6 +69,19 @@ def validate_domain_id_range(base: int, maximum_offset: int) -> str | None:
         return "DERIVED_DOMAIN_ID_OUT_OF_RANGE"
     return None
 
+
+def parse_base_domain_id(raw_value: str) -> tuple[int | None, str | None]:
+    """Parse --base-domain-id into a strict base-10 int without ever raising.
+    Rejects non-integer strings (e.g. "abc", "12.5", "", "   ") the same way
+    an out-of-range integer is rejected: by returning INVALID_DOMAIN_ID
+    instead of letting int() raise ValueError into an uncaught traceback.
+    """
+    try:
+        return int(raw_value), None
+    except (TypeError, ValueError):
+        return None, "INVALID_DOMAIN_ID"
+
+
 ALLOWED_VELOCITY_TOPIC_SUFFIXES = ("/cmd_vel_raw", "/cmd_vel_safe")
 FORBIDDEN_VELOCITY_TOPIC_SUFFIXES = ("/cmd_vel", "/cmd_vel_nav")
 FORBIDDEN_NODE_SUBSTRINGS = (
@@ -767,7 +780,11 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
-    base = int(args.base_domain_id)
+    base, parse_error = parse_base_domain_id(args.base_domain_id)
+    if parse_error is not None:
+        print(json.dumps({"ok": False, "decision": "FAIL", "errors": [parse_error]}))
+        return 2
+
     domain_error = validate_domain_id_range(base, MAXIMUM_OFFSET)
     if domain_error is not None:
         print(json.dumps({"ok": False, "decision": "FAIL", "errors": [domain_error]}))

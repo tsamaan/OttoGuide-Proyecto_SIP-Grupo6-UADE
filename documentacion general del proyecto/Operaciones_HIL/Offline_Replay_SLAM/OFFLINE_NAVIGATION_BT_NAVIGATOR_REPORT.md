@@ -245,3 +245,136 @@ ROS_RUNTIME_SANDBOX = PARTIAL (Waypoint Follower y Simple Commander pendientes)
 ## Próximo incremento
 
 Waypoint Follower aislado (`nav2_waypoint_follower`) o diseño de misión con `nav2_simple_commander`, ambos bajo el mismo aislamiento (`ROS_LOCALHOST_ONLY=1`, `ROS_DOMAIN_ID` dedicado). No se implementó en esta fase.
+
+---
+
+## Fase 2F.1 — Hardening posterior a auditoría
+
+**Commit auditado**: `8b5e242c12a2fa490f085f2b3e7fd421550be874` (`feat(nav): add isolated bt navigator`).
+
+Esta fase no agrega ninguna capacidad nueva. Cierra tres hallazgos detectados durante la auditoría de ese commit, todos en el harness de validación offline (no en el robot físico ni en la lógica de navegación real).
+
+### Hallazgo 1 — `--base-domain-id` no entero producía traceback
+
+**Causa raíz**: los tres smoke tests multi-escenario (`smoke_test_offline_bt_navigator.py`, `smoke_test_offline_behavior_server.py`, `smoke_test_offline_collision_monitor.py`) convertían el argumento con `base = int(args.base_domain_id)` sin capturar `ValueError`. Una entrada como `"abc"`, `"12.5"`, `""` o `"   "` escapaba como traceback no controlado en vez de un resultado estructurado.
+
+**Corrección**: se agregó `parse_base_domain_id(raw_value)` en los tres scripts, que envuelve la conversión en `try/except (TypeError, ValueError)` y devuelve `(int, None)` en éxito o `(None, "INVALID_DOMAIN_ID")` en fallo, sin lanzar nunca una excepción. `main()` invoca primero `parse_base_domain_id`, y solo si no hay error de parseo pasa a `validate_domain_id_range`. La validación completa ocurre antes de `subprocess.Popen`, `rclpy.init`, el wrapper de runtime o cualquier comando `ros2`.
+
+**Contrato JSON para domain IDs inválidos**:
+
+```json
+{
+  "ok": false,
+  "decision": "FAIL",
+  "errors": [
+    "INVALID_DOMAIN_ID"
+  ]
+}
+```
+
+**Pruebas negativas ejecutadas** (los tres scripts, vía CLI real bajo WSL/ROS 2 Jazzy, no solo el helper en aislamiento):
+
+| Entrada | Resultado (los tres scripts) |
+|---|---|
+| `"abc"` | `exit=2`, `INVALID_DOMAIN_ID`, sin traceback, sin proceso ROS iniciado |
+| `"12.5"` | `exit=2`, `INVALID_DOMAIN_ID`, sin traceback, sin proceso ROS iniciado |
+| `""` | `exit=2`, `INVALID_DOMAIN_ID`, sin traceback, sin proceso ROS iniciado |
+| `"   "` | `exit=2`, `INVALID_DOMAIN_ID`, sin traceback, sin proceso ROS iniciado |
+| `"0"` | `exit=2`, `INVALID_DOMAIN_ID`, sin traceback, sin proceso ROS iniciado |
+| `"233"` | `exit=2`, `INVALID_DOMAIN_ID`, sin traceback, sin proceso ROS iniciado |
+
+Y los casos derivados fuera de rango (preexistentes, re-verificados tras el cambio):
+
+| Script | Base | Resultado |
+|---|---|---|
+| Behavior Server | `231` (offset `2`) | `exit=2`, `DERIVED_DOMAIN_ID_OUT_OF_RANGE` |
+| Collision Monitor | `229` (offset `4`) | `exit=2`, `DERIVED_DOMAIN_ID_OUT_OF_RANGE` |
+| BT Navigator | `232` (offset `1`) | `exit=2`, `DERIVED_DOMAIN_ID_OUT_OF_RANGE` |
+
+Las 18 combinaciones (6 entradas inválidas × 3 scripts) y las 3 combinaciones de rango derivado se verificaron con `stdout`/`stderr` completos: ningún caso produjo `Traceback`, todos los `stdout` son JSON parseable, y `pgrep` confirmó cero procesos ROS iniciados en cualquier caso.
+
+### Hallazgo 2 — `cancel_request_accepted` no acreditaba aceptación real
+
+**Causa raíz**: en `smoke_test_offline_bt_navigator.py`, la lógica original era:
+
+```python
+cancel_future = goal_handle.cancel_goal_async()
+cancel_accepted = client.spin_until_future_complete_custom(cancel_future, timeout_s=15.0)
+result["cancel_request_accepted"] = bool(cancel_accepted)
+```
+
+Esto solo confirma que el future terminó (`future.done()`), no que el servidor de acciones haya aceptado realmente cancelar la meta. Un future puede completarse con cualquier respuesta, incluido un rechazo explícito.
+
+**Contrato real inspeccionado localmente** (`ros2 interface show action_msgs/srv/CancelGoal` contra la instalación de ROS 2 Jazzy en `/opt/ros/jazzy`):
+
+```text
+int8 ERROR_NONE=0          # request accepted, goals_canceling no vacío
+int8 ERROR_REJECTED=1
+int8 ERROR_UNKNOWN_GOAL_ID=2
+int8 ERROR_GOAL_TERMINATED=3
+int8 return_code
+GoalInfo[] goals_canceling  # metas que aceptaron la cancelacion (cada una con goal_id)
+```
+
+Se confirmó además, inspeccionando `rclpy.action.client.ActionClient._cancel_goal_async` y `ClientGoalHandle` localmente instalados, que `cancel_goal_async()` devuelve un `Future[CancelGoal.Response]`, y que `goal_handle.goal_id` expone el UUID del goal originalmente aceptado (`ClientGoalHandle.goal_id`).
+
+**Corrección**: se agregó `_BtNavigatorSmokeClient.request_cancel_and_check_acceptance(goal_handle, timeout_s)`, que:
+
+1. envía la cancelación y espera el future (con timeout);
+2. si el future no termina o `future.result()` es `None`, marca `cancel_response_received=False` y agrega `CANCEL_RESPONSE_TIMEOUT`;
+3. si `response.return_code != CancelGoal.Response.ERROR_NONE`, marca `cancel_response_received=True`, `cancel_request_accepted=False` y agrega `CANCEL_REQUEST_NOT_ACCEPTED`;
+4. si el `goal_id` (UUID) del `goal_handle` original no aparece en `response.goals_canceling`, igual agrega `CANCEL_REQUEST_NOT_ACCEPTED`;
+5. solo si `return_code == ERROR_NONE` **y** el UUID coincide, marca `cancel_request_accepted=True`.
+
+El resultado del escenario ahora separa explícitamente `cancel_response_received`, `cancel_request_accepted` y `cancel_result` (este último sigue siendo el estado final de la acción, `CANCELED`/`SUCCEEDED`/etc., verificado independientemente). El gate final exige las tres condiciones simultáneamente, además de las preexistentes (precondición de movimiento real, telemetría no-cero, asentamiento a cero, pose estable).
+
+**Consistencia revisada en los otros dos smoke tests**: `smoke_test_offline_behavior_server.py` (`cancel_and_wait`) y `smoke_test_offline_collision_monitor.py` (escenario `cancel`) nunca declaran un campo de "aceptación" derivado solo de la finalización del future; ambos esperan únicamente el resultado final de la acción (`CANCELED`/`STATUS_<n>`) sin afirmar haber comprobado una aceptación intermedia que en realidad no verificaron. No se modificó ninguno de los dos: no presentan el antipatrón.
+
+**Patrón eliminado**: la línea `result["cancel_request_accepted"] = bool(cancel_accepted)` ya no existe en el repositorio; se reemplazó por la inspección real de `response.return_code` y `goal_handle.goal_id.uuid` contra `response.goals_canceling`.
+
+### Hallazgo 3 — Comentario obsoleto en el launch
+
+**Causa raíz**: el comentario de `planner_server_node` en `offline_nav_sandbox.launch.py` todavía decía *"Sin controller_server, sin local_costmap, sin behaviors, sin waypoint follower, sin Collision Monitor"*, una afirmación falsa desde la Fase 2C/2D/2E (todos esos componentes ya estaban activos).
+
+**Corrección**: el comentario ahora enumera correctamente los componentes presentes (`controller_server`, `local_costmap`, `collision_monitor`, `behavior_server`, `bt_navigator`) y los genuinamente ausentes (Waypoint Follower, Simple Commander). Se revisó el resto del archivo (`grep` de "Sin "/"sin BT"/"sin behaviors"/"sin Collision"/"sin waypoint"/"sin local_costmap"/"sin controller") y no se encontraron otras afirmaciones contradictorias: las menciones restantes de "sin Waypoint Follower, sin Simple Commander" (en el bloque de `bt_navigator_node` y en el comentario final de la `LaunchDescription`) siguen siendo ciertas y no se modificaron.
+
+### Tests agregados
+
+Se agregaron, sin eliminar ningún test existente:
+
+- `BaseDomainIdParsingTests`: prueba funcional de `parse_base_domain_id` (no solo búsqueda de texto) en los tres scripts, con entradas no enteras, válidas, y una verificación estructural de que `main()` usa el parser seguro antes de `validate_domain_id_range`.
+- `BaseDomainIdCliContractTests`: invoca la CLI real vía `subprocess` (no solo el helper) con las seis entradas inválidas en los tres scripts, verificando `exit=2`, JSON parseable, ausencia de `Traceback`, y `INVALID_DOMAIN_ID` en `errors`.
+- `CancelAcceptanceSemanticsTests`: ejercita `request_cancel_and_check_acceptance` con dobles de prueba ligeros (`Future`/`goal_handle` falsos, sin `rclpy.init()`) cubriendo: future no completado, respuesta nula, respuesta con rechazo explícito, respuesta con `goals_canceling` vacío, respuesta que confirma una meta distinta, respuesta que confirma la meta esperada (sola y entre varias), y verificación estática de que el antipatrón fue eliminado del código fuente.
+
+Tests puros: baseline `195` -> final `209` (Windows, 38 `skipped` por ausencia de `rclpy`) / `209` (WSL con ROS 2 Jazzy sourceado, sin skips). Ningún test fue eliminado ni debilitado.
+
+### Regresiones ROS ejecutadas
+
+| Smoke test | Domain ID(s) | Resultado |
+|---|---|---|
+| Foundation | `141` | `PASS` (un primer intento con `--timeout 30`/`45` falló con `map_message_received: false`; se confirmó manualmente vía introspección ROS que `map_server` publicaba correctamente con QoS `TRANSIENT_LOCAL` y que el fallo era una condición de carrera de tiempo de asentamiento bajo carga acumulada de WSL, no un defecto de código; se reprodujo `PASS` con `--timeout 90`, sin cambios de código) |
+| Planner | `142` | `PASS` (mismo patrón de timing transitorio, reproducido en `PASS` con `--timeout 90`) |
+| Controller | `143` | `PASS` (`--timeout 90`, sin reintentos) |
+| Collision Monitor | `151`-`155` | `PASS` |
+| Behavior Server | `160`-`162` | `PASS` |
+| BT Navigator run 1 | `180`-`181` | `PASS` |
+| BT Navigator run 2 | `190`-`191` | `PASS`, sin cambios de código respecto a run 1 |
+
+Ambas corridas de BT Navigator confirmaron explícitamente `cancel_response_received: true` y `cancel_request_accepted: true`, verificados contra la respuesta real de `CancelGoal`, además de todos los gates preexistentes (`SUCCEEDED`/`CANCELED`, telemetría real, asentamiento a cero, pose estable, cero procesos huérfanos).
+
+### Verificadores
+
+- `verify_sandbox_isolation.py` (estático): `PASS`.
+- `verify_sandbox_isolation.py --runtime`: `PASS`.
+
+### Commit final
+
+```text
+fix(nav): harden offline smoke contracts
+```
+
+Parent: `8b5e242c12a2fa490f085f2b3e7fd421550be874`.
+
+### Readiness físico
+
+Sin cambios. `L2_ODOMETRY`, `L3_LOCALIZATION_MAP` y `PHYSICAL_NAVIGATION` permanecen `NOT_READY`. `ROS_RUNTIME_SANDBOX` permanece `PARTIAL`. Esta fase es exclusivamente correctiva sobre el harness de validación offline; no valida seguridad física ni agrega capacidades de navegación.

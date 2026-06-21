@@ -1207,7 +1207,7 @@ class BehaviorServerIntegrationTests(unittest.TestCase):
     def test_behavior_server_smoke_derives_domain_ids_from_base_argument(self):
         text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
         self.assertIn("--base-domain-id", text)
-        self.assertIn("base = int(args.base_domain_id)", text)
+        self.assertIn("base, parse_error = parse_base_domain_id(args.base_domain_id)", text)
         self.assertIn('domain_spin = str(base + 1)', text)
         self.assertIn('domain_cancel = str(base + 2)', text)
 
@@ -1490,7 +1490,7 @@ class BtNavigatorSmokeTestStructureTests(unittest.TestCase):
 
     def test_smoke_test_derives_domain_ids_from_base_argument(self):
         text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
-        self.assertIn("base = int(args.base_domain_id)", text)
+        self.assertIn("base, parse_error = parse_base_domain_id(args.base_domain_id)", text)
         self.assertIn("domain_success = str(base)", text)
         self.assertIn("domain_cancel = str(base + 1)", text)
 
@@ -1670,6 +1670,326 @@ class DomainIdRangePolicyTests(unittest.TestCase):
                     for inner in ast.walk(node):
                         if isinstance(inner, ast.Constant) and isinstance(inner.value, int):
                             self.assertNotIn(inner.value, forbidden_literals)
+
+
+class _ModuleLoaderMixin:
+    def _load_module(self, path: Path):
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except ModuleNotFoundError:
+            self.skipTest("rclpy not available in this environment")
+            raise
+        return module
+
+
+class BaseDomainIdParsingTests(_ModuleLoaderMixin, unittest.TestCase):
+    """Functional tests of parse_base_domain_id: the actual int() conversion
+    logic, not just a string search for its presence in the source. Covers
+    Fase 2F.1 hallazgo A (non-integer CLI input must never raise/traceback).
+    """
+
+    def _scripts(self):
+        return (
+            BEHAVIOR_SERVER_SMOKE_TEST_FILE,
+            COLLISION_MONITOR_SMOKE_TEST_FILE,
+            BT_NAVIGATOR_SMOKE_TEST_FILE,
+        )
+
+    def test_non_integer_strings_return_invalid_domain_id_in_all_three_scripts(self):
+        for path in self._scripts():
+            module = self._load_module(path)
+            for raw in ("abc", "12.5", "", "   ", "1e2", "None"):
+                with self.subTest(script=path.name, raw=raw):
+                    value, error = module.parse_base_domain_id(raw)
+                    self.assertIsNone(value)
+                    self.assertEqual(error, "INVALID_DOMAIN_ID")
+
+    def test_valid_integer_strings_parse_correctly_in_all_three_scripts(self):
+        for path in self._scripts():
+            module = self._load_module(path)
+            for raw, expected in (("1", 1), ("232", 232), ("  77  ", 77), ("0", 0), ("233", 233)):
+                with self.subTest(script=path.name, raw=raw):
+                    value, error = module.parse_base_domain_id(raw)
+                    self.assertIsNone(error)
+                    self.assertEqual(value, expected)
+
+    def test_parse_never_raises_on_arbitrary_garbage_input(self):
+        garbage_inputs = ("abc", "12.5", "", "   ", "--", "1 2", "0x1F", "NaN", "inf", None)
+        for path in self._scripts():
+            module = self._load_module(path)
+            for raw in garbage_inputs:
+                with self.subTest(script=path.name, raw=raw):
+                    try:
+                        value, error = module.parse_base_domain_id(raw)
+                    except Exception as exc:  # pragma: no cover - the whole point is that this must not happen
+                        self.fail(f"{path.name}: parse_base_domain_id({raw!r}) raised {exc!r}")
+                    if error is not None:
+                        self.assertIsNone(value)
+                        self.assertEqual(error, "INVALID_DOMAIN_ID")
+
+    def test_main_uses_parse_base_domain_id_before_validate_domain_id_range(self):
+        """Static structural check that main() calls the safe parser instead
+        of a bare int(args.base_domain_id), and that the parse error is
+        handled before validate_domain_id_range is ever invoked.
+        """
+        for path in self._scripts():
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("base, parse_error = parse_base_domain_id(args.base_domain_id)", text)
+            self.assertNotIn("base = int(args.base_domain_id)", text)
+            parse_idx = text.index("base, parse_error = parse_base_domain_id")
+            validate_idx = text.index("domain_error = validate_domain_id_range(base, MAXIMUM_OFFSET)")
+            self.assertLess(parse_idx, validate_idx)
+
+
+class BaseDomainIdCliContractTests(_ModuleLoaderMixin, unittest.TestCase):
+    """End-to-end CLI contract tests (argparse -> main()) for all three
+    smoke tests, run via subprocess so they exercise the exact same code
+    path a human operator would invoke. Requires the real ROS 2 Jazzy
+    interpreter (rclpy import at module level), so these are skipped
+    automatically wherever rclpy is unavailable (e.g. plain Windows).
+    """
+
+    def _scripts(self):
+        return (
+            BEHAVIOR_SERVER_SMOKE_TEST_FILE,
+            COLLISION_MONITOR_SMOKE_TEST_FILE,
+            BT_NAVIGATOR_SMOKE_TEST_FILE,
+        )
+
+    def _run_cli(self, path: Path, base_domain_id: str):
+        import subprocess
+        try:
+            import rclpy  # noqa: F401
+        except ModuleNotFoundError:
+            self.skipTest("rclpy not available in this environment")
+        proc = subprocess.run(
+            ["python3", str(path), "--base-domain-id", base_domain_id, "--timeout", "1"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return proc
+
+    def test_invalid_inputs_exit_2_with_clean_json_and_no_traceback(self):
+        for path in self._scripts():
+            for raw in ("abc", "12.5", "", "   ", "0", "233"):
+                with self.subTest(script=path.name, raw=raw):
+                    proc = self._run_cli(path, raw)
+                    self.assertEqual(proc.returncode, 2)
+                    self.assertNotIn("Traceback", proc.stdout)
+                    self.assertNotIn("Traceback", proc.stderr)
+                    payload = json.loads(proc.stdout)
+                    self.assertFalse(payload["ok"])
+                    self.assertEqual(payload["decision"], "FAIL")
+                    self.assertIn("INVALID_DOMAIN_ID", payload["errors"])
+
+
+class CancelAcceptanceSemanticsTests(_ModuleLoaderMixin, unittest.TestCase):
+    """Semantic tests for _BtNavigatorSmokeClient.request_cancel_and_check_
+    acceptance: verifies the real action_msgs/srv/CancelGoal contract is
+    used (return_code + goals_canceling[].goal_id matching), not merely
+    future completion. Covers Fase 2F.1 hallazgo B.
+    """
+
+    def _load_bt_module(self):
+        spec = importlib.util.spec_from_file_location(
+            "smoke_test_offline_bt_navigator", BT_NAVIGATOR_SMOKE_TEST_FILE
+        )
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except ModuleNotFoundError:
+            self.skipTest("rclpy not available in this environment")
+            raise
+        return module
+
+    def _make_goal_handle(self, module, uuid_bytes: bytes):
+        from unique_identifier_msgs.msg import UUID
+
+        class _FakeGoalHandle:
+            def __init__(self, goal_id, future_to_return):
+                self._goal_id = goal_id
+                self._future_to_return = future_to_return
+
+            @property
+            def goal_id(self):
+                return self._goal_id
+
+            def cancel_goal_async(self):
+                return self._future_to_return
+
+        return _FakeGoalHandle
+
+    def _make_future(self, result_value, done: bool = True):
+        class _FakeFuture:
+            def __init__(self, value, is_done):
+                self._value = value
+                self._is_done = is_done
+
+            def done(self):
+                return self._is_done
+
+            def result(self):
+                return self._value
+
+        return _FakeFuture(result_value, done)
+
+    def _make_response(self, module, return_code: int, canceling_uuids):
+        from action_msgs.msg import GoalInfo
+        from action_msgs.srv import CancelGoal
+        from unique_identifier_msgs.msg import UUID
+
+        response = CancelGoal.Response()
+        response.return_code = return_code
+        infos = []
+        for raw_uuid in canceling_uuids:
+            info = GoalInfo()
+            info.goal_id = UUID(uuid=list(raw_uuid))
+            infos.append(info)
+        response.goals_canceling = infos
+        return response
+
+    def _client_with_fake_spin(self, module, fake_future):
+        """A bare (non-rclpy-initialized) client instance, with spin_until_
+        future_complete_custom monkeypatched to just check future.done()
+        without actually spinning an executor (no rclpy.init() needed).
+        """
+        client = module._BtNavigatorSmokeClient.__new__(module._BtNavigatorSmokeClient)
+        client.spin_until_future_complete_custom = lambda future, timeout_s: future.done()
+        return client
+
+    def test_future_not_completed_is_not_accepted(self):
+        module = self._load_bt_module()
+        from unique_identifier_msgs.msg import UUID
+        goal_uuid = bytes(range(16))
+        future = self._make_future(None, done=False)
+        goal_handle_cls = self._make_goal_handle(module, goal_uuid)
+        goal_handle = goal_handle_cls(UUID(uuid=list(goal_uuid)), future)
+        client = self._client_with_fake_spin(module, future)
+
+        outcome = client.request_cancel_and_check_acceptance(goal_handle, timeout_s=1.0)
+        self.assertFalse(outcome["cancel_response_received"])
+        self.assertFalse(outcome["cancel_request_accepted"])
+        self.assertIn("CANCEL_RESPONSE_TIMEOUT", outcome["errors"])
+
+    def test_null_response_is_not_accepted(self):
+        module = self._load_bt_module()
+        from unique_identifier_msgs.msg import UUID
+        goal_uuid = bytes(range(16))
+        future = self._make_future(None, done=True)
+        goal_handle_cls = self._make_goal_handle(module, goal_uuid)
+        goal_handle = goal_handle_cls(UUID(uuid=list(goal_uuid)), future)
+        client = self._client_with_fake_spin(module, future)
+
+        outcome = client.request_cancel_and_check_acceptance(goal_handle, timeout_s=1.0)
+        self.assertFalse(outcome["cancel_response_received"])
+        self.assertFalse(outcome["cancel_request_accepted"])
+        self.assertIn("CANCEL_RESPONSE_TIMEOUT", outcome["errors"])
+
+    def test_response_received_but_rejected_is_not_accepted(self):
+        module = self._load_bt_module()
+        from action_msgs.srv import CancelGoal
+        from unique_identifier_msgs.msg import UUID
+        goal_uuid = bytes(range(16))
+        response = self._make_response(module, CancelGoal.Response.ERROR_REJECTED, [])
+        future = self._make_future(response, done=True)
+        goal_handle_cls = self._make_goal_handle(module, goal_uuid)
+        goal_handle = goal_handle_cls(UUID(uuid=list(goal_uuid)), future)
+        client = self._client_with_fake_spin(module, future)
+
+        outcome = client.request_cancel_and_check_acceptance(goal_handle, timeout_s=1.0)
+        self.assertTrue(outcome["cancel_response_received"])
+        self.assertFalse(outcome["cancel_request_accepted"])
+        self.assertIn("CANCEL_REQUEST_NOT_ACCEPTED", outcome["errors"])
+
+    def test_response_with_empty_goals_canceling_is_not_accepted(self):
+        module = self._load_bt_module()
+        from action_msgs.srv import CancelGoal
+        from unique_identifier_msgs.msg import UUID
+        goal_uuid = bytes(range(16))
+        response = self._make_response(module, CancelGoal.Response.ERROR_NONE, [])
+        future = self._make_future(response, done=True)
+        goal_handle_cls = self._make_goal_handle(module, goal_uuid)
+        goal_handle = goal_handle_cls(UUID(uuid=list(goal_uuid)), future)
+        client = self._client_with_fake_spin(module, future)
+
+        outcome = client.request_cancel_and_check_acceptance(goal_handle, timeout_s=1.0)
+        self.assertTrue(outcome["cancel_response_received"])
+        self.assertFalse(outcome["cancel_request_accepted"])
+        self.assertIn("CANCEL_REQUEST_NOT_ACCEPTED", outcome["errors"])
+
+    def test_response_confirms_a_different_goal_is_not_accepted(self):
+        module = self._load_bt_module()
+        from action_msgs.srv import CancelGoal
+        from unique_identifier_msgs.msg import UUID
+        goal_uuid = bytes(range(16))
+        other_goal_uuid = bytes(reversed(range(16)))
+        response = self._make_response(module, CancelGoal.Response.ERROR_NONE, [other_goal_uuid])
+        future = self._make_future(response, done=True)
+        goal_handle_cls = self._make_goal_handle(module, goal_uuid)
+        goal_handle = goal_handle_cls(UUID(uuid=list(goal_uuid)), future)
+        client = self._client_with_fake_spin(module, future)
+
+        outcome = client.request_cancel_and_check_acceptance(goal_handle, timeout_s=1.0)
+        self.assertTrue(outcome["cancel_response_received"])
+        self.assertFalse(outcome["cancel_request_accepted"])
+        self.assertIn("CANCEL_REQUEST_NOT_ACCEPTED", outcome["errors"])
+
+    def test_response_confirms_the_expected_goal_is_accepted(self):
+        module = self._load_bt_module()
+        from action_msgs.srv import CancelGoal
+        from unique_identifier_msgs.msg import UUID
+        goal_uuid = bytes(range(16))
+        response = self._make_response(module, CancelGoal.Response.ERROR_NONE, [goal_uuid])
+        future = self._make_future(response, done=True)
+        goal_handle_cls = self._make_goal_handle(module, goal_uuid)
+        goal_handle = goal_handle_cls(UUID(uuid=list(goal_uuid)), future)
+        client = self._client_with_fake_spin(module, future)
+
+        outcome = client.request_cancel_and_check_acceptance(goal_handle, timeout_s=1.0)
+        self.assertTrue(outcome["cancel_response_received"])
+        self.assertTrue(outcome["cancel_request_accepted"])
+        self.assertEqual(outcome["errors"], [])
+
+    def test_response_confirms_expected_goal_among_multiple_canceling(self):
+        module = self._load_bt_module()
+        from action_msgs.srv import CancelGoal
+        from unique_identifier_msgs.msg import UUID
+        goal_uuid = bytes(range(16))
+        other_goal_uuid = bytes(reversed(range(16)))
+        response = self._make_response(
+            module, CancelGoal.Response.ERROR_NONE, [other_goal_uuid, goal_uuid]
+        )
+        future = self._make_future(response, done=True)
+        goal_handle_cls = self._make_goal_handle(module, goal_uuid)
+        goal_handle = goal_handle_cls(UUID(uuid=list(goal_uuid)), future)
+        client = self._client_with_fake_spin(module, future)
+
+        outcome = client.request_cancel_and_check_acceptance(goal_handle, timeout_s=1.0)
+        self.assertTrue(outcome["cancel_request_accepted"])
+
+    def test_final_result_not_canceled_does_not_imply_acceptance_was_skipped(self):
+        """Acceptance and final outcome are independent checks: a script
+        must still gate on cancel_result == CANCELED separately, even when
+        cancel_request_accepted is True. This test documents that the
+        acceptance helper itself does not look at the navigate result at
+        all -- it is purely about the CancelGoal response.
+        """
+        module = self._load_bt_module()
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('and result["cancel_result"] == "CANCELED"', text)
+        self.assertIn('and result["cancel_request_accepted"]', text)
+        self.assertIn('and result["cancel_response_received"]', text)
+
+    def test_false_positive_pattern_removed_from_source(self):
+        """The old anti-pattern (treating bool(future_completed) as proof of
+        acceptance) must no longer appear in the cancel scenario."""
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertNotIn('result["cancel_request_accepted"] = bool(cancel_accepted)', text)
+        self.assertIn("response.return_code != CancelGoal.Response.ERROR_NONE", text)
+        self.assertIn("goal_handle.goal_id.uuid", text)
 
 
 if __name__ == "__main__":

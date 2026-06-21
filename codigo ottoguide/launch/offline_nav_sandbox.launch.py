@@ -102,9 +102,11 @@ def generate_launch_description():
         parameters=[configured_params, {'yaml_filename': LaunchConfiguration('map_yaml')}]
     )
 
-    # Nodo planner_server: planificacion global unicamente. OFFLINE_ONLY,
-    # SYNTHETIC, NOT_FOR_HARDWARE. Sin controller_server, sin local_costmap,
-    # sin behaviors, sin waypoint follower, sin Collision Monitor.
+    # Nodo planner_server: planificacion global. OFFLINE_ONLY, SYNTHETIC,
+    # NOT_FOR_HARDWARE. El sandbox tambien incluye controller_server y
+    # local_costmap (control local), collision_monitor (seguridad de
+    # velocidad), behavior_server (Wait/Spin) y bt_navigator (NavigateToPose
+    # unicamente). Sin waypoint follower, sin Simple Commander.
     planner_server_node = Node(
         package='nav2_planner',
         executable='planner_server',

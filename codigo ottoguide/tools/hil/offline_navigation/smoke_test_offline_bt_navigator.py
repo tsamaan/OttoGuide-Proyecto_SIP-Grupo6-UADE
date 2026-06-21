@@ -14,8 +14,11 @@ A. Success (base): NavigateToPose to a goal ~0.4-0.6m ahead of the observed
    arrival within tolerance, and a stable final zero twist.
 B. Cancel (base + 1): NavigateToPose to a farther goal, canceled only after
    raw/safe motion is observed (never canceled as a substitute for that
-   precondition). Requires CANCELED, a safe/odom message strictly after the
-   cancel request, both settling to zero, and a stable pose afterward.
+   precondition). Acceptance of the cancel request is verified against the
+   real action_msgs/srv/CancelGoal response (return_code == ERROR_NONE and
+   the goal's UUID present in goals_canceling), not merely the completion of
+   the cancel future. Requires CANCELED, a safe/odom message strictly after
+   the cancel request, both settling to zero, and a stable pose afterward.
 
 This script does not touch the real robot, does not open rosbags, does not
 install packages, and does not kill ROS processes outside its own launched
@@ -36,6 +39,7 @@ from pathlib import Path
 
 import rclpy
 from action_msgs.msg import GoalStatus
+from action_msgs.srv import CancelGoal
 from geometry_msgs.msg import PoseStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import Odometry
@@ -87,6 +91,18 @@ def validate_domain_id_range(base: int, maximum_offset: int) -> str | None:
     if base + maximum_offset > MAX_DOMAIN_ID:
         return "DERIVED_DOMAIN_ID_OUT_OF_RANGE"
     return None
+
+
+def parse_base_domain_id(raw_value: str) -> tuple[int | None, str | None]:
+    """Parse --base-domain-id into a strict base-10 int without ever raising.
+    Rejects non-integer strings (e.g. "abc", "12.5", "", "   ") the same way
+    an out-of-range integer is rejected: by returning INVALID_DOMAIN_ID
+    instead of letting int() raise ValueError into an uncaught traceback.
+    """
+    try:
+        return int(raw_value), None
+    except (TypeError, ValueError):
+        return None, "INVALID_DOMAIN_ID"
 
 
 def _planar_nonzero(linear_x: float, linear_y: float, angular_z: float) -> bool:
@@ -339,12 +355,46 @@ class _BtNavigatorSmokeClient(Node):
             return "CANCELED", wrapped_result.result
         return f"GOAL_STATUS_{wrapped_result.status}", wrapped_result.result
 
-    def cancel_and_wait(self, goal_handle, timeout_s: float) -> str:
+    def request_cancel_and_check_acceptance(self, goal_handle, timeout_s: float) -> dict:
+        """Send the cancel request and inspect the real action_msgs/srv/
+        CancelGoal response instead of treating future completion as proof
+        of acceptance. Per the local ROS 2 Jazzy interface
+        (action_msgs/srv/CancelGoal), return_code == ERROR_NONE (0) means
+        the goal(s) transitioned to CANCELING, and the accepted goal's UUID
+        must appear in goals_canceling. A nonzero return_code or an absent
+        goal_id in goals_canceling means the server did NOT actually accept
+        cancellation for this goal, even if the future completed normally.
+        """
+        outcome = {
+            "cancel_response_received": False,
+            "cancel_request_accepted": False,
+            "errors": [],
+        }
         cancel_future = goal_handle.cancel_goal_async()
         if not self.spin_until_future_complete_custom(cancel_future, timeout_s):
-            return "CANCEL_REQUEST_TIMEOUT"
-        status, _ = self.wait_for_navigate_result(goal_handle, timeout_s)
-        return status
+            outcome["errors"].append("CANCEL_RESPONSE_TIMEOUT")
+            return outcome
+
+        response = cancel_future.result()
+        if response is None:
+            outcome["errors"].append("CANCEL_RESPONSE_TIMEOUT")
+            return outcome
+
+        outcome["cancel_response_received"] = True
+
+        if response.return_code != CancelGoal.Response.ERROR_NONE:
+            outcome["errors"].append("CANCEL_REQUEST_NOT_ACCEPTED")
+            return outcome
+
+        canceling_goal_ids = {
+            bytes(goal_info.goal_id.uuid) for goal_info in response.goals_canceling
+        }
+        if bytes(goal_handle.goal_id.uuid) not in canceling_goal_ids:
+            outcome["errors"].append("CANCEL_REQUEST_NOT_ACCEPTED")
+            return outcome
+
+        outcome["cancel_request_accepted"] = True
+        return outcome
 
 
 def _discover_and_activate(namespace: str, env: dict, deadline: float, result: dict) -> None:
@@ -567,6 +617,7 @@ def run_cancel_scenario(namespace: str, domain_id: str, timeout_s: float) -> dic
         "cancel_precondition_motion_observed": False,
         "raw_nonzero_observed": False,
         "safe_nonzero_observed": False,
+        "cancel_response_received": False,
         "cancel_request_accepted": False,
         "cancel_result": "NOT_ATTEMPTED",
         "safe_message_after_cancel": False,
@@ -661,11 +712,13 @@ def run_cancel_scenario(namespace: str, domain_id: str, timeout_s: float) -> dic
                             result["errors"].append("CANCEL_PRECONDITION_MOTION_NOT_OBSERVED")
                         else:
                             client.mark_post_cancel_baseline()
-                            cancel_future = goal_handle.cancel_goal_async()
-                            cancel_accepted = client.spin_until_future_complete_custom(
-                                cancel_future, timeout_s=15.0
+                            cancel_outcome = client.request_cancel_and_check_acceptance(
+                                goal_handle, timeout_s=15.0
                             )
-                            result["cancel_request_accepted"] = bool(cancel_accepted)
+                            result["cancel_response_received"] = cancel_outcome["cancel_response_received"]
+                            result["cancel_request_accepted"] = cancel_outcome["cancel_request_accepted"]
+                            if cancel_outcome["errors"]:
+                                result["errors"].extend(cancel_outcome["errors"])
 
                             status, _ = client.wait_for_navigate_result(goal_handle, timeout_s=30.0)
                             result["cancel_result"] = status
@@ -716,6 +769,9 @@ def run_cancel_scenario(namespace: str, domain_id: str, timeout_s: float) -> dic
         and result["bt_navigator_active"]
         and result["goal_accepted"]
         and result["cancel_precondition_motion_observed"]
+        and result["raw_nonzero_observed"]
+        and result["safe_nonzero_observed"]
+        and result["cancel_response_received"]
         and result["cancel_request_accepted"]
         and result["cancel_result"] == "CANCELED"
         and result["safe_message_after_cancel"]
@@ -739,7 +795,11 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
-    base = int(args.base_domain_id)
+    base, parse_error = parse_base_domain_id(args.base_domain_id)
+    if parse_error is not None:
+        print(json.dumps({"ok": False, "decision": "FAIL", "errors": [parse_error]}))
+        return 2
+
     domain_error = validate_domain_id_range(base, MAXIMUM_OFFSET)
     if domain_error is not None:
         print(json.dumps({"ok": False, "decision": "FAIL", "errors": [domain_error]}))
