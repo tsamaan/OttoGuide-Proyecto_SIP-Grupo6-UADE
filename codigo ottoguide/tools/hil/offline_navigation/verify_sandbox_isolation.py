@@ -46,6 +46,13 @@ PLANNER_SMOKE_TEST_FILE = (
 CONTROLLER_SMOKE_TEST_FILE = (
     CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_controller.py"
 )
+COLLISION_MONITOR_SMOKE_TEST_FILE = (
+    CODE_ROOT
+    / "tools"
+    / "hil"
+    / "offline_navigation"
+    / "smoke_test_offline_collision_monitor.py"
+)
 RUNTIME_SCAN_FILES = [
     LAUNCH_FILE,
     PARAMS_FILE,
@@ -55,6 +62,7 @@ RUNTIME_SCAN_FILES = [
     FOUNDATION_SMOKE_TEST_FILE,
     PLANNER_SMOKE_TEST_FILE,
     CONTROLLER_SMOKE_TEST_FILE,
+    COLLISION_MONITOR_SMOKE_TEST_FILE,
 ]
 EXPECTED_REAL_NAMESPACE = "offline_nav"
 
@@ -221,31 +229,129 @@ def check_forbidden_topics(result: dict, files: list[Path]) -> None:
 
 
 def check_velocity_topic_allowlist(result: dict, files: list[Path]) -> None:
-    """Enforce that the only velocity topic name ever referenced is the
-    relative 'cmd_vel_raw' (which resolves under the sandbox namespace to
-    e.g. /offline_nav/cmd_vel_raw). Any other cmd_vel-like name is rejected:
-    '/cmd_vel', '/cmd_vel_nav', '/offline_nav/cmd_vel', or any other
-    variant. Lines using the detection idiom (checking *absence* of a
-    forbidden topic, e.g. `t.endswith("/cmd_vel")`) are not flagged.
+    """Enforce that the only velocity topic names ever referenced are the
+    relative 'cmd_vel_raw' and 'cmd_vel_safe'. Standalone 'cmd_vel' is only
+    allowed in launch remappings or in smoke tests detection constants. Topics
+    with forbidden suffixes like cmd_vel_unsafe, cmd_vel_filtered, cmd_vel_output,
+    cmd_vel_nav, or global FQNs like /cmd_vel, /offline_nav/cmd_vel are rejected.
     """
+    allowed_topics = {"cmd_vel_raw", "cmd_vel_safe"}
+
+    def is_allowed_variable(w: str) -> bool:
+        return any(sub in w for sub in ("_messages", "_observed", "_timeout", "_topic", "watchdog"))
+
     for path in files:
         if not path.is_file():
             continue
-        text = _strip_detection_idiom_lines(_strip_comment_lines(_read_text(path)))
-        for line in text.splitlines():
-            if VELOCITY_CONSTANT_DECLARATION_PATTERN.match(line):
+
+        if path.suffix == ".yaml":
+            # Check YAML configuration exactly
+            text = _read_text(path)
+            lines = _strip_comment_lines(text).splitlines()
+            for line in lines:
+                if "cmd_vel_in_topic" in line:
+                    if not re.search(r"cmd_vel_in_topic:\s*[\"']?cmd_vel_raw[\"']?", line):
+                        result["errors"].append("FORBIDDEN_VELOCITY_TOPIC_cmd_vel_in_topic")
+                elif "cmd_vel_out_topic" in line:
+                    if not re.search(r"cmd_vel_out_topic:\s*[\"']?cmd_vel_safe[\"']?", line):
+                        result["errors"].append("FORBIDDEN_VELOCITY_TOPIC_cmd_vel_out_topic")
+                elif "cmd_vel" in line:
+                    words = re.findall(r"\bcmd_vel\w*\b", line)
+                    for w in words:
+                        if w not in allowed_topics and not is_allowed_variable(w):
+                            result["errors"].append(f"FORBIDDEN_VELOCITY_TOPIC_{w}")
+
+        elif path.suffix == ".py":
+            # Semantic Python check using AST
+            try:
+                content = _read_text(path)
+                tree = ast.parse(content, filename=str(path))
+            except Exception:
+                result["errors"].append(f"PYTHON_PARSE_ERROR_{path.name}")
                 continue
-            line_without_remap_tuple = CMD_VEL_REMAP_TUPLE_PATTERN.sub("", line)
-            for string_match in STRING_LITERAL_PATTERN.finditer(line_without_remap_tuple):
-                literal = string_match.group(0)
-                for match in FORBIDDEN_VELOCITY_TOPIC_PATTERN.finditer(literal):
-                    matched_text = match.group(0)
-                    if matched_text in ALLOWED_VELOCITY_TOPIC_NAMES:
-                        continue
-                    result["forbidden_matches"].append(
-                        {"file": str(path), "pattern": "FORBIDDEN_VELOCITY_TOPIC", "match": matched_text}
-                    )
-                    result["errors"].append(f"FORBIDDEN_VELOCITY_TOPIC_{matched_text}")
+
+            is_smoke = "smoke" in path.name
+
+            for node in ast.walk(tree):
+                # 1. Check create_publisher / create_subscription / ActionClient topic arguments
+                if isinstance(node, ast.Call):
+                    func_name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+                    if func_name in ("create_publisher", "create_subscription", "ActionClient"):
+                        topic_arg = None
+                        if func_name in ("create_publisher", "create_subscription"):
+                            if len(node.args) >= 2:
+                                topic_arg = node.args[1]
+                            for kw in node.keywords:
+                                if kw.arg == "topic":
+                                    topic_arg = kw.value
+                        elif func_name == "ActionClient":
+                            if len(node.args) >= 3:
+                                topic_arg = node.args[2]
+                            for kw in node.keywords:
+                                if kw.arg == "action_name":
+                                    topic_arg = kw.value
+
+                        if topic_arg is not None:
+                            topic_str = ast.unparse(topic_arg).strip("\"'")
+                            if "cmd_vel" in topic_str:
+                                words = re.findall(r"\bcmd_vel\w*\b", topic_str)
+                                for w in words:
+                                    w_norm = w.strip("\"'/")
+                                    if w_norm.startswith("offline_nav/"):
+                                        w_norm = w_norm[len("offline_nav/"):]
+                                    if w_norm.startswith("{namespace}/"):
+                                        w_norm = w_norm[len("{namespace}/"):]
+                                    if w_norm not in allowed_topics and not is_allowed_variable(w_norm):
+                                        result["errors"].append(f"FORBIDDEN_VELOCITY_TOPIC_{w_norm}")
+
+                    # 2. Check Node remappings
+                    elif func_name == "Node":
+                        for kw in node.keywords:
+                            if kw.arg == "remappings":
+                                if isinstance(kw.value, ast.List):
+                                    for elt in kw.value.elts:
+                                        if isinstance(elt, ast.Tuple) and len(elt.elts) == 2:
+                                            src_str = ast.unparse(elt.elts[0]).strip("\"'")
+                                            dst_str = ast.unparse(elt.elts[1]).strip("\"'")
+                                            if "cmd_vel" in src_str or "cmd_vel" in dst_str:
+                                                if src_str == "cmd_vel" and dst_str == "cmd_vel_raw":
+                                                    continue
+                                                result["errors"].append(f"FORBIDDEN_VELOCITY_TOPIC_remap_{src_str}_to_{dst_str}")
+
+                # 3. Check all string constants for forbidden terms
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    val = node.value
+                    if "cmd_vel" in val:
+                        words = re.findall(r"\bcmd_vel\w*\b", val)
+                        for w in words:
+                            w_norm = w.strip("\"'/")
+                            if w_norm.startswith("offline_nav/"):
+                                w_norm = w_norm[len("offline_nav/"):]
+                            if w_norm.startswith("{namespace}/"):
+                                w_norm = w_norm[len("{namespace}/"):]
+
+                            if is_smoke:
+                                if w_norm in ("cmd_vel", "cmd_vel_nav", "cmd_vel_raw", "cmd_vel_safe"):
+                                    continue
+                                if is_allowed_variable(w_norm):
+                                    continue
+                                result["errors"].append(f"FORBIDDEN_VELOCITY_TOPIC_{w_norm}")
+                            else:
+                                if w_norm in allowed_topics:
+                                    continue
+                                if w_norm == "cmd_vel" and "launch" in path.name:
+                                    continue
+                                if is_allowed_variable(w_norm):
+                                    continue
+                                result["errors"].append(f"FORBIDDEN_VELOCITY_TOPIC_{w_norm}")
+
+        elif path.suffix == ".sh":
+            text = _strip_comment_lines(_read_text(path))
+            words = re.findall(r"\bcmd_vel\w*\b", text)
+            for w in words:
+                w_norm = w.strip("\"'/")
+                if w_norm not in allowed_topics:
+                    result["errors"].append(f"FORBIDDEN_VELOCITY_TOPIC_{w_norm}")
 
 
 def check_forbidden_bridges(result: dict, files: list[Path]) -> None:

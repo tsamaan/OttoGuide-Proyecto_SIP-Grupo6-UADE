@@ -29,6 +29,9 @@ PLANNER_SMOKE_TEST_FILE = (
 CONTROLLER_SMOKE_TEST_FILE = (
     CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_controller.py"
 )
+COLLISION_MONITOR_SMOKE_TEST_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_collision_monitor.py"
+)
 PARAMS_FILE = CODE_ROOT / "config" / "navigation" / "nav2_offline_sandbox_params.yaml"
 MAP_DIR = CODE_ROOT / "tests" / "fixtures" / "offline_navigation"
 MAP_PGM = MAP_DIR / "offline_sandbox_test_map.pgm"
@@ -585,8 +588,12 @@ class RuntimeFilesIncludedInVerifierTests(unittest.TestCase):
             FOUNDATION_SMOKE_TEST_FILE,
             PLANNER_SMOKE_TEST_FILE,
             CONTROLLER_SMOKE_TEST_FILE,
+            COLLISION_MONITOR_SMOKE_TEST_FILE,
         ):
             self.assertIn(str(required_file), result["checked_files"])
+
+    def test_fails_if_collision_monitor_smoke_missing_from_runtime_scan_files(self):
+        self.assertIn(checker.COLLISION_MONITOR_SMOKE_TEST_FILE, checker.RUNTIME_SCAN_FILES)
 
     def test_runtime_verify_passes_with_correct_isolation_env(self):
         os.environ["ROS_LOCALHOST_ONLY"] = "1"
@@ -1068,6 +1075,55 @@ class CollisionMonitorContractUnitTests(unittest.TestCase):
             yield Path(path)
         finally:
             os.remove(path)
+
+
+class HardenCollisionSafetyUnitTests(unittest.TestCase):
+    @contextmanager
+    def _temp_file(self, content: str):
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+    def test_collision_smoke_included_in_runtime_scan_files(self):
+        self.assertIn(checker.COLLISION_MONITOR_SMOKE_TEST_FILE, checker.RUNTIME_SCAN_FILES)
+
+    def test_reject_cmd_vel_unsafe(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("node.create_publisher(Twist, 'cmd_vel_unsafe', 10)\n") as tmp_file:
+            checker.check_velocity_topic_allowlist(result, [tmp_file])
+        self.assertIn("FORBIDDEN_VELOCITY_TOPIC_cmd_vel_unsafe", result["errors"])
+
+    def test_reject_cmd_vel_filtered(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("node.create_publisher(Twist, 'cmd_vel_filtered', 10)\n") as tmp_file:
+            checker.check_velocity_topic_allowlist(result, [tmp_file])
+        self.assertIn("FORBIDDEN_VELOCITY_TOPIC_cmd_vel_filtered", result["errors"])
+
+    def test_reject_global_offline_nav_cmd_vel(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("node.create_publisher(Twist, '/offline_nav/cmd_vel', 10)\n") as tmp_file:
+            checker.check_velocity_topic_allowlist(result, [tmp_file])
+        self.assertIn("FORBIDDEN_VELOCITY_TOPIC_cmd_vel", result["errors"])
+
+    def test_accept_exclusive_raw_and_safe(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("node.create_publisher(Twist, 'cmd_vel_raw', 10)\nnode.create_subscription(Twist, 'cmd_vel_safe', cb, 10)\n") as tmp_file:
+            checker.check_velocity_topic_allowlist(result, [tmp_file])
+        self.assertEqual(result["errors"], [])
+
+    def test_planner_smoke_accepts_integrated_runtime(self):
+        text = PLANNER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("controller_server_present", text)
+        self.assertNotIn("controller_server_started", text)
+
+    def test_no_domain_id_dependent_logic_in_launch(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        self.assertNotIn("os.environ", text)
 
 
 if __name__ == "__main__":

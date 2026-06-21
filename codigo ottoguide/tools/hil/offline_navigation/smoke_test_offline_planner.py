@@ -4,8 +4,8 @@
 Starts the sandbox runtime via the isolated wrapper script under a dedicated
 ROS_DOMAIN_ID, waits for planner_server and map_server to become active,
 sends a ComputePathToPose action goal over the synthetic map, and checks the
-resulting path. Does not start, configure, or interact with controller_server
-or any component that produces velocity commands.
+resulting path. Accepts the presence and active status of controller_server in
+the integrated runtime, but only exercises planning.
 
 This script does not touch the real robot, does not open rosbags, does not
 install packages, and does not kill ROS processes outside its own launched
@@ -241,7 +241,8 @@ def run_planner_smoke_test(
         "path_first_pose_near_start": False,
         "path_last_pose_near_goal": False,
         "path_all_finite": False,
-        "controller_server_started": False,
+        "controller_server_present": False,
+        "collision_monitor_present": False,
         "global_cmd_vel_detected": False,
         "global_cmd_vel_nav_detected": False,
         "hardware_node_detected": False,
@@ -268,18 +269,14 @@ def run_planner_smoke_test(
         map_server_fqn = f"/{namespace}/map_server"
         planner_server_fqn = f"/{namespace}/planner_server"
         controller_server_fqn = f"/{namespace}/controller_server"
+        collision_monitor_fqn = f"/{namespace}/collision_monitor"
         result["map_server_node_discovered"] = map_server_fqn in nodes
         result["planner_server_node_discovered"] = planner_server_fqn in nodes
-        # As of the local control phase, controller_server may legitimately
-        # exist as a launched node (it has its own dedicated lifecycle
-        # manager). What this planner-only smoke test must still guarantee
-        # is that controller_server is never ACTIVE while only planning is
-        # being exercised, since an active controller is what could produce
-        # velocity commands.
-        result["controller_server_started"] = (
-            controller_server_fqn in nodes
-            and _wait_for_lifecycle_active(controller_server_fqn, env, time.monotonic() + 2.0)
-        )
+        # In the integrated runtime, controller_server and collision_monitor are
+        # present and active; this test only exercises planning and reports
+        # their presence as information, never as a failure condition.
+        result["controller_server_present"] = controller_server_fqn in nodes
+        result["collision_monitor_present"] = collision_monitor_fqn in nodes
         result["hardware_node_detected"] = any(
             any(forbidden in node.lower() for forbidden in FORBIDDEN_NODE_SUBSTRINGS)
             for node in nodes

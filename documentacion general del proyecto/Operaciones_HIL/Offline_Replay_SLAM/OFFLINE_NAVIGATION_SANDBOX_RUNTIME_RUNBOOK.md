@@ -1,11 +1,10 @@
 # Offline Navigation Sandbox — Runtime Runbook
 
-**Fecha**: 2026-06-21
-**Fase**: 2D — base de runtime ROS aislada + planificación global + control local closed-loop + Collision Monitor aislado. Los smoke tests de planner, controller, y collision monitor pasan por completo con éxito. No incluye BT Navigator, behavior server, waypoint follower ni Simple Commander.
+**Fase**: Fase 2D.1 — base de runtime ROS aislada + planificación global + control local closed-loop + Collision Monitor aislado con evidencia endurecida. Los smoke tests de planner, controller, y collision monitor pasan por completo con éxito. No incluye BT Navigator, behavior server, waypoint follower ni Simple Commander.
 
 ## Alcance
 
-Este runbook describe cómo levantar y verificar la base de runtime del sandbox offline de OttoGuide en WSL `Ubuntu-24.04` con ROS 2 `jazzy`, sin robot, sin red externa y sin comandos de velocidad.
+Este runbook describe cómo levantar y verificar la base de runtime del sandbox offline de OttoGuide en WSL `Ubuntu-24.04` con ROS 2 `jazzy`, sin robot, sin red externa y sin comandos de velocidad globales.
 
 ## Comando exacto
 
@@ -31,7 +30,11 @@ El wrapper ejecuta `verify_sandbox_isolation.py --runtime` antes de iniciar ROS.
 
 ## Namespace
 
-Argumento de launch `sandbox_namespace`, default `offline_nav`. Se aplica como namespace real de ROS (`namespace=` en cada `Node`), no solo como texto.
+| Elemento | Configuración |
+|---|---|
+| Namespace real | `offline_nav` |
+| Tópico de velocidad raw | `/offline_nav/cmd_vel_raw` |
+| Tópico de velocidad segura | `/offline_nav/cmd_vel_safe` |
 
 ## Topics esperados
 
@@ -66,18 +69,18 @@ cd "codigo ottoguide"
 python3 tools/hil/offline_navigation/smoke_test_offline_runtime.py --domain-id 78 --timeout 30
 ```
 
-Usa un `ROS_DOMAIN_ID` dedicado (`78` por default, distinto del `77` del wrapper manual) para no interferir con otra sesión del sandbox que pueda estar corriendo. Inicia el runtime mediante el wrapper aislado (`run_offline_navigation_runtime.sh`), no mediante `ros2 launch` directo. Verifica: mensajes en `map`/`odom`/`scan`, presencia de `/tf` y `/tf_static`, ausencia de `/cmd_vel` y `/cmd_vel_nav` globales, ausencia de nodos con nombres asociados a hardware Unitree/Livox/RealSense, y cierre limpio sin procesos huérfanos (verificado sondeando el process group real, no solo `wait()`). Devuelve JSON y exit code (`0`=PASS, `2`=FAIL).
+Usa un `ROS_DOMAIN_ID` dedicado (`78` por default, distinto del `77` del wrapper manual) para no interferir con otra sesión del sandbox que pueda estar corriendo. Inicia el runtime mediante el wrapper aislado (`run_offline_navigation_runtime.sh`), no mediante `ros2 launch` directo. Verifica: mensajes en `map`/`odom`/`scan`, presencia de `/tf` y `/tf_static`, ausencia de `/cmd_vel` y `/cmd_vel_nav` globales, ausencia de nodos con nombres asociados a hardware Unitree/Livox/RealSense, y cierre limpio sin procesos huérfanos. Devuelve JSON y exit code (`0`=PASS, `2`=FAIL).
 
 ## Planificación global (planner_server)
 
-`planner_server` se activa junto con `map_server` bajo el mismo `lifecycle_manager`. Plugin configurado: `nav2_navfn_planner/NavfnPlanner` (alias `GridBased`). Expone la acción namespaced `/offline_nav/compute_path_to_pose` (`nav2_msgs/action/ComputePathToPose`).
+`planner_server` se activa junto con `map_server` bajo el mismo `lifecycle_manager`. Plugin configurado: `nav2_navfn_planner::NavfnPlanner` (alias `GridBased`). Expone la acción namespaced `/offline_nav/compute_path_to_pose` (`nav2_msgs/action/ComputePathToPose`).
 
 ```bash
 cd "codigo ottoguide"
 python3 tools/hil/offline_navigation/smoke_test_offline_planner.py --domain-id 85 --timeout 40
 ```
 
-Inicia el runtime vía el mismo wrapper aislado, espera a que `planner_server` esté activo (verificado con `ros2 lifecycle get`, no solo descubrimiento del nodo), envía un goal `ComputePathToPose` con start `(-0.75, 0.0)` y goal `(0.75, 0.0)` en frame `map` (orientación identidad, sobre el mapa sintético versionado, tolerancia de endpoint `0.10m`), y verifica: planner activo, action server disponible, resultado `SUCCEEDED`, al menos 2 poses, primera pose cerca del start, última cerca del goal, todas las poses finitas, frame `map`, ausencia de `controller_server` activo, ausencia de `/cmd_vel`/`/cmd_vel_nav` globales, ausencia de nodos de hardware, y cierre sin procesos huérfanos. Ver detalle completo en [OFFLINE_NAVIGATION_GLOBAL_PLANNING_REPORT.md](OFFLINE_NAVIGATION_GLOBAL_PLANNING_REPORT.md).
+Inicia el runtime vía el mismo wrapper aislado, espera a que `planner_server` esté activo (verificado con `ros2 lifecycle get`, no solo descubrimiento del nodo), envía un goal `ComputePathToPose` con start `(-0.75, 0.0)` y goal `(0.75, 0.0)` en frame `map` (orientación identidad, sobre el mapa sintético versionado, tolerancia de endpoint `0.10m`), y verifica: planner activo, action server disponible, resultado `SUCCEEDED`, al menos 2 poses, primera pose cerca del start, última cerca del goal, todas las poses finitas, frame `map`, y cierre sin procesos huérfanos.
 
 Nota: el launch ahora reescribe `nav2_offline_sandbox_params.yaml` con `RewrittenYaml`/`ParameterFile` usando el namespace del sandbox como `root_key`, de forma que los parámetros anidados de plugin (`GridBased.tolerance`, `GridBased.plugin`) se aplican realmente bajo `/offline_nav/planner_server`, en vez de caer silenciosamente al default de stock Nav2.
 
@@ -90,22 +93,25 @@ cd "codigo ottoguide"
 python3 tools/hil/offline_navigation/smoke_test_offline_controller.py --domain-id 92 --timeout 60
 ```
 
-**El control local está completamente validado.** `controller_server` alcanza `ACTIVE` de forma reproducible, sigue la ruta y el simulador avanza con éxito (distancia movida ~0.4m y distancia final <0.1m). La cancelación detiene de forma efectiva el movimiento (pose estable <2mm, twist de odometría cero) en todas las ejecuciones (domain IDs 117-120).
+**El control local está completamente validado.** `controller_server` alcanza `ACTIVE` de forma reproducible, sigue la ruta y el simulador avanza con éxito. La cancelación detiene de forma efectiva el movimiento.
 
 ## Seguridad ante colisiones (collision_monitor) — READY
 
-`collision_monitor` y su lifecycle manager dedicado están integrados en el runtime, filtrando comandos en la cadena `controller_server` -> `cmd_vel_raw` -> `collision_monitor` -> `cmd_vel_safe` -> `offline_runtime_simulator`.
+`collision_monitor` y su lifecycle manager dedicado están integrados en el runtime, filtrando comandos en la cadena definitiva: `controller_server` -> `cmd_vel_raw` -> `collision_monitor` -> `cmd_vel_safe` -> `offline_runtime_simulator`.
 
 ```bash
 cd "codigo ottoguide"
-python3 tools/hil/offline_navigation/smoke_test_offline_collision_monitor.py --base-domain-id 121 --timeout 60
+python3 tools/hil/offline_navigation/smoke_test_offline_collision_monitor.py --base-domain-id 200 --timeout 60
 ```
 
-Prueba cinco escenarios de seguridad (Clear, Slowdown, Stop, Recovery, Cancel) bajo domain IDs independientes (121-125 y 150-154), confirmando:
-- Reducción de velocidad en la zona slowdown (a un 40% del comando raw).
-- Parada total (velocidad safe cero) en la zona stop.
-- Recuperación automática del avance tras remover obstáculos.
-- Cancelación limpia de metas con parada inmediata.
+Prueba cinco escenarios de seguridad (Clear, Slowdown, Stop, Recovery, Cancel) bajo domain IDs independientes (un domain por escenario, derivado del `--base-domain-id`; ej. `200`-`204` y `210`-`214` en dos corridas independientes reproducidas), confirmando:
+- Reducción de velocidad en la zona slowdown (mediana de ratio safe/raw observada `0.40`/`0.4222`, esperado `0.35`-`0.45`).
+- Velocidad sin filtrar en zona clear (mediana de ratio `0.9737`/`1.0`, esperado `0.90`-`1.10`).
+- Parada total (velocidad safe cero) en la zona stop, con pose estable.
+- Recuperación automática del avance tras remover obstáculos (`stop_safe_zero_observed` → `recovery_safe_nonzero_observed` → avance `>0.01m`).
+- Cancelación limpia de metas tras inicio de movimiento, con parada confirmada (`STATUS_CANCELED`, `cmd_vel_safe` y twist de odometría en cero, pose estable).
+
+El emparejamiento raw/safe es causal e independiente del resultado esperado: para cada muestra `cmd_vel_safe` se busca la muestra `cmd_vel_raw` más reciente con timestamp anterior o igual y delta máximo `0.25s`, sin reutilizar muestras safe, descartando pares con `abs(raw.linear.x) < 0.02`, y exigiendo al menos 3 pares válidos antes de calcular la mediana. `NOT_FOR_PHYSICAL_SAFETY_VALIDATION`: esta validación es exclusivamente sintética en simulación offline.
 
 ## Troubleshooting
 
@@ -120,6 +126,7 @@ Prueba cinco escenarios de seguridad (Clear, Slowdown, Stop, Recovery, Cancel) b
 | `GOAL_REJECTED` o `path_result` distinto de `SUCCEEDED` | Start/goal fuera del mapa, dentro de un obstáculo, o plugin de planner mal configurado en el YAML | Revisar `tolerance`/`allow_unknown` en `nav2_offline_sandbox_params.yaml`; confirmar que las coordenadas caen dentro de los límites del mapa sintético (`x ∈ [-1.0, 1.0]`, `y ∈ [-0.75, 0.75]`). |
 | `CONTROLLER_SERVER_LIFECYCLE_ACTIVE_NOT_CONFIRMED` o `controller_server` en `FATAL`/`Couldn't load critics!` | Carga de parámetros anidados de plugin sin reescritura namespaced (`ParameterFile`/`RewrittenYaml` ausente en el launch) | Resuelto: el launch ahora usa `configured_params = ParameterFile(RewrittenYaml(source_file=PARAMS_FILE, root_key=namespace, convert_types=True), allow_substs=True)`. Si reaparece, confirmar que esta reescritura no fue removida. |
 | `collision_monitor` falla al iniciar con `Wrong parameter type` | Parámetro `points` configurado como `double_array` en vez de `string` | Resuelto: en el ROS 2 Jazzy de este entorno, la propiedad `points` de las zonas de colisión debe ser de tipo `string` (ej. `"[[x1,y1],...]"`) y no un arreglo de números dobles. |
+| El smoke test de Collision Monitor falla con `EXCEPTION: Command ['ros2', 'lifecycle', 'get', ...] timed out after 5.0 seconds` | Timeout transitorio de la CLI `ros2` (carga acumulada tras varios lanzamientos secuenciales en la misma sesión WSL); `_run()` no capturaba `subprocess.TimeoutExpired`, por lo que escapaba como excepción en vez de permitir que el bucle de reintento (`_wait_for_lifecycle_active`) siguiera esperando hasta su propio deadline | Resuelto: `_run()` ahora captura `subprocess.TimeoutExpired` y devuelve un `CompletedProcess` con `returncode=1`, dejando que los bucles de reintento existentes manejen la espera normalmente. |
 
 ## Restricciones
 

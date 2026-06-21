@@ -5,11 +5,11 @@ Validates the isolated safety chain:
 controller_server -> cmd_vel_raw -> collision_monitor -> cmd_vel_safe -> offline_runtime_simulator
 
 Scenarios tested in separate, isolated domain IDs:
-A. Clear (obstacle_mode="clear"): Pose advances with unmodified velocity.
-B. Slowdown (obstacle_mode="slowdown"): cmd_vel_safe is reduced compared to cmd_vel_raw.
-C. Stop (obstacle_mode="stop"): cmd_vel_safe is exactly zero; pose remains stable.
-D. Recovery (stop -> clear): cmd_vel_safe becomes zero, then resumes when clear.
-E. Cancel (with collision monitor active): Goal canceled, cmd_vel_safe zero, odom twist zero.
+A. Clear (obstacle_mode="clear"): Pose advances with unmodified velocity (safe/raw ratio median ~1.0).
+B. Slowdown (obstacle_mode="slowdown"): cmd_vel_safe reduced to ~40% of cmd_vel_raw (ratio median ~0.40).
+C. Stop (obstacle_mode="stop"): cmd_vel_safe explicitly zero after raw nonzero; pose stable.
+D. Recovery (stop -> clear): raw nonzero -> safe zero -> mode=clear -> safe nonzero -> dist > 0.01m.
+E. Cancel (obstacle_mode="clear"): motion > 0.01m before cancel, goal CANCELED, safe zero, odom zero, pose stable 0.5s.
 
 No robot hardware, no network access, no rosbags.
 """
@@ -20,6 +20,7 @@ import json
 import math
 import os
 import signal
+import statistics
 import subprocess
 import sys
 import time
@@ -54,6 +55,15 @@ FORBIDDEN_NODE_SUBSTRINGS = (
     "realsense",
 )
 
+# Minimum valid pairs required for ratio check
+MIN_VALID_PAIRS = 3
+
+# Maximum time-delta between a safe sample and the most recent raw sample (causal)
+MAX_PAIR_DT_S = 0.25
+
+# Minimum raw speed to include a pair in the ratio calculation
+MIN_RAW_FOR_PAIR = 0.02
+
 
 def _build_env(domain_id: str) -> dict:
     env = os.environ.copy()
@@ -63,7 +73,13 @@ def _build_env(domain_id: str) -> dict:
 
 
 def _run(cmd: list[str], env: dict, timeout: float) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
+    try:
+        return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # A transient slow ros2 CLI call must not abort the calling retry
+        # loop (_wait_for_node_discovered / _wait_for_lifecycle_active);
+        # surface it as a failed-but-retryable CompletedProcess instead.
+        return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="TIMEOUT")
 
 
 def _node_list(env: dict, timeout: float) -> list[str]:
@@ -150,6 +166,35 @@ def _shutdown_and_count_orphans(launch_process) -> int:
     return 1 if _process_group_is_alive(pgid) else 0
 
 
+def _compute_causal_pairs(
+    raw_history: list[tuple[float, float]],
+    safe_history: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Causal pairing: for each safe sample, find the most recent raw sample
+    whose timestamp is <= safe timestamp, with dt <= MAX_PAIR_DT_S.
+    Each safe sample is used at most once. Pairs with abs(raw) < MIN_RAW_FOR_PAIR
+    are discarded.
+    Returns list of (raw_speed, safe_speed) pairs.
+    """
+    pairs = []
+    used_safe = set()
+    for s_idx, (s_val, s_t) in enumerate(safe_history):
+        if s_idx in used_safe:
+            continue
+        # Find most recent raw sample at or before s_t
+        best_raw = None
+        best_raw_t = None
+        for r_val, r_t in raw_history:
+            if r_t <= s_t and (s_t - r_t) <= MAX_PAIR_DT_S:
+                if best_raw_t is None or r_t > best_raw_t:
+                    best_raw = r_val
+                    best_raw_t = r_t
+        if best_raw is not None and abs(best_raw) >= MIN_RAW_FOR_PAIR:
+            pairs.append((best_raw, s_val))
+            used_safe.add(s_idx)
+    return pairs
+
+
 class _CollisionMonitorSmokeClient(Node):
     """rclpy helper node for monitoring topics and interacting with actions."""
 
@@ -165,6 +210,8 @@ class _CollisionMonitorSmokeClient(Node):
         self._latest_odom: Odometry | None = None
         self._latest_cmd_vel_raw: Twist | None = None
         self._latest_cmd_vel_safe: Twist | None = None
+        self.raw_history: list[tuple[float, float]] = []
+        self.safe_history: list[tuple[float, float]] = []
 
         self.odom_topic_observed = f"/{namespace}/odom"
         self.cmd_vel_raw_topic_observed = f"/{namespace}/cmd_vel_raw"
@@ -185,10 +232,15 @@ class _CollisionMonitorSmokeClient(Node):
     def _on_cmd_vel_raw(self, msg: Twist) -> None:
         self._latest_cmd_vel_raw = msg
         self.cmd_vel_raw_messages_received += 1
+        self.raw_history.append((msg.linear.x, time.monotonic()))
 
     def _on_cmd_vel_safe(self, msg: Twist) -> None:
         self._latest_cmd_vel_safe = msg
         self.cmd_vel_safe_messages_received += 1
+        self.safe_history.append((msg.linear.x, time.monotonic()))
+
+    def get_causal_pairs(self) -> list[tuple[float, float]]:
+        return _compute_causal_pairs(self.raw_history, self.safe_history)
 
     def current_xy(self) -> tuple[float, float] | None:
         if self._latest_odom is None:
@@ -309,8 +361,8 @@ def run_single_scenario(namespace: str, domain_id: str, scenario: str, timeout_s
         "initial_odom_received": False,
         "cmd_vel_raw_messages": 0,
         "cmd_vel_safe_messages": 0,
-        "raw_speed_observed": 0.0,
-        "safe_speed_observed": 0.0,
+        "raw_speed_observed": None,
+        "safe_speed_observed": None,
         "simulated_distance_moved": 0.0,
         "final_pose_stable": False,
         "goal_status": "NOT_ATTEMPTED",
@@ -319,11 +371,30 @@ def run_single_scenario(namespace: str, domain_id: str, scenario: str, timeout_s
         "hardware_node_detected": False,
         "orphan_processes": 0,
         "errors": [],
+        # Paired speeds / slowdown metrics
+        "paired_raw_speed": None,
+        "paired_safe_speed": None,
+        "paired_slowdown_ratio": None,
+        "valid_pairs_count": 0,
+        "median_ratio": None,
+        # STOP metrics
+        "safe_zero_sample_observed": False,
+        # RECOVERY metrics
+        "stop_safe_zero_observed": False,
+        "recovery_safe_nonzero_observed": False,
+        "recovery_distance_moved": 0.0,
+        # CANCEL metrics
+        "cancel_motion_observed": False,
+        "cancel_safe_nonzero_before_cancel": False,
+        "cancel_safe_zero_after_cancel": False,
+        "cancel_odom_twist_zero": False,
+        "cancel_pose_stable": False,
     }
 
     env = _build_env(domain_id)
     launch_process = None
     rclpy_initialized = False
+    client = None
 
     try:
         launch_process = subprocess.Popen(
@@ -367,11 +438,13 @@ def run_single_scenario(namespace: str, domain_id: str, scenario: str, timeout_s
 
         if not run_result["errors"]:
             # Set obstacle mode initially in simulator
+            # All scenarios start with their designated initial mode
             initial_mode = "clear"
-            if scenario in ("stop", "recovery", "cancel"):
+            if scenario in ("stop", "recovery"):
                 initial_mode = "stop"
             elif scenario == "slowdown":
                 initial_mode = "slowdown"
+            # clear and cancel both start in clear mode
 
             if not set_simulator_obstacle_mode(namespace, initial_mode, env):
                 run_result["errors"].append("SET_OBSTACLE_MODE_FAILED")
@@ -412,63 +485,152 @@ def run_single_scenario(namespace: str, domain_id: str, scenario: str, timeout_s
                         if goal_handle is None or not goal_handle.accepted:
                             run_result["errors"].append("FOLLOW_PATH_GOAL_REJECTED")
                         else:
-                            # Let controller run
                             wait_deadline = time.monotonic() + 15.0
-                            command_received = False
-                            
-                            while time.monotonic() < wait_deadline:
-                                client.spin_for(0.1)
-                                raw = client._latest_cmd_vel_raw
-                                safe = client._latest_cmd_vel_safe
-                                if raw is not None and (abs(raw.linear.x) > 1e-4 or abs(raw.angular.z) > 1e-4):
-                                    command_received = True
-                                    run_result["raw_speed_observed"] = max(run_result["raw_speed_observed"], abs(raw.linear.x))
-                                    if safe is not None:
-                                        run_result["safe_speed_observed"] = max(run_result["safe_speed_observed"], abs(safe.linear.x))
-                                    
-                                if command_received:
-                                    if scenario in ("clear", "slowdown"):
-                                        # Let it advance a bit
-                                        curr_xy = client.current_xy()
-                                        if curr_xy is not None and math.hypot(curr_xy[0] - x_init, curr_xy[1] - y_init) > 0.05:
-                                            break
-                                    elif scenario == "stop":
-                                        # Verify safe speed remains zero
-                                        break
-                                    elif scenario == "recovery":
-                                        # Once we see raw command and safe speed is zero, change simulator parameter to clear
-                                        if safe is not None and abs(safe.linear.x) < 1e-5:
-                                            if set_simulator_obstacle_mode(namespace, "clear", env):
-                                                # Wait for safe command to become non-zero and pose to advance
-                                                rec_deadline = time.monotonic() + 10.0
-                                                while time.monotonic() < rec_deadline:
-                                                    client.spin_for(0.1)
-                                                    safe_msg = client._latest_cmd_vel_safe
-                                                    curr_xy = client.current_xy()
-                                                    if safe_msg is not None and abs(safe_msg.linear.x) > 0.01:
-                                                        if curr_xy is not None and math.hypot(curr_xy[0] - x_init, curr_xy[1] - y_init) > 0.02:
-                                                            run_result["recovery_resumed"] = True
-                                                            break
-                                            break
-                                    elif scenario == "cancel":
-                                        # Cancel immediately
-                                        cancel_future = goal_handle.cancel_goal_async()
-                                        if client.spin_until_future_complete_custom(cancel_future, 10.0):
-                                            res_future = goal_handle.get_result_async()
-                                            if client.spin_until_future_complete_custom(res_future, 10.0):
-                                                wrapped_res = res_future.result()
-                                                if wrapped_res is not None:
-                                                    run_result["goal_status"] = "CANCELED" if wrapped_res.status == GoalStatus.STATUS_CANCELED else f"STATUS_{wrapped_res.status}"
-                                        break
 
-                            # Measure final position and velocity stability
+                            if scenario in ("clear", "slowdown"):
+                                wait_start = time.monotonic()
+                                while time.monotonic() < wait_deadline:
+                                    client.spin_for(0.1)
+                                    raw = client._latest_cmd_vel_raw
+                                    safe = client._latest_cmd_vel_safe
+                                    if raw is not None and abs(raw.linear.x) > 1e-4:
+                                        if run_result["raw_speed_observed"] is None or abs(raw.linear.x) > run_result["raw_speed_observed"]:
+                                            run_result["raw_speed_observed"] = abs(raw.linear.x)
+                                    if safe is not None and abs(safe.linear.x) > 1e-4:
+                                        if run_result["safe_speed_observed"] is None or abs(safe.linear.x) > run_result["safe_speed_observed"]:
+                                            run_result["safe_speed_observed"] = abs(safe.linear.x)
+
+                                    curr_xy = client.current_xy()
+                                    if time.monotonic() - wait_start > 3.0:
+                                        dist_moved = math.hypot(curr_xy[0] - x_init, curr_xy[1] - y_init) if curr_xy else 0.0
+                                        if dist_moved > (0.05 if scenario == "clear" else 0.01):
+                                            break
+
+                            elif scenario == "stop":
+                                raw_nonzero_seen = False
+                                safe_zero_seen_after_raw = False
+                                while time.monotonic() < wait_deadline:
+                                    client.spin_for(0.1)
+                                    raw = client._latest_cmd_vel_raw
+                                    safe = client._latest_cmd_vel_safe
+                                    if raw is not None and abs(raw.linear.x) > 0.01:
+                                        raw_nonzero_seen = True
+                                        if run_result["raw_speed_observed"] is None or abs(raw.linear.x) > run_result["raw_speed_observed"]:
+                                            run_result["raw_speed_observed"] = abs(raw.linear.x)
+                                    if safe is not None:
+                                        if run_result["safe_speed_observed"] is None or abs(safe.linear.x) > run_result["safe_speed_observed"]:
+                                            run_result["safe_speed_observed"] = abs(safe.linear.x)
+                                        if raw_nonzero_seen and abs(safe.linear.x) < 1e-5:
+                                            safe_zero_seen_after_raw = True
+                                run_result["safe_zero_sample_observed"] = safe_zero_seen_after_raw
+
+                            elif scenario == "recovery":
+                                # Sequence: raw nonzero -> safe zero (stop) -> mode=clear -> safe nonzero -> dist > 0.01m
+                                state = 0
+                                x_stop, y_stop = x_init, y_init
+                                while time.monotonic() < wait_deadline:
+                                    client.spin_for(0.1)
+                                    raw = client._latest_cmd_vel_raw
+                                    safe = client._latest_cmd_vel_safe
+                                    curr_xy = client.current_xy()
+
+                                    if raw is not None and abs(raw.linear.x) > 0.01:
+                                        if run_result["raw_speed_observed"] is None or abs(raw.linear.x) > run_result["raw_speed_observed"]:
+                                            run_result["raw_speed_observed"] = abs(raw.linear.x)
+                                    if safe is not None:
+                                        if run_result["safe_speed_observed"] is None or abs(safe.linear.x) > run_result["safe_speed_observed"]:
+                                            run_result["safe_speed_observed"] = abs(safe.linear.x)
+
+                                    if state == 0:
+                                        # Wait for: raw nonzero AND safe zero (stop condition)
+                                        if raw is not None and abs(raw.linear.x) > 0.01 and safe is not None and abs(safe.linear.x) < 1e-5:
+                                            run_result["stop_safe_zero_observed"] = True
+                                            if curr_xy is not None:
+                                                x_stop, y_stop = curr_xy
+                                            if set_simulator_obstacle_mode(namespace, "clear", env):
+                                                state = 1
+                                            else:
+                                                run_result["errors"].append("SET_OBSTACLE_MODE_CLEAR_FAILED")
+                                                break
+                                    elif state == 1:
+                                        # Wait for safe nonzero after mode=clear
+                                        if safe is not None and abs(safe.linear.x) > 0.01:
+                                            run_result["recovery_safe_nonzero_observed"] = True
+                                            state = 2
+                                    elif state == 2:
+                                        # Wait for actual distance moved > 0.01m from stop point
+                                        if curr_xy is not None:
+                                            dist = math.hypot(curr_xy[0] - x_stop, curr_xy[1] - y_stop)
+                                            run_result["recovery_distance_moved"] = dist
+                                            if dist > 0.01:
+                                                run_result["recovery_resumed"] = True
+                                                break
+
+                            elif scenario == "cancel":
+                                # obstacle_mode is already "clear" (initial_mode for cancel)
+                                # Require: raw nonzero, safe nonzero, dist > 0.01m BEFORE canceling
+                                state = 0
+                                while time.monotonic() < wait_deadline:
+                                    client.spin_for(0.1)
+                                    raw = client._latest_cmd_vel_raw
+                                    safe = client._latest_cmd_vel_safe
+                                    curr_xy = client.current_xy()
+
+                                    if raw is not None and abs(raw.linear.x) > 0.01:
+                                        if run_result["raw_speed_observed"] is None or abs(raw.linear.x) > run_result["raw_speed_observed"]:
+                                            run_result["raw_speed_observed"] = abs(raw.linear.x)
+                                    if safe is not None:
+                                        if run_result["safe_speed_observed"] is None or abs(safe.linear.x) > run_result["safe_speed_observed"]:
+                                            run_result["safe_speed_observed"] = abs(safe.linear.x)
+
+                                    if state == 0:
+                                        if raw is not None and abs(raw.linear.x) > 0.01:
+                                            if safe is not None and abs(safe.linear.x) > 0.01:
+                                                run_result["cancel_safe_nonzero_before_cancel"] = True
+                                                if curr_xy is not None:
+                                                    dist = math.hypot(curr_xy[0] - x_init, curr_xy[1] - y_init)
+                                                    if dist > 0.01:
+                                                        run_result["cancel_motion_observed"] = True
+                                                        cancel_future = goal_handle.cancel_goal_async()
+                                                        if client.spin_until_future_complete_custom(cancel_future, 10.0):
+                                                            res_future = goal_handle.get_result_async()
+                                                            if client.spin_until_future_complete_custom(res_future, 10.0):
+                                                                wrapped_res = res_future.result()
+                                                                if wrapped_res is not None:
+                                                                    if wrapped_res.status == GoalStatus.STATUS_CANCELED:
+                                                                        run_result["goal_status"] = "CANCELED"
+                                                                    else:
+                                                                        run_result["goal_status"] = f"STATUS_{wrapped_res.status}"
+                                                        state = 1
+                                                        break
+
+                                if run_result["goal_status"] == "CANCELED":
+                                    # Spin 1.5s to let watchdog expire and safe/odom settle
+                                    client.spin_for(1.5)
+                                    post_safe = client._latest_cmd_vel_safe
+                                    if post_safe is not None and abs(post_safe.linear.x) < 1e-5:
+                                        run_result["cancel_safe_zero_after_cancel"] = True
+
+                                    twist = client.current_twist()
+                                    if twist is not None and abs(twist[0]) < 1e-5 and abs(twist[1]) < 1e-5:
+                                        run_result["cancel_odom_twist_zero"] = True
+
+                                    # Pose stability check over 0.5s
+                                    pose_t0 = client.current_xy()
+                                    client.spin_for(0.5)
+                                    pose_t1 = client.current_xy()
+                                    if pose_t0 is not None and pose_t1 is not None:
+                                        diff = math.hypot(pose_t1[0] - pose_t0[0], pose_t1[1] - pose_t0[1])
+                                        run_result["cancel_pose_stable"] = (diff < 0.002)
+
+                            # Measure final position
                             pose_after = client.current_xy()
                             if pose_before is not None and pose_after is not None:
                                 run_result["simulated_distance_moved"] = math.hypot(
                                     pose_after[0] - pose_before[0], pose_after[1] - pose_before[1]
                                 )
 
-                            # Let's assess stability
+                            # Assess pose stability (only meaningful for stop)
                             client.spin_for(1.0)
                             pose_final = client.current_xy()
                             if pose_after is not None and pose_final is not None:
@@ -478,7 +640,7 @@ def run_single_scenario(namespace: str, domain_id: str, scenario: str, timeout_s
                             run_result["cmd_vel_raw_messages"] = client.cmd_vel_raw_messages_received
                             run_result["cmd_vel_safe_messages"] = client.cmd_vel_safe_messages_received
 
-                            # If not canceled, let's cancel to clean up action server
+                            # Cancel to clean up if not already canceled
                             if scenario != "cancel":
                                 try:
                                     goal_handle.cancel_goal_async()
@@ -499,49 +661,75 @@ def run_single_scenario(namespace: str, domain_id: str, scenario: str, timeout_s
         run_result["orphan_processes"] = _shutdown_and_count_orphans(launch_process)
 
     # Evaluate scenario correctness
-    if scenario == "clear":
-        run_result["ok"] = (
-            not run_result["errors"]
-            and run_result["collision_monitor_active"]
-            and run_result["raw_speed_observed"] > 0.02
-            and run_result["safe_speed_observed"] > 0.02
-            and run_result["simulated_distance_moved"] > 0.05
-            and not run_result["hardware_node_detected"]
-            and not run_result["forbidden_velocity_topics_detected"]
-            and run_result["orphan_processes"] == 0
+    if scenario in ("clear", "slowdown"):
+        # Causal pairing: independent of expected ratio
+        pairs = _compute_causal_pairs(
+            client.raw_history if client is not None else [],
+            client.safe_history if client is not None else [],
         )
-    elif scenario == "slowdown":
-        # Safe speed must be strictly less than raw speed, and both non-zero
-        speed_reduced = (
-            run_result["safe_speed_observed"] > 0.01
-            and run_result["safe_speed_observed"] < 0.8 * run_result["raw_speed_observed"]
-        )
-        run_result["ok"] = (
-            not run_result["errors"]
-            and run_result["collision_monitor_active"]
-            and speed_reduced
-            and run_result["simulated_distance_moved"] > 0.01
-            and not run_result["hardware_node_detected"]
-            and run_result["orphan_processes"] == 0
-        )
+        run_result["valid_pairs_count"] = len(pairs)
+        ratio_ok = False
+        if len(pairs) >= MIN_VALID_PAIRS:
+            ratios = [abs(s) / abs(r) for r, s in pairs if abs(r) >= MIN_RAW_FOR_PAIR]
+            if len(ratios) >= MIN_VALID_PAIRS:
+                median_ratio = statistics.median(ratios)
+                run_result["median_ratio"] = median_ratio
+                # Populate paired metrics from the pair closest to median ratio
+                closest_pair = min(pairs, key=lambda p: abs(abs(p[1]) / abs(p[0]) - median_ratio))
+                run_result["paired_raw_speed"] = abs(closest_pair[0])
+                run_result["paired_safe_speed"] = abs(closest_pair[1])
+                run_result["paired_slowdown_ratio"] = abs(closest_pair[1]) / abs(closest_pair[0])
+                if scenario == "clear":
+                    ratio_ok = 0.90 <= median_ratio <= 1.10
+                else:  # slowdown
+                    ratio_ok = 0.35 <= median_ratio <= 0.45
+
+        if scenario == "clear":
+            run_result["ok"] = (
+                not run_result["errors"]
+                and run_result["collision_monitor_active"]
+                and run_result["cmd_vel_raw_messages"] > 0
+                and run_result["cmd_vel_safe_messages"] > 0
+                and len(pairs) >= MIN_VALID_PAIRS
+                and ratio_ok
+                and run_result["simulated_distance_moved"] > 0.05
+                and not run_result["hardware_node_detected"]
+                and not run_result["forbidden_velocity_topics_detected"]
+                and run_result["orphan_processes"] == 0
+            )
+        else:  # slowdown
+            run_result["ok"] = (
+                not run_result["errors"]
+                and run_result["collision_monitor_active"]
+                and run_result["cmd_vel_raw_messages"] > 0
+                and run_result["cmd_vel_safe_messages"] > 0
+                and len(pairs) >= MIN_VALID_PAIRS
+                and ratio_ok
+                and run_result["simulated_distance_moved"] > 0.01
+                and not run_result["hardware_node_detected"]
+                and run_result["orphan_processes"] == 0
+            )
     elif scenario == "stop":
-        # Safe speed must be zero, raw speed non-zero, pose stable
         run_result["ok"] = (
             not run_result["errors"]
             and run_result["collision_monitor_active"]
-            and run_result["raw_speed_observed"] > 0.01
-            and run_result["safe_speed_observed"] < 1e-5
+            and run_result["cmd_vel_raw_messages"] > 0
+            and run_result["cmd_vel_safe_messages"] > 0
+            and run_result["raw_speed_observed"] is not None and run_result["raw_speed_observed"] > 0.01
+            and run_result["safe_zero_sample_observed"]
             and run_result["simulated_distance_moved"] < 0.005
             and run_result["final_pose_stable"]
             and not run_result["hardware_node_detected"]
             and run_result["orphan_processes"] == 0
         )
     elif scenario == "recovery":
-        # Should start in stop and transition to active
         run_result["ok"] = (
             not run_result["errors"]
             and run_result["collision_monitor_active"]
+            and run_result["stop_safe_zero_observed"]
+            and run_result["recovery_safe_nonzero_observed"]
             and run_result["recovery_resumed"]
+            and run_result["recovery_distance_moved"] > 0.01
             and not run_result["hardware_node_detected"]
             and run_result["orphan_processes"] == 0
         )
@@ -549,13 +737,15 @@ def run_single_scenario(namespace: str, domain_id: str, scenario: str, timeout_s
         run_result["ok"] = (
             not run_result["errors"]
             and run_result["collision_monitor_active"]
+            and run_result["cancel_motion_observed"]
+            and run_result["cancel_safe_nonzero_before_cancel"]
             and run_result["goal_status"] == "CANCELED"
-            and run_result["safe_speed_observed"] < 1e-5
-            and run_result["final_pose_stable"]
+            and run_result["cancel_safe_zero_after_cancel"]
+            and run_result["cancel_odom_twist_zero"]
+            and run_result["cancel_pose_stable"]
             and not run_result["hardware_node_detected"]
             and run_result["orphan_processes"] == 0
         )
-
     return run_result
 
 
