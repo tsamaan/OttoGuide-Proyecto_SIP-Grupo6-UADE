@@ -924,11 +924,80 @@ class NamespacedParameterRewriteTests(unittest.TestCase):
         controller_only_lists = [names for names in node_names_lists if names == ["controller_server"]]
         self.assertTrue(controller_only_lists, "no dedicated controller_server-only lifecycle manager found")
 
+
     def test_controller_smoke_test_has_effective_parameter_verification_utility(self):
         text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
         runtime_wrapper_text = RUNTIME_WRAPPER.read_text(encoding="utf-8")
         self.assertIn("RUNTIME_WRAPPER", text)
         self.assertIn("ros2", runtime_wrapper_text)
+
+
+class OfflineControllerSmokeCorrectionTests(unittest.TestCase):
+    def test_namespaced_subscriptions(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('self.odom_topic_observed = f"/{namespace}/odom"', text)
+        self.assertIn('self.cmd_vel_topic_observed = f"/{namespace}/cmd_vel_raw"', text)
+        self.assertIn('self.create_subscription(Odometry, self.odom_topic_observed,', text)
+        self.assertIn('self.create_subscription(Twist, self.cmd_vel_topic_observed,', text)
+
+    def test_absence_of_global_subscriptions(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertNotIn('self.create_subscription(Odometry, "odom",', text)
+        self.assertNotIn('self.create_subscription(Twist, "cmd_vel_raw",', text)
+
+    def test_metrics_initialized_as_none(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('"simulated_distance_moved": None', text)
+        self.assertIn('"final_distance_to_goal": None', text)
+        self.assertIn('"success_final_twist_zero": None', text)
+
+    def test_mandatory_odom_wait(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("wait_for_initial_odom", text)
+        self.assertIn("ODOM_NOT_RECEIVED", text)
+
+    def test_callback_processing_during_action(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("spin_until_future_complete_custom", text)
+        self.assertIn("rclpy.spin_once(self", text)
+
+    def test_nonzero_command_wait_before_cancel(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("command_ok = False", text)
+        self.assertIn("movement_ok = False", text)
+        self.assertIn("abs(cmd.linear.x) > 1e-6 or abs(cmd.angular.z) > 1e-6", text)
+
+    def test_independent_runtimes_and_domains(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('run_single_scenario(namespace, "117", "success"', text)
+        self.assertIn('run_single_scenario(namespace, "118", "cancel"', text)
+        self.assertIn('run_single_scenario(namespace, "119", "success"', text)
+        self.assertIn('run_single_scenario(namespace, "120", "cancel"', text)
+
+    def test_cancel_status_canceled(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("STATUS_CANCELED", text)
+        self.assertIn('"CANCELED"', text)
+
+    def test_goal_status_4_not_accepted_as_cancel(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertNotIn('"CANCELED" if cancel_status == "GOAL_STATUS_4"', text)
+
+    def test_odom_twist_stop_validation(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("odom.twist.twist.linear.x", text)
+        self.assertIn("odom.twist.twist.angular.z", text)
+        self.assertIn("watchdog_effective_stop", text)
+
+    def test_pose_stability_validation(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("pose_stable_after_cancel", text)
+        self.assertIn("max_diff < 0.002", text)
+
+    def test_watchdog_independent_of_raw_zero(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("zero_raw_command_received = False", text)
+        self.assertIn("watchdog_effective_stop = False", text)
 
 
 if __name__ == "__main__":
