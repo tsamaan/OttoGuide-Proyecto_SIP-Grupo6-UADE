@@ -439,7 +439,7 @@ class SimulatorParameterValidationTests(unittest.TestCase):
 class PlannerConfigurationTests(unittest.TestCase):
     def test_params_yaml_configures_navfn_planner_plugin(self):
         text = PARAMS_FILE.read_text(encoding="utf-8")
-        self.assertIn("nav2_navfn_planner/NavfnPlanner", text)
+        self.assertIn("nav2_navfn_planner::NavfnPlanner", text)
         self.assertIn("planner_plugins:", text)
 
     def test_params_yaml_global_costmap_has_static_and_inflation_layers(self):
@@ -837,6 +837,98 @@ class SmokeTestsUseRealLifecycleTests(unittest.TestCase):
         text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
         self.assertIn("cancel_goal_async", text)
         self.assertIn("STATUS_CANCELED", text)
+
+
+class NamespacedParameterRewriteTests(unittest.TestCase):
+    def test_launch_imports_rewritten_yaml_and_parameter_file(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        self.assertIn("from launch_ros.descriptions import ParameterFile", text)
+        self.assertIn("from nav2_common.launch import RewrittenYaml", text)
+
+    def test_configured_params_root_key_is_sandbox_namespace(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        root_key_value = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "RewrittenYaml":
+                for kw in node.keywords:
+                    if kw.arg == "root_key":
+                        root_key_value = kw.value
+        self.assertIsNotNone(root_key_value, "RewrittenYaml(root_key=...) not found")
+        self.assertIsInstance(root_key_value, ast.Name)
+        self.assertEqual(root_key_value.id, "namespace")
+
+    def test_configured_params_convert_types_enabled(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "RewrittenYaml":
+                for kw in node.keywords:
+                    if kw.arg == "convert_types" and isinstance(kw.value, ast.Constant):
+                        found = kw.value.value is True
+        self.assertTrue(found, "RewrittenYaml(convert_types=True) not found")
+
+    def _node_uses_configured_params(self, executable: str) -> bool:
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                node_executable = None
+                parameters_kw = None
+                for kw in node.keywords:
+                    if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                        node_executable = kw.value.value
+                    if kw.arg == "parameters":
+                        parameters_kw = kw.value
+                if node_executable == executable and isinstance(parameters_kw, ast.List):
+                    for elt in parameters_kw.elts:
+                        if isinstance(elt, ast.Name) and elt.id == "configured_params":
+                            return True
+        return False
+
+    def test_map_server_uses_configured_params(self):
+        self.assertTrue(self._node_uses_configured_params("map_server"))
+
+    def test_map_server_still_overrides_yaml_filename(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        self.assertIn("'yaml_filename': LaunchConfiguration('map_yaml')", text)
+
+    def test_planner_server_uses_configured_params(self):
+        self.assertTrue(self._node_uses_configured_params("planner_server"))
+
+    def test_controller_server_uses_configured_params(self):
+        self.assertTrue(self._node_uses_configured_params("controller_server"))
+
+    def test_params_yaml_has_no_duplicated_namespace_root_key(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertNotIn("offline_nav:", text)
+
+    def test_lifecycle_managers_remain_separated(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        self.assertIn("lifecycle_manager_navigation", text)
+        self.assertIn("lifecycle_manager_controller", text)
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        node_names_lists = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if (
+                        isinstance(key, ast.Constant)
+                        and key.value == "node_names"
+                        and isinstance(value, ast.List)
+                    ):
+                        node_names_lists.append(
+                            [elt.value for elt in value.elts if isinstance(elt, ast.Constant)]
+                        )
+        controller_only_lists = [names for names in node_names_lists if names == ["controller_server"]]
+        self.assertTrue(controller_only_lists, "no dedicated controller_server-only lifecycle manager found")
+
+    def test_controller_smoke_test_has_effective_parameter_verification_utility(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        runtime_wrapper_text = RUNTIME_WRAPPER.read_text(encoding="utf-8")
+        self.assertIn("RUNTIME_WRAPPER", text)
+        self.assertIn("ros2", runtime_wrapper_text)
 
 
 if __name__ == "__main__":

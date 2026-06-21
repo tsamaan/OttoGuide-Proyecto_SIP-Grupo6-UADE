@@ -6,6 +6,8 @@ from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.descriptions import ParameterFile
+from nav2_common.launch import RewrittenYaml
 
 
 CODE_ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +56,24 @@ def generate_launch_description():
 
     namespace = LaunchConfiguration('sandbox_namespace')
 
+    # Parametros reescritos con el namespace real del sandbox como root_key,
+    # de forma que los nodos namespaced (map_server, planner_server,
+    # controller_server) reciban sus claves de plugin anidadas
+    # (GridBased.*, FollowPath.*) correctamente resueltas bajo
+    # /<sandbox_namespace>/<nodo>. Sin esta reescritura, ROS 2 Jazzy en este
+    # entorno carga el archivo con las claves raiz tal como estan escritas
+    # (sin namespace), y los nodos namespaced ignoran silenciosamente esos
+    # valores, cayendo a los defaults de stock Nav2.
+    configured_params = ParameterFile(
+        RewrittenYaml(
+            source_file=PARAMS_FILE,
+            root_key=namespace,
+            param_rewrites={},
+            convert_types=True,
+        ),
+        allow_substs=True,
+    )
+
     # Nodo map_server
     map_server_node = Node(
         package='nav2_map_server',
@@ -61,7 +81,7 @@ def generate_launch_description():
         name='map_server',
         namespace=namespace,
         output='screen',
-        parameters=[PARAMS_FILE, {'yaml_filename': LaunchConfiguration('map_yaml')}]
+        parameters=[configured_params, {'yaml_filename': LaunchConfiguration('map_yaml')}]
     )
 
     # Nodo planner_server: planificacion global unicamente. OFFLINE_ONLY,
@@ -73,7 +93,7 @@ def generate_launch_description():
         name='planner_server',
         namespace=namespace,
         output='screen',
-        parameters=[PARAMS_FILE]
+        parameters=[configured_params]
     )
 
     # Nodo controller_server: control local closed-loop unicamente simulado.
@@ -87,7 +107,7 @@ def generate_launch_description():
         name='controller_server',
         namespace=namespace,
         output='screen',
-        parameters=[PARAMS_FILE],
+        parameters=[configured_params],
         remappings=[('cmd_vel', 'cmd_vel_raw')]
     )
 

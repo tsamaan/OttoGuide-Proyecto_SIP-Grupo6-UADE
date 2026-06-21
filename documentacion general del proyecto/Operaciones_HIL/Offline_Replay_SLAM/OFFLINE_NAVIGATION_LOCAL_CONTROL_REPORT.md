@@ -1,19 +1,55 @@
 # Offline Navigation Sandbox — Local Control Report
 
 **Fecha**: 2026-06-20
-**Fase**: 2C — control local closed-loop exclusivamente simulado (`controller_server` + local costmap + simulador con integración cinemática). No incluye BT Navigator, behavior server, waypoint follower, Simple Commander ni Collision Monitor.
+**Fase**: 2C + corrección acotada de parámetros namespaced — control local closed-loop exclusivamente simulado (`controller_server` + local costmap + simulador con integración cinemática). No incluye BT Navigator, behavior server, waypoint follower, Simple Commander ni Collision Monitor.
 
 ## Resultado general
 
-`RESULT=PARTIAL_OFFLINE_LOCAL_CONTROL`. La implementación quedó completa (parámetros, launch, simulador extendido, verificador, tests puros, smoke test de control con escenario de éxito y de cancelación), pero **una incompatibilidad real de este entorno ROS 2 Jazzy local impide que `controller_server` complete su transición de lifecycle `configure`**, por lo que el escenario de éxito y el de cancelación no pudieron validarse en runtime. No se intentó ni se aplicó ningún workaround que requiriera instalar o actualizar paquetes.
+`RESULT=PARTIAL_NAMESPACED_NAV2_PARAMETERS`. La causa raíz original (carga incorrecta de parámetros anidados de plugin) está **resuelta**: `controller_server` ahora alcanza `ACTIVE` de forma reproducible y la acción `/offline_nav/follow_path` devuelve `SUCCEEDED`. Sin embargo, apareció un **problema runtime distinto y nuevo**, no relacionado con la carga de parámetros: el escenario de movimiento simulado no detecta avance de pose (`simulated_distance_moved: 0.0`) y el escenario de cancelación no confirma velocidad cero dentro de la ventana esperada (`stop_after_cancel: FAIL`). No se investigó la causa raíz de este problema nuevo ni se aplicó ningún workaround, conforme al alcance acotado de la corrección. No se intentó ni se aplicó ningún workaround que requiriera instalar o actualizar paquetes.
 
-## Hallazgo de incompatibilidad local (causa raíz)
+## Hallazgo de incompatibilidad local (causa raíz original — RESUELTA)
 
-Se comprobó, de forma aislada y reproducible, que este ROS 2 Jazzy local **no aplica parámetros anidados bajo el namespace de un plugin** cuando se cargan vía `--params-file` (ni tampoco vía `-p` en línea de comandos):
+Se comprobó, de forma aislada y reproducible, que este ROS 2 Jazzy local **no aplicaba parámetros anidados bajo el namespace de un plugin** cuando se cargaban vía `--params-file` (ni tampoco vía `-p` en línea de comandos), porque el launch entregaba `parameters=[PARAMS_FILE]` directamente a nodos namespaced, sin reescribir el archivo con el namespace real como raíz:
 
-- `planner_server` con `GridBased.tolerance: 0.20` en el YAML: `ros2 param get /offline_nav/planner_server GridBased.tolerance` devuelve `0.5` (el default de stock Nav2), no `0.20`. Esto no rompe nada porque el plugin que cae por default (`nav2_navfn_planner::NavfnPlanner`) coincide con el solicitado, así que la Fase 2B funcionó "por casualidad" sin que se detectara este problema entonces.
-- `controller_server` con `FollowPath.plugin: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController`: el parámetro `FollowPath.plugin` real, consultado con `ros2 param get`, sigue siendo `dwb_core::DWBLocalPlanner` (el default de stock Nav2). El plugin solicitado nunca se carga.
-- Probado tanto a través de `ros2 launch` (el launch real del sandbox) como con `ros2 run nav2_controller controller_server --ros-args --params-file ...` en aislamiento total, con y sin namespace, con un YAML mínimo reducido a un solo nodo: el comportamiento es idéntico en todos los casos.
+- `planner_server` con `GridBased.tolerance: 0.20` en el YAML: `ros2 param get /offline_nav/planner_server GridBased.tolerance` devolvía `0.5` (el default de stock Nav2), no `0.20`. Esto no rompía nada porque el plugin que caía por default (`nav2_navfn_planner::NavfnPlanner`) coincidía con el solicitado, así que la Fase 2B funcionó "por casualidad" sin que se detectara este problema entonces.
+- `controller_server` con `FollowPath.plugin: dwb_core::DWBLocalPlanner` (ya configurado como fallback exclusivo del sandbox): el parámetro `FollowPath.plugin` real, consultado con `ros2 param get`, seguía cayendo al default de stock Nav2 sin aplicar el valor del YAML, y `FollowPath.critics` quedaba "not initialized", causando el fallo de `configure`.
+- Probado tanto a través de `ros2 launch` (el launch real del sandbox) como con `ros2 run nav2_controller controller_server --ros-args --params-file ...` en aislamiento total, con y sin namespace, con un YAML mínimo reducido a un solo nodo: el comportamiento era idéntico en todos los casos.
+
+### Causa raíz confirmada y corrección aplicada
+
+La causa no era un bug de ROS 2 Jazzy ni de los paquetes Nav2 instalados: era que `offline_nav_sandbox.launch.py` pasaba el archivo de parámetros sin reescritura de namespace (`parameters=[PARAMS_FILE]`), mientras los nodos se lanzaban con `namespace=namespace` (`/offline_nav`). Sin una reescritura explícita, los nodos namespaced no resuelven correctamente las claves anidadas bajo el nombre del plugin declaradas en la raíz del YAML.
+
+Se corrigió agregando, en `offline_nav_sandbox.launch.py`:
+
+```python
+from launch_ros.descriptions import ParameterFile
+from nav2_common.launch import RewrittenYaml
+
+configured_params = ParameterFile(
+    RewrittenYaml(
+        source_file=PARAMS_FILE,
+        root_key=namespace,
+        param_rewrites={},
+        convert_types=True,
+    ),
+    allow_substs=True,
+)
+```
+
+aplicado a `map_server`, `planner_server` y `controller_server` (`parameters=[configured_params, ...]`), preservando el override adicional `yaml_filename` en `map_server`. Se corrigió además `GridBased.plugin` en el YAML de `"nav2_navfn_planner/NavfnPlanner"` (alias estilo ROS 1, no reconocido por pluginlib en este Jazzy) a `"nav2_navfn_planner::NavfnPlanner"` (namespace C++ real), error que quedó expuesto recién al empezar a aplicarse realmente el parámetro.
+
+### Valores efectivos verificados tras la corrección (domain ID 110, reproducido en 111/115/116)
+
+| Parámetro | Antes de la corrección | Después de la corrección | Esperado |
+|---|---|---|---|
+| `GridBased.tolerance` | `0.5` | `0.20` | `0.20` |
+| `GridBased.plugin` | `nav2_navfn_planner::NavfnPlanner` (default, coincidencia casual) | `nav2_navfn_planner::NavfnPlanner` | `nav2_navfn_planner::NavfnPlanner` |
+| `controller_frequency` | `20.0` | `10.0` | `10.0` |
+| `FollowPath.plugin` | `dwb_core::DWBLocalPlanner` (default, no aplicado desde YAML) | `dwb_core::DWBLocalPlanner` (aplicado desde YAML) | `dwb_core::DWBLocalPlanner` |
+| `FollowPath.critics` | no inicializado | `['RotateToGoal', 'Oscillation', 'BaseObstacle', 'GoalAlign', 'PathAlign', 'PathDist', 'GoalDist']` | lista no vacía |
+| `FollowPath.max_vel_x` | `0.0` | `0.1` | `0.10` |
+
+`map_server`, `planner_server` y `controller_server` alcanzan `active` de forma reproducible (confirmado con `ros2 lifecycle get` en dos ejecuciones independientes, domain IDs `115` y `116`).
 
 ## Cambio de plugin del controller por compatibilidad local
 
@@ -26,9 +62,9 @@ Siguiendo la decisión explícita del usuario, se cambió la configuración de `
 
 ## Resultado de la validación con DWB + critics mínimos
 
-Se agregó `FollowPath.critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]` y `default_critic_namespaces: ["dwb_critics"]` al YAML. Se confirmó mediante `ros2 param get /offline_nav/controller_server FollowPath.critics` que el parámetro **"is not initialized"**: la misma incompatibilidad de carga de parámetros anidados afecta también a `critics`, no solo a `plugin`. `controller_server` sigue cayendo al estado por default sin critics, lo cual provoca `Couldn't load critics! Caught exception: No critics defined for FollowPath` y la transición `configure` falla con `FATAL`.
+Se agregó `FollowPath.critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]` y `default_critic_namespaces: ["dwb_critics"]` al YAML. Inicialmente (antes de la corrección de namespaced parameters) se confirmó mediante `ros2 param get /offline_nav/controller_server FollowPath.critics` que el parámetro era **"is not initialized"**: la misma incompatibilidad de carga de parámetros anidados afectaba también a `critics`, no solo a `plugin`. `controller_server` caía al estado por default sin critics, lo cual provocaba `Couldn't load critics! Caught exception: No critics defined for FollowPath` y la transición `configure` fallaba con `FATAL`.
 
-Conforme al criterio fail-safe acordado: **los critics tampoco se aplican → DWB vuelve a defaults no verificables → se detiene la implementación** sin instalar ni modificar paquetes.
+**Tras aplicar la corrección de namespaced parameters (`ParameterFile`/`RewrittenYaml`), `FollowPath.critics` se carga correctamente** con la lista completa de 7 critics, y `controller_server` completa `configure` y `activate` sin error.
 
 ## Aislamiento de lifecycle (corrección de regresión)
 
@@ -42,19 +78,26 @@ Con este aislamiento, `map_server` y `planner_server` vuelven a activarse correc
 ## Lo que SÍ se completó y se puede verificar estáticamente
 
 - `controller_server` agregado al launch bajo namespace real `offline_nav`, con `remappings=[('cmd_vel', 'cmd_vel_raw')]`.
-- `lifecycle_manager_controller` dedicado y aislado, intentando activar únicamente `controller_server`.
+- `lifecycle_manager_controller` dedicado y aislado, activando únicamente `controller_server`, independiente de `lifecycle_manager_navigation`.
 - `local_costmap` configurado con `global_frame: odom`, `robot_base_frame: base_link`, `obstacle_layer` suscrito al tópico relativo `scan`, e `inflation_layer`.
-- `offline_runtime_simulator.py` extendido: suscripción relativa `cmd_vel_raw`, integración cinemática planar determinista (x, y, yaw), límites sintéticos (`max_linear_speed_mps=0.10`, `max_angular_speed_radps=0.30`), watchdog de 0.5s que pone velocidad cero sin comando nuevo, todo sin imports de hardware, sin red, sin topics globales.
-- Verificador de aislamiento actualizado: política de allowlist que permite únicamente `cmd_vel_raw` (resuelve a `/offline_nav/cmd_vel_raw`) y rechaza `/cmd_vel`, `/cmd_vel_nav`, `/offline_nav/cmd_vel` y cualquier otra variante que contenga `cmd_vel`. Distingue identificadores Python (`cmd_vel_watchdog_timeout_s`) de literales de tópico real.
-- 28 tests puros nuevos (93 totales), todos en `OK`, ejecutables sin ROS.
-- `smoke_test_offline_controller.py` implementado con ambos escenarios (éxito y cancelación) y verificación de lifecycle real, pero no pudo completar ninguno de los dos por el bloqueo de `controller_server` descripto arriba.
+- `offline_runtime_simulator.py`: suscripción relativa `cmd_vel_raw`, integración cinemática planar determinista (x, y, yaw), límites sintéticos (`max_linear_speed_mps=0.10`, `max_angular_speed_radps=0.30`), watchdog de 0.5s que pone velocidad cero sin comando nuevo, todo sin imports de hardware, sin red, sin topics globales.
+- Verificador de aislamiento: política de allowlist que permite únicamente `cmd_vel_raw` (resuelve a `/offline_nav/cmd_vel_raw`) y rechaza `/cmd_vel`, `/cmd_vel_nav`, `/offline_nav/cmd_vel` y cualquier otra variante que contenga `cmd_vel`. Distingue identificadores Python (`cmd_vel_watchdog_timeout_s`) de literales de tópico real.
+- `offline_nav_sandbox.launch.py` reescribe los parámetros con `ParameterFile(RewrittenYaml(source_file=PARAMS_FILE, root_key=namespace, convert_types=True), allow_substs=True)`, aplicado a `map_server`, `planner_server` y `controller_server`.
+- 104 tests puros (97 previos + corrección + 10 tests nuevos acotados para la reescritura namespaced, con 3 fallos preexistentes no relacionados removidos del conteo por ser módulos faltantes ajenos a este sandbox: `httpx`, `pydantic_settings`), todos en `OK` dentro del módulo `test_offline_navigation_sandbox_isolation`, ejecutables sin ROS.
+- `smoke_test_offline_controller.py`: el escenario de `FollowPath` ahora completa `SUCCEEDED` con `controller_server` en `ACTIVE` real.
 
-## Lo que NO se pudo validar en runtime
+## Lo que SÍ se validó en runtime (tras la corrección)
 
-- `CONTROLLER_LIFECYCLE_ACTIVE`: NO. `controller_server` nunca alcanza `active`; queda en `FATAL` tras fallar `configure`. Confirmado de forma reproducible en dos ejecuciones del smoke test de control con domain IDs distintos (`107`, `108`), ambas con `map_server_lifecycle_active: true`, `planner_server_lifecycle_active: true`, `controller_server_lifecycle_active: false`, y `orphan_processes: 0`.
-- Resultado `SUCCEEDED` de `/offline_nav/follow_path`: no alcanzado (el action server de `controller_server` nunca llega a estar disponible).
-- Movimiento simulado observable y llegada al objetivo: no alcanzado.
-- Cancelación y parada simulada: no alcanzado (no hay goal activo que cancelar).
+- `CONTROLLER_LIFECYCLE_ACTIVE`: **SÍ**. `controller_server` alcanza `active` de forma reproducible, confirmado en dos ejecuciones del smoke test de control con domain IDs distintos (`115`, `116`), ambas con `map_server_lifecycle_active: true`, `planner_server_lifecycle_active: true`, `controller_server_lifecycle_active: true`, y `orphan_processes: 0`.
+- Resultado `SUCCEEDED` de `/offline_nav/follow_path`: **alcanzado**, en ambas ejecuciones.
+- `FollowPath.plugin`, `FollowPath.critics`, `controller_frequency`, `GridBased.tolerance`, `GridBased.plugin`: todos verificados con el valor configurado en el YAML, no el default de stock Nav2.
+
+## Lo que NO se pudo validar en runtime (problema nuevo, fuera del alcance de esta corrección)
+
+- Movimiento simulado observable: **NO**. `simulated_distance_moved: 0.0` en ambas ejecuciones, pese a que `FollowPath` completa `SUCCEEDED`.
+- Llegada confirmada al objetivo: **NO**. `final_distance_to_goal: null` (no calculable porque no hubo cambio de pose detectado).
+- Cancelación con parada confirmada: **NO**. `cancel_test: GOAL_STATUS_4` y `stop_after_cancel: FAIL` / `nonzero_command_after_cancel: true` en ambas ejecuciones; no se confirma velocidad cero dentro de la ventana de 1.0s tras cancelar.
+- No se investigó la causa raíz de este problema nuevo (posibles hipótesis no confirmadas: timing de `client.spin_for()` en el cliente de smoke test, comportamiento del simulador ante el primer ciclo de `cmd_vel_raw`, o configuración del `goal_checker`/`progress_checker`), conforme al alcance acotado de "corrección de parámetros namespaced" de esta tarea.
 
 ## Restricciones respetadas
 
@@ -62,8 +105,8 @@ No se conectó el robot físico, no se usó SSH/SCP, no se contactaron IPs `192.
 
 ## Estado de readiness resultante
 
-`LOCAL_CONTROL_SANDBOX` no se declara `READY`. `ROS_RUNTIME_SANDBOX` permanece `PARTIAL`. `L2_ODOMETRY`, `L3_LOCALIZATION_MAP` y `PHYSICAL_NAVIGATION` permanecen `NOT_READY` sin cambios. No se declara autonomía validada en ningún nivel.
+`LOCAL_CONTROL_SANDBOX` no se declara `READY` (el escenario de movimiento simulado y el de cancelación no están confirmados). `ROS_RUNTIME_SANDBOX` permanece `PARTIAL`. `GLOBAL_PLANNING_SANDBOX` permanece `READY`. `L2_ODOMETRY`, `L3_LOCALIZATION_MAP` y `PHYSICAL_NAVIGATION` permanecen `NOT_READY` sin cambios. No se declara autonomía validada en ningún nivel.
 
 ## Próximo paso recomendado
 
-Antes de reintentar esta fase, se necesita una de estas dos cosas fuera del alcance actual: (a) autorización explícita para instalar o reinstalar el paquete `nav2_controller`/`dwb_core` en este entorno WSL para descartar un bug de empaquetado local, o (b) una sesión separada de investigación que determine si el problema es específico de la versión `jazzy` empaquetada en este sistema o reproducible en cualquier instalación estándar de ROS 2 Jazzy (lo cual indicaría un bug upstream a reportar, no una particularidad de esta máquina).
+Investigar, en una sesión separada, por qué `FollowPath` completa `SUCCEEDED` sin que el simulador (`offline_runtime_simulator.py`) registre avance de pose, y por qué la cancelación no produce velocidad cero confirmada dentro de la ventana esperada. No se trata de un bug de empaquetado de ROS 2 Jazzy ni requiere reinstalar paquetes: es un comportamiento a diagnosticar en la lógica de integración cinemática del simulador y/o en el timing del cliente de smoke test (`smoke_test_offline_controller.py`).
