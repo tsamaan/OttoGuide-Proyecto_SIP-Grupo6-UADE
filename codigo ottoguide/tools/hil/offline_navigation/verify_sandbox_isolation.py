@@ -43,6 +43,9 @@ FOUNDATION_SMOKE_TEST_FILE = (
 PLANNER_SMOKE_TEST_FILE = (
     CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_planner.py"
 )
+CONTROLLER_SMOKE_TEST_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_controller.py"
+)
 RUNTIME_SCAN_FILES = [
     LAUNCH_FILE,
     PARAMS_FILE,
@@ -51,6 +54,7 @@ RUNTIME_SCAN_FILES = [
     RUNTIME_WRAPPER,
     FOUNDATION_SMOKE_TEST_FILE,
     PLANNER_SMOKE_TEST_FILE,
+    CONTROLLER_SMOKE_TEST_FILE,
 ]
 EXPECTED_REAL_NAMESPACE = "offline_nav"
 
@@ -60,11 +64,20 @@ EXPECTED_REAL_NAMESPACE = "offline_nav"
 REQUIRED_NODE_NAMES = {
     "map_server",
     "planner_server",
+    "controller_server",
     "lifecycle_manager_navigation",
+    "lifecycle_manager_controller",
     "map_to_odom_synthetic_tf",
     "base_link_to_utlidar_lidar_synthetic_tf",
 }
 REQUIRED_EXECUTE_PROCESS_NAMES = {"offline_runtime_simulator"}
+
+# Velocity topic policy: only the relative 'cmd_vel_raw' name (which resolves
+# under the sandbox namespace, e.g. /offline_nav/cmd_vel_raw) is allowed.
+# Any other topic name containing 'cmd_vel' is forbidden, including
+# '/cmd_vel', '/cmd_vel_nav', and a namespaced '/offline_nav/cmd_vel'.
+ALLOWED_VELOCITY_TOPIC_NAME = "cmd_vel_raw"
+FORBIDDEN_VELOCITY_TOPIC_PATTERN = re.compile(r"(?<![\w])cmd_vel(?:_nav)?(?![\w])")
 
 
 def _read_text(path: Path) -> str:
@@ -155,11 +168,35 @@ def _strip_comment_lines(text: str) -> str:
 # triggers a violation.
 DETECTION_IDIOM_PATTERN = re.compile(r'["\'](/cmd_vel(?:_nav)?)["\']\s*in\s+\w+')
 
+# Only string literals are inspected for the velocity topic allowlist policy
+# (identifiers like result["global_cmd_vel_detected"] or parameter names
+# like cmd_vel_watchdog_timeout_s are not topic names and must not match).
+STRING_LITERAL_PATTERN = re.compile(r'"([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\'')
+
+# Smoke tests declare their own list of forbidden/allowed velocity topic
+# suffixes as module-level constants, then check membership with
+# str.endswith(...). The constant *declaration* line is detection tooling,
+# not a real publish/subscribe usage, so it is exempted from the scan.
+VELOCITY_CONSTANT_DECLARATION_PATTERN = re.compile(
+    r"^\s*(FORBIDDEN|ALLOWED)_\w*VELOCITY\w*\s*="
+)
+
+# The only legitimate place the bare relative name 'cmd_vel' may appear is as
+# the *source* of a remap tuple to 'cmd_vel_raw' on controller_server, e.g.
+# remappings=[('cmd_vel', 'cmd_vel_raw')]. This is required so the node's
+# internal default output (relative 'cmd_vel') is redirected to the only
+# topic name this sandbox allows.
+CMD_VEL_REMAP_TUPLE_PATTERN = re.compile(
+    r'\(\s*["\']cmd_vel["\']\s*,\s*["\']cmd_vel_raw["\']\s*\)'
+)
+
 
 def _strip_detection_idiom_lines(text: str) -> str:
     kept_lines = []
     for line in text.splitlines():
         if DETECTION_IDIOM_PATTERN.search(line):
+            continue
+        if VELOCITY_CONSTANT_DECLARATION_PATTERN.match(line):
             continue
         kept_lines.append(line)
     return "\n".join(kept_lines)
@@ -181,6 +218,34 @@ def check_forbidden_topics(result: dict, files: list[Path]) -> None:
                 {"file": str(path), "pattern": "CMD_VEL", "match": match.group(0)}
             )
             result["errors"].append("CMD_VEL_REFERENCED")
+
+
+def check_velocity_topic_allowlist(result: dict, files: list[Path]) -> None:
+    """Enforce that the only velocity topic name ever referenced is the
+    relative 'cmd_vel_raw' (which resolves under the sandbox namespace to
+    e.g. /offline_nav/cmd_vel_raw). Any other cmd_vel-like name is rejected:
+    '/cmd_vel', '/cmd_vel_nav', '/offline_nav/cmd_vel', or any other
+    variant. Lines using the detection idiom (checking *absence* of a
+    forbidden topic, e.g. `t.endswith("/cmd_vel")`) are not flagged.
+    """
+    for path in files:
+        if not path.is_file():
+            continue
+        text = _strip_detection_idiom_lines(_strip_comment_lines(_read_text(path)))
+        for line in text.splitlines():
+            if VELOCITY_CONSTANT_DECLARATION_PATTERN.match(line):
+                continue
+            line_without_remap_tuple = CMD_VEL_REMAP_TUPLE_PATTERN.sub("", line)
+            for string_match in STRING_LITERAL_PATTERN.finditer(line_without_remap_tuple):
+                literal = string_match.group(0)
+                for match in FORBIDDEN_VELOCITY_TOPIC_PATTERN.finditer(literal):
+                    matched_text = match.group(0)
+                    if matched_text == ALLOWED_VELOCITY_TOPIC_NAME:
+                        continue
+                    result["forbidden_matches"].append(
+                        {"file": str(path), "pattern": "FORBIDDEN_VELOCITY_TOPIC", "match": matched_text}
+                    )
+                    result["errors"].append(f"FORBIDDEN_VELOCITY_TOPIC_{matched_text}")
 
 
 def check_forbidden_bridges(result: dict, files: list[Path]) -> None:
@@ -363,6 +428,7 @@ def verify(runtime: bool = False) -> dict:
     check_map_default_versioned(result)
     check_forbidden_ip(result, files_to_scan)
     check_forbidden_topics(result, files_to_scan)
+    check_velocity_topic_allowlist(result, files_to_scan)
     check_forbidden_bridges(result, files_to_scan)
     check_namespace_offline(result)
     check_localhost_only_required(result, runtime=runtime)

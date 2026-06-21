@@ -76,7 +76,27 @@ def generate_launch_description():
         parameters=[PARAMS_FILE]
     )
 
-    # Nodo lifecycle manager: activa map_server y planner_server unicamente.
+    # Nodo controller_server: control local closed-loop unicamente simulado.
+    # OFFLINE_ONLY, SYNTHETIC, NOT_FOR_HARDWARE. Su salida relativa 'cmd_vel'
+    # se remapea a 'cmd_vel_raw' (resuelve a <namespace>/cmd_vel_raw), el
+    # unico topico de velocidad permitido en el sandbox. Nunca publica
+    # /cmd_vel ni /cmd_vel_nav globales y nunca llega a un bridge fisico.
+    controller_server_node = Node(
+        package='nav2_controller',
+        executable='controller_server',
+        name='controller_server',
+        namespace=namespace,
+        output='screen',
+        parameters=[PARAMS_FILE],
+        remappings=[('cmd_vel', 'cmd_vel_raw')]
+    )
+
+    # Nodo lifecycle manager principal: activa unicamente map_server y
+    # planner_server. Aislado deliberadamente del lifecycle de
+    # controller_server para que una falla de activacion del controller
+    # (ver lifecycle_manager_controller mas abajo) nunca bloquee ni
+    # regresione map_server/planner_server, que ya estaban validados antes
+    # de intentar agregar control local.
     lifecycle_manager_node = Node(
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
@@ -86,6 +106,23 @@ def generate_launch_description():
         parameters=[{'use_sim_time': False},
                     {'autostart': True},
                     {'node_names': ['map_server', 'planner_server']}]
+    )
+
+    # Nodo lifecycle manager dedicado, exclusivamente para controller_server.
+    # Separado del lifecycle manager principal a proposito: si
+    # controller_server no logra activarse (ver nota de compatibilidad local
+    # en nav2_offline_sandbox_params.yaml), este lifecycle manager queda en
+    # FATAL/NO-ACTIVE de forma aislada, sin afectar map_server ni
+    # planner_server.
+    lifecycle_manager_controller_node = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_controller',
+        namespace=namespace,
+        output='screen',
+        parameters=[{'use_sim_time': False},
+                    {'autostart': True},
+                    {'node_names': ['controller_server']}]
     )
 
     # Nodo RViz (opcional)
@@ -100,10 +137,13 @@ def generate_launch_description():
 
     # Simulador offline: odometria sintetica (nav_msgs/Odometry en 'odom'),
     # TF dinamico odom->base_link, y LaserScan sintetico en 'scan'.
-    # No suscribe /cmd_vel ni /cmd_vel_nav. No importa HAL fisico.
-    # Se ejecuta con ExecuteProcess (no es un ejecutable instalado de un
-    # paquete ROS) pero el nodo rclpy interno aplica el namespace via
-    # remapping de __ns para mantener los topicos relativos correctos.
+    # Suscribe unicamente el topico relativo 'cmd_vel_raw' (resuelve a
+    # <namespace>/cmd_vel_raw) e integra esa velocidad en una pose 2D
+    # determinista. No suscribe ningun topico global de velocidad. No
+    # importa HAL fisico. Se ejecuta con ExecuteProcess (no es un ejecutable
+    # instalado de un paquete ROS) pero el nodo rclpy interno aplica el
+    # namespace via remapping de __ns para mantener los topicos relativos
+    # correctos.
     offline_runtime_simulator_node = ExecuteProcess(
         cmd=[
             sys.executable,
@@ -139,9 +179,11 @@ def generate_launch_description():
     )
 
     # Sandbox offline unicamente: sin navegacion real, sin hardware fisico,
-    # sin controller_server, sin behaviors, sin waypoint follower, sin
-    # Collision Monitor y sin comandos de velocidad de ningun tipo.
-    # planner_server solo planifica rutas globales; no mueve nada.
+    # sin BT Navigator, sin behaviors, sin waypoint follower, sin Simple
+    # Commander, sin Collision Monitor, y sin comandos de velocidad fuera
+    # del topico relativo 'cmd_vel_raw'. planner_server planifica rutas
+    # globales y controller_server las sigue exclusivamente en simulacion
+    # cerrada con offline_runtime_simulator; nada de esto mueve hardware.
     # Requiere entorno con ROS_LOCALHOST_ONLY=1 y ROS_DOMAIN_ID explicito
     # (no el default 0) para aislar este sandbox del resto de la red ROS.
     # Las TF map->odom y base_link->utlidar_lidar publicadas aqui son
@@ -154,7 +196,9 @@ def generate_launch_description():
         sandbox_namespace_arg,
         map_server_node,
         planner_server_node,
+        controller_server_node,
         lifecycle_manager_node,
+        lifecycle_manager_controller_node,
         rviz_node,
         offline_runtime_simulator_node,
         map_to_odom_static_tf,

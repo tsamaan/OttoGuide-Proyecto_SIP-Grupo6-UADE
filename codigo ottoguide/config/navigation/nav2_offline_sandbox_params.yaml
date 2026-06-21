@@ -20,9 +20,10 @@ map_saver:
     map_subscribe_transient_local: true
 
 # OFFLINE_ONLY / SYNTHETIC / NOT_FOR_HARDWARE
-# planner_server y global_costmap son la unica planificacion habilitada en
-# esta fase. No hay controller_server, local_costmap, behaviors, waypoint
-# follower ni Collision Monitor configurados ni iniciados.
+# planner_server, global_costmap, controller_server y local_costmap son la
+# unica planificacion y control habilitados en esta fase. No hay BT
+# Navigator, behaviors, waypoint follower, Simple Commander ni Collision
+# Monitor configurados ni iniciados.
 planner_server:
   ros__parameters:
     use_sim_time: false
@@ -49,6 +50,93 @@ global_costmap:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
         subscribe_to_updates: false
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.30
+
+# OFFLINE_ONLY / SYNTHETIC / NOT_FOR_HARDWARE
+# controller_server unicamente para control local closed-loop simulado.
+# Su unica salida de velocidad es el topico relativo 'cmd_vel_raw', remapeado
+# en el launch desde 'cmd_vel'. Nunca publica /cmd_vel ni /cmd_vel_nav
+# globales, y nunca llega a un bridge fisico.
+#
+# NOTA DE COMPATIBILIDAD LOCAL: el plugin solicitado originalmente para esta
+# fase era nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController.
+# Se comprobo en runtime que este ROS 2 Jazzy local no aplica parametros
+# anidados bajo el namespace de un plugin (ni desde --params-file ni desde
+# -p en linea de comandos): nodos como planner_server y controller_server
+# ignoran silenciosamente esos valores y caen al default de stock Nav2.
+# Para planner_server eso no rompe nada porque el default tambien es
+# NavfnPlanner. Para controller_server el default es dwb_core::DWBLocalPlanner
+# sin critics, que falla al configurar. Por eso este sandbox usa
+# dwb_core::DWBLocalPlanner explicitamente, con los critics minimos
+# necesarios para que cargue. Esta eleccion es exclusiva de este sandbox
+# offline por una limitacion local detectada; no define ni recomienda el
+# controlador para el robot fisico.
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    controller_frequency: 10.0
+    min_x_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.05
+      movement_time_allowance: 10.0
+
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.10
+      yaw_goal_tolerance: 0.25
+      stateful: true
+
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      default_critic_namespaces: ["dwb_critics"]
+      max_vel_x: 0.10
+      min_vel_x: 0.0
+      max_vel_theta: 0.30
+      min_speed_xy: 0.0
+      max_speed_xy: 0.10
+      min_speed_theta: 0.0
+      acc_lim_x: 0.50
+      acc_lim_theta: 1.0
+      decel_lim_x: -0.50
+      decel_lim_theta: -1.0
+      xy_goal_tolerance: 0.10
+      trans_stopped_velocity: 0.01
+      theta_stopped_velocity: 0.01
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: false
+      global_frame: odom
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 2
+      height: 2
+      resolution: 0.05
+      footprint: "[[0.15, 0.10], [0.15, -0.10], [-0.15, -0.10], [-0.15, 0.10]]"
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: "scan"
+        scan:
+          topic: "scan"
+          sensor_frame: "utlidar_lidar"
+          data_type: "LaserScan"
+          marking: true
+          clearing: true
+          max_obstacle_height: 2.0
+          obstacle_max_range: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0

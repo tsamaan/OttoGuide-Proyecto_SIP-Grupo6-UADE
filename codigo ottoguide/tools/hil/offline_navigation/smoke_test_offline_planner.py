@@ -43,6 +43,7 @@ DEFAULT_TIMEOUT_S = 40.0
 # 40x30 px -> world bounds x in [-1.0, 1.0], y in [-0.75, 0.75]).
 DEFAULT_START_XY = (-0.75, 0.0)
 DEFAULT_GOAL_XY = (0.75, 0.0)
+PATH_ENDPOINT_TOLERANCE_M = 0.10
 
 FORBIDDEN_NODE_SUBSTRINGS = (
     "unitree",
@@ -78,7 +79,25 @@ def _topic_list(env: dict, timeout: float) -> list[str]:
     return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
 
-def _wait_for_nodes(env: dict, namespace: str, deadline: float) -> list[str]:
+def _lifecycle_get(node_fqn: str, env: dict, timeout: float) -> str | None:
+    """Query the real lifecycle state of a node via `ros2 lifecycle get`.
+
+    Returns the state name (e.g. "active") or None if the query failed or
+    the node does not expose a lifecycle service.
+    """
+    proc = _run(["ros2", "lifecycle", "get", node_fqn], env, timeout)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    # Output format is "<state> [<id>]"; take the first token.
+    return proc.stdout.strip().split()[0].lower()
+
+
+def _wait_for_node_discovered(env: dict, namespace: str, deadline: float) -> list[str]:
+    """Wait until map_server and planner_server appear in `ros2 node list`.
+
+    This only confirms node *discovery*, not lifecycle state; callers must
+    separately query `_lifecycle_get` to confirm the node is actually active.
+    """
     nodes: list[str] = []
     while time.monotonic() < deadline:
         nodes = _node_list(env, timeout=5.0)
@@ -86,6 +105,15 @@ def _wait_for_nodes(env: dict, namespace: str, deadline: float) -> list[str]:
             return nodes
         time.sleep(1.0)
     return nodes
+
+
+def _wait_for_lifecycle_active(node_fqn: str, env: dict, deadline: float) -> bool:
+    while time.monotonic() < deadline:
+        state = _lifecycle_get(node_fqn, env, timeout=5.0)
+        if state == "active":
+            return True
+        time.sleep(1.0)
+    return False
 
 
 def _make_pose(frame_id: str, x: float, y: float) -> PoseStamped:
@@ -201,6 +229,10 @@ def run_planner_smoke_test(
         "domain_id": domain_id,
         "start_pose": list(start_xy),
         "goal_pose": list(goal_xy),
+        "map_server_node_discovered": False,
+        "planner_server_node_discovered": False,
+        "map_server_lifecycle_active": False,
+        "planner_server_lifecycle_active": False,
         "planner_server_active": False,
         "action_server_available": False,
         "path_result": "NOT_ATTEMPTED",
@@ -232,17 +264,40 @@ def run_planner_smoke_test(
         )
 
         node_deadline = time.monotonic() + timeout_s
-        nodes = _wait_for_nodes(env, namespace, node_deadline)
-        result["planner_server_active"] = f"/{namespace}/planner_server" in nodes
-        result["controller_server_started"] = any(
-            FORBIDDEN_CONTROLLER_NODE_SUBSTRING in node for node in nodes
+        nodes = _wait_for_node_discovered(env, namespace, node_deadline)
+        map_server_fqn = f"/{namespace}/map_server"
+        planner_server_fqn = f"/{namespace}/planner_server"
+        controller_server_fqn = f"/{namespace}/controller_server"
+        result["map_server_node_discovered"] = map_server_fqn in nodes
+        result["planner_server_node_discovered"] = planner_server_fqn in nodes
+        # As of the local control phase, controller_server may legitimately
+        # exist as a launched node (it has its own dedicated lifecycle
+        # manager). What this planner-only smoke test must still guarantee
+        # is that controller_server is never ACTIVE while only planning is
+        # being exercised, since an active controller is what could produce
+        # velocity commands.
+        result["controller_server_started"] = (
+            controller_server_fqn in nodes
+            and _wait_for_lifecycle_active(controller_server_fqn, env, time.monotonic() + 2.0)
         )
         result["hardware_node_detected"] = any(
             any(forbidden in node.lower() for forbidden in FORBIDDEN_NODE_SUBSTRINGS)
             for node in nodes
         )
 
-        if not result["planner_server_active"]:
+        if result["map_server_node_discovered"]:
+            result["map_server_lifecycle_active"] = _wait_for_lifecycle_active(
+                map_server_fqn, env, node_deadline
+            )
+        if result["planner_server_node_discovered"]:
+            result["planner_server_lifecycle_active"] = _wait_for_lifecycle_active(
+                planner_server_fqn, env, node_deadline
+            )
+        result["planner_server_active"] = result["planner_server_lifecycle_active"]
+
+        if not result["planner_server_node_discovered"]:
+            result["errors"].append("PLANNER_SERVER_NOT_DISCOVERED_WITHIN_TIMEOUT")
+        elif not result["planner_server_lifecycle_active"]:
             result["errors"].append("PLANNER_SERVER_NOT_ACTIVE_WITHIN_TIMEOUT")
         else:
             os.environ["ROS_LOCALHOST_ONLY"] = "1"
@@ -272,12 +327,12 @@ def run_planner_smoke_test(
                         if summary["first_pose"] is not None:
                             fx, fy = summary["first_pose"]
                             result["path_first_pose_near_start"] = (
-                                math.hypot(fx - start_xy[0], fy - start_xy[1]) < 0.5
+                                math.hypot(fx - start_xy[0], fy - start_xy[1]) < PATH_ENDPOINT_TOLERANCE_M
                             )
                         if summary["last_pose"] is not None:
                             lx, ly = summary["last_pose"]
                             result["path_last_pose_near_goal"] = (
-                                math.hypot(lx - goal_xy[0], ly - goal_xy[1]) < 0.5
+                                math.hypot(lx - goal_xy[0], ly - goal_xy[1]) < PATH_ENDPOINT_TOLERANCE_M
                             )
             finally:
                 client_node.destroy_node()

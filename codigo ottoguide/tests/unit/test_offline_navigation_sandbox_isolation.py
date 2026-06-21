@@ -26,6 +26,9 @@ FOUNDATION_SMOKE_TEST_FILE = (
 PLANNER_SMOKE_TEST_FILE = (
     CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_planner.py"
 )
+CONTROLLER_SMOKE_TEST_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_controller.py"
+)
 PARAMS_FILE = CODE_ROOT / "config" / "navigation" / "nav2_offline_sandbox_params.yaml"
 MAP_DIR = CODE_ROOT / "tests" / "fixtures" / "offline_navigation"
 MAP_PGM = MAP_DIR / "offline_sandbox_test_map.pgm"
@@ -347,9 +350,15 @@ class GlobalTopicAbsenceTests(unittest.TestCase):
         checker.check_forbidden_topics(result, [RUNTIME_WRAPPER])
         self.assertEqual(result["errors"], [])
 
-    def test_simulator_does_not_subscribe_to_any_cmd_vel_topic(self):
+    def test_simulator_only_subscribes_to_relative_cmd_vel_raw(self):
         text = SIMULATOR_FILE.read_text(encoding="utf-8")
-        self.assertNotIn("create_subscription", text)
+        tree = ast.parse(text, filename=str(SIMULATOR_FILE))
+        subscribed_topics = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "create_subscription":
+                if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
+                    subscribed_topics.append(node.args[1].value)
+        self.assertEqual(subscribed_topics, ["cmd_vel_raw"])
 
 
 class FrameContractTests(unittest.TestCase):
@@ -421,11 +430,10 @@ class SimulatorParameterValidationTests(unittest.TestCase):
         self.assertIn("self._scan_time_s = 1.0 / frequency_hz", text)
         self.assertIn("scan_msg.scan_time = self._scan_time_s", text)
 
-    def test_simulator_still_has_zero_velocity_and_no_subscriptions(self):
+    def test_simulator_integrates_commanded_velocity_into_odom_twist(self):
         text = SIMULATOR_FILE.read_text(encoding="utf-8")
-        self.assertIn("twist.twist.linear.x = 0.0", text)
-        self.assertIn("twist.twist.angular.z = 0.0", text)
-        self.assertNotIn("create_subscription", text)
+        self.assertIn("odom_msg.twist.twist.linear.x = effective_linear_x", text)
+        self.assertIn("odom_msg.twist.twist.angular.z = effective_angular_z", text)
 
 
 class PlannerConfigurationTests(unittest.TestCase):
@@ -444,10 +452,10 @@ class PlannerConfigurationTests(unittest.TestCase):
         self.assertIn("global_frame: map", text)
         self.assertIn("robot_base_frame: base_link", text)
 
-    def test_params_yaml_has_no_controller_server_or_local_costmap(self):
+    def test_params_yaml_has_controller_server_and_local_costmap(self):
         text = PARAMS_FILE.read_text(encoding="utf-8")
-        self.assertNotIn("controller_server:", text)
-        self.assertNotIn("local_costmap:", text)
+        self.assertIn("controller_server:", text)
+        self.assertIn("local_costmap:", text)
 
     def test_params_yaml_declares_offline_only_synthetic_markers(self):
         text = PARAMS_FILE.read_text(encoding="utf-8")
@@ -483,16 +491,34 @@ class PlannerConfigurationTests(unittest.TestCase):
         self.assertIn("planner_server", node_names_lists[0])
         self.assertIn("map_server", node_names_lists[0])
 
-    def test_no_controller_server_node_in_launch(self):
+    def test_controller_server_node_in_launch_with_cmd_vel_raw_remap(self):
         text = LAUNCH_FILE.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(LAUNCH_FILE))
-        executables = set()
+        controller_node = None
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                executable = None
                 for kw in node.keywords:
                     if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
-                        executables.add(kw.value.value)
-        self.assertNotIn("controller_server", executables)
+                        executable = kw.value.value
+                if executable == "controller_server":
+                    controller_node = node
+                    break
+        self.assertIsNotNone(controller_node, "controller_server Node not found in launch")
+        remap_found = False
+        for kw in controller_node.keywords:
+            if kw.arg == "remappings" and isinstance(kw.value, ast.List):
+                for element in kw.value.elts:
+                    if isinstance(element, ast.Tuple) and len(element.elts) == 2:
+                        src, dst = element.elts
+                        if (
+                            isinstance(src, ast.Constant)
+                            and isinstance(dst, ast.Constant)
+                            and src.value == "cmd_vel"
+                            and dst.value == "cmd_vel_raw"
+                        ):
+                            remap_found = True
+        self.assertTrue(remap_found, "controller_server must remap cmd_vel -> cmd_vel_raw")
 
     def test_no_behavior_or_waypoint_or_collision_monitor_in_launch(self):
         text = LAUNCH_FILE.read_text(encoding="utf-8")
@@ -558,6 +584,7 @@ class RuntimeFilesIncludedInVerifierTests(unittest.TestCase):
             RUNTIME_WRAPPER,
             FOUNDATION_SMOKE_TEST_FILE,
             PLANNER_SMOKE_TEST_FILE,
+            CONTROLLER_SMOKE_TEST_FILE,
         ):
             self.assertIn(str(required_file), result["checked_files"])
 
@@ -567,6 +594,249 @@ class RuntimeFilesIncludedInVerifierTests(unittest.TestCase):
         result = checker.verify(runtime=True)
         self.assertEqual(result["decision"], "PASS")
         self.assertEqual(result["errors"], [])
+
+
+class ControllerConfigurationTests(unittest.TestCase):
+    def test_params_yaml_configures_a_followpath_controller_plugin(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertIn("controller_plugins:", text)
+        self.assertIn("FollowPath:", text)
+
+    def test_params_yaml_local_costmap_uses_odom_frame_and_obstacle_layer(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertIn("local_costmap:", text)
+        self.assertIn("global_frame: odom", text)
+        self.assertIn("nav2_costmap_2d::ObstacleLayer", text)
+
+    def test_params_yaml_local_costmap_obstacle_layer_uses_relative_scan(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertIn('topic: "scan"', text)
+
+    def test_lifecycle_manager_includes_controller_server(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        node_names_lists = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if (
+                        isinstance(key, ast.Constant)
+                        and key.value == "node_names"
+                        and isinstance(value, ast.List)
+                    ):
+                        node_names_lists.append(
+                            [elt.value for elt in value.elts if isinstance(elt, ast.Constant)]
+                        )
+        self.assertTrue(node_names_lists, "no node_names list found in launch file")
+        all_managed_names = {name for names in node_names_lists for name in names}
+        self.assertIn("controller_server", all_managed_names)
+        self.assertIn("planner_server", all_managed_names)
+        self.assertIn("map_server", all_managed_names)
+
+    def test_controller_server_lifecycle_is_isolated_from_navigation_lifecycle(self):
+        """controller_server must be managed by its own lifecycle manager so
+        that a configure failure there cannot block map_server/planner_server
+        bringup, which were already validated before control was attempted.
+        """
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        node_names_lists = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if (
+                        isinstance(key, ast.Constant)
+                        and key.value == "node_names"
+                        and isinstance(value, ast.List)
+                    ):
+                        node_names_lists.append(
+                            [elt.value for elt in value.elts if isinstance(elt, ast.Constant)]
+                        )
+        navigation_list = next(
+            (names for names in node_names_lists if "map_server" in names), None
+        )
+        controller_list = next(
+            (names for names in node_names_lists if "controller_server" in names), None
+        )
+        self.assertIsNotNone(navigation_list)
+        self.assertIsNotNone(controller_list)
+        self.assertIsNot(navigation_list, controller_list)
+        self.assertNotIn("controller_server", navigation_list)
+
+    def test_controller_server_is_namespaced(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_namespace_offline(result)
+        self.assertNotIn("NODE_MISSING_NAMESPACE_controller_server", result["errors"])
+
+    def test_no_bt_navigator_behavior_waypoint_or_collision_monitor_executables(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        executables = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                for kw in node.keywords:
+                    if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                        executables.add(kw.value.value)
+        for forbidden in (
+            "bt_navigator",
+            "behavior_server",
+            "waypoint_follower",
+            "collision_monitor",
+            "collision_detector",
+        ):
+            self.assertNotIn(forbidden, executables)
+
+
+class VelocityTopicAllowlistTests(unittest.TestCase):
+    def test_allowed_topic_is_cmd_vel_raw_only(self):
+        self.assertEqual(checker.ALLOWED_VELOCITY_TOPIC_NAME, "cmd_vel_raw")
+
+    def test_remap_tuple_in_launch_is_cmd_vel_to_cmd_vel_raw(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_velocity_topic_allowlist(result, [LAUNCH_FILE])
+        self.assertEqual(result["errors"], [])
+
+    def test_rejects_global_cmd_vel(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("node.create_publisher(Twist, '/cmd_vel', 10)\n") as tmp_file:
+            checker.check_velocity_topic_allowlist(result, [tmp_file])
+        self.assertIn("FORBIDDEN_VELOCITY_TOPIC_cmd_vel", result["errors"])
+
+    def test_rejects_global_cmd_vel_nav(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("topic = '/cmd_vel_nav'\n") as tmp_file:
+            checker.check_velocity_topic_allowlist(result, [tmp_file])
+        self.assertIn("FORBIDDEN_VELOCITY_TOPIC_cmd_vel_nav", result["errors"])
+
+    def test_rejects_namespaced_offline_nav_cmd_vel(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("node.create_publisher(Twist, '/offline_nav/cmd_vel', 10)\n") as tmp_file:
+            checker.check_velocity_topic_allowlist(result, [tmp_file])
+        self.assertIn("FORBIDDEN_VELOCITY_TOPIC_cmd_vel", result["errors"])
+
+    def test_accepts_relative_cmd_vel_raw_subscription(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("node.create_subscription(Twist, 'cmd_vel_raw', cb, 10)\n") as tmp_file:
+            checker.check_velocity_topic_allowlist(result, [tmp_file])
+        self.assertEqual(result["errors"], [])
+
+    def test_does_not_flag_unrelated_identifier_containing_cmd_vel(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(
+            'self.declare_parameter("cmd_vel_watchdog_timeout_s", 0.5)\n'
+        ) as tmp_file:
+            checker.check_velocity_topic_allowlist(result, [tmp_file])
+        self.assertEqual(result["errors"], [])
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
+class SimulatorClosedLoopTests(unittest.TestCase):
+    def test_simulator_declares_velocity_limit_parameters(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn('declare_parameter("max_linear_speed_mps"', text)
+        self.assertIn('declare_parameter("max_angular_speed_radps"', text)
+
+    def test_simulator_default_velocity_limits_match_spec(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn("DEFAULT_MAX_LINEAR_SPEED_MPS = 0.10", text)
+        self.assertIn("DEFAULT_MAX_ANGULAR_SPEED_RADPS = 0.30", text)
+
+    def test_simulator_clamps_commanded_velocity(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn("_clamp(", text)
+        self.assertIn("self._max_linear_speed_mps", text)
+        self.assertIn("self._max_angular_speed_radps", text)
+
+    def test_simulator_declares_watchdog_timeout_parameter(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn('"cmd_vel_watchdog_timeout_s"', text)
+        self.assertIn("DEFAULT_CMD_VEL_WATCHDOG_TIMEOUT_S = 0.5", text)
+
+    def test_simulator_watchdog_zeroes_velocity_on_timeout(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn("_watchdog_expired", text)
+        self.assertIn("effective_linear_x = 0.0", text)
+        self.assertIn("effective_angular_z = 0.0", text)
+
+    def test_simulator_integrates_planar_pose_deterministically(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn("def _integrate_pose", text)
+        self.assertIn("self._x += linear_x * math.cos(self._yaw) * dt", text)
+        self.assertIn("self._y += linear_x * math.sin(self._yaw) * dt", text)
+        self.assertIn("self._yaw += angular_z * dt", text)
+        # No randomness/noise sources used as inputs to the integration.
+        self.assertNotIn("import random", text)
+        self.assertNotIn("random.", text)
+
+    def test_simulator_does_not_import_hardware_modules_after_extension(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(SIMULATOR_FILE))
+        forbidden = {"unitree_sdk2py", "real_adapter"}
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            for name in names:
+                self.assertFalse(any(name == f or name.startswith(f + ".") for f in forbidden))
+
+    def test_simulator_declares_offline_only_synthetic_markers(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        for marker in ("OFFLINE_ONLY", "SYNTHETIC", "NOT_FOR_HARDWARE"):
+            self.assertIn(marker, text)
+
+
+class PlannerToleranceTests(unittest.TestCase):
+    def test_planner_smoke_test_uses_010m_endpoint_tolerance(self):
+        text = PLANNER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("PATH_ENDPOINT_TOLERANCE_M = 0.10", text)
+
+    def test_planner_smoke_test_queries_real_lifecycle_state(self):
+        text = PLANNER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("_lifecycle_get", text)
+        self.assertIn("ros2", text)
+        self.assertIn("lifecycle", text)
+
+    def test_planner_smoke_test_separates_discovery_from_lifecycle_active(self):
+        text = PLANNER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("map_server_node_discovered", text)
+        self.assertIn("planner_server_node_discovered", text)
+        self.assertIn("map_server_lifecycle_active", text)
+        self.assertIn("planner_server_lifecycle_active", text)
+
+
+class SmokeTestsUseRealLifecycleTests(unittest.TestCase):
+    def test_controller_smoke_test_queries_real_lifecycle_state(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("_lifecycle_get", text)
+        self.assertIn("map_server_lifecycle_active", text)
+        self.assertIn("planner_server_lifecycle_active", text)
+        self.assertIn("controller_server_lifecycle_active", text)
+
+    def test_controller_smoke_test_starts_runtime_via_wrapper(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("RUNTIME_WRAPPER", text)
+        self.assertIn('"bash", str(RUNTIME_WRAPPER)', text)
+
+    def test_controller_smoke_test_uses_follow_path_action(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("FollowPath", text)
+        self.assertIn("/follow_path", text)
+
+    def test_controller_smoke_test_checks_cancellation(self):
+        text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("cancel_goal_async", text)
+        self.assertIn("STATUS_CANCELED", text)
 
 
 if __name__ == "__main__":

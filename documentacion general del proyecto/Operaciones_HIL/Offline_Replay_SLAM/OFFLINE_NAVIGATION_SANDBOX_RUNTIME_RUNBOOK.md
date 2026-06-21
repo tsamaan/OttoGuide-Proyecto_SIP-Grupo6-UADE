@@ -1,7 +1,7 @@
 # Offline Navigation Sandbox — Runtime Runbook
 
 **Fecha**: 2026-06-20
-**Fase**: 2B — base de runtime ROS aislada (map_server + lifecycle_manager + TF + odometría/scan sintéticos) más planificación global aislada (`planner_server` + global costmap). No incluye controller, behaviors, waypoint follower, Collision Monitor ni Simple Commander.
+**Fase**: 2C — base de runtime ROS aislada + planificación global + control local closed-loop intentado. `controller_server` está implementado y configurado pero **no se activa en este entorno local** por una incompatibilidad de ROS 2 Jazzy con parámetros anidados de plugin — ver [OFFLINE_NAVIGATION_LOCAL_CONTROL_REPORT.md](OFFLINE_NAVIGATION_LOCAL_CONTROL_REPORT.md). No incluye BT Navigator, behavior server, waypoint follower, Simple Commander ni Collision Monitor.
 
 ## Alcance
 
@@ -75,7 +75,18 @@ cd "codigo ottoguide"
 python3 tools/hil/offline_navigation/smoke_test_offline_planner.py --domain-id 85 --timeout 40
 ```
 
-Inicia el runtime vía el mismo wrapper aislado, espera a que `planner_server` esté activo, envía un goal `ComputePathToPose` con start `(-0.75, 0.0)` y goal `(0.75, 0.0)` en frame `map` (orientación identidad, sobre el mapa sintético versionado), y verifica: planner activo, action server disponible, resultado `SUCCEEDED`, al menos 2 poses, primera pose cerca del start, última cerca del goal, todas las poses finitas, frame `map`, ausencia de `controller_server`, ausencia de `/cmd_vel`/`/cmd_vel_nav` globales, ausencia de nodos de hardware, y cierre sin procesos huérfanos. Ver detalle completo en [OFFLINE_NAVIGATION_GLOBAL_PLANNING_REPORT.md](OFFLINE_NAVIGATION_GLOBAL_PLANNING_REPORT.md).
+Inicia el runtime vía el mismo wrapper aislado, espera a que `planner_server` esté activo (verificado con `ros2 lifecycle get`, no solo descubrimiento del nodo), envía un goal `ComputePathToPose` con start `(-0.75, 0.0)` y goal `(0.75, 0.0)` en frame `map` (orientación identidad, sobre el mapa sintético versionado, tolerancia de endpoint `0.10m`), y verifica: planner activo, action server disponible, resultado `SUCCEEDED`, al menos 2 poses, primera pose cerca del start, última cerca del goal, todas las poses finitas, frame `map`, ausencia de `controller_server`, ausencia de `/cmd_vel`/`/cmd_vel_nav` globales, ausencia de nodos de hardware, y cierre sin procesos huérfanos. Ver detalle completo en [OFFLINE_NAVIGATION_GLOBAL_PLANNING_REPORT.md](OFFLINE_NAVIGATION_GLOBAL_PLANNING_REPORT.md).
+
+## Control local (controller_server) — NO FUNCIONAL EN ESTE ENTORNO
+
+`controller_server` y `local_costmap` están implementados en el launch y los parámetros, con remap `cmd_vel` → `cmd_vel_raw` (único tópico de velocidad permitido, resuelve a `/offline_nav/cmd_vel_raw`). El `lifecycle_manager` intenta activar `map_server`, `planner_server` y `controller_server` en ese orden.
+
+```bash
+cd "codigo ottoguide"
+python3 tools/hil/offline_navigation/smoke_test_offline_controller.py --domain-id 92 --timeout 60
+```
+
+**Este comando actualmente falla (`decision: FAIL`) en este entorno local.** `controller_server` no completa su transición de lifecycle `configure`: el ROS 2 Jazzy instalado en este WSL no aplica parámetros anidados bajo el namespace de un plugin (`FollowPath.plugin`, `FollowPath.critics`) ni desde `--params-file` ni desde `-p`, por lo que el nodo siempre cae al plugin de stock Nav2 (`dwb_core::DWBLocalPlanner`) sin critics configurados, y la activación falla con `Couldn't load critics! Caught exception: No critics defined for FollowPath`. Ver el detalle completo de la investigación y el criterio fail-safe aplicado en [OFFLINE_NAVIGATION_LOCAL_CONTROL_REPORT.md](OFFLINE_NAVIGATION_LOCAL_CONTROL_REPORT.md). No se intentó instalar ni reinstalar paquetes para evitar esto.
 
 ## Troubleshooting
 
@@ -88,12 +99,14 @@ Inicia el runtime vía el mismo wrapper aislado, espera a que `planner_server` e
 | `ros2 topic list` no devuelve nada | `ROS_DOMAIN_ID`/`ROS_LOCALHOST_ONLY` distintos entre el publicador y el cliente que lista | Confirmar que la shell que ejecuta `ros2 topic`/`ros2 node` tiene las mismas variables que el wrapper o el smoke test. |
 | `ACTION_SERVER_NOT_AVAILABLE` en el smoke test del planner | `planner_server` no llegó a `active` dentro del timeout, o el cliente de la acción no sourceó ROS antes de `rclpy.init()` | Aumentar `--timeout`; confirmar `ros2 lifecycle get /offline_nav/planner_server` devuelve `active`. |
 | `GOAL_REJECTED` o `path_result` distinto de `SUCCEEDED` | Start/goal fuera del mapa, dentro de un obstáculo, o plugin de planner mal configurado en el YAML | Revisar `tolerance`/`allow_unknown` en `nav2_offline_sandbox_params.yaml`; confirmar que las coordenadas caen dentro de los límites del mapa sintético (`x ∈ [-1.0, 1.0]`, `y ∈ [-0.75, 0.75]`). |
+| `CONTROLLER_SERVER_LIFECYCLE_ACTIVE_NOT_CONFIRMED` o `controller_server` en `FATAL`/`Couldn't load critics!` | Incompatibilidad local de ROS 2 Jazzy con parámetros anidados de plugin (ver sección de control local arriba) | No es un error del YAML; está documentado como bloqueo conocido. No instalar paquetes para "arreglarlo" sin autorización explícita. |
 
 ## Restricciones
 
-- No se publica `/cmd_vel` ni `/cmd_vel_nav` en ningún momento.
-- No se inicia `controller_server`, `behavior_server`, `waypoint_follower`, `collision_monitor` ni Simple Commander en esta fase. `planner_server` sí está incluido desde la Fase 2B, exclusivamente para planificación global.
+- No se publica `/cmd_vel` ni `/cmd_vel_nav` ni `/offline_nav/cmd_vel` en ningún momento; el único tópico de velocidad permitido es `/offline_nav/cmd_vel_raw`.
+- No se inicia `behavior_server`, `waypoint_follower`, `collision_monitor` ni Simple Commander en esta fase. `planner_server` (Fase 2B) y `controller_server` (Fase 2C, no funcional en este entorno) sí están incluidos.
 - No se conecta al robot físico, no se usa SSH/SCP, no se contactan IPs `192.168.123.*`.
 - No se abren rosbags ni se instala ningún paquete.
-- El simulador (`offline_runtime_simulator.py`) publica una pose fija con velocidad cero; no es una estimación de odometría validada y no debe usarse como evidencia de L2/L3.
+- El simulador (`offline_runtime_simulator.py`) integra `cmd_vel_raw` en una pose 2D determinista con límites sintéticos (`0.10 m/s`, `0.30 rad/s`) y watchdog de `0.5s`; no es una estimación de odometría validada y no debe usarse como evidencia de L2/L3.
 - El planner calcula rutas candidatas sobre el mapa sintético; no mueve nada y no constituye evidencia de navegación autónoma.
+- `controller_server` con `dwb_core::DWBLocalPlanner` es una elección exclusiva de este sandbox por la incompatibilidad local documentada; no define ni recomienda el controlador del robot físico, y de todas formas no llega a activarse en este entorno.
