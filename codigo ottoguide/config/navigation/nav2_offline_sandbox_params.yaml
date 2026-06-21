@@ -141,3 +141,37 @@ local_costmap:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
         inflation_radius: 0.30
+
+# OFFLINE_ONLY / SYNTHETIC / NOT_FOR_HARDWARE
+# Collision Monitor exclusively for the offline sandbox.
+# Configures a slowdown zone and a stop zone using /offline_nav/scan.
+collision_monitor:
+  ros__parameters:
+    use_sim_time: false
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel_raw"
+    cmd_vel_out_topic: "cmd_vel_safe"
+    transform_tolerance: 0.2
+    source_timeout: 2.0
+    stop_pub_timeout: 0.5
+    polygons: ["slowdown_polygon", "stop_polygon"]
+    slowdown_polygon:
+      type: "polygon"
+      points: "[[1.5, 0.5], [1.5, -0.5], [0.0, -0.5], [0.0, 0.5]]"
+      action_type: "slowdown"
+      min_points: 1
+      slowdown_ratio: 0.4
+      visualize: false
+    stop_polygon:
+      type: "polygon"
+      points: "[[0.5, 0.5], [0.5, -0.5], [0.0, -0.5], [0.0, 0.5]]"
+      action_type: "stop"
+      min_points: 1
+      visualize: false
+    observation_sources: ["scan"]
+    scan:
+      type: "scan"
+      topic: "scan"
+      min_height: -2.0
+      max_height: 2.0

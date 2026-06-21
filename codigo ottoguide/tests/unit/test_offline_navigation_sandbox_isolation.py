@@ -350,7 +350,7 @@ class GlobalTopicAbsenceTests(unittest.TestCase):
         checker.check_forbidden_topics(result, [RUNTIME_WRAPPER])
         self.assertEqual(result["errors"], [])
 
-    def test_simulator_only_subscribes_to_relative_cmd_vel_raw(self):
+    def test_simulator_only_subscribes_to_relative_cmd_vel_safe(self):
         text = SIMULATOR_FILE.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(SIMULATOR_FILE))
         subscribed_topics = []
@@ -358,7 +358,7 @@ class GlobalTopicAbsenceTests(unittest.TestCase):
             if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "create_subscription":
                 if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
                     subscribed_topics.append(node.args[1].value)
-        self.assertEqual(subscribed_topics, ["cmd_vel_raw"])
+        self.assertEqual(subscribed_topics, ["cmd_vel_safe"])
 
 
 class FrameContractTests(unittest.TestCase):
@@ -520,7 +520,7 @@ class PlannerConfigurationTests(unittest.TestCase):
                             remap_found = True
         self.assertTrue(remap_found, "controller_server must remap cmd_vel -> cmd_vel_raw")
 
-    def test_no_behavior_or_waypoint_or_collision_monitor_in_launch(self):
+    def test_no_behavior_or_waypoint_in_launch(self):
         text = LAUNCH_FILE.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(LAUNCH_FILE))
         executables = set()
@@ -529,7 +529,7 @@ class PlannerConfigurationTests(unittest.TestCase):
                 for kw in node.keywords:
                     if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
                         executables.add(kw.value.value)
-        for forbidden in ("behavior_server", "waypoint_follower", "collision_monitor"):
+        for forbidden in ("behavior_server", "waypoint_follower"):
             self.assertNotIn(forbidden, executables)
 
 
@@ -681,15 +681,14 @@ class ControllerConfigurationTests(unittest.TestCase):
             "bt_navigator",
             "behavior_server",
             "waypoint_follower",
-            "collision_monitor",
             "collision_detector",
         ):
             self.assertNotIn(forbidden, executables)
 
 
 class VelocityTopicAllowlistTests(unittest.TestCase):
-    def test_allowed_topic_is_cmd_vel_raw_only(self):
-        self.assertEqual(checker.ALLOWED_VELOCITY_TOPIC_NAME, "cmd_vel_raw")
+    def test_allowed_topics(self):
+        self.assertEqual(checker.ALLOWED_VELOCITY_TOPIC_NAMES, {"cmd_vel_raw", "cmd_vel_safe"})
 
     def test_remap_tuple_in_launch_is_cmd_vel_to_cmd_vel_raw(self):
         result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
@@ -908,6 +907,7 @@ class NamespacedParameterRewriteTests(unittest.TestCase):
         text = LAUNCH_FILE.read_text(encoding="utf-8")
         self.assertIn("lifecycle_manager_navigation", text)
         self.assertIn("lifecycle_manager_controller", text)
+        self.assertIn("lifecycle_manager_collision_monitor", text)
         tree = ast.parse(text, filename=str(LAUNCH_FILE))
         node_names_lists = []
         for node in ast.walk(tree):
@@ -923,6 +923,8 @@ class NamespacedParameterRewriteTests(unittest.TestCase):
                         )
         controller_only_lists = [names for names in node_names_lists if names == ["controller_server"]]
         self.assertTrue(controller_only_lists, "no dedicated controller_server-only lifecycle manager found")
+        collision_monitor_only_lists = [names for names in node_names_lists if names == ["collision_monitor"]]
+        self.assertTrue(collision_monitor_only_lists, "no dedicated collision_monitor-only lifecycle manager found")
 
 
     def test_controller_smoke_test_has_effective_parameter_verification_utility(self):
@@ -998,6 +1000,74 @@ class OfflineControllerSmokeCorrectionTests(unittest.TestCase):
         text = CONTROLLER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
         self.assertIn("zero_raw_command_received = False", text)
         self.assertIn("watchdog_effective_stop = False", text)
+
+
+class CollisionMonitorContractUnitTests(unittest.TestCase):
+    def test_collision_monitor_configured_in_params_yaml(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertIn("collision_monitor:", text)
+        self.assertIn("cmd_vel_in_topic: \"cmd_vel_raw\"", text)
+        self.assertIn("cmd_vel_out_topic: \"cmd_vel_safe\"", text)
+        self.assertIn("slowdown_polygon:", text)
+        self.assertIn("stop_polygon:", text)
+
+    def test_verify_sandbox_isolation_detects_collision_monitor_errors(self):
+        result = {"errors": []}
+        # Simulate launch file content without collision_monitor
+        with self._temp_file("no collision monitor node here") as tmp_launch:
+            saved_launch = checker.LAUNCH_FILE
+            checker.LAUNCH_FILE = tmp_launch
+            try:
+                checker.check_collision_monitor_contract(result, [tmp_launch])
+            finally:
+                checker.LAUNCH_FILE = saved_launch
+        self.assertIn("COLLISION_MONITOR_MISSING", result["errors"])
+        self.assertIn("LIFECYCLE_MANAGER_COLLISION_MONITOR_MISSING", result["errors"])
+
+    def test_verify_sandbox_isolation_detects_bypass_errors(self):
+        result = {"errors": []}
+        # Simulate bypass remapping
+        with self._temp_file("('cmd_vel', 'cmd_vel_safe')") as tmp_launch:
+            saved_launch = checker.LAUNCH_FILE
+            checker.LAUNCH_FILE = tmp_launch
+            try:
+                checker.check_collision_monitor_contract(result, [tmp_launch])
+            finally:
+                checker.LAUNCH_FILE = saved_launch
+        self.assertIn("DIRECT_RAW_TO_SIMULATOR_BYPASS", result["errors"])
+
+    def test_verify_sandbox_isolation_detects_simulator_raw_subscription(self):
+        result = {"errors": []}
+        with self._temp_file("create_subscription(Twist, \"cmd_vel_raw\"") as tmp_sim:
+            saved_sim = checker.SIMULATOR_FILE
+            checker.SIMULATOR_FILE = tmp_sim
+            try:
+                checker.check_collision_monitor_contract(result, [tmp_sim])
+            finally:
+                checker.SIMULATOR_FILE = saved_sim
+        self.assertIn("SIMULATOR_SUBSCRIBED_TO_CMD_VEL_RAW", result["errors"])
+
+    def test_verify_sandbox_isolation_detects_simulator_missing_safe_subscription(self):
+        result = {"errors": []}
+        with self._temp_file("no safe topic here") as tmp_sim:
+            saved_sim = checker.SIMULATOR_FILE
+            checker.SIMULATOR_FILE = tmp_sim
+            try:
+                checker.check_collision_monitor_contract(result, [tmp_sim])
+            finally:
+                checker.SIMULATOR_FILE = saved_sim
+        self.assertIn("OUTPUT_SAFE_WITHOUT_CONSUMER", result["errors"])
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
 
 
 if __name__ == "__main__":

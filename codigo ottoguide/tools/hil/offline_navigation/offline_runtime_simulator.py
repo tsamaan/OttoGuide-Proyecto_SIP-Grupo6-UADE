@@ -68,7 +68,7 @@ def _clamp(value: float, limit: float) -> float:
 
 
 class OfflineRuntimeSimulator(Node):
-    """Publishes synthetic odometry/scan and integrates cmd_vel_raw into a
+    """Publishes synthetic odometry/scan and integrates cmd_vel_safe into a
     deterministic planar pose. Intended only for the Nav2 offline sandbox.
     """
 
@@ -83,6 +83,12 @@ class OfflineRuntimeSimulator(Node):
         self.declare_parameter(
             "cmd_vel_watchdog_timeout_s", DEFAULT_CMD_VEL_WATCHDOG_TIMEOUT_S
         )
+        self.declare_parameter("obstacle_mode", "clear")
+        self.declare_parameter("safe_commands_received", 0)
+        self.declare_parameter("safe_commands_nonzero", 0)
+        self.declare_parameter("last_safe_command_linear_x", 0.0)
+        self.declare_parameter("last_safe_command_angular_z", 0.0)
+        self.declare_parameter("watchdog_expired", True)
 
         frequency_hz = float(self.get_parameter("publish_frequency_hz").value)
         self._scan_range_count = int(self.get_parameter("scan_range_count").value)
@@ -127,7 +133,7 @@ class OfflineRuntimeSimulator(Node):
             )
 
         # Planar kinematic state. Starts at the origin; only this node's own
-        # deterministic integration of cmd_vel_raw ever changes it.
+        # deterministic integration of cmd_vel_safe ever changes it.
         self._x = 0.0
         self._y = 0.0
         self._yaw = 0.0
@@ -135,14 +141,17 @@ class OfflineRuntimeSimulator(Node):
         self._commanded_angular_z = 0.0
         self._last_cmd_vel_time = None
 
+        self._safe_commands_received = 0
+        self._safe_commands_nonzero = 0
+
         self._odom_publisher = self.create_publisher(Odometry, "odom", 10)
         self._scan_publisher = self.create_publisher(LaserScan, "scan", 10)
         self._tf_broadcaster = TransformBroadcaster(self)
 
-        # Relative subscription: resolves to <namespace>/cmd_vel_raw. Never a
+        # Relative subscription: resolves to <namespace>/cmd_vel_safe. Never a
         # global topic, never /cmd_vel, never /cmd_vel_nav.
         self._cmd_vel_subscription = self.create_subscription(
-            Twist, "cmd_vel_raw", self._on_cmd_vel_raw, 10
+            Twist, "cmd_vel_safe", self._on_cmd_vel_safe, 10
         )
 
         self._scan_time_s = 1.0 / frequency_hz
@@ -155,7 +164,7 @@ class OfflineRuntimeSimulator(Node):
             "OFFLINE_ONLY, SYNTHETIC, NOT_FOR_HARDWARE"
         )
 
-    def _on_cmd_vel_raw(self, msg: Twist) -> None:
+    def _on_cmd_vel_safe(self, msg: Twist) -> None:
         self._commanded_linear_x = _clamp(
             float(msg.linear.x), self._max_linear_speed_mps
         )
@@ -163,6 +172,18 @@ class OfflineRuntimeSimulator(Node):
             float(msg.angular.z), self._max_angular_speed_radps
         )
         self._last_cmd_vel_time = self.get_clock().now()
+
+        self._safe_commands_received += 1
+        is_nonzero = (abs(msg.linear.x) > 1e-6 or abs(msg.angular.z) > 1e-6)
+        if is_nonzero:
+            self._safe_commands_nonzero += 1
+
+        self.set_parameters([
+            rclpy.parameter.Parameter("safe_commands_received", rclpy.Parameter.Type.INTEGER, self._safe_commands_received),
+            rclpy.parameter.Parameter("safe_commands_nonzero", rclpy.Parameter.Type.INTEGER, self._safe_commands_nonzero),
+            rclpy.parameter.Parameter("last_safe_command_linear_x", rclpy.Parameter.Type.DOUBLE, float(msg.linear.x)),
+            rclpy.parameter.Parameter("last_safe_command_angular_z", rclpy.Parameter.Type.DOUBLE, float(msg.angular.z)),
+        ])
 
     def _watchdog_expired(self) -> bool:
         if self._last_cmd_vel_time is None:
@@ -182,7 +203,12 @@ class OfflineRuntimeSimulator(Node):
         now = self.get_clock().now()
         stamp = now.to_msg()
 
-        if self._watchdog_expired():
+        expired = self._watchdog_expired()
+        self.set_parameters([
+            rclpy.parameter.Parameter("watchdog_expired", rclpy.Parameter.Type.BOOL, expired)
+        ])
+
+        if expired:
             effective_linear_x = 0.0
             effective_angular_z = 0.0
         else:
@@ -224,6 +250,24 @@ class OfflineRuntimeSimulator(Node):
         transform.transform.rotation.w = qw
         self._tf_broadcaster.sendTransform(transform)
 
+        obstacle_mode = self.get_parameter("obstacle_mode").value
+        ranges = [self._scan_range_m for _ in range(self._scan_range_count)]
+        if obstacle_mode == "slowdown":
+            center = self._scan_range_count // 2
+            half_width = int(20 * self._scan_range_count / 360)
+            for idx in range(center - half_width, center + half_width):
+                ranges[idx] = 1.0
+        elif obstacle_mode == "stop":
+            center = self._scan_range_count // 2
+            half_width = int(20 * self._scan_range_count / 360)
+            for idx in range(center - half_width, center + half_width):
+                ranges[idx] = 0.3
+        elif obstacle_mode == "far":
+            center = self._scan_range_count // 2
+            half_width = int(20 * self._scan_range_count / 360)
+            for idx in range(center - half_width, center + half_width):
+                ranges[idx] = 2.5
+
         scan_msg = LaserScan()
         scan_msg.header.stamp = stamp
         scan_msg.header.frame_id = LIDAR_FRAME
@@ -234,7 +278,7 @@ class OfflineRuntimeSimulator(Node):
         scan_msg.scan_time = self._scan_time_s
         scan_msg.range_min = self._scan_range_min_m
         scan_msg.range_max = self._scan_range_m
-        scan_msg.ranges = [self._scan_range_m for _ in range(self._scan_range_count)]
+        scan_msg.ranges = ranges
         scan_msg.intensities = []
         self._scan_publisher.publish(scan_msg)
 

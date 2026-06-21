@@ -1,7 +1,7 @@
 # Offline Navigation Sandbox — Runtime Runbook
 
-**Fecha**: 2026-06-20
-**Fase**: 2C/corrección de parámetros namespaced — base de runtime ROS aislada + planificación global + control local closed-loop. `controller_server` ahora **se activa correctamente** (`ACTIVE`) y completa `FollowPath` con éxito tras corregir la carga de parámetros anidados de plugin (ver [OFFLINE_NAVIGATION_LOCAL_CONTROL_REPORT.md](OFFLINE_NAVIGATION_LOCAL_CONTROL_REPORT.md)), pero el escenario de movimiento simulado y el de cancelación todavía fallan por un problema runtime distinto y nuevo (sin movimiento observable, sin parada confirmada tras cancelar). No incluye BT Navigator, behavior server, waypoint follower, Simple Commander ni Collision Monitor.
+**Fecha**: 2026-06-21
+**Fase**: 2D — base de runtime ROS aislada + planificación global + control local closed-loop + Collision Monitor aislado. Los smoke tests de planner, controller, y collision monitor pasan por completo con éxito. No incluye BT Navigator, behavior server, waypoint follower ni Simple Commander.
 
 ## Alcance
 
@@ -35,11 +35,13 @@ Argumento de launch `sandbox_namespace`, default `offline_nav`. Se aplica como n
 
 ## Topics esperados
 
-| Topic | Tipo | Publicador |
+| Topic | Tipo | Publicador / Consumidor |
 |---|---|---|
 | `/offline_nav/map` | `nav_msgs/OccupancyGrid` | `map_server` (vía `lifecycle_manager`) |
 | `/offline_nav/odom` | `nav_msgs/Odometry` | `offline_runtime_simulator` |
 | `/offline_nav/scan` | `sensor_msgs/LaserScan` | `offline_runtime_simulator` |
+| `/offline_nav/cmd_vel_raw` | `geometry_msgs/Twist` | Publica: `controller_server` / Consume: `collision_monitor` |
+| `/offline_nav/cmd_vel_safe` | `geometry_msgs/Twist` | Publica: `collision_monitor` / Consume: `offline_runtime_simulator` |
 
 `/tf` y `/tf_static` permanecen globales (sin namespace), lo cual es seguro porque el aislamiento real lo da `ROS_DOMAIN_ID` + `ROS_LOCALHOST_ONLY=1`, no el namespace de tópicos.
 
@@ -48,7 +50,7 @@ Argumento de launch `sandbox_namespace`, default `offline_nav`. Se aplica como n
 | Frame | Publicador | Naturaleza |
 |---|---|---|
 | `map` → `odom` | `static_transform_publisher` (`map_to_odom_synthetic_tf`) | Identidad sintética. NO es una localización validada. |
-| `odom` → `base_link` | `offline_runtime_simulator` (TF dinámico) | Pose fija sintética, velocidad cero. NO representa al G1 real. |
+| `odom` → `base_link` | `offline_runtime_simulator` (TF dinámico) | Integración cinemática planar 2D. NO representa al G1 real. |
 | `base_link` → `utlidar_lidar` | `static_transform_publisher` (`base_link_to_utlidar_lidar_synthetic_tf`) | Identidad sintética de placeholder. NO es un extrínseco físico medido. |
 
 ## Timeout y cierre
@@ -79,18 +81,31 @@ Inicia el runtime vía el mismo wrapper aislado, espera a que `planner_server` e
 
 Nota: el launch ahora reescribe `nav2_offline_sandbox_params.yaml` con `RewrittenYaml`/`ParameterFile` usando el namespace del sandbox como `root_key`, de forma que los parámetros anidados de plugin (`GridBased.tolerance`, `GridBased.plugin`) se aplican realmente bajo `/offline_nav/planner_server`, en vez de caer silenciosamente al default de stock Nav2.
 
-## Control local (controller_server) — ACTIVA, con error runtime distinto pendiente
+## Control local (controller_server) — READY
 
-`controller_server` y `local_costmap` están implementados en el launch y los parámetros, con remap `cmd_vel` → `cmd_vel_raw` (único tópico de velocidad permitido, resuelve a `/offline_nav/cmd_vel_raw`). El `lifecycle_manager_navigation` activa `map_server`/`planner_server`, y un `lifecycle_manager_controller` dedicado activa `controller_server` de forma aislada.
+`controller_server` y `local_costmap` están implementados en el launch y los parámetros, con remap `cmd_vel` → `cmd_vel_raw` (resolviendo a `/offline_nav/cmd_vel_raw`). El `lifecycle_manager_navigation` activa `map_server`/`planner_server`, y un `lifecycle_manager_controller` dedicado activa `controller_server` de forma aislada.
 
 ```bash
 cd "codigo ottoguide"
 python3 tools/hil/offline_navigation/smoke_test_offline_controller.py --domain-id 92 --timeout 60
 ```
 
-**El bloqueo de activación original está resuelto.** Tras aplicar la corrección de carga de parámetros namespaced (`ParameterFile(RewrittenYaml(...))` con `root_key` igual al namespace del sandbox), `controller_server` alcanza `ACTIVE` de forma reproducible, con `FollowPath.plugin = dwb_core::DWBLocalPlanner`, `FollowPath.critics` con la lista completa configurada, y `controller_frequency = 10.0`, todos verificados en runtime con `ros2 param get`. La acción `/offline_nav/follow_path` devuelve `SUCCEEDED`.
+**El control local está completamente validado.** `controller_server` alcanza `ACTIVE` de forma reproducible, sigue la ruta y el simulador avanza con éxito (distancia movida ~0.4m y distancia final <0.1m). La cancelación detiene de forma efectiva el movimiento (pose estable <2mm, twist de odometría cero) en todas las ejecuciones (domain IDs 117-120).
 
-**Este comando todavía falla (`decision: FAIL`) por un problema distinto y nuevo**: el escenario de movimiento simulado reporta `simulated_distance_moved: 0.0` (no se detecta avance de la pose pese a que `FollowPath` completa `SUCCEEDED`), y el escenario de cancelación reporta `stop_after_cancel: FAIL` / `nonzero_command_after_cancel: true` (no se confirma velocidad cero dentro de la ventana de 1.0s tras cancelar). Reproducido idénticamente en dos `ROS_DOMAIN_ID` distintos (`115`, `116`), en ambos casos sin procesos huérfanos (`orphan_processes: 0`) y sin tópicos de velocidad prohibidos. No se investigó la causa raíz de este problema nuevo ni se aplicó ningún workaround, conforme al alcance acotado de esta corrección. Ver el detalle completo en [OFFLINE_NAVIGATION_LOCAL_CONTROL_REPORT.md](OFFLINE_NAVIGATION_LOCAL_CONTROL_REPORT.md).
+## Seguridad ante colisiones (collision_monitor) — READY
+
+`collision_monitor` y su lifecycle manager dedicado están integrados en el runtime, filtrando comandos en la cadena `controller_server` -> `cmd_vel_raw` -> `collision_monitor` -> `cmd_vel_safe` -> `offline_runtime_simulator`.
+
+```bash
+cd "codigo ottoguide"
+python3 tools/hil/offline_navigation/smoke_test_offline_collision_monitor.py --base-domain-id 121 --timeout 60
+```
+
+Prueba cinco escenarios de seguridad (Clear, Slowdown, Stop, Recovery, Cancel) bajo domain IDs independientes (121-125 y 150-154), confirmando:
+- Reducción de velocidad en la zona slowdown (a un 40% del comando raw).
+- Parada total (velocidad safe cero) en la zona stop.
+- Recuperación automática del avance tras remover obstáculos.
+- Cancelación limpia de metas con parada inmediata.
 
 ## Troubleshooting
 
@@ -104,14 +119,14 @@ python3 tools/hil/offline_navigation/smoke_test_offline_controller.py --domain-i
 | `ACTION_SERVER_NOT_AVAILABLE` en el smoke test del planner | `planner_server` no llegó a `active` dentro del timeout, o el cliente de la acción no sourceó ROS antes de `rclpy.init()` | Aumentar `--timeout`; confirmar `ros2 lifecycle get /offline_nav/planner_server` devuelve `active`. |
 | `GOAL_REJECTED` o `path_result` distinto de `SUCCEEDED` | Start/goal fuera del mapa, dentro de un obstáculo, o plugin de planner mal configurado en el YAML | Revisar `tolerance`/`allow_unknown` en `nav2_offline_sandbox_params.yaml`; confirmar que las coordenadas caen dentro de los límites del mapa sintético (`x ∈ [-1.0, 1.0]`, `y ∈ [-0.75, 0.75]`). |
 | `CONTROLLER_SERVER_LIFECYCLE_ACTIVE_NOT_CONFIRMED` o `controller_server` en `FATAL`/`Couldn't load critics!` | Carga de parámetros anidados de plugin sin reescritura namespaced (`ParameterFile`/`RewrittenYaml` ausente en el launch) | Resuelto: el launch ahora usa `configured_params = ParameterFile(RewrittenYaml(source_file=PARAMS_FILE, root_key=namespace, convert_types=True), allow_substs=True)`. Si reaparece, confirmar que esta reescritura no fue removida. |
-| `simulated_distance_moved: 0.0` con `follow_path_result: SUCCEEDED`, o `stop_after_cancel: FAIL` | Problema runtime distinto y nuevo, no relacionado con la carga de parámetros; causa raíz no investigada en esta corrección | Documentado como bloqueo conocido pendiente en [OFFLINE_NAVIGATION_LOCAL_CONTROL_REPORT.md](OFFLINE_NAVIGATION_LOCAL_CONTROL_REPORT.md). No instalar paquetes ni aplicar workarounds sin autorización explícita nueva. |
+| `collision_monitor` falla al iniciar con `Wrong parameter type` | Parámetro `points` configurado como `double_array` en vez de `string` | Resuelto: en el ROS 2 Jazzy de este entorno, la propiedad `points` de las zonas de colisión debe ser de tipo `string` (ej. `"[[x1,y1],...]"`) y no un arreglo de números dobles. |
 
 ## Restricciones
 
-- No se publica `/cmd_vel` ni `/cmd_vel_nav` ni `/offline_nav/cmd_vel` en ningún momento; el único tópico de velocidad permitido es `/offline_nav/cmd_vel_raw`.
-- No se inicia `behavior_server`, `waypoint_follower`, `collision_monitor` ni Simple Commander en esta fase. `planner_server` (Fase 2B) y `controller_server` (Fase 2C, activo pero con escenario de movimiento/cancelación pendiente) sí están incluidos.
+- No se publica `/cmd_vel` ni `/cmd_vel_nav` ni `/offline_nav/cmd_vel` en ningún momento; los únicos tópicos de velocidad permitidos son `/offline_nav/cmd_vel_raw` y `/offline_nav/cmd_vel_safe`.
+- No se inicia `behavior_server`, `waypoint_follower` ni Simple Commander en esta fase. `planner_server`, `controller_server` y `collision_monitor` sí están incluidos y activos.
 - No se conecta al robot físico, no se usa SSH/SCP, no se contactan IPs `192.168.123.*`.
 - No se abren rosbags ni se instala ningún paquete.
-- El simulador (`offline_runtime_simulator.py`) puede integrar `cmd_vel_raw` en una pose 2D determinista con límites sintéticos (`0.10 m/s`, `0.30 rad/s`) y watchdog de `0.5s`; no representa odometría validada y no debe usarse como evidencia de L2/L3 aun cuando reciba comandos reales de `controller_server`.
+- El simulador (`offline_runtime_simulator.py`) integra `cmd_vel_safe` en una pose 2D determinista con límites sintéticos (`0.10 m/s`, `0.30 rad/s`) y watchdog de `0.5s`; no representa odometría validada y no debe usarse como evidencia de L2/L3.
 - El planner calcula rutas candidatas sobre el mapa sintético; por sí solo no mueve nada y no constituye evidencia de navegación autónoma.
-- `controller_server` con `dwb_core::DWBLocalPlanner` es una elección exclusiva de este sandbox por la incompatibilidad de parámetros previamente detectada (ahora corregida vía namespaced rewrite); no define ni recomienda el controlador del robot físico. El nodo sí llega a `ACTIVE` y completa `FollowPath`, pero el movimiento simulado observable y la parada tras cancelación no están confirmados todavía.
+- `controller_server` con `dwb_core::DWBLocalPlanner` es una elección exclusiva de este sandbox por la incompatibilidad de parámetros detectada; no define ni recomienda el controlador del robot físico.

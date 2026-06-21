@@ -65,18 +65,18 @@ REQUIRED_NODE_NAMES = {
     "map_server",
     "planner_server",
     "controller_server",
+    "collision_monitor",
     "lifecycle_manager_navigation",
     "lifecycle_manager_controller",
+    "lifecycle_manager_collision_monitor",
     "map_to_odom_synthetic_tf",
     "base_link_to_utlidar_lidar_synthetic_tf",
 }
 REQUIRED_EXECUTE_PROCESS_NAMES = {"offline_runtime_simulator"}
 
-# Velocity topic policy: only the relative 'cmd_vel_raw' name (which resolves
-# under the sandbox namespace, e.g. /offline_nav/cmd_vel_raw) is allowed.
-# Any other topic name containing 'cmd_vel' is forbidden, including
-# '/cmd_vel', '/cmd_vel_nav', and a namespaced '/offline_nav/cmd_vel'.
-ALLOWED_VELOCITY_TOPIC_NAME = "cmd_vel_raw"
+# Velocity topic policy: only the relative 'cmd_vel_raw' and 'cmd_vel_safe' names
+# (which resolve under the sandbox namespace) are allowed.
+ALLOWED_VELOCITY_TOPIC_NAMES = {"cmd_vel_raw", "cmd_vel_safe"}
 FORBIDDEN_VELOCITY_TOPIC_PATTERN = re.compile(r"(?<![\w])cmd_vel(?:_nav)?(?![\w])")
 
 
@@ -240,7 +240,7 @@ def check_velocity_topic_allowlist(result: dict, files: list[Path]) -> None:
                 literal = string_match.group(0)
                 for match in FORBIDDEN_VELOCITY_TOPIC_PATTERN.finditer(literal):
                     matched_text = match.group(0)
-                    if matched_text == ALLOWED_VELOCITY_TOPIC_NAME:
+                    if matched_text in ALLOWED_VELOCITY_TOPIC_NAMES:
                         continue
                     result["forbidden_matches"].append(
                         {"file": str(path), "pattern": "FORBIDDEN_VELOCITY_TOPIC", "match": matched_text}
@@ -411,6 +411,24 @@ def check_no_physical_hal_import(result: dict) -> None:
             if any(name == forbidden or name.startswith(forbidden + ".") for forbidden in FORBIDDEN_HAL_IMPORT_MODULES):
                 result["errors"].append(f"PHYSICAL_HAL_IMPORT_{name}")
 
+def check_collision_monitor_contract(result: dict, files: list[Path]) -> None:
+    if LAUNCH_FILE in files and LAUNCH_FILE.is_file():
+        launch_text = _read_text(LAUNCH_FILE)
+        if "collision_monitor" not in launch_text:
+            result["errors"].append("COLLISION_MONITOR_MISSING")
+        if "lifecycle_manager_collision_monitor" not in launch_text:
+            result["errors"].append("LIFECYCLE_MANAGER_COLLISION_MONITOR_MISSING")
+        if "('cmd_vel', 'cmd_vel_safe')" in launch_text or "(\"cmd_vel\", \"cmd_vel_safe\")" in launch_text:
+            result["errors"].append("DIRECT_RAW_TO_SIMULATOR_BYPASS")
+
+    if SIMULATOR_FILE in files and SIMULATOR_FILE.is_file():
+        sim_text = _read_text(SIMULATOR_FILE)
+        if "cmd_vel_raw" in sim_text:
+            if "create_subscription(Twist, \"cmd_vel_raw\"" in sim_text or "create_subscription(Twist, 'cmd_vel_raw'" in sim_text:
+                result["errors"].append("SIMULATOR_SUBSCRIBED_TO_CMD_VEL_RAW")
+        if "cmd_vel_safe" not in sim_text:
+            result["errors"].append("OUTPUT_SAFE_WITHOUT_CONSUMER")
+
 
 def verify(runtime: bool = False) -> dict:
     result = {
@@ -434,6 +452,7 @@ def verify(runtime: bool = False) -> dict:
     check_localhost_only_required(result, runtime=runtime)
     check_domain_id_required(result, runtime=runtime)
     check_no_physical_hal_import(result)
+    check_collision_monitor_contract(result, files_to_scan)
 
     result["checked_files"] = sorted(set(result["checked_files"]) | {str(p) for p in files_to_scan if p.is_file()})
     result["errors"] = sorted(set(result["errors"]))

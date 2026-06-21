@@ -85,12 +85,12 @@ La primera integración agregó `controller_server` al mismo `lifecycle_manager_
 
 ## Restricciones respetadas
 
-No se conectó el robot físico, no se usó SSH/SCP, no se contactaron IPs `192.168.123.*`, no se usó Internet, no se instalaron paquetes, no se abrieron bags, no se implementó BT Navigator, behavior server, waypoint follower, Simple Commander ni Collision Monitor, no se crearon interfaces de usuario, no se modificó GT-MIN.
+No se conectó el robot físico, no se usa SSH/SCP, no se contactan IPs `192.168.123.*`, no se usó Internet, no se instalaron paquetes, no se abrieron bags, no se implementó BT Navigator, behavior server, waypoint follower ni Simple Commander (Collision Monitor se integró en la Fase 2D), no se crearon interfaces de usuario, no se modificó GT-MIN.
 
 ## Estado de readiness resultante
 
-`LOCAL_CONTROL_SANDBOX` se promueve a **READY** (todos los escenarios de movimiento y cancelación pasan correctamente). `ROS_RUNTIME_SANDBOX` permanece `PARTIAL` (faltan behaviors, waypoint follower, Collision Monitor y Simple Commander). `GLOBAL_PLANNING_SANDBOX` permanece `READY`. `L2_ODOMETRY`, `L3_LOCALIZATION_MAP` y `PHYSICAL_NAVIGATION` permanecen `NOT_READY` sin cambios. No se declara autonomía validada en ningún nivel.
+`LOCAL_CONTROL_SANDBOX` se promueve a **READY** (todos los escenarios de movimiento y cancelación pasan correctamente). `ROS_RUNTIME_SANDBOX` permanece `PARTIAL` (faltan behaviors, waypoint follower y Simple Commander; Collision Monitor está READY). `GLOBAL_PLANNING_SANDBOX` permanece `READY`. `L2_ODOMETRY`, `L3_LOCALIZATION_MAP` y `PHYSICAL_NAVIGATION` permanecen `NOT_READY` sin cambios. No se declara autonomía validada en ningún nivel.
 
 ## Próximo paso recomendado
 
-Implementar y validar de forma aislada los componentes de misiones (Behavior Server, Waypoint Follower y Collision Monitor) bajo el mismo sandbox antes de realizar cualquier prueba física o integrar con hardware.
+Implementar y validar de forma aislada los componentes de misiones (Behavior Server y Waypoint Follower) bajo el mismo sandbox antes de realizar cualquier prueba física o integrar con hardware.

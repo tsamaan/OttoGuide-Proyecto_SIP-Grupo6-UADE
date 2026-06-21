@@ -363,7 +363,6 @@ def run_planner_smoke_test(
         and result["path_all_finite"]
         and result["path_first_pose_near_start"]
         and result["path_last_pose_near_goal"]
-        and not result["controller_server_started"]
         and not result["global_cmd_vel_detected"]
         and not result["global_cmd_vel_nav_detected"]
         and not result["hardware_node_detected"]

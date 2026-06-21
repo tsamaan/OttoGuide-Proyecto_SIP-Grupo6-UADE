@@ -128,12 +128,6 @@ def generate_launch_description():
                     {'node_names': ['map_server', 'planner_server']}]
     )
 
-    # Nodo lifecycle manager dedicado, exclusivamente para controller_server.
-    # Separado del lifecycle manager principal a proposito: si
-    # controller_server no logra activarse (ver nota de compatibilidad local
-    # en nav2_offline_sandbox_params.yaml), este lifecycle manager queda en
-    # FATAL/NO-ACTIVE de forma aislada, sin afectar map_server ni
-    # planner_server.
     lifecycle_manager_controller_node = Node(
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
@@ -143,6 +137,31 @@ def generate_launch_description():
         parameters=[{'use_sim_time': False},
                     {'autostart': True},
                     {'node_names': ['controller_server']}]
+    )
+
+    # Nodo collision_monitor: monitoreo de colisiones aislado. OFFLINE_ONLY,
+    # SYNTHETIC, NOT_FOR_HARDWARE. Recibe cmd_vel_raw y publica cmd_vel_safe.
+    collision_monitor_node = Node(
+        package='nav2_collision_monitor',
+        executable='collision_monitor',
+        name='collision_monitor',
+        namespace=namespace,
+        output='screen',
+        parameters=[configured_params]
+    )
+
+    # Nodo lifecycle manager dedicado, exclusivamente para collision_monitor.
+    # Separado del resto de los managers: si collision_monitor falla al iniciar
+    # o activar, queda aislado sin degradar Map, Planner o Controller.
+    lifecycle_manager_collision_monitor_node = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_collision_monitor',
+        namespace=namespace,
+        output='screen',
+        parameters=[{'use_sim_time': False},
+                    {'autostart': True},
+                    {'node_names': ['collision_monitor']}]
     )
 
     # Nodo RViz (opcional)
@@ -157,8 +176,8 @@ def generate_launch_description():
 
     # Simulador offline: odometria sintetica (nav_msgs/Odometry en 'odom'),
     # TF dinamico odom->base_link, y LaserScan sintetico en 'scan'.
-    # Suscribe unicamente el topico relativo 'cmd_vel_raw' (resuelve a
-    # <namespace>/cmd_vel_raw) e integra esa velocidad en una pose 2D
+    # Suscribe unicamente el topico relativo 'cmd_vel_safe' (resuelve a
+    # <namespace>/cmd_vel_safe) e integra esa velocidad en una pose 2D
     # determinista. No suscribe ningun topico global de velocidad. No
     # importa HAL fisico. Se ejecuta con ExecuteProcess (no es un ejecutable
     # instalado de un paquete ROS) pero el nodo rclpy interno aplica el
@@ -200,10 +219,9 @@ def generate_launch_description():
 
     # Sandbox offline unicamente: sin navegacion real, sin hardware fisico,
     # sin BT Navigator, sin behaviors, sin waypoint follower, sin Simple
-    # Commander, sin Collision Monitor, y sin comandos de velocidad fuera
-    # del topico relativo 'cmd_vel_raw'. planner_server planifica rutas
-    # globales y controller_server las sigue exclusivamente en simulacion
-    # cerrada con offline_runtime_simulator; nada de esto mueve hardware.
+    # Commander, pero con Collision Monitor, y sin comandos de velocidad fuera
+    # de los topicos relativos 'cmd_vel_raw' y 'cmd_vel_safe'. planner_server
+    # planifica rutas globales y controller_server las sigue en simulacion.
     # Requiere entorno con ROS_LOCALHOST_ONLY=1 y ROS_DOMAIN_ID explicito
     # (no el default 0) para aislar este sandbox del resto de la red ROS.
     # Las TF map->odom y base_link->utlidar_lidar publicadas aqui son
@@ -217,8 +235,10 @@ def generate_launch_description():
         map_server_node,
         planner_server_node,
         controller_server_node,
+        collision_monitor_node,
         lifecycle_manager_node,
         lifecycle_manager_controller_node,
+        lifecycle_manager_collision_monitor_node,
         rviz_node,
         offline_runtime_simulator_node,
         map_to_odom_static_tf,
