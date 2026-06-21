@@ -131,17 +131,20 @@ concretas de hardware y navegación, sin:
 
 1. **Fase 2H.0 (esta fase)**: contratos abstractos, sin cambio de
    comportamiento. Completada.
-2. **Fase 2H.1**: implementar `NavigationPort` mediante un cliente
-   `rclpy.action.ActionClient` directo contra
-   `/offline_nav/navigate_to_pose` y `/offline_nav/follow_waypoints`,
-   sin `BasicNavigator` y sin publicar velocidad. Inyectar esta nueva
-   clase en `main.py` en lugar de `AsyncNav2Bridge`, validada
-   primero de forma aislada (smoke tests propios) antes de conectarla
-   a `TourOrchestrator`.
-3. **Fase posterior (2H.2 o 2I, sin decidir todavía)**: decidir la
-   política de waypoints (uno por uno vs. bloque `FollowWaypoints`) y
-   la política de fallo (abortar vs. continuar).
-4. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
+2. **Fase 2H.1**: implementar y validar DirectNav2ActionBridge de forma aislada.
+   - Los métodos actuales conservarán sus retornos por compatibilidad:
+     `send_goal(...) -> bool`
+     `navigate_to_waypoints(...) -> bool`
+     `cancel_navigation() -> None`
+   - En 2H.1 se incorporarán modelos tipados de resultado.
+   - En 2H.1 `NavigationPort` agregará:
+     `get_status()`
+     `get_last_result()`
+   - El `bool` retornado será únicamente: `NavigationResult.succeeded`.
+   - La migración de `main.py` al nuevo bridge NO pertenece a 2H.1.
+3. **Fase 2H.2**: seleccionar e inyectar el bridge en main.py.
+4. **Fase 2I**: política de misión, reintentos, skip, abort y handover.
+5. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
    ningún test ni código de producción lo necesita.
 
 ## Criterios de rollback
