@@ -8,6 +8,10 @@ _SYMBOL_MODULE_MAP: dict[str, str] = {
     "NavWaypoint": ".models",
     "NavigationStatus": ".models",
     "NavigationPort": ".port",
+    "DirectNav2ActionBridge": ".direct_nav2_action_bridge",
+    "NavigationTerminalStatus": ".models",
+    "MissedWaypointDetail": ".models",
+    "NavigationResult": ".models",
 }
 
 
@@ -30,4 +34,8 @@ __all__ = [
     "NavWaypoint",
     "NavigationStatus",
     "NavigationPort",
+    "DirectNav2ActionBridge",
+    "NavigationTerminalStatus",
+    "MissedWaypointDetail",
+    "NavigationResult",
 ]

@@ -11,6 +11,36 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
+from enum import Enum
+
+
+class NavigationTerminalStatus(str, Enum):
+    SUCCEEDED = "SUCCEEDED"
+    CANCELED = "CANCELED"
+    ABORTED = "ABORTED"
+    REJECTED = "REJECTED"
+    TIMEOUT = "TIMEOUT"
+    ERROR = "ERROR"
+
+
+@dataclass(frozen=True, slots=True)
+class MissedWaypointDetail:
+    index: int
+    error_code: Optional[int] = None
+
+
+@dataclass(frozen=True, slots=True)
+class NavigationResult:
+    action_name: str
+    status: NavigationTerminalStatus
+    succeeded: bool
+    goal_uuid: Optional[str] = None
+    error_code: Optional[int] = None
+    error_msg: str = ""
+    missed_waypoints: tuple[MissedWaypointDetail, ...] = ()
+    final_waypoint_index: Optional[int] = None
+    cancel_requested: bool = False
+    cancel_accepted: Optional[bool] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,9 +81,17 @@ class NavigationStatus:
     task_active: bool = False
     last_result_succeeded: Optional[bool] = None
     active_waypoint_index: int = 0
+    feedback_count: int = 0
+    distance_remaining_m: Optional[float] = None
+    goal_uuid: Optional[str] = None
+    action_name: Optional[str] = None
+    last_result: Optional[NavigationResult] = None
 
 
 __all__ = [
     "NavWaypoint",
     "NavigationStatus",
+    "NavigationTerminalStatus",
+    "MissedWaypointDetail",
+    "NavigationResult",
 ]

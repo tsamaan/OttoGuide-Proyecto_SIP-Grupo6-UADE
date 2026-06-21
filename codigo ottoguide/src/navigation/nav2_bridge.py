@@ -426,6 +426,24 @@ class AsyncNav2Bridge:
         async with self._status_lock:
             return self._nav_status.task_active
 
+    async def get_status(self) -> NavigationStatus:
+        async with self._status_lock:
+            from src.navigation.models import NavigationStatus
+            return NavigationStatus(
+                task_active=self._nav_status.task_active,
+                last_result_succeeded=self._nav_status.last_result_succeeded,
+                active_waypoint_index=self._nav_status.active_waypoint_index,
+                feedback_count=self._nav_status.feedback_count,
+                distance_remaining_m=self._nav_status.distance_remaining_m,
+                goal_uuid=self._nav_status.goal_uuid,
+                action_name=self._nav_status.action_name,
+                last_result=self._nav_status.last_result
+            )
+
+    async def get_last_result(self) -> Optional["NavigationResult"]:
+        async with self._status_lock:
+            return self._nav_status.last_result
+
     # -----------------------------------------------------------------------
     # Inyeccion de odometria absoluta (AprilTag -> AMCL)
     # -----------------------------------------------------------------------

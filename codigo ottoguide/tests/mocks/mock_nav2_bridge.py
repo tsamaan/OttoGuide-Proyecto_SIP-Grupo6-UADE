@@ -42,6 +42,13 @@ class MockNav2Bridge:
     async def is_navigation_active(self) -> bool:
         return self._task_active
 
+    async def get_status(self) -> Any:
+        from src.navigation.models import NavigationStatus
+        return NavigationStatus(task_active=self._task_active)
+
+    async def get_last_result(self) -> Any:
+        return None
+
     async def close(self) -> None:
         self.started = False
 

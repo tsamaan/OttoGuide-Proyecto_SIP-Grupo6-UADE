@@ -461,6 +461,25 @@ class _MinimalNavStub:
         """
         return False
 
+    async def get_status(self) -> "NavigationStatus":
+        """
+        @TASK: Simular consulta de estado
+        @INPUT: Sin parametros
+        @OUTPUT: Estado inactivo
+        @CONTEXT: Completa la conformidad estructural con NavigationPort
+        """
+        from src.navigation.models import NavigationStatus
+        return NavigationStatus(task_active=False)
+
+    async def get_last_result(self) -> None:
+        """
+        @TASK: Simular consulta de ultimo resultado
+        @INPUT: Sin parametros
+        @OUTPUT: None
+        @CONTEXT: Completa la conformidad estructural con NavigationPort
+        """
+        return None
+
 
 class _MinimalConversationStub:
     """

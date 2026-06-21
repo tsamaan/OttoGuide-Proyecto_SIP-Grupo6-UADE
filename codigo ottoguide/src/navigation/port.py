@@ -12,9 +12,9 @@
 """
 from __future__ import annotations
 
-from typing import Protocol, Sequence, TYPE_CHECKING, runtime_checkable
+from typing import Protocol, Sequence, TYPE_CHECKING, runtime_checkable, Optional
 
-from src.navigation.models import NavWaypoint
+from src.navigation.models import NavWaypoint, NavigationStatus, NavigationResult
 
 if TYPE_CHECKING:
     from src.vision import PoseEstimate
@@ -62,6 +62,12 @@ class NavigationPort(Protocol):
         ...
 
     async def is_navigation_active(self) -> bool:
+        ...
+
+    async def get_status(self) -> NavigationStatus:
+        ...
+
+    async def get_last_result(self) -> Optional[NavigationResult]:
         ...
 
 
