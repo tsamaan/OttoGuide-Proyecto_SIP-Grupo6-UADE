@@ -1,0 +1,24 @@
+<!--
+  OFFLINE_ONLY
+  SYNTHETIC
+  NOT_FOR_HARDWARE
+  NOT_UADE_MAP
+  NOT_FOR_PHYSICAL_SAFETY_VALIDATION
+
+  Minimal NavigateToPose tree for the offline Nav2 sandbox, Phase 2F.
+  Plan once with ComputePathToPose (planner_server), then follow that path
+  with FollowPath (controller_server). No recoveries, no costmap clearing,
+  no Spin/Wait/BackUp/DriveOnHeading/AssistedTeleop fallback actions, no
+  replanning RateController. Node IDs and ports verified locally against
+  /opt/ros/jazzy/share/nav2_behavior_tree/nav2_tree_nodes.xml on this ROS 2
+  Jazzy installation; BTCPP_format="4" matches the format used by the
+  default trees shipped in /opt/ros/jazzy/share/nav2_bt_navigator/behavior_trees/.
+-->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="NavigateToPoseOfflineSandbox">
+      <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" error_code_id="{compute_path_error_code}"/>
+      <FollowPath path="{path}" controller_id="FollowPath" error_code_id="{follow_path_error_code}"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

@@ -11,6 +11,7 @@ import ast
 import json
 import os
 import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -28,9 +29,12 @@ FORBIDDEN_BRIDGE_PATTERN = re.compile(
     r"unitree_sdk2py|LocoClient|unitree_capture_bridge|ottoguide_livox_sdk_bridge|livox_ros_driver2"
 )
 # Out of scope for the current phases of the offline sandbox. These
-# executables/packages must never appear in the launch file.
+# executables/packages must never appear in the launch file. bt_navigator /
+# nav2_bt_navigator are authorized as of Phase 2F (NavigateToPose only) and
+# are intentionally excluded from this pattern; check_bt_navigator_contract
+# enforces their specific constraints instead.
 FORBIDDEN_MISSION_COMPONENT_PATTERN = re.compile(
-    r"bt_navigator|nav2_bt_navigator|waypoint_follower|nav2_waypoint_follower|"
+    r"waypoint_follower|nav2_waypoint_follower|"
     r"nav2_simple_commander|simple_commander"
 )
 FORBIDDEN_HAL_IMPORT_MODULES = {
@@ -66,6 +70,14 @@ BEHAVIOR_SERVER_SMOKE_TEST_FILE = (
     / "offline_navigation"
     / "smoke_test_offline_behavior_server.py"
 )
+BT_NAVIGATOR_SMOKE_TEST_FILE = (
+    CODE_ROOT
+    / "tools"
+    / "hil"
+    / "offline_navigation"
+    / "smoke_test_offline_bt_navigator.py"
+)
+BT_XML_FILE = CODE_ROOT / "config" / "navigation" / "bt" / "offline_navigate_to_pose.xml"
 RUNTIME_SCAN_FILES = [
     LAUNCH_FILE,
     PARAMS_FILE,
@@ -77,8 +89,21 @@ RUNTIME_SCAN_FILES = [
     CONTROLLER_SMOKE_TEST_FILE,
     COLLISION_MONITOR_SMOKE_TEST_FILE,
     BEHAVIOR_SERVER_SMOKE_TEST_FILE,
+    BT_NAVIGATOR_SMOKE_TEST_FILE,
 ]
 EXPECTED_REAL_NAMESPACE = "offline_nav"
+
+FORBIDDEN_BT_XML_NODE_PATTERN = re.compile(
+    r"\bBackUp\b|\bDriveOnHeading\b|\bAssistedTeleop\b|\bClearEntireCostmap\b|"
+    r"\bRecoveryNode\b|\bRoundRobin\b|\bWaypointFollower\b|\bNavigateThroughPoses\b"
+)
+REQUIRED_BT_XML_NODE_NAMES = ("ComputePathToPose", "FollowPath")
+REQUIRED_BT_XML_MARKERS = (
+    "OFFLINE_ONLY",
+    "SYNTHETIC",
+    "NOT_FOR_HARDWARE",
+    "NOT_UADE_MAP",
+)
 
 # Required ROS entities in the launch file: a Node call must carry a real
 # namespace= kwarg, or (for ExecuteProcess-launched rclpy scripts) the cmd
@@ -89,10 +114,12 @@ REQUIRED_NODE_NAMES = {
     "controller_server",
     "collision_monitor",
     "behavior_server",
+    "bt_navigator",
     "lifecycle_manager_navigation",
     "lifecycle_manager_controller",
     "lifecycle_manager_collision_monitor",
     "lifecycle_manager_behavior_server",
+    "lifecycle_manager_bt_navigator",
     "map_to_odom_synthetic_tf",
     "base_link_to_utlidar_lidar_synthetic_tf",
 }
@@ -593,6 +620,98 @@ def check_collision_monitor_contract(result: dict, files: list[Path]) -> None:
             result["errors"].append("OUTPUT_SAFE_WITHOUT_CONSUMER")
 
 
+def check_bt_navigator_contract(result: dict) -> None:
+    """BT Navigator is authorized as of Phase 2F, but only for NavigateToPose
+    orchestration: it must be namespaced, managed by its own dedicated
+    lifecycle manager, never remap any velocity topic, and reference a
+    versioned, minimal BT XML that contains ComputePathToPose/FollowPath and
+    none of the out-of-scope nodes (BackUp, DriveOnHeading, AssistedTeleop,
+    ClearEntireCostmap, recovery/round-robin trees, Waypoint Follower,
+    NavigateThroughPoses).
+    """
+    result["checked_files"].append(str(LAUNCH_FILE))
+    if not LAUNCH_FILE.is_file():
+        result["errors"].append("LAUNCH_FILE_MISSING")
+        return
+    launch_text = _read_text(LAUNCH_FILE)
+
+    if "bt_navigator" not in launch_text:
+        result["errors"].append("BT_NAVIGATOR_MISSING")
+        return
+    if "lifecycle_manager_bt_navigator" not in launch_text:
+        result["errors"].append("LIFECYCLE_MANAGER_BT_NAVIGATOR_MISSING")
+
+    try:
+        tree = ast.parse(launch_text, filename=str(LAUNCH_FILE))
+    except SyntaxError:
+        result["errors"].append("LAUNCH_FILE_SYNTAX_ERROR")
+        return
+
+    bt_navigator_node = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+            executable = None
+            for kw in node.keywords:
+                if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                    executable = kw.value.value
+            if executable == "bt_navigator":
+                bt_navigator_node = node
+                break
+
+    if bt_navigator_node is None:
+        result["errors"].append("BT_NAVIGATOR_NODE_NOT_FOUND")
+    else:
+        has_namespace = any(kw.arg == "namespace" for kw in bt_navigator_node.keywords)
+        if not has_namespace:
+            result["errors"].append("BT_NAVIGATOR_MISSING_NAMESPACE")
+        for kw in bt_navigator_node.keywords:
+            if kw.arg == "remappings":
+                result["errors"].append("BT_NAVIGATOR_HAS_VELOCITY_REMAP")
+
+    # node_names list for lifecycle_manager_bt_navigator must contain only
+    # bt_navigator, isolated from every other lifecycle manager.
+    node_names_lists = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value == "node_names"
+                    and isinstance(value, ast.List)
+                ):
+                    node_names_lists.append(
+                        [elt.value for elt in value.elts if isinstance(elt, ast.Constant)]
+                    )
+    bt_navigator_only_lists = [names for names in node_names_lists if names == ["bt_navigator"]]
+    if not bt_navigator_only_lists:
+        result["errors"].append("BT_NAVIGATOR_LIFECYCLE_MANAGER_NOT_ISOLATED")
+
+    # XML contract.
+    result["checked_files"].append(str(BT_XML_FILE))
+    if not BT_XML_FILE.is_file():
+        result["errors"].append("BT_XML_MISSING")
+        return
+    try:
+        BT_XML_FILE.resolve().relative_to(REPO_ROOT.resolve())
+    except ValueError:
+        result["errors"].append("BT_XML_OUTSIDE_REPOSITORY")
+
+    xml_text = _read_text(BT_XML_FILE)
+    for marker in REQUIRED_BT_XML_MARKERS:
+        if marker not in xml_text:
+            result["errors"].append(f"BT_XML_MISSING_MARKER_{marker}")
+    for required_node in REQUIRED_BT_XML_NODE_NAMES:
+        if required_node not in xml_text:
+            result["errors"].append(f"BT_XML_MISSING_NODE_{required_node}")
+    xml_text_without_comments = re.sub(r"<!--.*?-->", "", xml_text, flags=re.DOTALL)
+    for match in FORBIDDEN_BT_XML_NODE_PATTERN.finditer(xml_text_without_comments):
+        result["errors"].append(f"BT_XML_FORBIDDEN_NODE_{match.group(0)}")
+    try:
+        ET.parse(BT_XML_FILE)
+    except ET.ParseError:
+        result["errors"].append("BT_XML_NOT_PARSEABLE")
+
+
 def verify(runtime: bool = False) -> dict:
     result = {
         "ok": True,
@@ -617,6 +736,7 @@ def verify(runtime: bool = False) -> dict:
     check_domain_id_required(result, runtime=runtime)
     check_no_physical_hal_import(result)
     check_collision_monitor_contract(result, files_to_scan)
+    check_bt_navigator_contract(result)
 
     result["checked_files"] = sorted(set(result["checked_files"]) | {str(p) for p in files_to_scan if p.is_file()})
     result["errors"] = sorted(set(result["errors"]))

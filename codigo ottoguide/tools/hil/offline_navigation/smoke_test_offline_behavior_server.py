@@ -53,6 +53,22 @@ SPIN_TARGET_YAW_RAD = 0.50
 SPIN_YAW_TOLERANCE_RAD = 0.15
 CANCEL_SPIN_TARGET_YAW_RAD = 3.0
 
+MIN_DOMAIN_ID = 1
+MAX_DOMAIN_ID = 232
+MAXIMUM_OFFSET = 2
+
+
+def validate_domain_id_range(base: int, maximum_offset: int) -> str | None:
+    """Validate base and base+maximum_offset against the 1..232 FastDDS-safe
+    range required for this sandbox before any ROS process is started.
+    Returns an error code string, or None if the range is valid.
+    """
+    if not isinstance(base, int) or base < MIN_DOMAIN_ID or base > MAX_DOMAIN_ID:
+        return "INVALID_DOMAIN_ID"
+    if base + maximum_offset > MAX_DOMAIN_ID:
+        return "DERIVED_DOMAIN_ID_OUT_OF_RANGE"
+    return None
+
 ALLOWED_VELOCITY_TOPIC_SUFFIXES = ("/cmd_vel_raw", "/cmd_vel_safe")
 FORBIDDEN_VELOCITY_TOPIC_SUFFIXES = ("/cmd_vel", "/cmd_vel_nav")
 FORBIDDEN_NODE_SUBSTRINGS = (
@@ -62,7 +78,6 @@ FORBIDDEN_NODE_SUBSTRINGS = (
     "realsense",
 )
 FORBIDDEN_MISSION_NODE_SUBSTRINGS = (
-    "bt_navigator",
     "waypoint_follower",
     "simple_commander",
 )
@@ -157,6 +172,22 @@ def _yaw_from_quaternion(qz: float, qw: float) -> float:
     return 2.0 * math.atan2(qz, qw)
 
 
+PLANAR_NONZERO_TOLERANCE = 1e-4
+
+
+def _planar_nonzero(linear_x: float, linear_y: float, angular_z: float) -> bool:
+    """True if any planar twist component (linear.x, linear.y, angular.z)
+    exceeds the tolerance. Used to detect real motion regardless of whether
+    it is translational or rotational; absence of a message must never be
+    treated as zero by the caller.
+    """
+    return (
+        abs(linear_x) > PLANAR_NONZERO_TOLERANCE
+        or abs(linear_y) > PLANAR_NONZERO_TOLERANCE
+        or abs(angular_z) > PLANAR_NONZERO_TOLERANCE
+    )
+
+
 class _BehaviorServerSmokeClient(Node):
     """rclpy helper node bundling the Wait/Spin action clients, an odom
     subscription, and cmd_vel_raw/cmd_vel_safe watchers, all resolved
@@ -173,6 +204,8 @@ class _BehaviorServerSmokeClient(Node):
         self._latest_cmd_vel_safe: Twist | None = None
         self.raw_angular_observed: float | None = None
         self.safe_angular_observed: float | None = None
+        self.safe_messages_received = 0
+        self.safe_nonzero_detected = False
 
         self.create_subscription(Odometry, f"/{namespace}/odom", self._on_odom, 10)
         self.create_subscription(Twist, f"/{namespace}/cmd_vel_raw", self._on_cmd_vel_raw, 10)
@@ -189,9 +222,12 @@ class _BehaviorServerSmokeClient(Node):
 
     def _on_cmd_vel_safe(self, msg: Twist) -> None:
         self._latest_cmd_vel_safe = msg
+        self.safe_messages_received += 1
         if abs(msg.angular.z) > 1e-4:
             if self.safe_angular_observed is None or abs(msg.angular.z) > self.safe_angular_observed:
                 self.safe_angular_observed = abs(msg.angular.z)
+        if _planar_nonzero(msg.linear.x, msg.linear.y, msg.angular.z):
+            self.safe_nonzero_detected = True
 
     def current_xy(self) -> tuple[float, float] | None:
         if self._latest_odom is None:
@@ -328,6 +364,7 @@ def run_wait_scenario(namespace: str, domain_id: str, timeout_s: float) -> dict:
         "pose_stable": False,
         "odom_twist_zero": False,
         "safe_nonzero_detected": False,
+        "safe_messages_received": 0,
         "forbidden_velocity_topics_detected": [],
         "hardware_node_detected": False,
         "mission_node_detected": False,
@@ -396,7 +433,8 @@ def run_wait_scenario(namespace: str, domain_id: str, timeout_s: float) -> dict:
                     if twist is not None:
                         result["odom_twist_zero"] = abs(twist[0]) < 1e-5 and abs(twist[1]) < 1e-5
 
-                    result["safe_nonzero_detected"] = client.safe_angular_observed is not None
+                    result["safe_nonzero_detected"] = client.safe_nonzero_detected
+                    result["safe_messages_received"] = client.safe_messages_received
             finally:
                 client.destroy_node()
 
@@ -730,8 +768,9 @@ def main() -> int:
     args = parser.parse_args()
 
     base = int(args.base_domain_id)
-    if base <= 0:
-        print(json.dumps({"ok": False, "decision": "FAIL", "errors": ["INVALID_BASE_DOMAIN_ID"]}))
+    domain_error = validate_domain_id_range(base, MAXIMUM_OFFSET)
+    if domain_error is not None:
+        print(json.dumps({"ok": False, "decision": "FAIL", "errors": [domain_error]}))
         return 2
 
     domain_wait = str(base)

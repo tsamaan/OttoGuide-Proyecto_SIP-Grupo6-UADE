@@ -1,6 +1,6 @@
 # Offline Navigation Sandbox — Runtime Runbook
 
-**Fase**: Fase 2E — base de runtime ROS aislada + planificación global + control local closed-loop + Collision Monitor + Behavior Server (`Wait`/`Spin`) aislados, todos con evidencia validada. Los smoke tests de planner, controller, collision monitor y behavior server pasan por completo con éxito. No incluye BT Navigator, Waypoint Follower, Simple Commander, ni los plugins `BackUp`/`DriveOnHeading`/`AssistedTeleop` de behavior_server.
+**Fase**: Fase 2F — base de runtime ROS aislada + planificación global + control local closed-loop + Collision Monitor + Behavior Server (`Wait`/`Spin`) + BT Navigator (`NavigateToPose` únicamente) aislados, todos con evidencia validada. Los smoke tests de planner, controller, collision monitor, behavior server y BT Navigator pasan por completo con éxito. No incluye `NavigateThroughPoses`, Waypoint Follower, Simple Commander, ni los plugins `BackUp`/`DriveOnHeading`/`AssistedTeleop` de behavior_server.
 
 ## Alcance
 
@@ -45,6 +45,7 @@ El wrapper ejecuta `verify_sandbox_isolation.py --runtime` antes de iniciar ROS.
 | `/offline_nav/scan` | `sensor_msgs/LaserScan` | `offline_runtime_simulator` |
 | `/offline_nav/cmd_vel_raw` | `geometry_msgs/Twist` | Publica: `controller_server`, `behavior_server` / Consume: `collision_monitor` |
 | `/offline_nav/cmd_vel_safe` | `geometry_msgs/Twist` | Publica: `collision_monitor` / Consume: `offline_runtime_simulator` |
+| `/offline_nav/navigate_to_pose` (acción) | `nav2_msgs/action/NavigateToPose` | Servida por: `bt_navigator`. Orquesta `ComputePathToPose` (`planner_server`) y `FollowPath` (`controller_server`); `bt_navigator` nunca publica velocidad. |
 
 `/tf` y `/tf_static` permanecen globales (sin namespace), lo cual es seguro porque el aislamiento real lo da `ROS_DOMAIN_ID` + `ROS_LOCALHOST_ONLY=1`, no el namespace de tópicos.
 
@@ -129,6 +130,21 @@ El CLI deriva tres domain IDs consecutivos desde `--base-domain-id` (uno por esc
 
 Validado en dos corridas completas e independientes (domain IDs `160`-`162` y `170`-`172`), sin cambios de código entre ellas, ambas con los tres escenarios en `PASS`, sin tópicos prohibidos, sin nodos de hardware/misiones, y sin procesos huérfanos. `NOT_FOR_PHYSICAL_SAFETY_VALIDATION`. Detalle completo en [OFFLINE_NAVIGATION_BEHAVIOR_SERVER_REPORT.md](OFFLINE_NAVIGATION_BEHAVIOR_SERVER_REPORT.md).
 
+## BT Navigator (`NavigateToPose`) — READY
+
+`bt_navigator` y su `lifecycle_manager_bt_navigator` dedicado están integrados en el runtime. Configurado únicamente con el navigator `nav2_bt_navigator::NavigateToPoseNavigator` y el árbol mínimo versionado `config/navigation/bt/offline_navigate_to_pose.xml` (`ComputePathToPose -> FollowPath`, sin recoveries). `bt_navigator` no remapea ningún tópico de velocidad y nunca publica `cmd_vel_raw`/`cmd_vel_safe` directamente; el movimiento real proviene exclusivamente de `controller_server`, igual que cualquier otro `FollowPath`. `NavigateThroughPoses` no está habilitado.
+
+```bash
+cd "codigo ottoguide"
+python3 tools/hil/offline_navigation/smoke_test_offline_bt_navigator.py --base-domain-id 180 --timeout 60
+```
+
+El CLI deriva dos domain IDs consecutivos desde `--base-domain-id` (uno por escenario: éxito y cancelación). Prueba:
+- **Éxito**: objetivo calculado dinámicamente `~0.5m` por delante de la pose inicial real (nunca asumida en `(0,0)`), acción `SUCCEEDED`, telemetría real (`odom`/`cmd_vel_raw`/`cmd_vel_safe` no vacíos, con muestras no-cero observadas), distancia recorrida `>0.05m`, distancia final al objetivo `<0.12m`, twist final cero, pose estable.
+- **Cancelación**: objetivo más lejano (`~1.5m`), cancelación enviada solo tras observar movimiento real (`raw`/`safe` no cero y pose desplazada `>0.02m`), exige `cancel_request_accepted`, `CANCELED`, mensaje `cmd_vel_safe` y `odom` posteriores a la cancelación, ambos asentados en cero, y pose estable tras cancelar.
+
+Validado en dos corridas completas e independientes (domain IDs `180`-`181` y `190`-`191`), sin cambios de código entre ellas, ambos escenarios en `PASS`, sin tópicos prohibidos, sin nodos de hardware/misiones, y sin procesos huérfanos. `NOT_FOR_PHYSICAL_SAFETY_VALIDATION`. Detalle completo en [OFFLINE_NAVIGATION_BT_NAVIGATOR_REPORT.md](OFFLINE_NAVIGATION_BT_NAVIGATOR_REPORT.md).
+
 ## Troubleshooting
 
 | Síntoma | Causa probable | Acción |
@@ -146,11 +162,14 @@ Validado en dos corridas completas e independientes (domain IDs `160`-`162` y `1
 | Cualquier smoke test falla con todos los componentes en `*_NOT_CONFIRMED` y error RTPS `Calculated port number is too high` | `ROS_DOMAIN_ID` (o el derivado de `--base-domain-id`) excede el límite de FastDDS (`> 232`) | Usar un `--base-domain-id` tal que ningún domain ID derivado supere `232`. |
 | El smoke test de Behavior Server falla con `ODOM_NOT_RECEIVED` aunque todos los nodos estén `ACTIVE` | El cliente de smoke test se suscribió a un tópico relativo (`odom`) sin namespace aplicado al propio proceso cliente, resolviendo a `/odom` global en vez de `/offline_nav/odom` | Resuelto: el cliente se suscribe explícitamente a `f"/{namespace}/odom"`, `f"/{namespace}/cmd_vel_raw"` y `f"/{namespace}/cmd_vel_safe"`. |
 | El escenario Spin del smoke test de Behavior Server falla con `final_twist_zero: false` | La medición del twist final ocurrió antes de que el watchdog del simulador (`0.5s`) expirara y se asentara el `cmd_vel=0` explícito que `behavior_server` publica al completar `SUCCEEDED` | Resuelto: se espera `1.0s` (en vez de `0.5s`) entre el resultado `SUCCEEDED` y la medición del twist final. |
+| El escenario Wait del smoke test de Behavior Server reporta `safe_messages_received: 0` | Esperado, no es un defecto: `nav2_behaviors::Wait` (`/opt/ros/jazzy/include/nav2_behaviors/timed_behavior.hpp`) solo llama a `stopRobot()` (el único `cmd_vel` explícito de un behavior) en las rutas de preempt/cancel, nunca en la finalización normal `SUCCEEDED`, por lo que un Wait exitoso produce legítimamente cero mensajes `cmd_vel_raw`/`cmd_vel_safe` | No se requiere acción; el gate de éxito usa `odom_twist_zero` (siempre disponible vía el timer periódico del simulador) en vez de exigir `safe_messages_received > 0`. |
+| El escenario de cancelación del smoke test de BT Navigator falla con `safe_zero_after_cancel: false` u `odom_zero_after_cancel: false` pese a `cancel_result: CANCELED` | La medición del twist ocurrió en el primer mensaje recibido tras la cancelación, antes de que el watchdog del simulador (`0.5s`) asentara la velocidad en cero | Resuelto: se espera el settle completo (`2.0s`) tras el resultado `CANCELED` antes de medir `cmd_vel_safe`/twist de odometría. |
+| Cualquier smoke test multi-escenario falla con `DERIVED_DOMAIN_ID_OUT_OF_RANGE` o `INVALID_DOMAIN_ID` antes de iniciar ningún nodo | `--base-domain-id` (o el ID derivado de un offset) cae fuera de `1..232` | Comportamiento esperado: usar un `--base-domain-id` tal que `base` y `base + maximum_offset` del componente (`2` Behavior Server, `4` Collision Monitor, `1` BT Navigator) queden dentro de `1..232`. |
 
 ## Restricciones
 
 - No se publica `/cmd_vel` ni `/cmd_vel_nav` ni `/offline_nav/cmd_vel` en ningún momento; los únicos tópicos de velocidad permitidos son `/offline_nav/cmd_vel_raw` y `/offline_nav/cmd_vel_safe`.
-- No se inicia BT Navigator, Waypoint Follower ni Simple Commander en esta fase. `planner_server`, `controller_server`, `collision_monitor` y `behavior_server` (solo `Wait`/`Spin`) sí están incluidos y activos.
+- No se inicia Waypoint Follower ni Simple Commander en esta fase. `planner_server`, `controller_server`, `collision_monitor`, `behavior_server` (solo `Wait`/`Spin`) y `bt_navigator` (solo `NavigateToPose`) sí están incluidos y activos.
 - No se conecta al robot físico, no se usa SSH/SCP, no se contactan IPs `192.168.123.*`.
 - No se abren rosbags ni se instala ningún paquete.
 - El simulador (`offline_runtime_simulator.py`) integra `cmd_vel_safe` en una pose 2D determinista con límites sintéticos (`0.10 m/s`, `0.30 rad/s`) y watchdog de `0.5s`; no representa odometría validada y no debe usarse como evidencia de L2/L3.

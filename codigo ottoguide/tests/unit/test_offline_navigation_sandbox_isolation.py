@@ -11,6 +11,7 @@ import json
 import os
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -35,6 +36,10 @@ COLLISION_MONITOR_SMOKE_TEST_FILE = (
 BEHAVIOR_SERVER_SMOKE_TEST_FILE = (
     CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_behavior_server.py"
 )
+BT_NAVIGATOR_SMOKE_TEST_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_bt_navigator.py"
+)
+BT_XML_FILE = CODE_ROOT / "config" / "navigation" / "bt" / "offline_navigate_to_pose.xml"
 PARAMS_FILE = CODE_ROOT / "config" / "navigation" / "nav2_offline_sandbox_params.yaml"
 MAP_DIR = CODE_ROOT / "tests" / "fixtures" / "offline_navigation"
 MAP_PGM = MAP_DIR / "offline_sandbox_test_map.pgm"
@@ -591,6 +596,8 @@ class RuntimeFilesIncludedInVerifierTests(unittest.TestCase):
             PLANNER_SMOKE_TEST_FILE,
             CONTROLLER_SMOKE_TEST_FILE,
             COLLISION_MONITOR_SMOKE_TEST_FILE,
+            BEHAVIOR_SERVER_SMOKE_TEST_FILE,
+            BT_NAVIGATOR_SMOKE_TEST_FILE,
         ):
             self.assertIn(str(required_file), result["checked_files"])
 
@@ -677,7 +684,7 @@ class ControllerConfigurationTests(unittest.TestCase):
         checker.check_namespace_offline(result)
         self.assertNotIn("NODE_MISSING_NAMESPACE_controller_server", result["errors"])
 
-    def test_no_bt_navigator_waypoint_simple_commander_or_collision_detector_executables(self):
+    def test_no_waypoint_follower_simple_commander_or_collision_detector_executables(self):
         text = LAUNCH_FILE.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(LAUNCH_FILE))
         executables = set()
@@ -687,7 +694,6 @@ class ControllerConfigurationTests(unittest.TestCase):
                     if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
                         executables.add(kw.value.value)
         for forbidden in (
-            "bt_navigator",
             "waypoint_follower",
             "collision_detector",
         ):
@@ -1230,22 +1236,29 @@ class BehaviorServerIntegrationTests(unittest.TestCase):
         self.assertIn('and result["odom_twist_zero"]', text)
         self.assertIn('and result["pose_stable"]', text)
 
-    def test_behavior_server_smoke_checks_no_bt_navigator_waypoint_or_simple_commander(self):
+    def test_behavior_server_smoke_checks_no_waypoint_or_simple_commander(self):
         text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
-        self.assertIn("bt_navigator", text)
         self.assertIn("waypoint_follower", text)
         self.assertIn("simple_commander", text)
         self.assertIn("mission_node_detected", text)
+
+    def test_behavior_server_smoke_no_longer_forbids_bt_navigator(self):
+        """bt_navigator is authorized as of Phase 2F and is always present
+        in the launch now, so the behavior server smoke test must not treat
+        its discovery as a violation.
+        """
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertNotIn('"bt_navigator",\n    "waypoint_follower"', text)
 
     def test_behavior_server_smoke_checks_no_hardware(self):
         text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
         self.assertIn("FORBIDDEN_NODE_SUBSTRINGS", text)
         self.assertIn("hardware_node_detected", text)
 
-    def test_no_mission_components_checker_rejects_bt_navigator(self):
+    def test_no_mission_components_checker_rejects_waypoint_follower(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_launch = Path(tmp_dir) / "offline_nav_sandbox.launch.py"
-            tmp_launch.write_text("nav2_bt_navigator\n", encoding="utf-8")
+            tmp_launch.write_text("nav2_waypoint_follower\n", encoding="utf-8")
             saved_launch = checker.LAUNCH_FILE
             checker.LAUNCH_FILE = tmp_launch
             try:
@@ -1254,6 +1267,409 @@ class BehaviorServerIntegrationTests(unittest.TestCase):
             finally:
                 checker.LAUNCH_FILE = saved_launch
         self.assertIn("MISSION_COMPONENT_OUT_OF_SCOPE_REFERENCED", result["errors"])
+
+    def test_no_mission_components_checker_allows_bt_navigator(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_launch = Path(tmp_dir) / "offline_nav_sandbox.launch.py"
+            tmp_launch.write_text("nav2_bt_navigator\nbt_navigator\n", encoding="utf-8")
+            saved_launch = checker.LAUNCH_FILE
+            checker.LAUNCH_FILE = tmp_launch
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_no_mission_components(result)
+            finally:
+                checker.LAUNCH_FILE = saved_launch
+        self.assertNotIn("MISSION_COMPONENT_OUT_OF_SCOPE_REFERENCED", result["errors"])
+
+
+class BtNavigatorLaunchAndLifecycleTests(unittest.TestCase):
+    def test_bt_navigator_node_present_with_correct_package_and_executable(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        found = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                package = executable = None
+                for kw in node.keywords:
+                    if kw.arg == "package" and isinstance(kw.value, ast.Constant):
+                        package = kw.value.value
+                    if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                        executable = kw.value.value
+                if executable == "bt_navigator":
+                    found = package
+                    break
+        self.assertEqual(found, "nav2_bt_navigator")
+
+    def test_bt_navigator_is_namespaced(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_namespace_offline(result)
+        self.assertNotIn("NODE_MISSING_NAMESPACE_bt_navigator", result["errors"])
+
+    def test_bt_navigator_uses_configured_params_variant(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        self.assertIn("bt_navigator_params", text)
+
+    def test_bt_navigator_has_dedicated_lifecycle_manager(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        node_names_lists = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if (
+                        isinstance(key, ast.Constant)
+                        and key.value == "node_names"
+                        and isinstance(value, ast.List)
+                    ):
+                        node_names_lists.append(
+                            [elt.value for elt in value.elts if isinstance(elt, ast.Constant)]
+                        )
+        bt_only_lists = [names for names in node_names_lists if names == ["bt_navigator"]]
+        self.assertTrue(bt_only_lists, "no dedicated bt_navigator-only lifecycle manager found")
+
+    def test_bt_navigator_has_no_velocity_remappings(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                executable = None
+                for kw in node.keywords:
+                    if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                        executable = kw.value.value
+                if executable == "bt_navigator":
+                    for kw in node.keywords:
+                        self.assertNotEqual(kw.arg, "remappings")
+
+    def test_bt_navigator_added_to_launch_description(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        self.assertIn("bt_navigator_node,", text)
+        self.assertIn("lifecycle_manager_bt_navigator_node,", text)
+
+    def test_no_waypoint_follower_or_simple_commander_executables(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        executables = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                for kw in node.keywords:
+                    if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                        executables.add(kw.value.value)
+        self.assertNotIn("waypoint_follower", executables)
+        self.assertNotIn("simple_commander", executables)
+
+
+class BtNavigatorParameterTests(unittest.TestCase):
+    def test_bt_navigator_section_exists(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertIn("bt_navigator:", text)
+
+    def test_bt_navigator_use_sim_time_false(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        bt_section = text.split("bt_navigator:", 1)[1]
+        self.assertIn("use_sim_time: false", bt_section)
+
+    def test_bt_navigator_frames_correct(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        bt_section = text.split("bt_navigator:", 1)[1]
+        self.assertIn('global_frame: "map"', bt_section)
+        self.assertIn('robot_base_frame: "base_link"', bt_section)
+
+    def test_bt_navigator_odom_topic_correct(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        bt_section = text.split("bt_navigator:", 1)[1]
+        self.assertIn('odom_topic: "odom"', bt_section)
+
+    def test_navigate_to_pose_configured(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        bt_section = text.split("bt_navigator:", 1)[1]
+        self.assertIn("navigate_to_pose:", bt_section)
+        self.assertIn("nav2_bt_navigator::NavigateToPoseNavigator", bt_section)
+
+    def test_navigate_through_poses_not_enabled(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        bt_section = text.split("bt_navigator:", 1)[1].split("\n\n", 1)[0]
+        self.assertNotIn("navigate_through_poses", bt_section)
+        self.assertNotIn("NavigateThroughPosesNavigator", bt_section)
+
+    def test_bt_xml_path_injected_outside_yaml_placeholder(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        self.assertIn("default_nav_to_pose_bt_xml", text)
+        self.assertIn("BT_XML_FILE", text)
+
+    def test_bt_xml_path_is_within_repository_not_temp_or_artifacts(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        bt_xml_expr = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == "BT_XML_FILE"
+                for target in node.targets
+            ):
+                bt_xml_expr = ast.unparse(node.value)
+                break
+        self.assertIsNotNone(bt_xml_expr, "BT_XML_FILE assignment not found")
+        self.assertNotIn("artifacts", bt_xml_expr)
+        self.assertNotIn("/tmp", bt_xml_expr)
+        self.assertIn("CODE_ROOT", bt_xml_expr)
+
+
+class BtNavigatorXmlTests(unittest.TestCase):
+    def test_xml_file_exists(self):
+        self.assertTrue(BT_XML_FILE.is_file())
+
+    def test_xml_is_parseable(self):
+        tree = ET.parse(BT_XML_FILE)
+        self.assertEqual(tree.getroot().tag, "root")
+
+    def test_xml_declares_synthetic_markers(self):
+        text = BT_XML_FILE.read_text(encoding="utf-8")
+        for marker in ("OFFLINE_ONLY", "SYNTHETIC", "NOT_FOR_HARDWARE", "NOT_UADE_MAP"):
+            self.assertIn(marker, text)
+
+    def test_xml_contains_compute_path_to_pose_and_follow_path(self):
+        text = BT_XML_FILE.read_text(encoding="utf-8")
+        self.assertIn("ComputePathToPose", text)
+        self.assertIn("FollowPath", text)
+
+    def test_xml_does_not_contain_out_of_scope_nodes(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_bt_navigator_contract(result)
+        for forbidden in (
+            "BT_XML_FORBIDDEN_NODE_BackUp",
+            "BT_XML_FORBIDDEN_NODE_DriveOnHeading",
+            "BT_XML_FORBIDDEN_NODE_AssistedTeleop",
+        ):
+            self.assertNotIn(forbidden, result["errors"])
+
+    def test_xml_rejects_backup_node_if_present(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_xml = Path(tmp_dir) / "offline_navigate_to_pose.xml"
+            tmp_xml.write_text(
+                '<root BTCPP_format="4"><BehaviorTree ID="MainTree">'
+                '<Sequence><BackUp backup_dist="0.3"/></Sequence>'
+                "</BehaviorTree></root>",
+                encoding="utf-8",
+            )
+            saved_xml = checker.BT_XML_FILE
+            checker.BT_XML_FILE = tmp_xml
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_bt_navigator_contract(result)
+            finally:
+                checker.BT_XML_FILE = saved_xml
+        self.assertIn("BT_XML_FORBIDDEN_NODE_BackUp", result["errors"])
+
+    def test_xml_rejects_waypoint_follower_and_navigate_through_poses(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_xml = Path(tmp_dir) / "offline_navigate_to_pose.xml"
+            tmp_xml.write_text(
+                '<root BTCPP_format="4"><BehaviorTree ID="MainTree">'
+                "<Sequence><WaypointFollower/><NavigateThroughPoses/></Sequence>"
+                "</BehaviorTree></root>",
+                encoding="utf-8",
+            )
+            saved_xml = checker.BT_XML_FILE
+            checker.BT_XML_FILE = tmp_xml
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_bt_navigator_contract(result)
+            finally:
+                checker.BT_XML_FILE = saved_xml
+        self.assertIn("BT_XML_FORBIDDEN_NODE_WaypointFollower", result["errors"])
+        self.assertIn("BT_XML_FORBIDDEN_NODE_NavigateThroughPoses", result["errors"])
+
+
+class BtNavigatorSmokeTestStructureTests(unittest.TestCase):
+    def test_smoke_test_included_in_runtime_scan(self):
+        self.assertIn(checker.BT_NAVIGATOR_SMOKE_TEST_FILE, checker.RUNTIME_SCAN_FILES)
+
+    def test_smoke_test_accepts_cli_arguments(self):
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        for arg in ("--namespace", "--base-domain-id", "--timeout", "--output"):
+            self.assertIn(arg, text)
+
+    def test_smoke_test_derives_domain_ids_from_base_argument(self):
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("base = int(args.base_domain_id)", text)
+        self.assertIn("domain_success = str(base)", text)
+        self.assertIn("domain_cancel = str(base + 1)", text)
+
+    def test_smoke_test_does_not_hardcode_domain_ids_ignoring_argument(self):
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertNotIn('domain_success = "180"', text)
+        self.assertNotIn('domain_cancel = "181"', text)
+
+    def test_success_scenario_requires_real_motion_and_distance(self):
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('result["distance_moved"] is not None and result["distance_moved"] > 0.05', text)
+        self.assertIn(
+            'result["final_distance_to_goal"] is not None and result["final_distance_to_goal"] < GOAL_TOLERANCE_M',
+            text,
+        )
+
+    def test_success_scenario_requires_real_telemetry(self):
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('result["odom_messages_received"] > 0', text)
+        self.assertIn('result["raw_messages_received"] > 0', text)
+        self.assertIn('result["safe_messages_received"] > 0', text)
+
+    def test_cancel_scenario_requires_precondition_motion(self):
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("CANCEL_PRECONDITION_MOTION_NOT_OBSERVED", text)
+        self.assertIn("cancel_precondition_motion_observed", text)
+
+    def test_cancel_scenario_requires_accepted_request_and_canceled_result(self):
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('result["cancel_request_accepted"]', text)
+        self.assertIn('result["cancel_result"] == "CANCELED"', text)
+
+    def test_cancel_scenario_requires_safe_and_odom_message_after_cancel(self):
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("safe_message_after_cancel", text)
+        self.assertIn("odom_message_after_cancel", text)
+        self.assertIn("safe_zero_after_cancel", text)
+        self.assertIn("odom_zero_after_cancel", text)
+
+    def test_cancel_scenario_requires_pose_stable(self):
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('result["pose_stable"]', text)
+
+    def test_absence_of_data_remains_none(self):
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('"distance_moved": None', text)
+        self.assertIn('"final_distance_to_goal": None', text)
+        self.assertIn('"initial_pose": None', text)
+
+
+class BtNavigatorWaitPlanarMotionTests(unittest.TestCase):
+    def test_wait_detects_linear_x_nonzero(self):
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("def _planar_nonzero(linear_x: float, linear_y: float, angular_z: float)", text)
+        self.assertIn("abs(linear_x) > PLANAR_NONZERO_TOLERANCE", text)
+
+    def test_wait_detects_linear_y_nonzero(self):
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("abs(linear_y) > PLANAR_NONZERO_TOLERANCE", text)
+
+    def test_wait_detects_angular_z_nonzero(self):
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("abs(angular_z) > PLANAR_NONZERO_TOLERANCE", text)
+
+    def test_wait_uses_general_safe_nonzero_name_not_angular_only(self):
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("safe_nonzero_detected", text)
+
+    def test_wait_tracks_safe_messages_received_without_requiring_nonzero_count(self):
+        """Wait's onCycleUpdate path never calls stopRobot() on normal
+        SUCCEEDED completion (verified against
+        /opt/ros/jazzy/include/nav2_behaviors/timed_behavior.hpp), so zero
+        cmd_vel_safe messages is the correct, expected outcome for a
+        successful Wait. The pass/fail gate must rely on odom_twist_zero
+        (an odometry message that always exists) and safe_nonzero_detected,
+        not on safe_messages_received being nonzero.
+        """
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("result[\"safe_messages_received\"] = client.safe_messages_received", text)
+        self.assertNotIn('and result["safe_messages_received"] > 0', text)
+
+    def test_planar_nonzero_function_behavior(self):
+        module_globals: dict = {}
+        spec = importlib.util.spec_from_file_location(
+            "smoke_test_offline_behavior_server", BEHAVIOR_SERVER_SMOKE_TEST_FILE
+        )
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except ModuleNotFoundError:
+            self.skipTest("rclpy not available in this environment")
+            return
+        self.assertTrue(module._planar_nonzero(0.05, 0.0, 0.0))
+        self.assertTrue(module._planar_nonzero(0.0, 0.05, 0.0))
+        self.assertTrue(module._planar_nonzero(0.0, 0.0, 0.05))
+        self.assertFalse(module._planar_nonzero(0.0, 0.0, 0.0))
+
+
+class DomainIdRangePolicyTests(unittest.TestCase):
+    def _load_module(self, path: Path):
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except ModuleNotFoundError:
+            self.skipTest("rclpy not available in this environment")
+            raise
+        return module
+
+    def test_behavior_server_min_max_and_offset(self):
+        module = self._load_module(BEHAVIOR_SERVER_SMOKE_TEST_FILE)
+        self.assertEqual(module.MIN_DOMAIN_ID, 1)
+        self.assertEqual(module.MAX_DOMAIN_ID, 232)
+        self.assertEqual(module.MAXIMUM_OFFSET, 2)
+
+    def test_collision_monitor_min_max_and_offset(self):
+        module = self._load_module(COLLISION_MONITOR_SMOKE_TEST_FILE)
+        self.assertEqual(module.MIN_DOMAIN_ID, 1)
+        self.assertEqual(module.MAX_DOMAIN_ID, 232)
+        self.assertEqual(module.MAXIMUM_OFFSET, 4)
+
+    def test_bt_navigator_min_max_and_offset(self):
+        module = self._load_module(BT_NAVIGATOR_SMOKE_TEST_FILE)
+        self.assertEqual(module.MIN_DOMAIN_ID, 1)
+        self.assertEqual(module.MAX_DOMAIN_ID, 232)
+        self.assertEqual(module.MAXIMUM_OFFSET, 1)
+
+    def test_behavior_server_base_out_of_range_is_invalid(self):
+        module = self._load_module(BEHAVIOR_SERVER_SMOKE_TEST_FILE)
+        self.assertEqual(module.validate_domain_id_range(0, module.MAXIMUM_OFFSET), "INVALID_DOMAIN_ID")
+        self.assertEqual(module.validate_domain_id_range(233, module.MAXIMUM_OFFSET), "INVALID_DOMAIN_ID")
+
+    def test_behavior_server_derived_out_of_range(self):
+        module = self._load_module(BEHAVIOR_SERVER_SMOKE_TEST_FILE)
+        self.assertEqual(
+            module.validate_domain_id_range(231, module.MAXIMUM_OFFSET),
+            "DERIVED_DOMAIN_ID_OUT_OF_RANGE",
+        )
+
+    def test_collision_monitor_derived_out_of_range(self):
+        module = self._load_module(COLLISION_MONITOR_SMOKE_TEST_FILE)
+        self.assertEqual(
+            module.validate_domain_id_range(229, module.MAXIMUM_OFFSET),
+            "DERIVED_DOMAIN_ID_OUT_OF_RANGE",
+        )
+
+    def test_bt_navigator_derived_out_of_range(self):
+        module = self._load_module(BT_NAVIGATOR_SMOKE_TEST_FILE)
+        self.assertEqual(
+            module.validate_domain_id_range(232, module.MAXIMUM_OFFSET),
+            "DERIVED_DOMAIN_ID_OUT_OF_RANGE",
+        )
+
+    def test_valid_range_returns_none(self):
+        module = self._load_module(BT_NAVIGATOR_SMOKE_TEST_FILE)
+        self.assertIsNone(module.validate_domain_id_range(180, module.MAXIMUM_OFFSET))
+
+    def test_no_domain_id_dependent_launch_logic(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        self.assertNotIn("os.environ", text)
+
+    def test_no_special_case_exceptions_for_specific_domain_ids_in_smoke_tests(self):
+        """validate_domain_id_range must compare only against MIN_DOMAIN_ID,
+        MAX_DOMAIN_ID and the given offset -- never against a literal domain
+        id constant that would carve out an exception for a specific value.
+        """
+        forbidden_literals = {0, 77, 121, 160, 180, 200, 220}
+        for path in (
+            BEHAVIOR_SERVER_SMOKE_TEST_FILE,
+            COLLISION_MONITOR_SMOKE_TEST_FILE,
+            BT_NAVIGATOR_SMOKE_TEST_FILE,
+        ):
+            text = path.read_text(encoding="utf-8")
+            tree = ast.parse(text, filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef) and node.name == "validate_domain_id_range":
+                    for inner in ast.walk(node):
+                        if isinstance(inner, ast.Constant) and isinstance(inner.value, int):
+                            self.assertNotIn(inner.value, forbidden_literals)
 
 
 if __name__ == "__main__":

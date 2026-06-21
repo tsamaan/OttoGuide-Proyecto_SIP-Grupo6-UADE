@@ -20,6 +20,9 @@ MAP_DEFAULT = str(
 SIMULATOR_SCRIPT = str(
     CODE_ROOT / "tools" / "hil" / "offline_navigation" / "offline_runtime_simulator.py"
 )
+BT_XML_FILE = str(
+    CODE_ROOT / "config" / "navigation" / "bt" / "offline_navigate_to_pose.xml"
+)
 
 
 def generate_launch_description():
@@ -69,6 +72,21 @@ def generate_launch_description():
             source_file=PARAMS_FILE,
             root_key=namespace,
             param_rewrites={},
+            convert_types=True,
+        ),
+        allow_substs=True,
+    )
+
+    # Parametros de bt_navigator: identicos a configured_params salvo
+    # default_nav_to_pose_bt_xml, reescrito aqui con la ruta absoluta del XML
+    # versionado del repositorio (BT_XML_FILE), derivada de CODE_ROOT y por
+    # lo tanto independiente del directorio actual de ejecucion. El valor
+    # placeholder en el YAML nunca se usa realmente.
+    bt_navigator_params = ParameterFile(
+        RewrittenYaml(
+            source_file=PARAMS_FILE,
+            root_key=namespace,
+            param_rewrites={'default_nav_to_pose_bt_xml': BT_XML_FILE},
             convert_types=True,
         ),
         allow_substs=True,
@@ -169,9 +187,9 @@ def generate_launch_description():
     # 'cmd_vel_raw' (resuelve a <namespace>/cmd_vel_raw), exactamente igual que
     # controller_server, de forma que ambos publishers pasan obligatoriamente
     # por collision_monitor antes de llegar al simulador. Nunca se remapea a
-    # 'cmd_vel_safe' directamente: eso bypassearia Collision Monitor. Sin BT
-    # Navigator, sin Waypoint Follower, sin Simple Commander, sin BackUp,
-    # DriveOnHeading ni AssistedTeleop en esta fase.
+    # 'cmd_vel_safe' directamente: eso bypassearia Collision Monitor. Sin
+    # Waypoint Follower, sin Simple Commander, sin BackUp, DriveOnHeading ni
+    # AssistedTeleop en esta fase.
     behavior_server_node = Node(
         package='nav2_behaviors',
         executable='behavior_server',
@@ -195,6 +213,39 @@ def generate_launch_description():
         parameters=[{'use_sim_time': False},
                     {'autostart': True},
                     {'node_names': ['behavior_server']}]
+    )
+
+    # Nodo bt_navigator: orquesta unicamente NavigateToPose mediante el arbol
+    # minimo versionado offline_navigate_to_pose.xml (ComputePathToPose ->
+    # FollowPath, sin recoveries). OFFLINE_ONLY, SYNTHETIC, NOT_FOR_HARDWARE.
+    # No remapea cmd_vel/cmd_vel_raw/cmd_vel_safe: nunca publica velocidad
+    # directamente. El movimiento real de NavigateToPose proviene exclusiva-
+    # mente de controller_server, igual que cualquier otro goal de FollowPath.
+    # NavigateThroughPoses no esta configurado. Sin Waypoint Follower, sin
+    # Simple Commander.
+    bt_navigator_node = Node(
+        package='nav2_bt_navigator',
+        executable='bt_navigator',
+        name='bt_navigator',
+        namespace=namespace,
+        output='screen',
+        parameters=[bt_navigator_params]
+    )
+
+    # Nodo lifecycle manager dedicado, exclusivamente para bt_navigator.
+    # Aislado del resto de los managers: si bt_navigator falla al iniciar o
+    # activar, queda aislado sin degradar Map, Planner, Controller, Collision
+    # Monitor o Behavior Server, que ya estaban validados antes de agregar
+    # BT Navigator.
+    lifecycle_manager_bt_navigator_node = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_bt_navigator',
+        namespace=namespace,
+        output='screen',
+        parameters=[{'use_sim_time': False},
+                    {'autostart': True},
+                    {'node_names': ['bt_navigator']}]
     )
 
     # Nodo RViz (opcional)
@@ -250,15 +301,18 @@ def generate_launch_description():
         output='screen'
     )
 
-    # Sandbox offline unicamente: sin navegacion real, sin hardware fisico,
-    # sin BT Navigator, sin behaviors, sin waypoint follower, sin Simple
-    # Commander, pero con Collision Monitor, y sin comandos de velocidad fuera
-    # de los topicos relativos 'cmd_vel_raw' y 'cmd_vel_safe'. planner_server
-    # planifica rutas globales y controller_server las sigue en simulacion.
-    # Requiere entorno con ROS_LOCALHOST_ONLY=1 y ROS_DOMAIN_ID explicito
-    # (no el default 0) para aislar este sandbox del resto de la red ROS.
-    # Las TF map->odom y base_link->utlidar_lidar publicadas aqui son
-    # identidades sinteticas, no extrinsecos fisicos validados.
+    # Sandbox offline unicamente: sin navegacion fisica real, sin hardware,
+    # sin waypoint follower, sin Simple Commander. Incluye planner_server,
+    # controller_server, Collision Monitor, Behavior Server (Wait, Spin) y
+    # BT Navigator (NavigateToPose unicamente, agregado en Fase 2F), sin
+    # comandos de velocidad fuera de los topicos relativos 'cmd_vel_raw' y
+    # 'cmd_vel_safe'. planner_server planifica rutas globales y
+    # controller_server las sigue en simulacion; bt_navigator solo orquesta
+    # esas acciones, nunca publica velocidad directamente. Requiere entorno
+    # con ROS_LOCALHOST_ONLY=1 y ROS_DOMAIN_ID explicito (no el default 0)
+    # para aislar este sandbox del resto de la red ROS. Las TF map->odom y
+    # base_link->utlidar_lidar publicadas aqui son identidades sinteticas,
+    # no extrinsecos fisicos validados.
 
     return LaunchDescription([
         map_yaml_arg,
@@ -270,10 +324,12 @@ def generate_launch_description():
         controller_server_node,
         collision_monitor_node,
         behavior_server_node,
+        bt_navigator_node,
         lifecycle_manager_node,
         lifecycle_manager_controller_node,
         lifecycle_manager_collision_monitor_node,
         lifecycle_manager_behavior_server_node,
+        lifecycle_manager_bt_navigator_node,
         rviz_node,
         offline_runtime_simulator_node,
         map_to_odom_static_tf,

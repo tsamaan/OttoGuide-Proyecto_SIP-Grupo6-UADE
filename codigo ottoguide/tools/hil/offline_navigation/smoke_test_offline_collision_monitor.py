@@ -46,6 +46,22 @@ START_XY = (0.0, 0.0)
 GOAL_XY = (0.50, 0.0)
 GOAL_TOLERANCE_M = 0.12
 
+MIN_DOMAIN_ID = 1
+MAX_DOMAIN_ID = 232
+MAXIMUM_OFFSET = 4
+
+
+def validate_domain_id_range(base: int, maximum_offset: int) -> str | None:
+    """Validate base and base+maximum_offset against the 1..232 FastDDS-safe
+    range required for this sandbox before any ROS process is started.
+    Returns an error code string, or None if the range is valid.
+    """
+    if not isinstance(base, int) or base < MIN_DOMAIN_ID or base > MAX_DOMAIN_ID:
+        return "INVALID_DOMAIN_ID"
+    if base + maximum_offset > MAX_DOMAIN_ID:
+        return "DERIVED_DOMAIN_ID_OUT_OF_RANGE"
+    return None
+
 ALLOWED_VELOCITY_TOPIC_SUFFIXES = ("/cmd_vel_raw", "/cmd_vel_safe")
 FORBIDDEN_VELOCITY_TOPIC_SUFFIXES = ("/cmd_vel", "/cmd_vel_nav")
 FORBIDDEN_NODE_SUBSTRINGS = (
@@ -758,8 +774,9 @@ def main() -> int:
     args = parser.parse_args()
 
     base = int(args.base_domain_id)
-    if base <= 0:
-        print(json.dumps({"ok": False, "decision": "FAIL", "errors": ["INVALID_BASE_DOMAIN_ID"]}))
+    domain_error = validate_domain_id_range(base, MAXIMUM_OFFSET)
+    if domain_error is not None:
+        print(json.dumps({"ok": False, "decision": "FAIL", "errors": [domain_error]}))
         return 2
 
     # Map scenarios to domain offsets
