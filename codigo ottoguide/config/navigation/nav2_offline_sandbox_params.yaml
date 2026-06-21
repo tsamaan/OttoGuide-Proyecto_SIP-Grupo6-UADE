@@ -143,6 +143,35 @@ local_costmap:
         inflation_radius: 0.30
 
 # OFFLINE_ONLY / SYNTHETIC / NOT_FOR_HARDWARE
+# behavior_server exclusively for the offline sandbox, Phase 2E. Only Wait
+# and Spin plugins are configured; BackUp, DriveOnHeading, AssistedTeleop,
+# BT Navigator, Waypoint Follower and Simple Commander are explicitly out
+# of scope for this phase. Its only velocity output is the relative topic
+# 'cmd_vel', remapped in the launch to 'cmd_vel_raw' -- the same allowlisted
+# topic controller_server publishes to -- so every behavior command must
+# pass through collision_monitor before reaching the simulator. These
+# conservative limits (max_rotational_vel <= 0.30 rad/s) are exclusive to
+# this sandbox and do not represent the physical Unitree G1.
+behavior_server:
+  ros__parameters:
+    use_sim_time: false
+    enable_stamped_cmd_vel: false
+    cycle_frequency: 10.0
+    behavior_plugins: ["wait", "spin"]
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    global_frame: "odom"
+    robot_base_frame: "base_link"
+    local_frame: "odom"
+    transform_tolerance: 0.2
+    simulate_ahead_time: 1.0
+    max_rotational_vel: 0.30
+    min_rotational_vel: 0.05
+    rotational_acc_lim: 1.0
+
+# OFFLINE_ONLY / SYNTHETIC / NOT_FOR_HARDWARE
 # Collision Monitor exclusively for the offline sandbox.
 # Configures a slowdown zone and a stop zone using /offline_nav/scan.
 collision_monitor:

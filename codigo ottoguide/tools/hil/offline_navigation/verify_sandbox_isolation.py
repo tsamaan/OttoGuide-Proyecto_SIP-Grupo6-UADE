@@ -27,6 +27,12 @@ FORBIDDEN_CMD_VEL_NAV_PATTERN = re.compile(r"/cmd_vel_nav")
 FORBIDDEN_BRIDGE_PATTERN = re.compile(
     r"unitree_sdk2py|LocoClient|unitree_capture_bridge|ottoguide_livox_sdk_bridge|livox_ros_driver2"
 )
+# Out of scope for the current phases of the offline sandbox. These
+# executables/packages must never appear in the launch file.
+FORBIDDEN_MISSION_COMPONENT_PATTERN = re.compile(
+    r"bt_navigator|nav2_bt_navigator|waypoint_follower|nav2_waypoint_follower|"
+    r"nav2_simple_commander|simple_commander"
+)
 FORBIDDEN_HAL_IMPORT_MODULES = {
     "unitree_sdk2py",
     "real_adapter",
@@ -53,6 +59,13 @@ COLLISION_MONITOR_SMOKE_TEST_FILE = (
     / "offline_navigation"
     / "smoke_test_offline_collision_monitor.py"
 )
+BEHAVIOR_SERVER_SMOKE_TEST_FILE = (
+    CODE_ROOT
+    / "tools"
+    / "hil"
+    / "offline_navigation"
+    / "smoke_test_offline_behavior_server.py"
+)
 RUNTIME_SCAN_FILES = [
     LAUNCH_FILE,
     PARAMS_FILE,
@@ -63,6 +76,7 @@ RUNTIME_SCAN_FILES = [
     PLANNER_SMOKE_TEST_FILE,
     CONTROLLER_SMOKE_TEST_FILE,
     COLLISION_MONITOR_SMOKE_TEST_FILE,
+    BEHAVIOR_SERVER_SMOKE_TEST_FILE,
 ]
 EXPECTED_REAL_NAMESPACE = "offline_nav"
 
@@ -74,9 +88,11 @@ REQUIRED_NODE_NAMES = {
     "planner_server",
     "controller_server",
     "collision_monitor",
+    "behavior_server",
     "lifecycle_manager_navigation",
     "lifecycle_manager_controller",
     "lifecycle_manager_collision_monitor",
+    "lifecycle_manager_behavior_server",
     "map_to_odom_synthetic_tf",
     "base_link_to_utlidar_lidar_synthetic_tf",
 }
@@ -366,6 +382,22 @@ def check_forbidden_bridges(result: dict, files: list[Path]) -> None:
             result["errors"].append("PHYSICAL_BRIDGE_REFERENCED")
 
 
+def check_no_mission_components(result: dict) -> None:
+    """BT Navigator, Waypoint Follower and Simple Commander are explicitly
+    out of scope for every phase implemented so far; the launch file must
+    never reference them.
+    """
+    result["checked_files"].append(str(LAUNCH_FILE))
+    if not LAUNCH_FILE.is_file():
+        return
+    text = _strip_comment_lines(_read_text(LAUNCH_FILE))
+    for match in FORBIDDEN_MISSION_COMPONENT_PATTERN.finditer(text):
+        result["forbidden_matches"].append(
+            {"file": str(LAUNCH_FILE), "pattern": "MISSION_COMPONENT", "match": match.group(0)}
+        )
+        result["errors"].append("MISSION_COMPONENT_OUT_OF_SCOPE_REFERENCED")
+
+
 def _execute_process_cmd_has_ns_remap(node: ast.Call) -> bool:
     """Detect a '-r', ['__ns:=/', namespace] remap pair inside cmd=[...]."""
     for kw in node.keywords:
@@ -526,6 +558,31 @@ def check_collision_monitor_contract(result: dict, files: list[Path]) -> None:
             result["errors"].append("LIFECYCLE_MANAGER_COLLISION_MONITOR_MISSING")
         if "('cmd_vel', 'cmd_vel_safe')" in launch_text or "(\"cmd_vel\", \"cmd_vel_safe\")" in launch_text:
             result["errors"].append("DIRECT_RAW_TO_SIMULATOR_BYPASS")
+        if "behavior_server" in launch_text:
+            if "lifecycle_manager_behavior_server" not in launch_text:
+                result["errors"].append("LIFECYCLE_MANAGER_BEHAVIOR_SERVER_MISSING")
+            tree = ast.parse(launch_text, filename=str(LAUNCH_FILE))
+            behavior_server_remaps_to_raw = False
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                    executable = None
+                    remap_to_cmd_vel_raw = False
+                    for kw in node.keywords:
+                        if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                            executable = kw.value.value
+                        if kw.arg == "remappings" and isinstance(kw.value, ast.List):
+                            for elt in kw.value.elts:
+                                if isinstance(elt, ast.Tuple) and len(elt.elts) == 2:
+                                    src = ast.unparse(elt.elts[0]).strip("\"'")
+                                    dst = ast.unparse(elt.elts[1]).strip("\"'")
+                                    if src == "cmd_vel" and dst == "cmd_vel_raw":
+                                        remap_to_cmd_vel_raw = True
+                                    elif src == "cmd_vel" and dst == "cmd_vel_safe":
+                                        result["errors"].append("BEHAVIOR_SERVER_DIRECT_SAFE_BYPASS")
+                    if executable == "behavior_server" and remap_to_cmd_vel_raw:
+                        behavior_server_remaps_to_raw = True
+            if not behavior_server_remaps_to_raw:
+                result["errors"].append("BEHAVIOR_SERVER_MISSING_CMD_VEL_RAW_REMAP")
 
     if SIMULATOR_FILE in files and SIMULATOR_FILE.is_file():
         sim_text = _read_text(SIMULATOR_FILE)
@@ -554,6 +611,7 @@ def verify(runtime: bool = False) -> dict:
     check_forbidden_topics(result, files_to_scan)
     check_velocity_topic_allowlist(result, files_to_scan)
     check_forbidden_bridges(result, files_to_scan)
+    check_no_mission_components(result)
     check_namespace_offline(result)
     check_localhost_only_required(result, runtime=runtime)
     check_domain_id_required(result, runtime=runtime)

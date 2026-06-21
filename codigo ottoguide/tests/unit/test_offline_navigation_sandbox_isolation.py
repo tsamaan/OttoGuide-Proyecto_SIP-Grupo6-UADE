@@ -32,6 +32,9 @@ CONTROLLER_SMOKE_TEST_FILE = (
 COLLISION_MONITOR_SMOKE_TEST_FILE = (
     CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_collision_monitor.py"
 )
+BEHAVIOR_SERVER_SMOKE_TEST_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_behavior_server.py"
+)
 PARAMS_FILE = CODE_ROOT / "config" / "navigation" / "nav2_offline_sandbox_params.yaml"
 MAP_DIR = CODE_ROOT / "tests" / "fixtures" / "offline_navigation"
 MAP_PGM = MAP_DIR / "offline_sandbox_test_map.pgm"
@@ -523,7 +526,7 @@ class PlannerConfigurationTests(unittest.TestCase):
                             remap_found = True
         self.assertTrue(remap_found, "controller_server must remap cmd_vel -> cmd_vel_raw")
 
-    def test_no_behavior_or_waypoint_in_launch(self):
+    def test_no_waypoint_follower_in_launch(self):
         text = LAUNCH_FILE.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(LAUNCH_FILE))
         executables = set()
@@ -532,8 +535,7 @@ class PlannerConfigurationTests(unittest.TestCase):
                 for kw in node.keywords:
                     if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
                         executables.add(kw.value.value)
-        for forbidden in ("behavior_server", "waypoint_follower"):
-            self.assertNotIn(forbidden, executables)
+        self.assertNotIn("waypoint_follower", executables)
 
 
 class VelocityTopicAbsenceTests(unittest.TestCase):
@@ -675,7 +677,7 @@ class ControllerConfigurationTests(unittest.TestCase):
         checker.check_namespace_offline(result)
         self.assertNotIn("NODE_MISSING_NAMESPACE_controller_server", result["errors"])
 
-    def test_no_bt_navigator_behavior_waypoint_or_collision_monitor_executables(self):
+    def test_no_bt_navigator_waypoint_simple_commander_or_collision_detector_executables(self):
         text = LAUNCH_FILE.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(LAUNCH_FILE))
         executables = set()
@@ -686,7 +688,6 @@ class ControllerConfigurationTests(unittest.TestCase):
                         executables.add(kw.value.value)
         for forbidden in (
             "bt_navigator",
-            "behavior_server",
             "waypoint_follower",
             "collision_detector",
         ):
@@ -1124,6 +1125,135 @@ class HardenCollisionSafetyUnitTests(unittest.TestCase):
     def test_no_domain_id_dependent_logic_in_launch(self):
         text = LAUNCH_FILE.read_text(encoding="utf-8")
         self.assertNotIn("os.environ", text)
+
+
+class BehaviorServerIntegrationTests(unittest.TestCase):
+    def test_behavior_server_node_present_and_namespaced(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_namespace_offline(result)
+        self.assertNotIn("NODE_MISSING_NAMESPACE_behavior_server", result["errors"])
+
+    def test_behavior_server_has_dedicated_lifecycle_manager(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        node_names_lists = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if (
+                        isinstance(key, ast.Constant)
+                        and key.value == "node_names"
+                        and isinstance(value, ast.List)
+                    ):
+                        node_names_lists.append(
+                            [elt.value for elt in value.elts if isinstance(elt, ast.Constant)]
+                        )
+        behavior_only_lists = [names for names in node_names_lists if names == ["behavior_server"]]
+        self.assertTrue(behavior_only_lists, "no dedicated behavior_server-only lifecycle manager found")
+
+    def test_wait_and_spin_plugins_configured(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertIn('behavior_plugins: ["wait", "spin"]', text)
+        self.assertIn('plugin: "nav2_behaviors::Wait"', text)
+        self.assertIn('plugin: "nav2_behaviors::Spin"', text)
+
+    def test_max_rotational_vel_within_sandbox_limit(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertIn("max_rotational_vel: 0.30", text)
+
+    def test_behavior_server_remaps_cmd_vel_to_cmd_vel_raw(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        behavior_node = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                executable = None
+                for kw in node.keywords:
+                    if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                        executable = kw.value.value
+                if executable == "behavior_server":
+                    behavior_node = node
+                    break
+        self.assertIsNotNone(behavior_node, "behavior_server Node not found in launch")
+        remap_found = False
+        for kw in behavior_node.keywords:
+            if kw.arg == "remappings" and isinstance(kw.value, ast.List):
+                for element in kw.value.elts:
+                    if isinstance(element, ast.Tuple) and len(element.elts) == 2:
+                        src, dst = element.elts
+                        if (
+                            isinstance(src, ast.Constant)
+                            and isinstance(dst, ast.Constant)
+                            and src.value == "cmd_vel"
+                            and dst.value == "cmd_vel_raw"
+                        ):
+                            remap_found = True
+        self.assertTrue(remap_found, "behavior_server must remap cmd_vel -> cmd_vel_raw")
+
+    def test_behavior_server_never_remaps_directly_to_cmd_vel_safe(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_collision_monitor_contract(result, [LAUNCH_FILE, SIMULATOR_FILE])
+        self.assertNotIn("BEHAVIOR_SERVER_DIRECT_SAFE_BYPASS", result["errors"])
+
+    def test_behavior_server_smoke_included_in_runtime_scan_files(self):
+        self.assertIn(checker.BEHAVIOR_SERVER_SMOKE_TEST_FILE, checker.RUNTIME_SCAN_FILES)
+
+    def test_behavior_server_smoke_derives_domain_ids_from_base_argument(self):
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("--base-domain-id", text)
+        self.assertIn("base = int(args.base_domain_id)", text)
+        self.assertIn('domain_spin = str(base + 1)', text)
+        self.assertIn('domain_cancel = str(base + 2)', text)
+
+    def test_behavior_server_smoke_does_not_hardcode_domain_ids_ignoring_argument(self):
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertNotIn('DEFAULT_BASE_DOMAIN_ID = "121"', text)
+        self.assertIn("domain_wait = str(base)", text)
+
+    def test_wait_scenario_requires_zero_motion_and_no_safe_nonzero(self):
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('"pose_stable"', text)
+        self.assertIn('"odom_twist_zero"', text)
+        self.assertIn('and not result["safe_nonzero_detected"]', text)
+
+    def test_spin_scenario_observes_raw_and_safe_angular(self):
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('result["raw_angular_observed"] = client.raw_angular_observed', text)
+        self.assertIn('result["safe_angular_observed"] = client.safe_angular_observed', text)
+        self.assertIn('result["yaw_change"]', text)
+
+    def test_cancel_spin_requires_prior_motion_and_subsequent_stop(self):
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('and result["motion_observed"]', text)
+        self.assertIn('and result["cancel_result"] == "CANCELED"', text)
+        self.assertIn('and result["safe_angular_zero_after_cancel"]', text)
+        self.assertIn('and result["odom_twist_zero"]', text)
+        self.assertIn('and result["pose_stable"]', text)
+
+    def test_behavior_server_smoke_checks_no_bt_navigator_waypoint_or_simple_commander(self):
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("bt_navigator", text)
+        self.assertIn("waypoint_follower", text)
+        self.assertIn("simple_commander", text)
+        self.assertIn("mission_node_detected", text)
+
+    def test_behavior_server_smoke_checks_no_hardware(self):
+        text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("FORBIDDEN_NODE_SUBSTRINGS", text)
+        self.assertIn("hardware_node_detected", text)
+
+    def test_no_mission_components_checker_rejects_bt_navigator(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_launch = Path(tmp_dir) / "offline_nav_sandbox.launch.py"
+            tmp_launch.write_text("nav2_bt_navigator\n", encoding="utf-8")
+            saved_launch = checker.LAUNCH_FILE
+            checker.LAUNCH_FILE = tmp_launch
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_no_mission_components(result)
+            finally:
+                checker.LAUNCH_FILE = saved_launch
+        self.assertIn("MISSION_COMPONENT_OUT_OF_SCOPE_REFERENCED", result["errors"])
 
 
 if __name__ == "__main__":

@@ -164,6 +164,39 @@ def generate_launch_description():
                     {'node_names': ['collision_monitor']}]
     )
 
+    # Nodo behavior_server: solo plugins Wait y Spin en esta fase. OFFLINE_ONLY,
+    # SYNTHETIC, NOT_FOR_HARDWARE. Su salida relativa 'cmd_vel' se remapea a
+    # 'cmd_vel_raw' (resuelve a <namespace>/cmd_vel_raw), exactamente igual que
+    # controller_server, de forma que ambos publishers pasan obligatoriamente
+    # por collision_monitor antes de llegar al simulador. Nunca se remapea a
+    # 'cmd_vel_safe' directamente: eso bypassearia Collision Monitor. Sin BT
+    # Navigator, sin Waypoint Follower, sin Simple Commander, sin BackUp,
+    # DriveOnHeading ni AssistedTeleop en esta fase.
+    behavior_server_node = Node(
+        package='nav2_behaviors',
+        executable='behavior_server',
+        name='behavior_server',
+        namespace=namespace,
+        output='screen',
+        parameters=[configured_params],
+        remappings=[('cmd_vel', 'cmd_vel_raw')]
+    )
+
+    # Nodo lifecycle manager dedicado, exclusivamente para behavior_server.
+    # Aislado del resto de los managers: si behavior_server falla al iniciar
+    # o activar, queda aislado sin degradar Map, Planner, Controller o
+    # Collision Monitor, que ya estaban validados antes de agregar behaviors.
+    lifecycle_manager_behavior_server_node = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_behavior_server',
+        namespace=namespace,
+        output='screen',
+        parameters=[{'use_sim_time': False},
+                    {'autostart': True},
+                    {'node_names': ['behavior_server']}]
+    )
+
     # Nodo RViz (opcional)
     rviz_node = Node(
         package='rviz2',
@@ -236,9 +269,11 @@ def generate_launch_description():
         planner_server_node,
         controller_server_node,
         collision_monitor_node,
+        behavior_server_node,
         lifecycle_manager_node,
         lifecycle_manager_controller_node,
         lifecycle_manager_collision_monitor_node,
+        lifecycle_manager_behavior_server_node,
         rviz_node,
         offline_runtime_simulator_node,
         map_to_odom_static_tf,
