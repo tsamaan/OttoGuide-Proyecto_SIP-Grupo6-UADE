@@ -2,7 +2,13 @@
 @TASK: Unico entrypoint del sistema OttoGuide
 @INPUT: Variables de entorno (ROBOT_MODE, etc.) via config/settings.py
 @OUTPUT: Stack robotico activo; FastAPI + Uvicorn serviendo en API_HOST:API_PORT
-@CONTEXT: Reemplaza main.py, api_server.py y server.py anteriores
+@CONTEXT: Reemplaza main.py, api_server.py y server.py anteriores.
+          hardware/ es la HAL canonica (RobotHardwareInterface, MotionCommand); get_hardware_adapter()
+          en config/settings.py resuelve real/sim/mock exclusivamente contra hardware/*.
+          src/hardware/ es legacy, en cuarentena, y no debe ser importado desde este entrypoint.
+          La navegacion inyectada implementa src.navigation.port.NavigationPort; la implementacion
+          activa sigue siendo AsyncNav2Bridge (legacy) hasta la Fase 2H.1 (cliente ActionClient
+          directo contra /offline_nav/navigate_to_pose y /offline_nav/follow_waypoints).
 @SECURITY: damp() garantizado en cualquier causa de shutdown (SIGINT/SIGTERM/excepcion).
            Graceful shutdown HIL-safe: EventBus -> FSM EMERGENCY -> MotionCommand(0) -> damp()
 @AI_CONTEXT: Cero sys.path.append; cero imports de unitree_sdk2py en el entrypoint.
@@ -434,6 +440,26 @@ class _MinimalNavStub:
         @SECURITY: No publica en ROS 2
         """
         return None
+
+    async def send_goal(self, waypoint) -> bool:
+        """
+        @TASK: Simular envio de un unico goal de navegacion
+        @INPUT: waypoint
+        @OUTPUT: False para indicar no ejecucion de navegacion real
+        @CONTEXT: Completa la conformidad estructural con NavigationPort
+        @SECURITY: No despacha movimiento fisico
+        """
+        return False
+
+    async def is_navigation_active(self) -> bool:
+        """
+        @TASK: Simular consulta de actividad de navegacion
+        @INPUT: Sin parametros
+        @OUTPUT: False; el stub nunca tiene una tarea activa
+        @CONTEXT: Completa la conformidad estructural con NavigationPort
+        @SECURITY: Sin side effects
+        """
+        return False
 
 
 class _MinimalConversationStub:

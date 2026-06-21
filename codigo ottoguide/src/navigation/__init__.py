@@ -5,8 +5,9 @@ from typing import Any
 
 _SYMBOL_MODULE_MAP: dict[str, str] = {
     "AsyncNav2Bridge": ".nav2_bridge",
-    "NavWaypoint": ".nav2_bridge",
-    "NavigationStatus": ".nav2_bridge",
+    "NavWaypoint": ".models",
+    "NavigationStatus": ".models",
+    "NavigationPort": ".port",
 }
 
 
@@ -28,4 +29,5 @@ __all__ = [
     "AsyncNav2Bridge",
     "NavWaypoint",
     "NavigationStatus",
+    "NavigationPort",
 ]

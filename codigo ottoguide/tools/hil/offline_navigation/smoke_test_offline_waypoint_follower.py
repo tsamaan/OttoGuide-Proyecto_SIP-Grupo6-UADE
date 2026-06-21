@@ -18,11 +18,11 @@ B. Cancel (base + 1): FollowWaypoints with a longer 3-waypoint route,
    cancel request is verified against the real action_msgs/srv/CancelGoal
    response (return_code == ERROR_NONE and the goal's UUID present in
    goals_canceling), reusing the contract validated in Phase 2F.1.
-C. Unreachable (base + 2): FollowWaypoints with one waypoint placed inside a
-   real occupied cell of the versioned fixture map (confirmed via direct
-   inspection of the .pgm pixel data, not an arbitrary coordinate), with
-   stop_on_failure=true. Requires the action to fail at that specific
-   waypoint and never proceed to waypoints after it.
+C. Unreachable (base + 2): FollowWaypoints with one waypoint placed
+   deterministically outside the versioned fixture map bounds. With
+   stop_on_failure=true, the scenario requires ABORTED, missed waypoint
+   index 1, ComputePathToPose error GOAL_OUTSIDE_MAP, and no progression
+   to the following waypoint.
 
 This script does not touch the real robot, does not open rosbags, does not
 install packages, and does not kill ROS processes outside its own launched

@@ -2205,6 +2205,79 @@ class DomainIdRangePolicyTests(unittest.TestCase):
                             self.assertNotIn(inner.value, forbidden_literals)
 
 
+class ArchitectureReconciliationStaticGuardTests(unittest.TestCase):
+    """Fase 2H.0: verify_sandbox_isolation.py also guards the canonical
+    navigation/hardware contract files (models.py, port.py,
+    tour_orchestrator.py, main.py) against BasicNavigator/cmd_vel_nav/
+    src.hardware leakage, on top of its existing sandbox-only checks.
+    """
+
+    def test_static_verify_includes_architecture_files(self):
+        result = checker.verify(runtime=False)
+        checked = set(result["checked_files"])
+        self.assertIn(str(checker.ARCHITECTURE_MODELS_FILE), checked)
+        self.assertIn(str(checker.ARCHITECTURE_PORT_FILE), checked)
+        self.assertIn(str(checker.ARCHITECTURE_TOUR_ORCHESTRATOR_FILE), checked)
+        self.assertIn(str(checker.ARCHITECTURE_MAIN_FILE), checked)
+
+    def test_static_verify_passes_with_current_architecture_files(self):
+        result = checker.verify(runtime=False)
+        architecture_errors = [
+            e for e in result["errors"] if e.startswith("ARCHITECTURE_")
+        ]
+        self.assertEqual(architecture_errors, [])
+
+    def test_detects_forbidden_symbol_in_architecture_file(self):
+        result = {"checked_files": [], "errors": [], "warnings": []}
+        with tempfile.TemporaryDirectory() as tmp:
+            bad_file = Path(tmp) / "models.py"
+            bad_file.write_text(
+                "BasicNavigator = None\n", encoding="utf-8"
+            )
+            original = checker.ARCHITECTURE_RECONCILIATION_FILES
+            checker.ARCHITECTURE_RECONCILIATION_FILES = (bad_file,)
+            try:
+                checker.check_architecture_reconciliation_contract(result)
+            finally:
+                checker.ARCHITECTURE_RECONCILIATION_FILES = original
+        self.assertTrue(
+            any(e.startswith("ARCHITECTURE_FORBIDDEN_SYMBOL:") for e in result["errors"])
+        )
+
+    def test_detects_forbidden_src_hardware_import(self):
+        result = {"checked_files": [], "errors": [], "warnings": []}
+        with tempfile.TemporaryDirectory() as tmp:
+            bad_file = Path(tmp) / "tour_orchestrator.py"
+            bad_file.write_text(
+                "from src.hardware import RobotHardwareAPI\n", encoding="utf-8"
+            )
+            original = checker.ARCHITECTURE_RECONCILIATION_FILES
+            checker.ARCHITECTURE_RECONCILIATION_FILES = (bad_file,)
+            try:
+                checker.check_architecture_reconciliation_contract(result)
+            finally:
+                checker.ARCHITECTURE_RECONCILIATION_FILES = original
+        self.assertTrue(
+            any(e.startswith("ARCHITECTURE_FORBIDDEN_IMPORT:") for e in result["errors"])
+        )
+
+    def test_does_not_flag_unrelated_src_hardware_substring(self):
+        result = {"checked_files": [], "errors": [], "warnings": []}
+        with tempfile.TemporaryDirectory() as tmp:
+            ok_file = Path(tmp) / "port.py"
+            ok_file.write_text(
+                "from hardware.interface import RobotHardwareInterface\n",
+                encoding="utf-8",
+            )
+            original = checker.ARCHITECTURE_RECONCILIATION_FILES
+            checker.ARCHITECTURE_RECONCILIATION_FILES = (ok_file,)
+            try:
+                checker.check_architecture_reconciliation_contract(result)
+            finally:
+                checker.ARCHITECTURE_RECONCILIATION_FILES = original
+        self.assertEqual(result["errors"], [])
+
+
 class _ModuleLoaderMixin:
     def _load_module(self, path: Path):
         spec = importlib.util.spec_from_file_location(path.stem, path)

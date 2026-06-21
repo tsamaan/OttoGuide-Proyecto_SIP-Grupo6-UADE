@@ -26,8 +26,8 @@ OttoGuide RC1 opera con una arquitectura de control en borde orientada a HIL:
 | Capa 3 | src/interaction/conversation_manager.py | Ejecutar estrategia NLP local/cloud y devolver respuesta |
 | Capa 3 | src/interaction/wake_word_detector.py | Detectar "Hola Otto" y publicar INTERACTION_STARTED en EventBus |
 | Capa 3 | src/interaction/tts_unitree_client.py | Adapter TTS dual (Piper/Docker o SDK Unitree AudioClient) |
-| Capa 2 | src/navigation/nav2_bridge.py | Conectar con Nav2/AMCL y clamping de comandos de movimiento |
-| Capa 1 | hardware/*.py + unitree_sdk2 | Ejecutar acciones sobre hardware real/sim/mock |
+| Capa 2 | src/navigation/nav2_bridge.py | Conectar con Nav2/AMCL y clamping de comandos de movimiento (legacy; implementa `src.navigation.port.NavigationPort`) |
+| Capa 1 | hardware/*.py + unitree_sdk2 | Ejecutar acciones sobre hardware real/sim/mock (HAL canonica via `hardware.interface.RobotHardwareInterface`; `src/hardware/` es legacy y en cuarentena) |
 
 ## 3. Flujo de datos E2E
 
@@ -42,6 +42,14 @@ TourOrchestrator -> TelemetryManager -> Dashboard WebSocket
 TourOrchestrator -> MissionAuditLogger -> logs/mission_*.json
 FastAPI /status -> UnitreeFactoryRestClient -> GET 192.168.12.1:9991/con_check (diagnostico)
 ```
+
+> **Fase 2H.0:** este flujo no cambio en comportamiento. `TourOrchestrator` ahora
+> tipa sus dependencias contra los contratos canonicos abstractos
+> `hardware.interface.RobotHardwareInterface` y `src.navigation.port.NavigationPort`
+> en lugar de `RobotHardwareAPI`/`AsyncNav2Bridge` concretos. La instancia
+> inyectada en runtime sigue siendo la misma (`AsyncNav2Bridge` legacy, adaptador
+> de `hardware/` canonico). Ver
+> `documentacion general del proyecto/Arquitectura/ADR_002_RECONCILIACION_NAVEGACION_HARDWARE.md`.
 
 ### 3.2 Flujo Event-Driven (FASE R2): Interaccion -> Locomocion
 

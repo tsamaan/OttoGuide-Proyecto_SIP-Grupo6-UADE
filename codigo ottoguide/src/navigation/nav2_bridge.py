@@ -22,7 +22,6 @@ import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from typing import Any, Callable, Optional, Sequence, TYPE_CHECKING
 
 import cv2
@@ -31,6 +30,7 @@ from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
+from src.navigation.models import NavWaypoint, NavigationStatus
 from src.vision import PoseEstimate
 
 if TYPE_CHECKING:
@@ -62,50 +62,6 @@ CMD_VEL_FILTERED_TOPIC: str = "/cmd_vel_nav"  # topico de publicacion post-clamp
 NAV2_TASK_POLL_INTERVAL_S: float = 0.05       # intervalo de sondeo isTaskComplete()
 
 LOGGER = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Tipos de datos
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True, slots=True)
-class NavWaypoint:
-    """
-    @TASK: Representar un waypoint de navegacion en el frame del mapa de forma inmutable
-    @INPUT: Coordenadas x, y en metros y yaw en radianes relativas al origen del mapa; frame opcional
-    @OUTPUT: Estructura inmutable consumible por AsyncNav2Bridge.navigate_to_waypoints y send_goal
-    @CONTEXT: Tipo de dominio interno del bridge; independiente de PoseStamped de ROS 2.
-              Equivalente a Waypoint en NavigationManager; separado por clean architecture.
-    @SECURITY: frozen=True evita mutacion accidental de coordenadas durante la ejecucion del plan.
-
-    STEP 1: Capturar posicion 2D y orientacion yaw del plan de ruta del TourOrchestrator
-    STEP 2: Permitir override del frame_id para casos multi-mapa o frames de odometria
-    """
-
-    x: float
-    y: float
-    yaw_rad: float
-    frame_id: str = "map"
-
-
-@dataclass(slots=True)
-class NavigationStatus:
-    """
-    @TASK: Encapsular el estado observable de la tarea de navegacion activa en el bridge
-    @INPUT: Indicadores de tarea activa, resultado del ultimo plan y waypoint activo actual
-    @OUTPUT: Snapshot del estado compartido entre el hilo ROS 2 y las corrutinas async
-    @CONTEXT: Estado mutable compartido; acceso protegido por asyncio.Lock en el bridge.
-              No usar directamente; consultado via propiedades y metodos protegidos del bridge.
-    @SECURITY: Acceso siempre protegido por _status_lock (asyncio.Lock) para evitar race conditions
-               entre el hilo de spin ROS 2 y el event loop de asyncio.
-
-    STEP 1: Registrar si hay una tarea Nav2 activa y resultado del ultimo plan ejecutado
-    STEP 2: Mantener indice del waypoint activo para observabilidad y telemetria
-    """
-
-    task_active: bool = False
-    last_result_succeeded: Optional[bool] = None
-    active_waypoint_index: int = 0
 
 
 # ---------------------------------------------------------------------------

@@ -53,6 +53,15 @@ publicando a los topicos que consume
 `codigo ottoguide/src/navigation/nav2_bridge.py`
 mediante `AsyncNav2Bridge` (cliente ROS 2 Python/rclpy — proceso externo).
 
+> **Fase 2H.0 (Reconciliacion de arquitecturas de navegacion y hardware):**
+> `TourOrchestrator` ya no depende del tipo concreto `AsyncNav2Bridge`, sino del
+> contrato abstracto `src.navigation.port.NavigationPort`. `AsyncNav2Bridge`
+> sigue siendo la unica implementacion inyectada en `main.py` y permanece sin
+> cambios de comportamiento; queda clasificada como legacy, pendiente de
+> migracion a un cliente `rclpy.action.ActionClient` directo contra
+> `/offline_nav/navigate_to_pose` y `/offline_nav/follow_waypoints` (Fase
+> 2H.1). Ver `ADR_002_RECONCILIACION_NAVEGACION_HARDWARE.md`.
+
 ---
 
 ## Topicos ROS 2 Relevantes (desde unitree_ros2-master)

@@ -1,12 +1,17 @@
 """
 @TASK: Implementar orquestador central de tour integrando todos los subsistemas HIL Fase 6
-@INPUT: Instancias activas de RobotHardwareAPI, AsyncNav2Bridge, ConversationManager, VisionProcessor
+@INPUT: Instancias activas de RobotHardwareInterface, NavigationPort, ConversationManager,
+        VisionProcessor
 @OUTPUT: Maquina de estados asincrona con callbacks de integracion completa por estado;
          efectos de lado: movimiento del robot, TTS, inyeccion de odometria, telemetria WebSocket,
          persistencia de eventos de auditoria en JSON
 @CONTEXT: Modulo central de control; unico coordinador de subsistemas durante el tour.
           python-statemachine AsyncEngine gestiona todos los callbacks de forma no bloqueante.
           configuration[0].id se usa para leer el estado activo (current_state esta deprecado).
+          Fase 2H.0: TourOrchestrator depende de los contratos canonicos abstractos
+          hardware.interface.RobotHardwareInterface y src.navigation.port.NavigationPort,
+          no de implementaciones concretas. La implementacion de navegacion inyectada en
+          main.py sigue siendo la del bridge Nav2 legacy hasta Fase 2H.1.
 @SECURITY: EMERGENCY es la unica transicion con prioridad absoluta; Damp() se invoca primero.
 
 STEP 1: Definir grafo de estados (IDLE, NAVIGATING, INTERACTING, EMERGENCY) en TourOrchestrator
@@ -36,14 +41,14 @@ from numpy.typing import NDArray
 from statemachine import State, StateMachine
 from statemachine.engines.async_ import AsyncEngine
 
-from src.hardware import RobotHardwareAPI, RobotHardwareAPIError
-from src.hardware.interface import MotionCommand
+from hardware.interface import MotionCommand, RobotHardwareInterface
 from src.api.websocket_manager import TelemetryManager
 from src.core.mission_audit import MissionAuditLogger
 from src.core.events import EventType
 from src.core.event_bus import OttoEventBus
 from src.interaction import ConversationManager, ConversationRequest, ConversationResponse
-from src.navigation import AsyncNav2Bridge, NavWaypoint
+from src.navigation.models import NavWaypoint
+from src.navigation.port import NavigationPort
 from src.vision import OdometryVector, VisionProcessor
 
 
@@ -172,8 +177,8 @@ class TourOrchestrator(StateMachine):
     def __init__(
         self,
         *,
-        hardware_api: RobotHardwareAPI,
-        nav_bridge: AsyncNav2Bridge,
+        hardware_api: RobotHardwareInterface,
+        nav_bridge: NavigationPort,
         conversation_manager: ConversationManager,
         vision_processor: VisionProcessor,
         telemetry_manager: Optional[TelemetryManager] = None,
@@ -186,7 +191,7 @@ class TourOrchestrator(StateMachine):
         """
         @TASK: Inyectar dependencias de todos los subsistemas e inicializar el estado interno de la FSM
         @INPUT: hardware_api — adaptador HAL activo (real/sim/mock) que implementa RobotHardwareInterface
-                nav_bridge — puente async a ROS 2 Nav2; puede ser stub en modo mock
+                nav_bridge — implementacion de NavigationPort (AsyncNav2Bridge legacy o stub/mock)
                 conversation_manager — gestor NLP con estrategia local/cloud intercambiable
                 vision_processor — procesador de odometria visual via AprilTags y camara D435i
                 telemetry_manager — gestor de broadcast WebSocket (opcional; None desactiva telemetria)
@@ -215,8 +220,8 @@ class TourOrchestrator(StateMachine):
         if audio_capture_timeout_s <= 0:
             raise ValueError("audio_capture_timeout_s debe ser mayor que 0.")
 
-        self._hardware_api: RobotHardwareAPI = hardware_api
-        self._nav_bridge: AsyncNav2Bridge = nav_bridge
+        self._hardware_api: RobotHardwareInterface = hardware_api
+        self._nav_bridge: NavigationPort = nav_bridge
         self._conversation_manager: ConversationManager = conversation_manager
         self._vision_processor: VisionProcessor = vision_processor
         self._telemetry_manager: Optional[TelemetryManager] = telemetry_manager
@@ -691,8 +696,6 @@ class TourOrchestrator(StateMachine):
                 "[Orchestrator] TIMEOUT en Damp() durante EMERGENCY. "
                 "Verificar estado mecanico manualmente."
             )
-        except RobotHardwareAPIError as exc:
-            LOGGER.critical("[Orchestrator] RobotHardwareAPIError en Damp(): %s", exc)
         except Exception as exc:
             LOGGER.critical(
                 "[Orchestrator] Excepcion inesperada en Damp(): %s — %s",

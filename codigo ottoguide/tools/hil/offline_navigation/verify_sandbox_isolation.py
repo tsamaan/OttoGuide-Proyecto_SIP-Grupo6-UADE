@@ -94,6 +94,25 @@ WAYPOINT_FOLLOWER_SMOKE_TEST_FILE = (
     / "smoke_test_offline_waypoint_follower.py"
 )
 BT_XML_FILE = CODE_ROOT / "config" / "navigation" / "bt" / "offline_navigate_to_pose.xml"
+
+# Fase 2H.0 — Reconciliacion de arquitecturas de navegacion y hardware. These
+# canonical contract/runtime files must never reference BasicNavigator,
+# /cmd_vel_nav, CMD_VEL_FILTERED_TOPIC, or import src.hardware (the legacy,
+# quarantined HAL package). This is a static, file-content guard only; it
+# does not change the sandbox's own contract checks above.
+ARCHITECTURE_MODELS_FILE = CODE_ROOT / "src" / "navigation" / "models.py"
+ARCHITECTURE_PORT_FILE = CODE_ROOT / "src" / "navigation" / "port.py"
+ARCHITECTURE_TOUR_ORCHESTRATOR_FILE = CODE_ROOT / "src" / "core" / "tour_orchestrator.py"
+ARCHITECTURE_MAIN_FILE = CODE_ROOT / "main.py"
+ARCHITECTURE_RECONCILIATION_FILES = (
+    ARCHITECTURE_MODELS_FILE,
+    ARCHITECTURE_PORT_FILE,
+    ARCHITECTURE_TOUR_ORCHESTRATOR_FILE,
+    ARCHITECTURE_MAIN_FILE,
+)
+FORBIDDEN_ARCHITECTURE_SYMBOLS = ("BasicNavigator", "/cmd_vel_nav", "CMD_VEL_FILTERED_TOPIC")
+FORBIDDEN_ARCHITECTURE_IMPORT_PREFIX = "src.hardware"
+
 RUNTIME_SCAN_FILES = [
     LAUNCH_FILE,
     PARAMS_FILE,
@@ -811,6 +830,54 @@ def check_waypoint_follower_contract(result: dict) -> None:
         result["errors"].append("WAYPOINT_FOLLOWER_LIFECYCLE_MANAGER_NOT_ISOLATED")
 
 
+def check_architecture_reconciliation_contract(result: dict) -> None:
+    """Fase 2H.0: canonical navigation/hardware contract files (models.py,
+    port.py, tour_orchestrator.py, main.py) must never reference
+    BasicNavigator, /cmd_vel_nav, CMD_VEL_FILTERED_TOPIC, or import the
+    legacy, quarantined src.hardware package. This is purely a file-content
+    guard and does not start any process or touch the ROS graph.
+    """
+    for path in ARCHITECTURE_RECONCILIATION_FILES:
+        result["checked_files"].append(str(path))
+        if not path.is_file():
+            result["errors"].append(f"ARCHITECTURE_FILE_MISSING:{path.name}")
+            continue
+
+        text = _read_text(path)
+        for symbol in FORBIDDEN_ARCHITECTURE_SYMBOLS:
+            if symbol in text:
+                result["errors"].append(
+                    f"ARCHITECTURE_FORBIDDEN_SYMBOL:{path.name}:{symbol}"
+                )
+
+        try:
+            tree = ast.parse(text, filename=str(path))
+        except SyntaxError:
+            result["errors"].append(f"ARCHITECTURE_FILE_SYNTAX_ERROR:{path.name}")
+            continue
+
+        for node in ast.walk(tree):
+            module_name = None
+            if isinstance(node, ast.ImportFrom) and node.module:
+                module_name = node.module
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == FORBIDDEN_ARCHITECTURE_IMPORT_PREFIX or alias.name.startswith(
+                        FORBIDDEN_ARCHITECTURE_IMPORT_PREFIX + "."
+                    ):
+                        result["errors"].append(
+                            f"ARCHITECTURE_FORBIDDEN_IMPORT:{path.name}:{alias.name}"
+                        )
+                continue
+            if module_name is not None and (
+                module_name == FORBIDDEN_ARCHITECTURE_IMPORT_PREFIX
+                or module_name.startswith(FORBIDDEN_ARCHITECTURE_IMPORT_PREFIX + ".")
+            ):
+                result["errors"].append(
+                    f"ARCHITECTURE_FORBIDDEN_IMPORT:{path.name}:{module_name}"
+                )
+
+
 def verify(runtime: bool = False) -> dict:
     result = {
         "ok": True,
@@ -837,6 +904,7 @@ def verify(runtime: bool = False) -> dict:
     check_collision_monitor_contract(result, files_to_scan)
     check_bt_navigator_contract(result)
     check_waypoint_follower_contract(result)
+    check_architecture_reconciliation_contract(result)
 
     result["checked_files"] = sorted(set(result["checked_files"]) | {str(p) for p in files_to_scan if p.is_file()})
     result["errors"] = sorted(set(result["errors"]))

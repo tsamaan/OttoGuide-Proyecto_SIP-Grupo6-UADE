@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-from typing import AsyncIterator, Callable
+from typing import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -32,19 +32,18 @@ from tests.mocks.mock_vision_processor import MockVisionProcessor
 
 install_mocks(sys.modules)
 
+from hardware.interface import RobotHardwareInterface
+from hardware.mock_adapter import MockHardwareAPI
 from src.core import TourOrchestrator
 from src.core import TourPlan
-from src.hardware import RobotHardwareAPI
 from src.interaction import ConversationManager, ConversationResponse
 from src.navigation import NavWaypoint
-from tests.mocks.mock_unitree_sdk import MockHighLevelClient
 
 
 @dataclass(slots=True)
 class OrchestratorBundle:
     orchestrator: TourOrchestrator
-    hardware_api: RobotHardwareAPI
-    mock_client: MockHighLevelClient
+    hardware_api: RobotHardwareInterface
     conversation_manager: ConversationManager
     nav_bridge: MockNav2Bridge
     vision_processor: MockVisionProcessor
@@ -55,20 +54,15 @@ async def orchestrator_bundle() -> AsyncIterator[OrchestratorBundle]:
     # @TASK: Ensamblar orquestador test
     # @INPUT: Sin parametros
     # @OUTPUT: Bundle con orquestador y dependencias mockeadas
-    # @CONTEXT: Fixture async base para pruebas de integracion SITL
-    # STEP 1: Inyectar RobotHardwareAPI con MockHighLevelClient explicito
+    # @CONTEXT: Fixture async base para pruebas de integracion SITL. Refleja el wiring real de
+    #           main.py (Fase 2H.0): hardware_api es MockHardwareAPI, la misma clase que
+    #           config.settings.get_hardware_adapter() resuelve para ROBOT_MODE=mock|demo.
+    # STEP 1: Instanciar MockHardwareAPI (HAL canonica) e inicializarla
     # STEP 2: Construir ConversationManager y TourOrchestrator para pruebas
     # @SECURITY: Aisla pruebas de hardware y servicios externos
-    # @AI_CONTEXT: Resetea singleton para evitar fugas entre casos
-    mock_client = MockHighLevelClient(default_latency_s=0.001)
-    factory: Callable[[], MockHighLevelClient] = lambda: mock_client
-
-    RobotHardwareAPI._instance = None
-    hardware_api = RobotHardwareAPI.get_instance(
-        client_factory=factory,
-        call_timeout_s=0.2,
-        executor_workers=1,
-    )
+    # @AI_CONTEXT: MockHardwareAPI no usa patron singleton; instancia nueva por test
+    hardware_api = MockHardwareAPI()
+    await hardware_api.initialize()
 
     local_strategy = MagicMock()
     local_strategy.generate = AsyncMock(
@@ -109,14 +103,10 @@ async def orchestrator_bundle() -> AsyncIterator[OrchestratorBundle]:
     yield OrchestratorBundle(
         orchestrator=orchestrator,
         hardware_api=hardware_api,
-        mock_client=mock_client,
         conversation_manager=conversation_manager,
         nav_bridge=nav_bridge,
         vision_processor=vision_processor,
     )
-
-    hardware_api.close()
-    RobotHardwareAPI._instance = None
 
 
 @pytest.mark.asyncio
@@ -147,19 +137,21 @@ async def test_dispatch_tour_enters_navigating(orchestrator_bundle: Orchestrator
 async def test_emergency_stop_triggers_damp(orchestrator_bundle: OrchestratorBundle) -> None:
     # @TASK: Validar emergencia con Damp
     # @INPUT: orchestrator_bundle
-    # @OUTPUT: Registro de comando Damp en historial mock
-    # @CONTEXT: Verifica rutina de seguridad en estado final EMERGENCY
+    # @OUTPUT: Estado del adaptador HAL canonico reportado como "damped"
+    # @CONTEXT: Verifica rutina de seguridad en estado final EMERGENCY contra MockHardwareAPI
+    #           (HAL canonica), reemplazando el historial de comandos del SDK legacy.
     # STEP 1: Forzar emergencia
-    # STEP 2: Asertar estado final y Damp ejecutado
+    # STEP 2: Asertar estado final de la FSM y damp() ejecutado en el adaptador HAL
     # @SECURITY: Ruta failsafe critica
     # @AI_CONTEXT: Cubre la transicion de maxima prioridad
     orchestrator = orchestrator_bundle.orchestrator
-    mock_client = orchestrator_bundle.mock_client
+    hardware_api = orchestrator_bundle.hardware_api
 
     await orchestrator.emergency_stop("forced-test-error")
 
     assert orchestrator.state_id == "emergency"
-    assert any(record.command == "Damp" for record in mock_client.history)
+    state = await hardware_api.get_state()
+    assert state["state"] == "damped"
 
 
 @pytest.mark.asyncio
