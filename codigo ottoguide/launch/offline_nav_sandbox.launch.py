@@ -64,7 +64,19 @@ def generate_launch_description():
         parameters=[PARAMS_FILE, {'yaml_filename': LaunchConfiguration('map_yaml')}]
     )
 
-    # Nodo lifecycle manager para arrancar el map_server
+    # Nodo planner_server: planificacion global unicamente. OFFLINE_ONLY,
+    # SYNTHETIC, NOT_FOR_HARDWARE. Sin controller_server, sin local_costmap,
+    # sin behaviors, sin waypoint follower, sin Collision Monitor.
+    planner_server_node = Node(
+        package='nav2_planner',
+        executable='planner_server',
+        name='planner_server',
+        namespace=namespace,
+        output='screen',
+        parameters=[PARAMS_FILE]
+    )
+
+    # Nodo lifecycle manager: activa map_server y planner_server unicamente.
     lifecycle_manager_node = Node(
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
@@ -73,7 +85,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{'use_sim_time': False},
                     {'autostart': True},
-                    {'node_names': ['map_server']}]
+                    {'node_names': ['map_server', 'planner_server']}]
     )
 
     # Nodo RViz (opcional)
@@ -127,7 +139,9 @@ def generate_launch_description():
     )
 
     # Sandbox offline unicamente: sin navegacion real, sin hardware fisico,
-    # sin controller_server y sin /cmd_vel.
+    # sin controller_server, sin behaviors, sin waypoint follower, sin
+    # Collision Monitor y sin comandos de velocidad de ningun tipo.
+    # planner_server solo planifica rutas globales; no mueve nada.
     # Requiere entorno con ROS_LOCALHOST_ONLY=1 y ROS_DOMAIN_ID explicito
     # (no el default 0) para aislar este sandbox del resto de la red ROS.
     # Las TF map->odom y base_link->utlidar_lidar publicadas aqui son
@@ -139,6 +153,7 @@ def generate_launch_description():
         rviz_config_arg,
         sandbox_namespace_arg,
         map_server_node,
+        planner_server_node,
         lifecycle_manager_node,
         rviz_node,
         offline_runtime_simulator_node,

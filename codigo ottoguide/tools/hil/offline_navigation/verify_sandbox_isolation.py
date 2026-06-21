@@ -37,8 +37,34 @@ SIMULATOR_FILE = (
     CODE_ROOT / "tools" / "hil" / "offline_navigation" / "offline_runtime_simulator.py"
 )
 RUNTIME_WRAPPER = CODE_ROOT / "scripts" / "run_offline_navigation_runtime.sh"
-RUNTIME_SCAN_FILES = [LAUNCH_FILE, PARAMS_FILE, MAP_YAML, SIMULATOR_FILE, RUNTIME_WRAPPER]
+FOUNDATION_SMOKE_TEST_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_runtime.py"
+)
+PLANNER_SMOKE_TEST_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_planner.py"
+)
+RUNTIME_SCAN_FILES = [
+    LAUNCH_FILE,
+    PARAMS_FILE,
+    MAP_YAML,
+    SIMULATOR_FILE,
+    RUNTIME_WRAPPER,
+    FOUNDATION_SMOKE_TEST_FILE,
+    PLANNER_SMOKE_TEST_FILE,
+]
 EXPECTED_REAL_NAMESPACE = "offline_nav"
+
+# Required ROS entities in the launch file: a Node call must carry a real
+# namespace= kwarg, or (for ExecuteProcess-launched rclpy scripts) the cmd
+# list must include a '-r' remap of '__ns:=/<namespace>'.
+REQUIRED_NODE_NAMES = {
+    "map_server",
+    "planner_server",
+    "lifecycle_manager_navigation",
+    "map_to_odom_synthetic_tf",
+    "base_link_to_utlidar_lidar_synthetic_tf",
+}
+REQUIRED_EXECUTE_PROCESS_NAMES = {"offline_runtime_simulator"}
 
 
 def _read_text(path: Path) -> str:
@@ -121,11 +147,29 @@ def _strip_comment_lines(text: str) -> str:
     return "\n".join(kept_lines)
 
 
+# Smoke tests legitimately reference these topic names as string literals to
+# *detect their absence* (e.g. `"/cmd_vel" in topics`), not to publish or
+# subscribe to them. Lines matching this idiom are excluded from the
+# forbidden-topic scan; actual publisher/subscriber wiring (create_publisher,
+# create_subscription, ros2 topic pub, etc.) is not matched by it and still
+# triggers a violation.
+DETECTION_IDIOM_PATTERN = re.compile(r'["\'](/cmd_vel(?:_nav)?)["\']\s*in\s+\w+')
+
+
+def _strip_detection_idiom_lines(text: str) -> str:
+    kept_lines = []
+    for line in text.splitlines():
+        if DETECTION_IDIOM_PATTERN.search(line):
+            continue
+        kept_lines.append(line)
+    return "\n".join(kept_lines)
+
+
 def check_forbidden_topics(result: dict, files: list[Path]) -> None:
     for path in files:
         if not path.is_file():
             continue
-        text = _strip_comment_lines(_read_text(path))
+        text = _strip_detection_idiom_lines(_strip_comment_lines(_read_text(path)))
         for match in FORBIDDEN_CMD_VEL_NAV_PATTERN.finditer(text):
             result["forbidden_matches"].append(
                 {"file": str(path), "pattern": "CMD_VEL_NAV", "match": match.group(0)}
@@ -151,12 +195,31 @@ def check_forbidden_bridges(result: dict, files: list[Path]) -> None:
             result["errors"].append("PHYSICAL_BRIDGE_REFERENCED")
 
 
-def check_namespace_offline(result: dict) -> None:
-    """Require a *real* ROS namespace, not just the textual word 'offline'.
+def _execute_process_cmd_has_ns_remap(node: ast.Call) -> bool:
+    """Detect a '-r', ['__ns:=/', namespace] remap pair inside cmd=[...]."""
+    for kw in node.keywords:
+        if kw.arg != "cmd" or not isinstance(kw.value, ast.List):
+            continue
+        elements = kw.value.elts
+        for i, element in enumerate(elements):
+            if isinstance(element, ast.Constant) and element.value == "-r":
+                if i + 1 < len(elements) and isinstance(elements[i + 1], ast.List):
+                    remap_parts = elements[i + 1].elts
+                    if remap_parts and isinstance(remap_parts[0], ast.Constant):
+                        if str(remap_parts[0].value).startswith("__ns:="):
+                            return True
+    return False
 
-    A real namespace means a DeclareLaunchArgument named 'sandbox_namespace'
-    whose default value is EXPECTED_REAL_NAMESPACE, and at least one Node(...)
-    call in the launch file that passes namespace= using that argument.
+
+def check_namespace_offline(result: dict) -> None:
+    """Require a *real* ROS namespace/remapping per required entity.
+
+    A real namespace means: a DeclareLaunchArgument named 'sandbox_namespace'
+    whose default value is EXPECTED_REAL_NAMESPACE; every required Node(...)
+    call (REQUIRED_NODE_NAMES) passes namespace= using that argument; and
+    every required ExecuteProcess(...) call (REQUIRED_EXECUTE_PROCESS_NAMES)
+    remaps '__ns:=/<namespace>' in its cmd list. Counting >0 occurrences is
+    not enough: each required entity must be individually verified by name.
     """
     result["checked_files"].append(str(LAUNCH_FILE))
     if not LAUNCH_FILE.is_file():
@@ -171,12 +234,14 @@ def check_namespace_offline(result: dict) -> None:
 
     has_namespace_arg_declaration = False
     has_namespace_arg_correct_default = False
-    nodes_with_namespace_kwarg = 0
+    namespaced_node_names: set[str] = set()
+    namespaced_execute_process_names: set[str] = set()
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         func_name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+
         if func_name == "DeclareLaunchArgument":
             arg_name = None
             default_value = None
@@ -191,18 +256,38 @@ def check_namespace_offline(result: dict) -> None:
                 has_namespace_arg_declaration = True
                 if default_value == EXPECTED_REAL_NAMESPACE:
                     has_namespace_arg_correct_default = True
+
         if func_name == "Node":
+            node_name = None
+            has_namespace_kwarg = False
             for kw in node.keywords:
+                if kw.arg == "name" and isinstance(kw.value, ast.Constant):
+                    node_name = kw.value.value
                 if kw.arg == "namespace":
-                    nodes_with_namespace_kwarg += 1
+                    has_namespace_kwarg = True
+            if node_name is not None and has_namespace_kwarg:
+                namespaced_node_names.add(node_name)
+
+        if func_name == "ExecuteProcess":
+            process_name = None
+            for kw in node.keywords:
+                if kw.arg == "name" and isinstance(kw.value, ast.Constant):
+                    process_name = kw.value.value
+            if process_name is not None and _execute_process_cmd_has_ns_remap(node):
+                namespaced_execute_process_names.add(process_name)
 
     if not has_namespace_arg_declaration:
         result["errors"].append("NO_SANDBOX_NAMESPACE_ARGUMENT_DECLARED")
     elif not has_namespace_arg_correct_default:
         result["errors"].append("SANDBOX_NAMESPACE_DEFAULT_NOT_OFFLINE_NAV")
 
-    if nodes_with_namespace_kwarg == 0:
-        result["errors"].append("NO_NODE_APPLIES_NAMESPACE_KWARG")
+    missing_node_namespaces = REQUIRED_NODE_NAMES - namespaced_node_names
+    for missing in sorted(missing_node_namespaces):
+        result["errors"].append(f"NODE_MISSING_NAMESPACE_{missing}")
+
+    missing_process_namespaces = REQUIRED_EXECUTE_PROCESS_NAMES - namespaced_execute_process_names
+    for missing in sorted(missing_process_namespaces):
+        result["errors"].append(f"EXECUTE_PROCESS_MISSING_NS_REMAP_{missing}")
 
 
 def check_localhost_only_required(result: dict, runtime: bool = False) -> None:

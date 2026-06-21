@@ -24,13 +24,12 @@ from pathlib import Path
 
 TOOLS_DIR = Path(__file__).resolve().parent
 CODE_ROOT = TOOLS_DIR.parents[2]
-LAUNCH_FILE = CODE_ROOT / "launch" / "offline_nav_sandbox.launch.py"
+RUNTIME_WRAPPER = CODE_ROOT / "scripts" / "run_offline_navigation_runtime.sh"
 
 DEFAULT_NAMESPACE = "offline_nav"
 DEFAULT_DOMAIN_ID = "78"
 DEFAULT_TIMEOUT_S = 30.0
 
-FORBIDDEN_GLOBAL_TOPICS = ("/cmd_vel", "/cmd_vel_nav")
 FORBIDDEN_NODE_SUBSTRINGS = (
     "unitree",
     "livox_sdk_bridge",
@@ -75,6 +74,55 @@ def _topic_has_message(topic: str, env: dict, timeout: float) -> bool:
     return proc.returncode == 0 and bool(proc.stdout.strip())
 
 
+def _process_group_is_alive(pgid: int) -> bool:
+    """Probe whether any process in the given process group still exists.
+
+    Sends signal 0 (no-op) to the group: this raises ProcessLookupError if
+    nothing in the group exists anymore, without actually affecting any
+    process. Only ever targets this script's own launched process group.
+    """
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _shutdown_and_count_orphans(launch_process: "subprocess.Popen[str] | None") -> int:
+    """Shut down the wrapper process group and verify it actually disappears.
+
+    Returns the number of own process-group members still alive after a
+    graceful SIGINT, a follow-up SIGTERM, and a final grace period. Never
+    targets any process outside this script's own launched process group.
+    """
+    if launch_process is None:
+        return 0
+
+    try:
+        pgid = os.getpgid(launch_process.pid)
+    except ProcessLookupError:
+        return 0
+
+    try:
+        os.killpg(pgid, signal.SIGINT)
+        launch_process.wait(timeout=15.0)
+    except ProcessLookupError:
+        return 0
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+            launch_process.wait(timeout=10.0)
+        except ProcessLookupError:
+            return 0
+        except subprocess.TimeoutExpired:
+            pass
+
+    time.sleep(1.0)
+    return 1 if _process_group_is_alive(pgid) else 0
+
+
 def run_smoke_test(
     namespace: str, domain_id: str, timeout_s: float
 ) -> dict:
@@ -101,7 +149,7 @@ def run_smoke_test(
     try:
         launch_process = subprocess.Popen(
             [
-                "ros2", "launch", str(LAUNCH_FILE),
+                "bash", str(RUNTIME_WRAPPER),
                 f"sandbox_namespace:={namespace}",
                 "use_rviz:=false",
             ],
@@ -159,22 +207,7 @@ def run_smoke_test(
     except subprocess.TimeoutExpired as exc:
         result["errors"].append(f"COMMAND_TIMEOUT: {exc}")
     finally:
-        orphan_count = 0
-        if launch_process is not None:
-            try:
-                os.killpg(os.getpgid(launch_process.pid), signal.SIGINT)
-                launch_process.wait(timeout=15.0)
-            except ProcessLookupError:
-                pass
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(os.getpgid(launch_process.pid), signal.SIGTERM)
-                    launch_process.wait(timeout=10.0)
-                except Exception:
-                    orphan_count += 1
-            except Exception:
-                orphan_count += 1
-        result["orphan_processes"] = orphan_count
+        result["orphan_processes"] = _shutdown_and_count_orphans(launch_process)
 
     result["ok"] = (
         not result["errors"]

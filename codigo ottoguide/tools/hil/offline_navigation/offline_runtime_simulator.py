@@ -61,11 +61,27 @@ class OfflineRuntimeSimulator(Node):
         frequency_hz = float(self.get_parameter("publish_frequency_hz").value)
         self._scan_range_count = int(self.get_parameter("scan_range_count").value)
         self._scan_range_m = float(self.get_parameter("scan_range_m").value)
+        self._scan_range_min_m = 0.1
+
+        if frequency_hz <= 0.0:
+            raise ValueError(
+                f"publish_frequency_hz must be > 0, got {frequency_hz}"
+            )
+        if self._scan_range_count < 2:
+            raise ValueError(
+                f"scan_range_count must be >= 2, got {self._scan_range_count}"
+            )
+        if self._scan_range_m <= self._scan_range_min_m:
+            raise ValueError(
+                f"scan_range_m must be > range_min ({self._scan_range_min_m}), "
+                f"got {self._scan_range_m}"
+            )
 
         self._odom_publisher = self.create_publisher(Odometry, "odom", 10)
         self._scan_publisher = self.create_publisher(LaserScan, "scan", 10)
         self._tf_broadcaster = TransformBroadcaster(self)
 
+        self._scan_time_s = 1.0 / frequency_hz
         period_s = 1.0 / frequency_hz
         self._timer = self.create_timer(period_s, self._on_timer)
 
@@ -116,8 +132,8 @@ class OfflineRuntimeSimulator(Node):
         scan_msg.angle_max = math.pi
         scan_msg.angle_increment = (2.0 * math.pi) / self._scan_range_count
         scan_msg.time_increment = 0.0
-        scan_msg.scan_time = 1.0 / max(self._scan_range_count, 1)
-        scan_msg.range_min = 0.1
+        scan_msg.scan_time = self._scan_time_s
+        scan_msg.range_min = self._scan_range_min_m
         scan_msg.range_max = self._scan_range_m
         scan_msg.ranges = [self._scan_range_m for _ in range(self._scan_range_count)]
         scan_msg.intensities = []

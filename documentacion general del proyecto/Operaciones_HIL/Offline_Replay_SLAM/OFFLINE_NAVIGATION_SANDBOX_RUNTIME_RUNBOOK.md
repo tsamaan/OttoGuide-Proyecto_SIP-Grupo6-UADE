@@ -1,7 +1,7 @@
 # Offline Navigation Sandbox — Runtime Runbook
 
 **Fecha**: 2026-06-20
-**Fase**: 2A — base de runtime ROS aislada (map_server + lifecycle_manager + TF + odometría/scan sintéticos). No incluye planner, controller, waypoint follower, Collision Monitor ni Simple Commander.
+**Fase**: 2B — base de runtime ROS aislada (map_server + lifecycle_manager + TF + odometría/scan sintéticos) más planificación global aislada (`planner_server` + global costmap). No incluye controller, behaviors, waypoint follower, Collision Monitor ni Simple Commander.
 
 ## Alcance
 
@@ -57,14 +57,25 @@ Argumento de launch `sandbox_namespace`, default `offline_nav`. Se aplica como n
 - Ante `SIGINT` (`Ctrl+C`) o `SIGTERM`, el wrapper envía `SIGINT` al proceso `ros2 launch`, espera su cierre y propaga el exit code real.
 - El smoke test (`smoke_test_offline_runtime.py`) sí impone timeout (`--timeout`, default 30s) y cierra el launch que él mismo inició mediante `SIGINT` a su process group, verificando 0 procesos huérfanos propios.
 
-## Smoke test
+## Smoke test (foundation)
 
 ```bash
 cd "codigo ottoguide"
 python3 tools/hil/offline_navigation/smoke_test_offline_runtime.py --domain-id 78 --timeout 30
 ```
 
-Usa un `ROS_DOMAIN_ID` dedicado (`78` por default, distinto del `77` del wrapper manual) para no interferir con otra sesión del sandbox que pueda estar corriendo. Verifica: mensajes en `map`/`odom`/`scan`, presencia de `/tf` y `/tf_static`, ausencia de `/cmd_vel` y `/cmd_vel_nav` globales, ausencia de nodos con nombres asociados a hardware Unitree/Livox/RealSense, y cierre limpio sin procesos huérfanos. Devuelve JSON y exit code (`0`=PASS, `2`=FAIL).
+Usa un `ROS_DOMAIN_ID` dedicado (`78` por default, distinto del `77` del wrapper manual) para no interferir con otra sesión del sandbox que pueda estar corriendo. Inicia el runtime mediante el wrapper aislado (`run_offline_navigation_runtime.sh`), no mediante `ros2 launch` directo. Verifica: mensajes en `map`/`odom`/`scan`, presencia de `/tf` y `/tf_static`, ausencia de `/cmd_vel` y `/cmd_vel_nav` globales, ausencia de nodos con nombres asociados a hardware Unitree/Livox/RealSense, y cierre limpio sin procesos huérfanos (verificado sondeando el process group real, no solo `wait()`). Devuelve JSON y exit code (`0`=PASS, `2`=FAIL).
+
+## Planificación global (planner_server)
+
+`planner_server` se activa junto con `map_server` bajo el mismo `lifecycle_manager`. Plugin configurado: `nav2_navfn_planner/NavfnPlanner` (alias `GridBased`). Expone la acción namespaced `/offline_nav/compute_path_to_pose` (`nav2_msgs/action/ComputePathToPose`).
+
+```bash
+cd "codigo ottoguide"
+python3 tools/hil/offline_navigation/smoke_test_offline_planner.py --domain-id 85 --timeout 40
+```
+
+Inicia el runtime vía el mismo wrapper aislado, espera a que `planner_server` esté activo, envía un goal `ComputePathToPose` con start `(-0.75, 0.0)` y goal `(0.75, 0.0)` en frame `map` (orientación identidad, sobre el mapa sintético versionado), y verifica: planner activo, action server disponible, resultado `SUCCEEDED`, al menos 2 poses, primera pose cerca del start, última cerca del goal, todas las poses finitas, frame `map`, ausencia de `controller_server`, ausencia de `/cmd_vel`/`/cmd_vel_nav` globales, ausencia de nodos de hardware, y cierre sin procesos huérfanos. Ver detalle completo en [OFFLINE_NAVIGATION_GLOBAL_PLANNING_REPORT.md](OFFLINE_NAVIGATION_GLOBAL_PLANNING_REPORT.md).
 
 ## Troubleshooting
 
@@ -75,11 +86,14 @@ Usa un `ROS_DOMAIN_ID` dedicado (`78` por default, distinto del `77` del wrapper
 | El verificador runtime devuelve `FAIL` antes de iniciar ROS | Aislamiento incompleto (`ROS_LOCALHOST_ONLY` no es `1`, o referencia prohibida en algún archivo nuevo) | Revisar el campo `errors` del JSON impreso por el wrapper; no forzar la ejecución. |
 | El smoke test no recibe mensaje de `map`/`odom`/`scan` dentro del timeout | `nav2_map_server`/`lifecycle_manager` no llegaron a `ACTIVE`, o el simulador no arrancó | Aumentar `--timeout`, revisar el log de `ros2 launch` por errores de `map_server`/`lifecycle_manager`. |
 | `ros2 topic list` no devuelve nada | `ROS_DOMAIN_ID`/`ROS_LOCALHOST_ONLY` distintos entre el publicador y el cliente que lista | Confirmar que la shell que ejecuta `ros2 topic`/`ros2 node` tiene las mismas variables que el wrapper o el smoke test. |
+| `ACTION_SERVER_NOT_AVAILABLE` en el smoke test del planner | `planner_server` no llegó a `active` dentro del timeout, o el cliente de la acción no sourceó ROS antes de `rclpy.init()` | Aumentar `--timeout`; confirmar `ros2 lifecycle get /offline_nav/planner_server` devuelve `active`. |
+| `GOAL_REJECTED` o `path_result` distinto de `SUCCEEDED` | Start/goal fuera del mapa, dentro de un obstáculo, o plugin de planner mal configurado en el YAML | Revisar `tolerance`/`allow_unknown` en `nav2_offline_sandbox_params.yaml`; confirmar que las coordenadas caen dentro de los límites del mapa sintético (`x ∈ [-1.0, 1.0]`, `y ∈ [-0.75, 0.75]`). |
 
 ## Restricciones
 
 - No se publica `/cmd_vel` ni `/cmd_vel_nav` en ningún momento.
-- No se inicia `planner_server`, `controller_server`, `behavior_server`, `waypoint_follower`, `collision_monitor` ni Simple Commander en esta fase.
+- No se inicia `controller_server`, `behavior_server`, `waypoint_follower`, `collision_monitor` ni Simple Commander en esta fase. `planner_server` sí está incluido desde la Fase 2B, exclusivamente para planificación global.
 - No se conecta al robot físico, no se usa SSH/SCP, no se contactan IPs `192.168.123.*`.
 - No se abren rosbags ni se instala ningún paquete.
 - El simulador (`offline_runtime_simulator.py`) publica una pose fija con velocidad cero; no es una estimación de odometría validada y no debe usarse como evidencia de L2/L3.
+- El planner calcula rutas candidatas sobre el mapa sintético; no mueve nada y no constituye evidencia de navegación autónoma.

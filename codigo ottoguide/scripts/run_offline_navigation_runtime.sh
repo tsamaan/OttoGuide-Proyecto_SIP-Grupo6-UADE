@@ -84,8 +84,10 @@ trap cleanup EXIT INT TERM
 ros2 launch "${LAUNCH_FILE}" "$@" &
 LAUNCH_PID="$!"
 
+set +e
 wait "${LAUNCH_PID}"
 LAUNCH_EXIT_CODE="$?"
+set -e
 
-# STEP [7]: Propagar exit code real.
+# STEP [7]: Propagar exit code real, incluso si es distinto de cero.
 exit "${LAUNCH_EXIT_CODE}"

@@ -20,6 +20,13 @@ CHECKER_PATH = CODE_ROOT / "tools" / "hil" / "offline_navigation" / "verify_sand
 LAUNCH_FILE = CODE_ROOT / "launch" / "offline_nav_sandbox.launch.py"
 SIMULATOR_FILE = CODE_ROOT / "tools" / "hil" / "offline_navigation" / "offline_runtime_simulator.py"
 RUNTIME_WRAPPER = CODE_ROOT / "scripts" / "run_offline_navigation_runtime.sh"
+FOUNDATION_SMOKE_TEST_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_runtime.py"
+)
+PLANNER_SMOKE_TEST_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_planner.py"
+)
+PARAMS_FILE = CODE_ROOT / "config" / "navigation" / "nav2_offline_sandbox_params.yaml"
 MAP_DIR = CODE_ROOT / "tests" / "fixtures" / "offline_navigation"
 MAP_PGM = MAP_DIR / "offline_sandbox_test_map.pgm"
 MAP_YAML = MAP_DIR / "offline_sandbox_test_map.yaml"
@@ -393,6 +400,173 @@ class SimulatorParameterTests(unittest.TestCase):
         self.assertIn("POSE_COVARIANCE_CONSERVATIVE", text)
         self.assertIn("TWIST_COVARIANCE_CONSERVATIVE", text)
         self.assertIn("999.0", text)
+
+
+class SimulatorParameterValidationTests(unittest.TestCase):
+    def test_simulator_validates_publish_frequency_positive(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn("frequency_hz <= 0.0", text)
+        self.assertIn("raise ValueError", text)
+
+    def test_simulator_validates_scan_range_count_minimum(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn("self._scan_range_count < 2", text)
+
+    def test_simulator_validates_scan_range_greater_than_range_min(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn("self._scan_range_m <= self._scan_range_min_m", text)
+
+    def test_simulator_uses_correct_scan_time_formula(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn("self._scan_time_s = 1.0 / frequency_hz", text)
+        self.assertIn("scan_msg.scan_time = self._scan_time_s", text)
+
+    def test_simulator_still_has_zero_velocity_and_no_subscriptions(self):
+        text = SIMULATOR_FILE.read_text(encoding="utf-8")
+        self.assertIn("twist.twist.linear.x = 0.0", text)
+        self.assertIn("twist.twist.angular.z = 0.0", text)
+        self.assertNotIn("create_subscription", text)
+
+
+class PlannerConfigurationTests(unittest.TestCase):
+    def test_params_yaml_configures_navfn_planner_plugin(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertIn("nav2_navfn_planner/NavfnPlanner", text)
+        self.assertIn("planner_plugins:", text)
+
+    def test_params_yaml_global_costmap_has_static_and_inflation_layers(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertIn("nav2_costmap_2d::StaticLayer", text)
+        self.assertIn("nav2_costmap_2d::InflationLayer", text)
+
+    def test_params_yaml_global_costmap_uses_map_frame_and_base_link(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertIn("global_frame: map", text)
+        self.assertIn("robot_base_frame: base_link", text)
+
+    def test_params_yaml_has_no_controller_server_or_local_costmap(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertNotIn("controller_server:", text)
+        self.assertNotIn("local_costmap:", text)
+
+    def test_params_yaml_declares_offline_only_synthetic_markers(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        for marker in ("OFFLINE_ONLY", "SYNTHETIC", "NOT_FOR_HARDWARE"):
+            self.assertIn(marker, text)
+
+    def test_launch_declares_planner_server_node(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        self.assertIn("nav2_planner", text)
+        self.assertIn("planner_server", text)
+
+    def test_planner_server_is_namespaced(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_namespace_offline(result)
+        self.assertNotIn("NODE_MISSING_NAMESPACE_planner_server", result["errors"])
+
+    def test_lifecycle_manager_includes_planner_server(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        node_names_lists = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if (
+                        isinstance(key, ast.Constant)
+                        and key.value == "node_names"
+                        and isinstance(value, ast.List)
+                    ):
+                        node_names_lists.append(
+                            [elt.value for elt in value.elts if isinstance(elt, ast.Constant)]
+                        )
+        self.assertTrue(node_names_lists, "no node_names list found in launch file")
+        self.assertIn("planner_server", node_names_lists[0])
+        self.assertIn("map_server", node_names_lists[0])
+
+    def test_no_controller_server_node_in_launch(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        executables = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                for kw in node.keywords:
+                    if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                        executables.add(kw.value.value)
+        self.assertNotIn("controller_server", executables)
+
+    def test_no_behavior_or_waypoint_or_collision_monitor_in_launch(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        executables = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                for kw in node.keywords:
+                    if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                        executables.add(kw.value.value)
+        for forbidden in ("behavior_server", "waypoint_follower", "collision_monitor"):
+            self.assertNotIn(forbidden, executables)
+
+
+class VelocityTopicAbsenceTests(unittest.TestCase):
+    def test_launch_has_no_velocity_topic_usage(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_forbidden_topics(result, [LAUNCH_FILE])
+        self.assertEqual(result["errors"], [])
+
+    def test_params_yaml_has_no_velocity_topic_usage(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_forbidden_topics(result, [PARAMS_FILE])
+        self.assertEqual(result["errors"], [])
+
+    def test_planner_smoke_test_detection_idiom_not_flagged_as_usage(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_forbidden_topics(result, [PLANNER_SMOKE_TEST_FILE])
+        self.assertEqual(result["errors"], [])
+
+    def test_foundation_smoke_test_detection_idiom_not_flagged_as_usage(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_forbidden_topics(result, [FOUNDATION_SMOKE_TEST_FILE])
+        self.assertEqual(result["errors"], [])
+
+    def test_real_cmd_vel_publisher_usage_is_still_detected(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("node.create_publisher(Twist, '/cmd_vel', 10)\n") as tmp_file:
+            checker.check_forbidden_topics(result, [tmp_file])
+        self.assertIn("CMD_VEL_REFERENCED", result["errors"])
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
+class RuntimeFilesIncludedInVerifierTests(unittest.TestCase):
+    def test_runtime_scan_includes_all_required_files(self):
+        os.environ["ROS_LOCALHOST_ONLY"] = "1"
+        os.environ["ROS_DOMAIN_ID"] = "77"
+        result = checker.verify(runtime=True)
+        for required_file in (
+            LAUNCH_FILE,
+            PARAMS_FILE,
+            MAP_YAML,
+            SIMULATOR_FILE,
+            RUNTIME_WRAPPER,
+            FOUNDATION_SMOKE_TEST_FILE,
+            PLANNER_SMOKE_TEST_FILE,
+        ):
+            self.assertIn(str(required_file), result["checked_files"])
+
+    def test_runtime_verify_passes_with_correct_isolation_env(self):
+        os.environ["ROS_LOCALHOST_ONLY"] = "1"
+        os.environ["ROS_DOMAIN_ID"] = "77"
+        result = checker.verify(runtime=True)
+        self.assertEqual(result["decision"], "PASS")
+        self.assertEqual(result["errors"], [])
 
 
 if __name__ == "__main__":
