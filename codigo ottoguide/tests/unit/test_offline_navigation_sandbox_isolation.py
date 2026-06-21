@@ -39,6 +39,9 @@ BEHAVIOR_SERVER_SMOKE_TEST_FILE = (
 BT_NAVIGATOR_SMOKE_TEST_FILE = (
     CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_bt_navigator.py"
 )
+WAYPOINT_FOLLOWER_SMOKE_TEST_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_waypoint_follower.py"
+)
 BT_XML_FILE = CODE_ROOT / "config" / "navigation" / "bt" / "offline_navigate_to_pose.xml"
 PARAMS_FILE = CODE_ROOT / "config" / "navigation" / "nav2_offline_sandbox_params.yaml"
 MAP_DIR = CODE_ROOT / "tests" / "fixtures" / "offline_navigation"
@@ -531,7 +534,11 @@ class PlannerConfigurationTests(unittest.TestCase):
                             remap_found = True
         self.assertTrue(remap_found, "controller_server must remap cmd_vel -> cmd_vel_raw")
 
-    def test_no_waypoint_follower_in_launch(self):
+    def test_no_simple_commander_in_launch(self):
+        """waypoint_follower is authorized as of Phase 2G (see
+        WaypointFollowerLaunchAndLifecycleTests); Simple Commander remains
+        fully out of scope.
+        """
         text = LAUNCH_FILE.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(LAUNCH_FILE))
         executables = set()
@@ -540,7 +547,7 @@ class PlannerConfigurationTests(unittest.TestCase):
                 for kw in node.keywords:
                     if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
                         executables.add(kw.value.value)
-        self.assertNotIn("waypoint_follower", executables)
+        self.assertNotIn("simple_commander", executables)
 
 
 class VelocityTopicAbsenceTests(unittest.TestCase):
@@ -684,7 +691,11 @@ class ControllerConfigurationTests(unittest.TestCase):
         checker.check_namespace_offline(result)
         self.assertNotIn("NODE_MISSING_NAMESPACE_controller_server", result["errors"])
 
-    def test_no_waypoint_follower_simple_commander_or_collision_detector_executables(self):
+    def test_no_simple_commander_or_collision_detector_executables(self):
+        """waypoint_follower is authorized as of Phase 2G (see
+        WaypointFollowerLaunchAndLifecycleTests); Simple Commander and
+        collision_detector remain fully out of scope.
+        """
         text = LAUNCH_FILE.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(LAUNCH_FILE))
         executables = set()
@@ -694,7 +705,7 @@ class ControllerConfigurationTests(unittest.TestCase):
                     if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
                         executables.add(kw.value.value)
         for forbidden in (
-            "waypoint_follower",
+            "simple_commander",
             "collision_detector",
         ):
             self.assertNotIn(forbidden, executables)
@@ -1236,11 +1247,17 @@ class BehaviorServerIntegrationTests(unittest.TestCase):
         self.assertIn('and result["odom_twist_zero"]', text)
         self.assertIn('and result["pose_stable"]', text)
 
-    def test_behavior_server_smoke_checks_no_waypoint_or_simple_commander(self):
+    def test_behavior_server_smoke_checks_no_simple_commander(self):
+        """waypoint_follower is authorized as of Phase 2G and is always
+        present in the launch now (allowlist exception authorized during
+        the Phase 2G resume to fix this exact regression), so the behavior
+        server smoke test must no longer treat its discovery as a
+        violation. Simple Commander remains forbidden.
+        """
         text = BEHAVIOR_SERVER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
-        self.assertIn("waypoint_follower", text)
         self.assertIn("simple_commander", text)
         self.assertIn("mission_node_detected", text)
+        self.assertNotIn('"waypoint_follower"', text)
 
     def test_behavior_server_smoke_no_longer_forbids_bt_navigator(self):
         """bt_navigator is authorized as of Phase 2F and is always present
@@ -1255,10 +1272,10 @@ class BehaviorServerIntegrationTests(unittest.TestCase):
         self.assertIn("FORBIDDEN_NODE_SUBSTRINGS", text)
         self.assertIn("hardware_node_detected", text)
 
-    def test_no_mission_components_checker_rejects_waypoint_follower(self):
+    def test_no_mission_components_checker_rejects_simple_commander(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_launch = Path(tmp_dir) / "offline_nav_sandbox.launch.py"
-            tmp_launch.write_text("nav2_waypoint_follower\n", encoding="utf-8")
+            tmp_launch.write_text("nav2_simple_commander\n", encoding="utf-8")
             saved_launch = checker.LAUNCH_FILE
             checker.LAUNCH_FILE = tmp_launch
             try:
@@ -1267,6 +1284,32 @@ class BehaviorServerIntegrationTests(unittest.TestCase):
             finally:
                 checker.LAUNCH_FILE = saved_launch
         self.assertIn("MISSION_COMPONENT_OUT_OF_SCOPE_REFERENCED", result["errors"])
+
+    def test_no_mission_components_checker_rejects_basic_navigator(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_launch = Path(tmp_dir) / "offline_nav_sandbox.launch.py"
+            tmp_launch.write_text("from nav2_simple_commander import BasicNavigator\n", encoding="utf-8")
+            saved_launch = checker.LAUNCH_FILE
+            checker.LAUNCH_FILE = tmp_launch
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_no_mission_components(result)
+            finally:
+                checker.LAUNCH_FILE = saved_launch
+        self.assertIn("MISSION_COMPONENT_OUT_OF_SCOPE_REFERENCED", result["errors"])
+
+    def test_no_mission_components_checker_rejects_parallel_app_stack(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_launch = Path(tmp_dir) / "offline_nav_sandbox.launch.py"
+            tmp_launch.write_text("followWaypoints()\n", encoding="utf-8")
+            saved_launch = checker.LAUNCH_FILE
+            checker.LAUNCH_FILE = tmp_launch
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_no_mission_components(result)
+            finally:
+                checker.LAUNCH_FILE = saved_launch
+        self.assertIn("PARALLEL_APP_STACK_REFERENCED", result["errors"])
 
     def test_no_mission_components_checker_allows_bt_navigator(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1280,6 +1323,20 @@ class BehaviorServerIntegrationTests(unittest.TestCase):
             finally:
                 checker.LAUNCH_FILE = saved_launch
         self.assertNotIn("MISSION_COMPONENT_OUT_OF_SCOPE_REFERENCED", result["errors"])
+
+    def test_no_mission_components_checker_allows_waypoint_follower(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_launch = Path(tmp_dir) / "offline_nav_sandbox.launch.py"
+            tmp_launch.write_text("nav2_waypoint_follower\nwaypoint_follower\n", encoding="utf-8")
+            saved_launch = checker.LAUNCH_FILE
+            checker.LAUNCH_FILE = tmp_launch
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_no_mission_components(result)
+            finally:
+                checker.LAUNCH_FILE = saved_launch
+        self.assertNotIn("MISSION_COMPONENT_OUT_OF_SCOPE_REFERENCED", result["errors"])
+        self.assertNotIn("PARALLEL_APP_STACK_REFERENCED", result["errors"])
 
 
 class BtNavigatorLaunchAndLifecycleTests(unittest.TestCase):
@@ -1345,7 +1402,11 @@ class BtNavigatorLaunchAndLifecycleTests(unittest.TestCase):
         self.assertIn("bt_navigator_node,", text)
         self.assertIn("lifecycle_manager_bt_navigator_node,", text)
 
-    def test_no_waypoint_follower_or_simple_commander_executables(self):
+    def test_no_simple_commander_executables(self):
+        """waypoint_follower is authorized as of Phase 2G (see
+        WaypointFollowerLaunchAndLifecycleTests for its specific contract);
+        Simple Commander remains fully out of scope.
+        """
         text = LAUNCH_FILE.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(LAUNCH_FILE))
         executables = set()
@@ -1354,7 +1415,6 @@ class BtNavigatorLaunchAndLifecycleTests(unittest.TestCase):
                 for kw in node.keywords:
                     if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
                         executables.add(kw.value.value)
-        self.assertNotIn("waypoint_follower", executables)
         self.assertNotIn("simple_commander", executables)
 
 
@@ -1479,9 +1539,468 @@ class BtNavigatorXmlTests(unittest.TestCase):
         self.assertIn("BT_XML_FORBIDDEN_NODE_NavigateThroughPoses", result["errors"])
 
 
+class WaypointFollowerLaunchAndLifecycleTests(unittest.TestCase):
+    def test_waypoint_follower_node_present_with_correct_package_and_executable(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        found = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                package = executable = None
+                for kw in node.keywords:
+                    if kw.arg == "package" and isinstance(kw.value, ast.Constant):
+                        package = kw.value.value
+                    if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                        executable = kw.value.value
+                if executable == "waypoint_follower":
+                    found = package
+                    break
+        self.assertEqual(found, "nav2_waypoint_follower")
+
+    def test_waypoint_follower_is_namespaced(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_namespace_offline(result)
+        self.assertNotIn("NODE_MISSING_NAMESPACE_waypoint_follower", result["errors"])
+
+    def test_waypoint_follower_uses_configured_params_variant(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                executable = None
+                params_arg = None
+                for kw in node.keywords:
+                    if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                        executable = kw.value.value
+                    if kw.arg == "parameters":
+                        params_arg = kw.value
+                if executable == "waypoint_follower":
+                    self.assertIsNotNone(params_arg)
+                    self.assertIn("configured_params", ast.unparse(params_arg))
+                    return
+        self.fail("waypoint_follower node not found")
+
+    def test_waypoint_follower_has_dedicated_lifecycle_manager(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        node_names_lists = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if (
+                        isinstance(key, ast.Constant)
+                        and key.value == "node_names"
+                        and isinstance(value, ast.List)
+                    ):
+                        node_names_lists.append(
+                            [elt.value for elt in value.elts if isinstance(elt, ast.Constant)]
+                        )
+        wf_only_lists = [names for names in node_names_lists if names == ["waypoint_follower"]]
+        self.assertTrue(wf_only_lists, "no dedicated waypoint_follower-only lifecycle manager found")
+
+    def test_waypoint_follower_has_no_velocity_remappings(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                executable = None
+                for kw in node.keywords:
+                    if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                        executable = kw.value.value
+                if executable == "waypoint_follower":
+                    for kw in node.keywords:
+                        self.assertNotEqual(kw.arg, "remappings")
+
+    def test_waypoint_follower_added_to_launch_description(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        self.assertIn("waypoint_follower_node,", text)
+        self.assertIn("lifecycle_manager_waypoint_follower_node,", text)
+
+    def test_no_simple_commander_executable(self):
+        text = LAUNCH_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(LAUNCH_FILE))
+        executables = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+                for kw in node.keywords:
+                    if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                        executables.add(kw.value.value)
+        self.assertNotIn("simple_commander", executables)
+
+    def test_waypoint_follower_contract_checker_passes_on_real_launch_file(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_waypoint_follower_contract(result)
+        self.assertEqual(result["errors"], [])
+
+    def test_waypoint_follower_contract_checker_rejects_duplicate_node(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_launch = Path(tmp_dir) / "offline_nav_sandbox.launch.py"
+            tmp_launch.write_text(
+                "from launch_ros.actions import Node\n"
+                "Node(package='nav2_waypoint_follower', executable='waypoint_follower', "
+                "name='waypoint_follower', namespace='offline_nav')\n"
+                "Node(package='nav2_waypoint_follower', executable='waypoint_follower', "
+                "name='waypoint_follower_2', namespace='offline_nav')\n",
+                encoding="utf-8",
+            )
+            saved_launch = checker.LAUNCH_FILE
+            checker.LAUNCH_FILE = tmp_launch
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_waypoint_follower_contract(result)
+            finally:
+                checker.LAUNCH_FILE = saved_launch
+        self.assertIn("WAYPOINT_FOLLOWER_DUPLICATE_NODE_DETECTED", result["errors"])
+
+    def test_waypoint_follower_contract_checker_rejects_missing_namespace(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_launch = Path(tmp_dir) / "offline_nav_sandbox.launch.py"
+            tmp_launch.write_text(
+                "from launch_ros.actions import Node\n"
+                "Node(package='nav2_waypoint_follower', executable='waypoint_follower', "
+                "name='waypoint_follower')\n",
+                encoding="utf-8",
+            )
+            saved_launch = checker.LAUNCH_FILE
+            checker.LAUNCH_FILE = tmp_launch
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_waypoint_follower_contract(result)
+            finally:
+                checker.LAUNCH_FILE = saved_launch
+        self.assertIn("WAYPOINT_FOLLOWER_MISSING_NAMESPACE", result["errors"])
+
+    def test_waypoint_follower_contract_checker_rejects_velocity_remap(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_launch = Path(tmp_dir) / "offline_nav_sandbox.launch.py"
+            tmp_launch.write_text(
+                "from launch_ros.actions import Node\n"
+                "Node(package='nav2_waypoint_follower', executable='waypoint_follower', "
+                "name='waypoint_follower', namespace='offline_nav', "
+                "remappings=[('cmd_vel', 'cmd_vel_raw')])\n",
+                encoding="utf-8",
+            )
+            saved_launch = checker.LAUNCH_FILE
+            checker.LAUNCH_FILE = tmp_launch
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_waypoint_follower_contract(result)
+            finally:
+                checker.LAUNCH_FILE = saved_launch
+        self.assertIn("WAYPOINT_FOLLOWER_HAS_VELOCITY_REMAP", result["errors"])
+
+
+class WaypointFollowerParameterTests(unittest.TestCase):
+    def test_waypoint_follower_section_exists(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        self.assertIn("waypoint_follower:", text)
+
+    def test_waypoint_follower_use_sim_time_false(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        section = text.split("waypoint_follower:", 1)[1]
+        self.assertIn("use_sim_time: false", section)
+
+    def test_stop_on_failure_explicit_true(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        section = text.split("waypoint_follower:", 1)[1]
+        self.assertIn("stop_on_failure: true", section)
+
+    def test_waypoint_task_executor_plugin_is_minimal_stock_plugin(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        section = text.split("waypoint_follower:", 1)[1]
+        self.assertIn('waypoint_task_executor_plugin: "wait_at_waypoint"', section)
+        self.assertIn('plugin: "nav2_waypoint_follower::WaitAtWaypoint"', section)
+
+    def test_no_custom_task_executor_plugin(self):
+        text = PARAMS_FILE.read_text(encoding="utf-8")
+        section = text.split("waypoint_follower:", 1)[1]
+        self.assertNotIn("photo_at_waypoint", section)
+        self.assertNotIn("input_at_waypoint", section)
+
+
+class WaypointFollowerSmokeTestStructureTests(unittest.TestCase):
+    def _load_module(self, path: Path):
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except ModuleNotFoundError:
+            self.skipTest("rclpy not available in this environment")
+            raise
+        return module
+
+    def test_smoke_test_included_in_runtime_scan(self):
+        self.assertIn(checker.WAYPOINT_FOLLOWER_SMOKE_TEST_FILE, checker.RUNTIME_SCAN_FILES)
+
+    def test_smoke_test_accepts_cli_arguments(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        for arg in ("--namespace", "--base-domain-id", "--timeout", "--output"):
+            self.assertIn(arg, text)
+
+    def test_smoke_test_derives_three_domain_ids_from_base_argument(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("base, parse_error = parse_base_domain_id(args.base_domain_id)", text)
+        self.assertIn("domain_success = str(base)", text)
+        self.assertIn("domain_cancel = str(base + 1)", text)
+        self.assertIn("domain_unreachable = str(base + 2)", text)
+
+    def test_maximum_offset_is_two(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("MAXIMUM_OFFSET = 2", text)
+
+    def test_success_scenario_requires_three_or_more_waypoints_and_empty_missed(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('result["waypoints_requested"] >= 3', text)
+        self.assertIn('result["missed_waypoints"] == []', text)
+
+    def test_success_scenario_requires_exact_waypoint_coverage_no_gaps(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("feedback_covers_expected", text)
+        self.assertIn("_progress_covers_expected_indices", text)
+        self.assertIn('result["waypoints_reached"] == result["waypoints_requested"]', text)
+
+    def test_normalize_progress_collapses_consecutive_duplicates_only(self):
+        module = self._load_module(WAYPOINT_FOLLOWER_SMOKE_TEST_FILE)
+        self.assertEqual(module._normalize_progress([0, 1, 2]), [0, 1, 2])
+        self.assertEqual(module._normalize_progress([0, 0, 1, 1, 2]), [0, 1, 2])
+        self.assertEqual(module._normalize_progress([0]), [0])
+        self.assertEqual(module._normalize_progress([0, 2]), [0, 2])
+        self.assertEqual(module._normalize_progress([1, 2]), [1, 2])
+        self.assertEqual(module._normalize_progress([0, 1]), [0, 1])
+        self.assertEqual(module._normalize_progress([]), [])
+
+    def test_progress_covers_expected_indices_exact_match_only(self):
+        module = self._load_module(WAYPOINT_FOLLOWER_SMOKE_TEST_FILE)
+        self.assertTrue(module._progress_covers_expected_indices([0, 1, 2], [0, 1, 2]))
+        self.assertFalse(module._progress_covers_expected_indices([0], [0, 1, 2]))
+        self.assertFalse(module._progress_covers_expected_indices([0, 2], [0, 1, 2]))
+        self.assertFalse(module._progress_covers_expected_indices([1, 2], [0, 1, 2]))
+        self.assertFalse(module._progress_covers_expected_indices([0, 1], [0, 1, 2]))
+
+    def test_waypoints_reached_field_present_and_required_equal_to_requested(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('"waypoints_reached": None', text)
+        self.assertIn('result["waypoints_reached"] = result["waypoints_requested"]', text)
+
+    def test_success_scenario_rejects_any_missed_waypoint(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('result["missed_waypoints"] == []', text)
+
+    def test_cancel_scenario_requires_precondition_motion_past_first_waypoint(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("past_first_waypoint", text)
+        self.assertIn("cancel_precondition_motion_observed", text)
+
+    def test_cancel_scenario_requires_accepted_request_and_canceled_result(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('result["cancel_response_received"]', text)
+        self.assertIn('result["cancel_request_accepted"]', text)
+        self.assertIn('result["final_action_status"] == "CANCELED"', text)
+
+    def test_unreachable_scenario_uses_out_of_bounds_point_not_arbitrary(self):
+        """The original interior-occupied-cell hypothesis was disproven by a
+        real Phase 2G resume diagnostic ROS run (domain 222): at this map's
+        0.05m resolution a single occupied pixel is thinner than the
+        planner/costmap's effective footprint+inflation and is routed
+        around (FollowWaypoints SUCCEEDED). An out-of-bounds point was
+        substituted and confirmed instead (domain 221: ABORTED,
+        missed_waypoints=[1], error_code=204/GOAL_OUTSIDE_MAP).
+        """
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("UNREACHABLE_WAYPOINT_XY = (5.0, 5.0)", text)
+        self.assertIn("GOAL_OUTSIDE_MAP", text)
+        self.assertIn("resume diagnostic run", text)
+
+    def test_unreachable_scenario_proves_stop_on_failure(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("stop_on_failure_proven", text)
+        self.assertIn("waypoint_after_failure_not_reached", text)
+
+    def test_unreachable_scenario_requires_missed_index_one(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('result["unreachable_waypoint_index"] in result["missed_waypoints"]', text)
+
+    def test_unreachable_scenario_requires_specific_error_code_not_any_abort(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("COMPUTE_PATH_TO_POSE_GOAL_OUTSIDE_MAP = 204", text)
+        self.assertIn(
+            'result["missed_waypoint_error_code"] == COMPUTE_PATH_TO_POSE_GOAL_OUTSIDE_MAP', text
+        )
+
+    def test_unreachable_scenario_rejects_feedback_progress_to_index_two(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn(
+            "result[\"unreachable_waypoint_index\"] + 1\n                            not in (result[\"feedback_indices\"] or [])",
+            text,
+        )
+
+    def test_unreachable_scenario_does_not_convert_generic_timeout_into_pass(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('result["final_action_status"] != "RESULT_TIMEOUT"', text)
+        self.assertIn('UNREACHABLE_TERMINAL_STATUSES = ("ABORTED",)', text)
+
+    def test_action_availability_required_in_all_three_scenarios(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertEqual(
+            text.count('result["follow_waypoints_action_available"]\n'), 3,
+            "follow_waypoints_action_available must gate ok in success, cancel, and unreachable",
+        )
+
+    def test_pipe_deadlock_removed_uses_dedicated_log_files(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(WAYPOINT_FOLLOWER_SMOKE_TEST_FILE))
+        popen_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "Popen"
+        ]
+        self.assertEqual(len(popen_calls), 3, "expected exactly one Popen per scenario")
+        for call in popen_calls:
+            for kw in call.keywords:
+                if kw.arg == "stdout":
+                    stdout_expr = ast.unparse(kw.value)
+                    self.assertNotEqual(stdout_expr, "subprocess.PIPE")
+        self.assertIn("_scenario_log_path", text)
+        self.assertIn('open(log_path, "w"', text)
+        self.assertIn("log_file.close()", text)
+
+    def test_log_paths_are_under_tmp_not_inside_repository(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn('Path(f"/tmp/ottoguide_waypoint_', text)
+
+    def test_no_waypoint_or_simple_commander_forbidden_node_used_for_mission_app(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("FORBIDDEN_MISSION_NODE_SUBSTRINGS", text)
+        self.assertIn("simple_commander", text)
+        self.assertIn("mission_app_component_detected", text)
+
+
+def _read_pgm_p5(path: Path) -> tuple[int, int, list[int]]:
+    """Minimal pure-Python binary PGM (P5) reader: no PIL/numpy dependency.
+    Returns (width, height, pixel_values) with pixel_values in row-major
+    order, matching the layout documented in offline_sandbox_test_map.yaml
+    (resolution 0.05, origin [-1.0, -0.75]).
+    """
+    with open(path, "rb") as f:
+        magic = f.readline().strip()
+        if magic != b"P5":
+            raise ValueError(f"not a binary PGM (P5) file: {magic!r}")
+        dims_line = f.readline().strip()
+        width, height = (int(token) for token in dims_line.split())
+        maxval_line = f.readline().strip()
+        maxval = int(maxval_line)
+        if maxval > 255:
+            raise ValueError("16-bit PGM not supported by this minimal reader")
+        data = f.read(width * height)
+    return width, height, list(data)
+
+
+def _world_to_pixel(x: float, y: float, origin: tuple[float, float], resolution: float, height: int) -> tuple[int, int]:
+    """Inverse of the world_x/world_y formulas documented in
+    smoke_test_offline_waypoint_follower.py: returns (row, col).
+    """
+    col = int((x - origin[0]) / resolution)
+    row = height - 1 - int((y - origin[1]) / resolution)
+    return row, col
+
+
+class WaypointFollowerMapFixturePgmTests(unittest.TestCase):
+    """Functional (not string-search) validation that the coordinates the
+    smoke test treats as occupied/free really are, by parsing the real PGM
+    fixture bytes -- not by trusting a comment.
+    """
+
+    MAP_ORIGIN = (-1.0, -0.75)
+    MAP_RESOLUTION = 0.05
+
+    def setUp(self):
+        self.width, self.height, self.pixels = _read_pgm_p5(MAP_PGM)
+
+    def _value_at_world(self, x: float, y: float) -> int:
+        row, col = _world_to_pixel(x, y, self.MAP_ORIGIN, self.MAP_RESOLUTION, self.height)
+        self.assertTrue(0 <= row < self.height, f"row {row} outside map for world ({x},{y})")
+        self.assertTrue(0 <= col < self.width, f"col {col} outside map for world ({x},{y})")
+        return self.pixels[row * self.width + col]
+
+    def test_map_dimensions_match_documented_fixture(self):
+        self.assertEqual((self.width, self.height), (40, 30))
+
+    def test_world_bounds_match_documented_resolution_and_origin(self):
+        x_min = self.MAP_ORIGIN[0]
+        x_max = self.MAP_ORIGIN[0] + self.width * self.MAP_RESOLUTION
+        y_min = self.MAP_ORIGIN[1]
+        y_max = self.MAP_ORIGIN[1] + self.height * self.MAP_RESOLUTION
+        self.assertAlmostEqual(x_min, -1.0)
+        self.assertAlmostEqual(x_max, 1.0)
+        self.assertAlmostEqual(y_min, -0.75)
+        self.assertAlmostEqual(y_max, 0.75)
+
+    def test_original_interior_cell_hypothesis_is_occupied_but_not_used_as_unreachable_point(self):
+        """The interior cell originally hypothesized as unreachable (world
+        (0.025, 0.575), pixel row=3 col=20) is confirmed occupied in the
+        real PGM data -- the hypothesis about *occupancy* was correct. What
+        was wrong, and disproven by the Phase 2G resume diagnostic ROS run,
+        was the assumption that occupancy alone makes a single-pixel
+        obstacle unreachable at this map's resolution. The smoke test must
+        not use this point as UNREACHABLE_WAYPOINT_XY.
+        """
+        value = self._value_at_world(0.025, 0.575)
+        self.assertEqual(value, 0, "expected the original hypothesis cell to be occupied")
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertNotIn("UNREACHABLE_WAYPOINT_XY = (0.025, 0.575)", text)
+
+    def test_unreachable_waypoint_xy_is_outside_map_bounds(self):
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("UNREACHABLE_WAYPOINT_XY = (5.0, 5.0)", text)
+        x, y = 5.0, 5.0
+        x_min, x_max = self.MAP_ORIGIN[0], self.MAP_ORIGIN[0] + self.width * self.MAP_RESOLUTION
+        y_min, y_max = self.MAP_ORIGIN[1], self.MAP_ORIGIN[1] + self.height * self.MAP_RESOLUTION
+        self.assertTrue(x < x_min or x > x_max or y < y_min or y > y_max)
+
+    def test_success_waypoint_offsets_land_on_free_cells_from_map_center(self):
+        """SUCCESS_WAYPOINT_OFFSETS_M are applied relative to the observed
+        initial pose at runtime (unknown at static-test time), but the
+        offsets are small enough that, applied from the map's free central
+        region, they must land on free cells -- never on a hardcoded
+        perimeter wall or the interior obstacle column.
+        """
+        text = WAYPOINT_FOLLOWER_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("SUCCESS_WAYPOINT_OFFSETS_M", text)
+        cursor_x, cursor_y = 0.0, 0.0
+        for dx, dy in ((0.30, 0.0), (0.30, 0.20), (0.0, 0.20)):
+            cursor_x += dx
+            cursor_y += dy
+            value = self._value_at_world(cursor_x, cursor_y)
+            self.assertEqual(value, 254, f"expected free cell at ({cursor_x},{cursor_y})")
+
+    def test_unreachable_scenario_reachable_companions_land_on_free_cells(self):
+        """The two reachable waypoints surrounding UNREACHABLE_WAYPOINT_XY
+        in run_unreachable_scenario (offsets +0.20 in x, and +0.20x/-0.20y
+        from the initial pose) must themselves be free, so a failure in
+        that scenario can only be attributed to the deliberately
+        unreachable middle waypoint.
+        """
+        for dx, dy in ((0.20, 0.0), (0.20, -0.20)):
+            value = self._value_at_world(dx, dy)
+            self.assertEqual(value, 254, f"expected free cell at offset ({dx},{dy}) from origin")
+
+
 class BtNavigatorSmokeTestStructureTests(unittest.TestCase):
     def test_smoke_test_included_in_runtime_scan(self):
         self.assertIn(checker.BT_NAVIGATOR_SMOKE_TEST_FILE, checker.RUNTIME_SCAN_FILES)
+
+    def test_smoke_test_checks_no_simple_commander(self):
+        """waypoint_follower is authorized as of Phase 2G and is always
+        present in the launch now (allowlist exception authorized during
+        the Phase 2G resume to fix this exact regression, mirroring the
+        identical fix applied to the behavior server smoke test), so the
+        BT Navigator smoke test must no longer treat its discovery as a
+        violation. Simple Commander remains forbidden.
+        """
+        text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
+        self.assertIn("simple_commander", text)
+        self.assertIn("mission_node_detected", text)
+        self.assertNotIn('"waypoint_follower"', text)
 
     def test_smoke_test_accepts_cli_arguments(self):
         text = BT_NAVIGATOR_SMOKE_TEST_FILE.read_text(encoding="utf-8")
@@ -1618,6 +2137,12 @@ class DomainIdRangePolicyTests(unittest.TestCase):
         self.assertEqual(module.MAX_DOMAIN_ID, 232)
         self.assertEqual(module.MAXIMUM_OFFSET, 1)
 
+    def test_waypoint_follower_min_max_and_offset(self):
+        module = self._load_module(WAYPOINT_FOLLOWER_SMOKE_TEST_FILE)
+        self.assertEqual(module.MIN_DOMAIN_ID, 1)
+        self.assertEqual(module.MAX_DOMAIN_ID, 232)
+        self.assertEqual(module.MAXIMUM_OFFSET, 2)
+
     def test_behavior_server_base_out_of_range_is_invalid(self):
         module = self._load_module(BEHAVIOR_SERVER_SMOKE_TEST_FILE)
         self.assertEqual(module.validate_domain_id_range(0, module.MAXIMUM_OFFSET), "INVALID_DOMAIN_ID")
@@ -1644,6 +2169,13 @@ class DomainIdRangePolicyTests(unittest.TestCase):
             "DERIVED_DOMAIN_ID_OUT_OF_RANGE",
         )
 
+    def test_waypoint_follower_derived_out_of_range(self):
+        module = self._load_module(WAYPOINT_FOLLOWER_SMOKE_TEST_FILE)
+        self.assertEqual(
+            module.validate_domain_id_range(231, module.MAXIMUM_OFFSET),
+            "DERIVED_DOMAIN_ID_OUT_OF_RANGE",
+        )
+
     def test_valid_range_returns_none(self):
         module = self._load_module(BT_NAVIGATOR_SMOKE_TEST_FILE)
         self.assertIsNone(module.validate_domain_id_range(180, module.MAXIMUM_OFFSET))
@@ -1662,6 +2194,7 @@ class DomainIdRangePolicyTests(unittest.TestCase):
             BEHAVIOR_SERVER_SMOKE_TEST_FILE,
             COLLISION_MONITOR_SMOKE_TEST_FILE,
             BT_NAVIGATOR_SMOKE_TEST_FILE,
+            WAYPOINT_FOLLOWER_SMOKE_TEST_FILE,
         ):
             text = path.read_text(encoding="utf-8")
             tree = ast.parse(text, filename=str(path))
@@ -1695,6 +2228,7 @@ class BaseDomainIdParsingTests(_ModuleLoaderMixin, unittest.TestCase):
             BEHAVIOR_SERVER_SMOKE_TEST_FILE,
             COLLISION_MONITOR_SMOKE_TEST_FILE,
             BT_NAVIGATOR_SMOKE_TEST_FILE,
+            WAYPOINT_FOLLOWER_SMOKE_TEST_FILE,
         )
 
     def test_non_integer_strings_return_invalid_domain_id_in_all_three_scripts(self):
@@ -1756,6 +2290,7 @@ class BaseDomainIdCliContractTests(_ModuleLoaderMixin, unittest.TestCase):
             BEHAVIOR_SERVER_SMOKE_TEST_FILE,
             COLLISION_MONITOR_SMOKE_TEST_FILE,
             BT_NAVIGATOR_SMOKE_TEST_FILE,
+            WAYPOINT_FOLLOWER_SMOKE_TEST_FILE,
         )
 
     def _run_cli(self, path: Path, base_domain_id: str):

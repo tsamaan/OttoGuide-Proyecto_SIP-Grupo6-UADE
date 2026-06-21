@@ -31,11 +31,20 @@ FORBIDDEN_BRIDGE_PATTERN = re.compile(
 # Out of scope for the current phases of the offline sandbox. These
 # executables/packages must never appear in the launch file. bt_navigator /
 # nav2_bt_navigator are authorized as of Phase 2F (NavigateToPose only) and
-# are intentionally excluded from this pattern; check_bt_navigator_contract
-# enforces their specific constraints instead.
+# waypoint_follower / nav2_waypoint_follower are authorized as of Phase 2G
+# (FollowWaypoints only, namespaced under /offline_nav); both are
+# intentionally excluded from this pattern and enforced by their own
+# dedicated contract checkers (check_bt_navigator_contract,
+# check_waypoint_follower_contract) instead. Simple Commander / BasicNavigator
+# remain fully out of scope and are never exempted.
 FORBIDDEN_MISSION_COMPONENT_PATTERN = re.compile(
-    r"waypoint_follower|nav2_waypoint_follower|"
-    r"nav2_simple_commander|simple_commander"
+    r"nav2_simple_commander|simple_commander|BasicNavigator"
+)
+# Forbidden regardless of namespace: a second/duplicate waypoint follower
+# package reference, or any reference to the application's parallel
+# BasicNavigator.followWaypoints() client stack.
+FORBIDDEN_WAYPOINT_FOLLOWER_DUPLICATE_PATTERN = re.compile(
+    r"followWaypoints|nav2_bridge"
 )
 FORBIDDEN_HAL_IMPORT_MODULES = {
     "unitree_sdk2py",
@@ -77,6 +86,13 @@ BT_NAVIGATOR_SMOKE_TEST_FILE = (
     / "offline_navigation"
     / "smoke_test_offline_bt_navigator.py"
 )
+WAYPOINT_FOLLOWER_SMOKE_TEST_FILE = (
+    CODE_ROOT
+    / "tools"
+    / "hil"
+    / "offline_navigation"
+    / "smoke_test_offline_waypoint_follower.py"
+)
 BT_XML_FILE = CODE_ROOT / "config" / "navigation" / "bt" / "offline_navigate_to_pose.xml"
 RUNTIME_SCAN_FILES = [
     LAUNCH_FILE,
@@ -90,6 +106,7 @@ RUNTIME_SCAN_FILES = [
     COLLISION_MONITOR_SMOKE_TEST_FILE,
     BEHAVIOR_SERVER_SMOKE_TEST_FILE,
     BT_NAVIGATOR_SMOKE_TEST_FILE,
+    WAYPOINT_FOLLOWER_SMOKE_TEST_FILE,
 ]
 EXPECTED_REAL_NAMESPACE = "offline_nav"
 
@@ -115,11 +132,13 @@ REQUIRED_NODE_NAMES = {
     "collision_monitor",
     "behavior_server",
     "bt_navigator",
+    "waypoint_follower",
     "lifecycle_manager_navigation",
     "lifecycle_manager_controller",
     "lifecycle_manager_collision_monitor",
     "lifecycle_manager_behavior_server",
     "lifecycle_manager_bt_navigator",
+    "lifecycle_manager_waypoint_follower",
     "map_to_odom_synthetic_tf",
     "base_link_to_utlidar_lidar_synthetic_tf",
 }
@@ -410,9 +429,11 @@ def check_forbidden_bridges(result: dict, files: list[Path]) -> None:
 
 
 def check_no_mission_components(result: dict) -> None:
-    """BT Navigator, Waypoint Follower and Simple Commander are explicitly
-    out of scope for every phase implemented so far; the launch file must
-    never reference them.
+    """Simple Commander / BasicNavigator are explicitly out of scope for
+    every phase implemented so far; the launch file must never reference
+    them. BT Navigator (Phase 2F) and Waypoint Follower (Phase 2G) are
+    authorized exceptions enforced by their own dedicated contract checkers
+    (check_bt_navigator_contract, check_waypoint_follower_contract).
     """
     result["checked_files"].append(str(LAUNCH_FILE))
     if not LAUNCH_FILE.is_file():
@@ -423,6 +444,11 @@ def check_no_mission_components(result: dict) -> None:
             {"file": str(LAUNCH_FILE), "pattern": "MISSION_COMPONENT", "match": match.group(0)}
         )
         result["errors"].append("MISSION_COMPONENT_OUT_OF_SCOPE_REFERENCED")
+    for match in FORBIDDEN_WAYPOINT_FOLLOWER_DUPLICATE_PATTERN.finditer(text):
+        result["forbidden_matches"].append(
+            {"file": str(LAUNCH_FILE), "pattern": "PARALLEL_APP_STACK", "match": match.group(0)}
+        )
+        result["errors"].append("PARALLEL_APP_STACK_REFERENCED")
 
 
 def _execute_process_cmd_has_ns_remap(node: ast.Call) -> bool:
@@ -712,6 +738,79 @@ def check_bt_navigator_contract(result: dict) -> None:
         result["errors"].append("BT_XML_NOT_PARSEABLE")
 
 
+def check_waypoint_follower_contract(result: dict) -> None:
+    """Waypoint Follower is authorized as of Phase 2G, but only as a single,
+    namespaced node under /offline_nav, managed by its own dedicated
+    lifecycle manager, and never remapping any velocity topic (its only
+    interaction with the rest of the chain is sending NavigateToPose goals
+    to bt_navigator; it never reaches cmd_vel_raw/cmd_vel_safe directly).
+    """
+    result["checked_files"].append(str(LAUNCH_FILE))
+    if not LAUNCH_FILE.is_file():
+        result["errors"].append("LAUNCH_FILE_MISSING")
+        return
+    launch_text = _read_text(LAUNCH_FILE)
+
+    if "waypoint_follower" not in launch_text:
+        result["errors"].append("WAYPOINT_FOLLOWER_MISSING")
+        return
+    if "lifecycle_manager_waypoint_follower" not in launch_text:
+        result["errors"].append("LIFECYCLE_MANAGER_WAYPOINT_FOLLOWER_MISSING")
+
+    try:
+        tree = ast.parse(launch_text, filename=str(LAUNCH_FILE))
+    except SyntaxError:
+        result["errors"].append("LAUNCH_FILE_SYNTAX_ERROR")
+        return
+
+    waypoint_follower_nodes = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node":
+            package = executable = None
+            for kw in node.keywords:
+                if kw.arg == "package" and isinstance(kw.value, ast.Constant):
+                    package = kw.value.value
+                if kw.arg == "executable" and isinstance(kw.value, ast.Constant):
+                    executable = kw.value.value
+            if executable == "waypoint_follower":
+                waypoint_follower_nodes.append((node, package))
+
+    if not waypoint_follower_nodes:
+        result["errors"].append("WAYPOINT_FOLLOWER_NODE_NOT_FOUND")
+    elif len(waypoint_follower_nodes) > 1:
+        result["errors"].append("WAYPOINT_FOLLOWER_DUPLICATE_NODE_DETECTED")
+    else:
+        wf_node, package = waypoint_follower_nodes[0]
+        if package != "nav2_waypoint_follower":
+            result["errors"].append("WAYPOINT_FOLLOWER_WRONG_PACKAGE")
+        has_namespace = any(kw.arg == "namespace" for kw in wf_node.keywords)
+        if not has_namespace:
+            result["errors"].append("WAYPOINT_FOLLOWER_MISSING_NAMESPACE")
+        for kw in wf_node.keywords:
+            if kw.arg == "remappings":
+                result["errors"].append("WAYPOINT_FOLLOWER_HAS_VELOCITY_REMAP")
+
+    # node_names list for lifecycle_manager_waypoint_follower must contain
+    # only waypoint_follower, isolated from every other lifecycle manager.
+    node_names_lists = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value == "node_names"
+                    and isinstance(value, ast.List)
+                ):
+                    node_names_lists.append(
+                        [elt.value for elt in value.elts if isinstance(elt, ast.Constant)]
+                    )
+    waypoint_follower_only_lists = [
+        names for names in node_names_lists if names == ["waypoint_follower"]
+    ]
+    if not waypoint_follower_only_lists:
+        result["errors"].append("WAYPOINT_FOLLOWER_LIFECYCLE_MANAGER_NOT_ISOLATED")
+
+
 def verify(runtime: bool = False) -> dict:
     result = {
         "ok": True,
@@ -737,6 +836,7 @@ def verify(runtime: bool = False) -> dict:
     check_no_physical_hal_import(result)
     check_collision_monitor_contract(result, files_to_scan)
     check_bt_navigator_contract(result)
+    check_waypoint_follower_contract(result)
 
     result["checked_files"] = sorted(set(result["checked_files"]) | {str(p) for p in files_to_scan if p.is_file()})
     result["errors"] = sorted(set(result["errors"]))

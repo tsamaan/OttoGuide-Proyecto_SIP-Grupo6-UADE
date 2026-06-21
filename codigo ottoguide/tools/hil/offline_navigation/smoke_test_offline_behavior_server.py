@@ -91,7 +91,6 @@ FORBIDDEN_NODE_SUBSTRINGS = (
     "realsense",
 )
 FORBIDDEN_MISSION_NODE_SUBSTRINGS = (
-    "waypoint_follower",
     "simple_commander",
 )
 

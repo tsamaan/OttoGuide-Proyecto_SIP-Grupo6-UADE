@@ -105,8 +105,9 @@ def generate_launch_description():
     # Nodo planner_server: planificacion global. OFFLINE_ONLY, SYNTHETIC,
     # NOT_FOR_HARDWARE. El sandbox tambien incluye controller_server y
     # local_costmap (control local), collision_monitor (seguridad de
-    # velocidad), behavior_server (Wait/Spin) y bt_navigator (NavigateToPose
-    # unicamente). Sin waypoint follower, sin Simple Commander.
+    # velocidad), behavior_server (Wait/Spin), bt_navigator (NavigateToPose
+    # unicamente) y waypoint_follower (FollowWaypoints, agregado en Fase 2G).
+    # Sin Simple Commander.
     planner_server_node = Node(
         package='nav2_planner',
         executable='planner_server',
@@ -190,8 +191,8 @@ def generate_launch_description():
     # controller_server, de forma que ambos publishers pasan obligatoriamente
     # por collision_monitor antes de llegar al simulador. Nunca se remapea a
     # 'cmd_vel_safe' directamente: eso bypassearia Collision Monitor. Sin
-    # Waypoint Follower, sin Simple Commander, sin BackUp, DriveOnHeading ni
-    # AssistedTeleop en esta fase.
+    # Simple Commander, sin BackUp, DriveOnHeading ni AssistedTeleop en esta
+    # fase.
     behavior_server_node = Node(
         package='nav2_behaviors',
         executable='behavior_server',
@@ -223,8 +224,7 @@ def generate_launch_description():
     # No remapea cmd_vel/cmd_vel_raw/cmd_vel_safe: nunca publica velocidad
     # directamente. El movimiento real de NavigateToPose proviene exclusiva-
     # mente de controller_server, igual que cualquier otro goal de FollowPath.
-    # NavigateThroughPoses no esta configurado. Sin Waypoint Follower, sin
-    # Simple Commander.
+    # NavigateThroughPoses no esta configurado. Sin Simple Commander.
     bt_navigator_node = Node(
         package='nav2_bt_navigator',
         executable='bt_navigator',
@@ -248,6 +248,38 @@ def generate_launch_description():
         parameters=[{'use_sim_time': False},
                     {'autostart': True},
                     {'node_names': ['bt_navigator']}]
+    )
+
+    # Nodo waypoint_follower: orquesta FollowWaypoints enviando un
+    # NavigateToPose por waypoint al bt_navigator ya validado (Fase 2F/2F.1).
+    # OFFLINE_ONLY, SYNTHETIC, NOT_FOR_HARDWARE. No remapea cmd_vel/
+    # cmd_vel_raw/cmd_vel_safe: nunca publica velocidad directamente, igual
+    # que bt_navigator. waypoint_task_executor_plugin usa wait_at_waypoint
+    # (nav2_waypoint_follower::WaitAtWaypoint), el plugin estandar mas
+    # simple, sin efectos laterales (solo espera). Agregado en Fase 2G.
+    waypoint_follower_node = Node(
+        package='nav2_waypoint_follower',
+        executable='waypoint_follower',
+        name='waypoint_follower',
+        namespace=namespace,
+        output='screen',
+        parameters=[configured_params]
+    )
+
+    # Nodo lifecycle manager dedicado, exclusivamente para waypoint_follower.
+    # Aislado del resto de los managers: si waypoint_follower falla al
+    # iniciar o activar, queda aislado sin degradar Map, Planner, Controller,
+    # Collision Monitor, Behavior Server o BT Navigator, que ya estaban
+    # validados antes de agregar Waypoint Follower.
+    lifecycle_manager_waypoint_follower_node = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_waypoint_follower',
+        namespace=namespace,
+        output='screen',
+        parameters=[{'use_sim_time': False},
+                    {'autostart': True},
+                    {'node_names': ['waypoint_follower']}]
     )
 
     # Nodo RViz (opcional)
@@ -304,12 +336,13 @@ def generate_launch_description():
     )
 
     # Sandbox offline unicamente: sin navegacion fisica real, sin hardware,
-    # sin waypoint follower, sin Simple Commander. Incluye planner_server,
-    # controller_server, Collision Monitor, Behavior Server (Wait, Spin) y
-    # BT Navigator (NavigateToPose unicamente, agregado en Fase 2F), sin
-    # comandos de velocidad fuera de los topicos relativos 'cmd_vel_raw' y
-    # 'cmd_vel_safe'. planner_server planifica rutas globales y
-    # controller_server las sigue en simulacion; bt_navigator solo orquesta
+    # sin Simple Commander. Incluye planner_server, controller_server,
+    # Collision Monitor, Behavior Server (Wait, Spin), BT Navigator
+    # (NavigateToPose unicamente, agregado en Fase 2F) y Waypoint Follower
+    # (FollowWaypoints, agregado en Fase 2G), sin comandos de velocidad
+    # fuera de los topicos relativos 'cmd_vel_raw' y 'cmd_vel_safe'.
+    # planner_server planifica rutas globales y controller_server las sigue
+    # en simulacion; bt_navigator y waypoint_follower solo orquestan
     # esas acciones, nunca publica velocidad directamente. Requiere entorno
     # con ROS_LOCALHOST_ONLY=1 y ROS_DOMAIN_ID explicito (no el default 0)
     # para aislar este sandbox del resto de la red ROS. Las TF map->odom y
@@ -327,11 +360,13 @@ def generate_launch_description():
         collision_monitor_node,
         behavior_server_node,
         bt_navigator_node,
+        waypoint_follower_node,
         lifecycle_manager_node,
         lifecycle_manager_controller_node,
         lifecycle_manager_collision_monitor_node,
         lifecycle_manager_behavior_server_node,
         lifecycle_manager_bt_navigator_node,
+        lifecycle_manager_waypoint_follower_node,
         rviz_node,
         offline_runtime_simulator_node,
         map_to_odom_static_tf,
