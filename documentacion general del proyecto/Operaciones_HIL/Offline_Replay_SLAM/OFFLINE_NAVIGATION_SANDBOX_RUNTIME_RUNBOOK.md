@@ -164,7 +164,7 @@ Validado en dos corridas completas e independientes (domain IDs `200`-`202` y `2
 
 ## DirectNav2ActionBridge — validado aislado, no conectado a `main.py`
 
-`DirectNav2ActionBridge` (`src/navigation/direct_nav2_action_bridge.py`) es un cliente `rclpy.action.ActionClient` directo contra `/offline_nav/navigate_to_pose` y `/offline_nav/follow_waypoints`, sin `BasicNavigator`/Simple Commander y sin publicar velocidad (solo `/initialpose`). Implementado y validado de forma aislada en las Fases 2H.1/2H.1.2/2H.1.3/2H.1.4; **no está conectado** a `main.py`/`TourOrchestrator` (`MAIN_RUNTIME_MIGRATED=NO`). Esa conexión es trabajo exclusivo de la Fase 2H.2, todavía no autorizada.
+`DirectNav2ActionBridge` (`src/navigation/direct_nav2_action_bridge.py`) es un cliente `rclpy.action.ActionClient` directo contra `/offline_nav/navigate_to_pose` y `/offline_nav/follow_waypoints`, sin `BasicNavigator`/Simple Commander y sin publicar velocidad (solo `/initialpose`). Implementado y validado de forma aislada en las Fases 2H.1/2H.1.2/2H.1.3/2H.1.4/2H.1.5; **no está conectado** a `main.py`/`TourOrchestrator` (`MAIN_RUNTIME_MIGRATED=NO`). Esa conexión es trabajo exclusivo de la Fase 2H.2, todavía no autorizada.
 
 La Fase 2H.1.3 cerró brechas puntuales de evidencia: `close()` ahora detecta degradación preexistente (no solo fallos reactivos de cancelación), el smoke ya no silencia errores de cierre del bridge/observer, el escenario `FollowWaypoints` inalcanzable nunca acepta `REJECTED` como sustituto de `ABORTED`, y los JSON de los procesos hijos del smoke usan una ruta única por invocación con validación de identidad y exit code.
 
@@ -173,6 +173,12 @@ La Fase 2H.1.4 corrigió `cancel_navigation()` para el caso en que un goal fue a
 - **Significado**: el servidor recibió y aceptó la solicitud de cancelación, pero el bridge no tiene ningún monitor que haya observado el `GoalStatus` terminal real. La aceptación del servicio de cancelación **nunca** es evidencia de que el goal terminó `CANCELED`.
 - **Respuesta operacional**: el goal permanece activo (`task_active=True`), `remote_state_unknown=True`, y el bridge rechaza nuevos goals (`NAVIGATION_GOAL_ALREADY_ACTIVE`) hasta llamar a `close()`, que completa el teardown local y relanza `DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN` para preservar la evidencia de la degradación.
 - **Referencia física**: este mismo principio (aceptación de servicio ≠ confirmación de terminal) es la base del rollback futuro descrito en [PREFLIGHT_DIRECT_NAV2_ACTION_BRIDGE_PHYSICAL_VALIDATION.md](../PREFLIGHT_DIRECT_NAV2_ACTION_BRIDGE_PHYSICAL_VALIDATION.md), que además define el preflight read-only y la matriz GO/NO-GO para una futura sesión física (todavía no autorizada).
+
+La Fase 2H.1.5 cerró el último caso de la matriz pública de cancelación: `task_active=True` con `_active_goal_handle=None` (navegación activa pero sin ningún goal handle alcanzable, típicamente tras un goal-response timeout que nunca llega a crear handle ni result task). El guard anterior (`if not goal_handle or not task_active: return`) conflaba esa situación con "no hay navegación activa" y retornaba normalmente sin haber podido enviar `CancelGoal`. Ahora lanza el error `CANCEL_GOAL_HANDLE_UNAVAILABLE`:
+
+- **Significado**: existe navegación activa localmente, pero no existe ningún objeto remoto contra el cual invocar `cancel_goal_async()`. No hay solicitud que enviar ni aceptación/rechazo que observar; la aceptación remota original sigue siendo desconocida.
+- **Respuesta operacional**: el goal permanece activo (`task_active=True`), `remote_state_unknown=True`, y el bridge rechaza nuevos goals (`NAVIGATION_GOAL_ALREADY_ACTIVE`) hasta llamar a `close()`, que completa el teardown local y relanza `DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN`. No se permite tratar un `result_task` remanente como sustituto de una solicitud de cancelación nunca enviada.
+- **Referencia física**: este caso queda incorporado al rollback futuro de [PREFLIGHT_DIRECT_NAV2_ACTION_BRIDGE_PHYSICAL_VALIDATION.md](../PREFLIGHT_DIRECT_NAV2_ACTION_BRIDGE_PHYSICAL_VALIDATION.md): si una sesión física futura recibe `CANCEL_GOAL_HANDLE_UNAVAILABLE`, debe tratarse exactamente igual que `CANCEL_TERMINAL_UNOBSERVABLE` — nunca como evidencia de cancelación.
 
 ```bash
 cd "codigo ottoguide"

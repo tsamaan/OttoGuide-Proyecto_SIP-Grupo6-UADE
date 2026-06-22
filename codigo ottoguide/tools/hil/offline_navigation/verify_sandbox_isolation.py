@@ -1035,6 +1035,75 @@ def check_direct_nav2_action_bridge_ownership_contract(result: dict, files: list
         if has_bare_truthy_check_without_else and not has_explicit_none_check:
             result["errors"].append("DIRECT_BRIDGE_CANCEL_IMPLICIT_RETURN_WHEN_RES_TASK_NONE")
 
+        # 2H.1.5: task_active=True with no goal_handle means CancelGoal was
+        # never even sendable -- there is nothing to request and nothing to
+        # observe. The method must not fall through to a silent return (the
+        # exact defect of the combined `if not goal_handle or not
+        # task_active: return` guard, which conflates "no navigation active"
+        # with "navigation active but unreachable"); it must raise
+        # CANCEL_GOAL_HANDLE_UNAVAILABLE and mark remote_state_unknown.
+        if "CANCEL_GOAL_HANDLE_UNAVAILABLE" not in public_source:
+            result["errors"].append("DIRECT_BRIDGE_CANCEL_MISSING_HANDLE_UNAVAILABLE_GUARD")
+
+        has_task_active_only_silent_return = False
+        has_goal_handle_none_check_with_raise = False
+        has_combined_or_guard_with_silent_return = False
+        for node in ast.walk(cancel_public):
+            if not isinstance(node, ast.If):
+                continue
+            test = node.test
+            body_is_silent_return = (
+                len(node.body) == 1
+                and isinstance(node.body[0], ast.Return)
+                and node.body[0].value is None
+            )
+            body_has_raise = any(isinstance(n, ast.Raise) for n in node.body)
+
+            is_task_active_false_test = (
+                isinstance(test, ast.UnaryOp)
+                and isinstance(test.op, ast.Not)
+                and isinstance(test.operand, ast.Name)
+                and test.operand.id == "task_active"
+            )
+            if is_task_active_false_test and body_is_silent_return:
+                has_task_active_only_silent_return = True
+
+            is_goal_handle_none_test = (
+                isinstance(test, ast.Compare)
+                and isinstance(test.left, ast.Name)
+                and test.left.id == "goal_handle"
+                and any(isinstance(op, ast.Is) for op in test.ops)
+                and test.comparators
+                and isinstance(test.comparators[0], ast.Constant)
+                and test.comparators[0].value is None
+            ) or (
+                isinstance(test, ast.UnaryOp)
+                and isinstance(test.op, ast.Not)
+                and isinstance(test.operand, ast.Name)
+                and test.operand.id == "goal_handle"
+            )
+            if is_goal_handle_none_test and body_has_raise:
+                has_goal_handle_none_check_with_raise = True
+
+            if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.Or):
+                negated_names = set()
+                for value in test.values:
+                    if isinstance(value, ast.UnaryOp) and isinstance(value.op, ast.Not):
+                        operand = value.operand
+                        if isinstance(operand, ast.Name):
+                            negated_names.add(operand.id)
+                        elif isinstance(operand, ast.Attribute):
+                            negated_names.add(operand.attr)
+                if "goal_handle" in negated_names and body_is_silent_return:
+                    has_combined_or_guard_with_silent_return = True
+
+        if not has_task_active_only_silent_return:
+            result["errors"].append("DIRECT_BRIDGE_CANCEL_NO_STANDALONE_TASK_ACTIVE_CHECK")
+        if not has_goal_handle_none_check_with_raise:
+            result["errors"].append("DIRECT_BRIDGE_CANCEL_NO_EXPLICIT_GOAL_HANDLE_NONE_CHECK")
+        if has_combined_or_guard_with_silent_return:
+            result["errors"].append("DIRECT_BRIDGE_CANCEL_COMBINED_GUARD_RETURNS_SILENTLY")
+
     for node in ast.walk(tree):
         if isinstance(node, ast.ExceptHandler):
             is_import_error = (

@@ -922,6 +922,129 @@ class TestDirectNav2ActionBridgeOwnershipAndTerminalSafety(unittest.IsolatedAsyn
             with self.assertRaisesRegex(RuntimeError, "CANCEL_TERMINAL_NOT_CANCELED"):
                 await self.bridge.cancel_navigation()
 
+    async def test_53_cancel_inactive_is_noop_and_never_requests_cancel(self):
+        """2H.1.5 #1: with no navigation active (task_active=False), cancel_navigation()
+        must keep returning normally without ever attempting a CancelGoal request,
+        regardless of whatever stale goal_handle/result_task values remain."""
+        self.bridge._status.task_active = False
+        self.bridge._active_goal_handle = None
+        self.bridge._active_result_task = None
+        self.bridge._request_cancel_only = AsyncMock()
+
+        await self.bridge.cancel_navigation()  # must not raise
+
+        self.bridge._request_cancel_only.assert_not_called()
+        self.assertFalse(self.bridge._status.remote_state_unknown)
+
+    async def test_54_goal_response_timeout_then_cancel_raises_handle_unavailable(self):
+        """2H.1.5 #2: reproduces the exact defect of section 7 -- a real
+        goal-response timeout leaves task_active=True, remote_state_unknown=True,
+        a generated goal_uuid, but no goal handle and no result task. Calling
+        the public cancel_navigation() in that state must never return
+        normally (that would silently assert an unobservable cancellation
+        request never even sent); it must raise CANCEL_GOAL_HANDLE_UNAVAILABLE
+        and preserve every diagnostic field."""
+        self.bridge._started = True
+        client = MagicMock()
+        loop = asyncio.get_running_loop()
+        never_resolves = loop.create_future()
+        self.bridge._ros_future_to_asyncio = lambda f: never_resolves
+        client.send_goal_async.return_value = never_resolves
+
+        with patch.dict('sys.modules', {
+            'uuid': MagicMock(), 'unique_identifier_msgs': MagicMock(), 'unique_identifier_msgs.msg': MagicMock()
+        }):
+            res = await self.bridge._execute_action(client, MagicMock(), "test", None)
+
+        self.assertEqual(res.status, NavigationTerminalStatus.TIMEOUT)
+        self.assertTrue(self.bridge._status.task_active)
+        self.assertTrue(self.bridge._status.remote_state_unknown)
+        self.assertIsNone(self.bridge._active_goal_handle)
+        self.assertIsNone(self.bridge._active_result_task)
+        self.assertIsNone(self.bridge._active_goal_uuid)
+        preserved_uuid = self.bridge._status.goal_uuid
+        self.assertTrue(preserved_uuid)
+
+        with self.assertRaisesRegex(RuntimeError, "CANCEL_GOAL_HANDLE_UNAVAILABLE"):
+            await self.bridge.cancel_navigation()
+
+        self.assertTrue(self.bridge._status.task_active)
+        self.assertTrue(self.bridge._status.remote_state_unknown)
+        self.assertEqual(self.bridge._status.goal_uuid, preserved_uuid)
+
+    async def test_55_second_goal_blocked_after_handle_unavailable_cancel(self):
+        """2H.1.5 #3: the CANCEL_GOAL_HANDLE_UNAVAILABLE degraded state must
+        keep blocking a second goal, exactly like every other unconfirmed
+        path already covered for 2H.1.2/2H.1.3/2H.1.4."""
+        self.bridge._started = True
+        client = MagicMock()
+        loop = asyncio.get_running_loop()
+        never_resolves = loop.create_future()
+        self.bridge._ros_future_to_asyncio = lambda f: never_resolves
+        client.send_goal_async.return_value = never_resolves
+
+        with patch.dict('sys.modules', {
+            'uuid': MagicMock(), 'unique_identifier_msgs': MagicMock(), 'unique_identifier_msgs.msg': MagicMock()
+        }):
+            await self.bridge._execute_action(client, MagicMock(), "test", None)
+
+        with self.assertRaisesRegex(RuntimeError, "CANCEL_GOAL_HANDLE_UNAVAILABLE"):
+            await self.bridge.cancel_navigation()
+
+        with self.assertRaisesRegex(RuntimeError, "NAVIGATION_GOAL_ALREADY_ACTIVE"):
+            await self.bridge._execute_action(client, MagicMock(), "test2", None)
+
+    async def test_56_close_after_handle_unavailable_tears_down_and_raises(self):
+        """2H.1.5 #4: close() after a CANCEL_GOAL_HANDLE_UNAVAILABLE cancel
+        attempt must still complete the full local teardown and report the
+        historical degradation, never inventing a terminal for a goal it
+        could never reach."""
+        self.bridge._started = True
+        client = MagicMock()
+        loop = asyncio.get_running_loop()
+        never_resolves = loop.create_future()
+        self.bridge._ros_future_to_asyncio = lambda f: never_resolves
+        client.send_goal_async.return_value = never_resolves
+
+        with patch.dict('sys.modules', {
+            'uuid': MagicMock(), 'unique_identifier_msgs': MagicMock(), 'unique_identifier_msgs.msg': MagicMock()
+        }):
+            await self.bridge._execute_action(client, MagicMock(), "test", None)
+
+        with self.assertRaisesRegex(RuntimeError, "CANCEL_GOAL_HANDLE_UNAVAILABLE"):
+            await self.bridge.cancel_navigation()
+
+        with self.assertRaisesRegex(RuntimeError, "DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN"):
+            await self.bridge.close()
+
+        self.assertFalse(self.bridge._started)
+        self.assertFalse(self.bridge._status.task_active)
+        self.assertTrue(self.bridge._status.remote_state_unknown)
+        self.assertIsNone(self.bridge._active_goal_handle)
+        self.assertIsNone(self.bridge._active_result_task)
+
+    async def test_57_active_without_handle_but_with_stale_result_task_still_guards(self):
+        """2H.1.5 #5: an inconsistent state with task_active=True, no goal
+        handle, but a (stale/leftover) result_task present must still raise
+        CANCEL_GOAL_HANDLE_UNAVAILABLE -- a result task is never a substitute
+        for actually being able to send CancelGoal, and must not be awaited
+        as if it were one."""
+        self.bridge._status.task_active = True
+        self.bridge._active_goal_handle = None
+
+        loop = asyncio.get_running_loop()
+        stale_result_task = loop.create_future()
+        self.bridge._active_result_task = stale_result_task
+        self.bridge._request_cancel_only = AsyncMock()
+
+        with self.assertRaisesRegex(RuntimeError, "CANCEL_GOAL_HANDLE_UNAVAILABLE"):
+            await self.bridge.cancel_navigation()
+
+        self.bridge._request_cancel_only.assert_not_called()
+        self.assertFalse(stale_result_task.done())
+        self.assertTrue(self.bridge._status.task_active)
+        self.assertTrue(self.bridge._status.remote_state_unknown)
+
 
 if __name__ == '__main__':
     unittest.main()

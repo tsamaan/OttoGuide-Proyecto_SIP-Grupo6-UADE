@@ -31,7 +31,7 @@ procedimiento ya establecidos en:
 ## A. Estado actual
 
 ```text
-DirectNav2ActionBridge        = aislado y validado offline (Fases 2H.1/2H.1.2/2H.1.3/2H.1.4)
+DirectNav2ActionBridge        = aislado y validado offline (Fases 2H.1/2H.1.2/2H.1.3/2H.1.4/2H.1.5)
 main.py / TourOrchestrator    = sigue usando AsyncNav2Bridge (legacy)
 MAIN_RUNTIME_MIGRATED         = NO
 LEGACY_NAVIGATION_RUNTIME_ACTIVE = YES
@@ -42,7 +42,7 @@ PHYSICAL_NAVIGATION           = NOT_READY
 ```
 
 Toda la evidencia de `DirectNav2ActionBridge` recolectada hasta la Fase
-2H.1.4 es exclusivamente contra `offline_runtime_simulator.py` (odometría
+2H.1.5 es exclusivamente contra `offline_runtime_simulator.py` (odometría
 y scan sintéticos, ROS 2 Jazzy en WSL). Ninguna parte de esa evidencia se
 transfiere automáticamente al robot físico, que corre `ROS_DISTRO=foxy`
 con `rmw_cyclonedds_cpp` (ver `PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md`).
@@ -197,16 +197,25 @@ no se ejecuta en esta fase porque no hay sesión física en curso.
 ```text
 1. no iniciar ningun movimiento nuevo
 2. cancelar el goal activo via cancel_navigation()
-3. esperar el terminal si es observable (result task presente)
-4. si el terminal no es observable, asumir degradacion: no inferir CANCELED
-5. forzar velocidad cero por el HAL fisico (no por el bridge)
-6. ejecutar damp() como ya esta protocolizado en HIL_TESTING_PROTOCOL.md
-7. cerrar el bridge (close()), aceptando que puede reportar
+3. si cancel_navigation() devuelve CANCEL_GOAL_HANDLE_UNAVAILABLE:
+   - no asumir cancelacion
+   - no enviar otro goal
+   - mantener NO-GO
+   - forzar la secuencia externa de seguridad solo cuando exista sesion
+     fisica autorizada
+   - cerrar bridge
+   - preservar evidencia
+4. esperar el terminal si es observable (result task presente)
+5. si el terminal no es observable (CANCEL_TERMINAL_UNOBSERVABLE), asumir
+   degradacion: no inferir CANCELED
+6. forzar velocidad cero por el HAL fisico (no por el bridge)
+7. ejecutar damp() como ya esta protocolizado en HIL_TESTING_PROTOCOL.md
+8. cerrar el bridge (close()), aceptando que puede reportar
    DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN si la degradacion es real
-8. detener exclusivamente los procesos propios de la sesion (PIDs/PGIDs
+9. detener exclusivamente los procesos propios de la sesion (PIDs/PGIDs
    registrados en la seccion E), nunca por nombre ni con comodines
-9. volver a la configuracion runtime previamente aceptada (AsyncNav2Bridge
-   via main.py, sin DirectNav2ActionBridge conectado)
+10. volver a la configuracion runtime previamente aceptada (AsyncNav2Bridge
+    via main.py, sin DirectNav2ActionBridge conectado)
 ```
 
 ## Declaración final

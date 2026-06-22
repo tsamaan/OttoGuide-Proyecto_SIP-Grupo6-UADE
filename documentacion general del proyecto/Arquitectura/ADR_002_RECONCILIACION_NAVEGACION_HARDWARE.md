@@ -130,10 +130,10 @@ concretas de hardware y navegación, sin:
   estructuralmente hasta que `src/hardware/` se borre.
 - La política de waypoints del orquestador (un `NavigateToPose`/
   `navigate_to_waypoints` por waypoint, continuar si uno falla) no se
-  resolvió en esta fase. Las Fases 2H.1/2H.1.2/2H.1.3/2H.1.4 validaron
-  `DirectNav2ActionBridge` de forma aislada sin tocar esta política;
-  queda pendiente para 2H.2/2I, documentada como legacy y sujeta a
-  revisión.
+  resolvió en esta fase. Las Fases 2H.1/2H.1.2/2H.1.3/2H.1.4/2H.1.5
+  validaron `DirectNav2ActionBridge` de forma aislada sin tocar esta
+  política; queda pendiente para 2H.2/2I, documentada como legacy y
+  sujeta a revisión.
 
 ## Plan de migración
 
@@ -183,11 +183,22 @@ concretas de hardware y navegación, sin:
    `DIRECT_NAV2_ACTION_BRIDGE_2H1_REPORT.md`, sección 9. Sigue siendo
    exclusivamente validación aislada; no se ejecutó ningún comando sobre
    hardware físico.
-6. **Fase 2H.2 (pendiente, no autorizada)**: seleccionar e inyectar el
+6. **Fase 2H.1.5**: microincremento aditivo final de la serie 2H.1 que
+   corrige `cancel_navigation()` cuando existe navegación activa pero
+   ningún goal handle alcanzable (p.ej. tras un goal-response timeout;
+   ahora lanza `CANCEL_GOAL_HANDLE_UNAVAILABLE` y preserva
+   `remote_state_unknown=True`, sin solicitar `CancelGoal` ni esperar un
+   `result_task` remanente como sustituto), cerrando la matriz pública
+   completa de estados de cancelación. Completada — ver
+   `DIRECT_NAV2_ACTION_BRIDGE_2H1_REPORT.md`, sección 10. Sigue siendo
+   exclusivamente validación aislada; no se ejecutó ningún comando sobre
+   hardware físico. Con esta fase, la serie 2H.1 queda documentada como
+   cerrada.
+7. **Fase 2H.2 (pendiente, no autorizada)**: seleccionar e inyectar el
    bridge en main.py.
-7. **Fase 2I (pendiente, no autorizada)**: política de misión,
+8. **Fase 2I (pendiente, no autorizada)**: política de misión,
    reintentos, skip, abort y handover.
-8. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
+9. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
    ningún test ni código de producción lo necesita.
 
 ## Criterios de rollback
@@ -212,7 +223,7 @@ concretas de hardware y navegación, sin:
 | Orquestador    | `TourOrchestrator`                                 | alternativas históricas                 | conservar FSM         |
 | HAL            | `hardware/`                                        | `src/hardware/`                         | `hardware/` canónico  |
 | MotionCommand  | `hardware.interface.MotionCommand`                 | `src.hardware.interface.MotionCommand`  | canónico único        |
-| Navegación     | `DirectNav2ActionBridge` (validado aislado, 2H.1.4) | `AsyncNav2Bridge` + `BasicNavigator`    | inyectar en 2H.2       |
+| Navegación     | `DirectNav2ActionBridge` (validado aislado, 2H.1.5) | `AsyncNav2Bridge` + `BasicNavigator`    | inyectar en 2H.2       |
 | Velocidad      | `cmd_vel_raw → collision_monitor → cmd_vel_safe`   | `/cmd_vel → /cmd_vel_nav`               | conservar sandbox      |
 | Waypoints      | `NavigateToPose` y `FollowWaypoints` según misión  | selección por `ROBOT_MODE`              | resolver en 2H.2        |
 | Fallo waypoint | política fail-closed pendiente                     | continuar actualmente                   | resolver en 2H.2/2I     |

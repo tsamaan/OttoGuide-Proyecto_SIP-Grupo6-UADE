@@ -657,20 +657,39 @@ class DirectNav2ActionBridge(NavigationPort):
         unico de la transicion terminal normal). Nunca debe ser llamado por
         el propio monitor (eso causaria que una tarea se espere a si misma).
 
-        Si no existe un result task observable (p.ej. el goal fue aceptado
-        pero get_result_async()/la creacion del monitor fallo antes de
-        producir uno), una respuesta CancelGoal aceptada NUNCA se traduce
-        en CANCELED: aceptacion del servicio de cancelacion es evidencia de
-        que el servidor *recibio* la solicitud, no de que el goal terminara.
-        Sin un monitor que observe el GoalStatus real, ese terminal sigue
-        sin confirmar, por lo que el goal permanece activo y el estado
-        remoto queda explicitamente desconocido hasta close().
+        Implementa la matriz publica completa de cancelacion (task_active x
+        goal_handle x result_task):
+
+        - task_active=False: retorno normal, no hay navegacion activa.
+        - task_active=True, goal_handle=None: nunca existio (o ya no existe)
+          un goal handle con el que enviar CancelGoal. No hay nada que
+          solicitar ni que esperar -- un result_task remanente, si lo
+          hubiera, tampoco sustituye esa solicitud nunca enviada. Se marca
+          remote_state_unknown=True y se lanza CANCEL_GOAL_HANDLE_UNAVAILABLE
+          sin tocar task_active/goal_uuid/active_result_task.
+        - task_active=True, goal_handle presente, result_task=None: se
+          solicita la cancelacion. Si no existe un result task observable
+          (p.ej. el goal fue aceptado pero get_result_async()/la creacion
+          del monitor fallo antes de producir uno), una respuesta CancelGoal
+          aceptada NUNCA se traduce en CANCELED: aceptacion del servicio de
+          cancelacion es evidencia de que el servidor *recibio* la
+          solicitud, no de que el goal terminara. Sin un monitor que observe
+          el GoalStatus real, ese terminal sigue sin confirmar, por lo que
+          el goal permanece activo y el estado remoto queda explicitamente
+          desconocido hasta close().
+        - task_active=True, goal_handle y result_task presentes: se
+          solicita la cancelacion, se espera el result task y se exige
+          CANCELED.
         """
         with self._state_lock:
+            task_active = self._status.task_active
             goal_handle = self._active_goal_handle
             res_task = self._active_result_task
-            if not goal_handle or not self._status.task_active:
+            if not task_active:
                 return
+            if goal_handle is None:
+                self._status.remote_state_unknown = True
+                raise RuntimeError("CANCEL_GOAL_HANDLE_UNAVAILABLE")
 
         await self._request_cancel_only()
 
