@@ -1468,6 +1468,82 @@ def check_direct_nav2_action_bridge_smoke_hardening_contract(result: dict, files
             result["errors"].append("SMOKE_PGID_POTENTIALLY_UNINITIALIZED")
 
 
+MAIN_RUNTIME_TIMEOUT_CLEANUP_TEST_FILE = (
+    CODE_ROOT / "tests" / "unit" / "test_main_runtime_timeout_cleanup.py"
+)
+
+
+def check_main_runtime_cleanup_lease_contract(result: dict, files: list[Path]) -> None:
+    """Fase 2H.2.2: regression guards for the process-group isolation and
+    cleanup-lease hardening of smoke_test_main_runtime_navigation_selection.py.
+
+    Detects the literal regressions named by the phase: a child or sandbox
+    Popen call without start_new_session=True, any remaining
+    preexec_fn=os.setsid usage, absence of lease validation / a random
+    token / protected-PGID rejection / start_ticks capture / child wait, and
+    absence of explicit thread/zombie/orphan gates. Uses AST rather than
+    bare string search wherever a call shape needs to be distinguished from
+    incidental text (e.g. a docstring mentioning these terms).
+    """
+    target = MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+    if target not in files or not target.is_file():
+        return
+
+    text = _read_text(target)
+    try:
+        tree = ast.parse(text, filename=str(target))
+    except SyntaxError:
+        result["errors"].append("MAIN_RUNTIME_CLEANUP_SYNTAX_ERROR")
+        return
+
+    popen_calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and (
+            (isinstance(node.func, ast.Attribute) and node.func.attr == "Popen")
+            or (isinstance(node.func, ast.Name) and node.func.id == "Popen")
+        )
+    ]
+    if not popen_calls:
+        result["errors"].append("MAIN_RUNTIME_CLEANUP_NO_POPEN_CALLS_FOUND")
+    for call in popen_calls:
+        kwarg_names = {kw.arg for kw in call.keywords if kw.arg is not None}
+        if "preexec_fn" in kwarg_names:
+            result["errors"].append("MAIN_RUNTIME_CLEANUP_PREEXEC_FN_USED")
+        if "start_new_session" not in kwarg_names:
+            # spawn_isolated() is the only sanctioned wrapper around Popen;
+            # any direct Popen(...) call in this file must pass the kwarg
+            # itself (spawn_isolated's own call does).
+            result["errors"].append("MAIN_RUNTIME_CLEANUP_POPEN_WITHOUT_OWN_SESSION")
+
+    required_symbols = (
+        ("secrets.token_hex", "MAIN_RUNTIME_CLEANUP_NO_RANDOM_TOKEN"),
+        ("is_protected_id", "MAIN_RUNTIME_CLEANUP_NO_PROTECTED_ID_REJECTION"),
+        ("start_ticks", "MAIN_RUNTIME_CLEANUP_NO_START_TICKS"),
+        ("LEASE_VALIDATION_FAILED", "MAIN_RUNTIME_CLEANUP_NO_LEASE_VALIDATION_FAILURE_MARKER"),
+        ("validate_lease_immutable_fields", "MAIN_RUNTIME_CLEANUP_NO_LEASE_VALIDATION_FUNCTION"),
+        ("OWNED_THREADS_REMAINING", "MAIN_RUNTIME_CLEANUP_NO_THREAD_GATE"),
+        ("ZOMBIES_REMAINING", "MAIN_RUNTIME_CLEANUP_NO_ZOMBIE_GATE"),
+        ("ORPHAN_PROCESSES", "MAIN_RUNTIME_CLEANUP_NO_ORPHAN_GATE"),
+    )
+    for symbol, error_code in required_symbols:
+        if symbol not in text:
+            result["errors"].append(error_code)
+
+    # Child must be wait()ed on (reaped) somewhere in the cleanup path.
+    has_child_wait = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "wait"
+        for node in ast.walk(tree)
+    )
+    if not has_child_wait:
+        result["errors"].append("MAIN_RUNTIME_CLEANUP_NO_CHILD_WAIT")
+
+    if not MAIN_RUNTIME_TIMEOUT_CLEANUP_TEST_FILE.is_file():
+        result["errors"].append("MAIN_RUNTIME_CLEANUP_TEST_FILE_MISSING")
+
+
 def verify(runtime: bool = False) -> dict:
     result = {
         "ok": True,
@@ -1499,6 +1575,7 @@ def verify(runtime: bool = False) -> dict:
     check_direct_nav2_action_bridge_ownership_contract(result, files_to_scan)
     check_direct_nav2_action_bridge_close_degraded_contract(result, files_to_scan)
     check_direct_nav2_action_bridge_smoke_hardening_contract(result, files_to_scan)
+    check_main_runtime_cleanup_lease_contract(result, files_to_scan)
     check_navigation_backend_selector_contract(result)
     check_main_runtime_navigation_selection_contract(result)
     check_readiness_fail_closed_missing_status_contract(result)

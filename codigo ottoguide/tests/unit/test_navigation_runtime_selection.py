@@ -103,29 +103,36 @@ def _fresh_import_main():
 def _fake_settings(**overrides) -> SimpleNamespace:
     """Minimal SimpleNamespace replacing config.settings.Settings.
 
-    All field defaults match Settings defaults so this can be swapped in
-    transparently.  validate_navigation_config() is a no-op; Pydantic
-    validation is exercised separately in NavigationConfigValidationTests.
+    All field defaults match config.settings.Settings' own defaults (Fase
+    2H.2.2: corrected after an audit found several of these had drifted from
+    the real model -- ROBOT_MODE, NAVIGATION_NODE_NAME and every NAVIGATION_*
+    timeout, plus OLLAMA_MODEL/OLLAMA_HOST/UNITREE_FACTORY_TIMEOUT_S -- which
+    risked masking a real Settings regression behind a passing fake). This
+    can be swapped in transparently. validate_navigation_config() is a
+    no-op; Pydantic validation is exercised separately in
+    NavigationConfigValidationTests. See SettingsDefaultsParityTests below
+    for the test that pins these defaults against the real Settings model
+    whenever pydantic_settings is available.
     """
     fields: dict = dict(
         NAVIGATION_BACKEND="auto",
-        ROBOT_MODE="real",
+        ROBOT_MODE="mock",
         NAVIGATION_DIRECT_REAL_ENABLED=False,
         NAVIGATION_ALLOW_STUB_TOURS=False,
-        NAVIGATION_NODE_NAME="direct_nav2_action_node",
+        NAVIGATION_NODE_NAME="direct_nav2_action_bridge",
         NAVIGATION_NAMESPACE="offline_nav",
         NAVIGATION_NTP_ACTION="/offline_nav/navigate_to_pose",
         NAVIGATION_FW_ACTION="/offline_nav/follow_waypoints",
         NAVIGATION_INITIAL_POSE_TOPIC="/initialpose",
-        NAVIGATION_SERVER_TIMEOUT_S=30.0,
+        NAVIGATION_SERVER_TIMEOUT_S=15.0,
         NAVIGATION_GOAL_RESPONSE_TIMEOUT_S=10.0,
-        NAVIGATION_RESULT_TIMEOUT_S=300.0,
-        NAVIGATION_CANCEL_RESPONSE_TIMEOUT_S=5.0,
-        NAVIGATION_CANCEL_TERMINAL_TIMEOUT_S=10.0,
-        OLLAMA_MODEL="qwen2.5-vl",
-        OLLAMA_HOST="http://localhost:11434",
+        NAVIGATION_RESULT_TIMEOUT_S=120.0,
+        NAVIGATION_CANCEL_RESPONSE_TIMEOUT_S=10.0,
+        NAVIGATION_CANCEL_TERMINAL_TIMEOUT_S=15.0,
+        OLLAMA_MODEL="qwen2.5:3b",
+        OLLAMA_HOST="http://127.0.0.1:11434",
         UNITREE_FACTORY_BASE_URL="http://192.168.12.1:9991",
-        UNITREE_FACTORY_TIMEOUT_S=5.0,
+        UNITREE_FACTORY_TIMEOUT_S=0.35,
         UNITREE_FACTORY_DIAGNOSTICS_ENABLED=False,
     )
     fields.update(overrides)
@@ -887,6 +894,55 @@ class DependencyBlockedImportTests(unittest.TestCase):
             f"stdout={result.stdout!r}\nstderr={result.stderr!r}",
         )
         self.assertIn("DEPENDENCY_BLOCKED_IMPORT=PASS", result.stdout)
+
+
+@unittest.skipUnless(_PYDANTIC_SETTINGS_AVAILABLE, _SKIP_REASON)
+class SettingsDefaultsParityTests(unittest.TestCase):
+    """Fase 2H.2.2: pins _fake_settings() defaults against the real
+    config.settings.Settings model. Without this, _fake_settings() can drift
+    from Settings (as it previously did for ROBOT_MODE, NAVIGATION_NODE_NAME
+    and every NAVIGATION_*/OLLAMA_*/UNITREE_FACTORY_TIMEOUT_S field) and
+    every test built on the fake would keep passing while silently no longer
+    representing production defaults."""
+
+    _COMPARED_FIELDS = (
+        "ROBOT_MODE",
+        "NAVIGATION_BACKEND",
+        "NAVIGATION_DIRECT_REAL_ENABLED",
+        "NAVIGATION_ALLOW_STUB_TOURS",
+        "NAVIGATION_NODE_NAME",
+        "NAVIGATION_NAMESPACE",
+        "NAVIGATION_NTP_ACTION",
+        "NAVIGATION_FW_ACTION",
+        "NAVIGATION_INITIAL_POSE_TOPIC",
+        "NAVIGATION_SERVER_TIMEOUT_S",
+        "NAVIGATION_GOAL_RESPONSE_TIMEOUT_S",
+        "NAVIGATION_RESULT_TIMEOUT_S",
+        "NAVIGATION_CANCEL_RESPONSE_TIMEOUT_S",
+        "NAVIGATION_CANCEL_TERMINAL_TIMEOUT_S",
+        "OLLAMA_MODEL",
+        "OLLAMA_HOST",
+        "UNITREE_FACTORY_BASE_URL",
+        "UNITREE_FACTORY_TIMEOUT_S",
+        "UNITREE_FACTORY_DIAGNOSTICS_ENABLED",
+    )
+
+    def test_fake_settings_defaults_match_real_settings_defaults(self):
+        # Reads field defaults directly off the Settings model, never an
+        # instantiated Settings() -- the real shell/.env environment on this
+        # workstation legitimately overrides some fields (e.g. a system-wide
+        # OLLAMA_HOST set by the local Ollama install), which would otherwise
+        # produce a false mismatch unrelated to a real code-default drift.
+        real_defaults = {
+            name: field.default for name, field in Settings.model_fields.items()
+        }
+        fake = _fake_settings()
+        mismatches = [
+            f"{field}: fake={getattr(fake, field)!r} real_default={real_defaults[field]!r}"
+            for field in self._COMPARED_FIELDS
+            if getattr(fake, field) != real_defaults[field]
+        ]
+        self.assertEqual(mismatches, [], f"_fake_settings() drifted from Settings: {mismatches}")
 
 
 if __name__ == "__main__":

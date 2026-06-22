@@ -229,9 +229,28 @@ concretas de hardware y navegación, sin:
    (224–227: 3/4, la cuarta falló por startup timing del sandbox, no por
    el selector); todos con `--timeout 150`. No se ejecutó ningún comando
    sobre hardware físico.
-9. **Fase 2I (pendiente, no autorizada)**: política de misión,
-   reintentos, skip, abort y handover.
-10. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
+9. **Fase 2H.2.2**: microincremento aditivo de hardening sobre el smoke
+   test de selección de backend: aislamiento de grupo de proceso
+   (`start_new_session=True`, nunca `preexec_fn`), lease de limpieza
+   criptográfico (token `secrets.token_hex(32)` + `secrets.compare_digest()`,
+   directorio `0700`/archivo `0600` con `O_CREAT|O_EXCL|O_NOFOLLOW`),
+   validación de identidad de kernel via `/proc/<pid>/stat` (pid, ppid,
+   pgid, sid, start_ticks, uid) revalidada antes de cada señal, escalada
+   de señales fail-closed (SIGINT→SIGTERM→SIGKILL) con `reap_callback`
+   para evitar falsos "grupo vivo", gates de threads/zombies/huérfanos
+   propios, startup determinístico del sandbox con deadline compartido,
+   un guard estático nuevo (`check_main_runtime_cleanup_lease_contract`)
+   y una suite de tests POSIX nueva
+   (`test_main_runtime_timeout_cleanup.py`). Completada — ver
+   `MAIN_RUNTIME_NAVIGATION_SELECTION_2H22_HARDENING_REPORT.md`.
+   Diagnóstico 1 FAIL-PARTIAL (140–143: 1/4, intermitencia de entorno),
+   diagnóstico 2 PASS (150–153: 4/4, mismo código, confirma
+   intermitencia), corrida oficial 1 PASS (160–163: 4/4), corrida
+   oficial 2 PASS (170–173: 4/4); todos con `--timeout 150`. No se
+   ejecutó ningún comando sobre hardware físico.
+10. **Fase 2I (pendiente, no autorizada)**: política de misión,
+    reintentos, skip, abort y handover.
+11. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
     ningún test ni código de producción lo necesita.
 
 ## Criterios de rollback

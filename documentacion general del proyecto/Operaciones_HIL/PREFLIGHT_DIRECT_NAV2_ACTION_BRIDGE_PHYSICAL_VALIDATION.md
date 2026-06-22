@@ -37,6 +37,7 @@ MAIN_RUNTIME_MIGRATED         = NO (default ROBOT_MODE=real sigue en legacy)
 LEGACY_NAVIGATION_RUNTIME_ACTIVE = YES (default sin cambio)
 Fase 2H.2                     = completada (selector offline, runtime validation PASS — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H2_REPORT.md)
 Fase 2H.2.1                   = completada (hardening fail-closed, tests, guards estáticos, smoke Popen — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H21_HARDENING_REPORT.md)
+Fase 2H.2.2                   = completada (aislamiento de proceso, lease criptográfico, identidad de kernel, escalada fail-closed — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H22_HARDENING_REPORT.md)
 L2_ODOMETRY                   = NOT_READY
 L3_LOCALIZATION_MAP           = NOT_READY
 PHYSICAL_NAVIGATION           = NOT_READY
@@ -55,7 +56,7 @@ ni por analogía con el sandbox offline; cada uno requiere su propia
 evidencia física.
 
 ```text
-NO-GO 1: RESOLVED_OFFLINE — Fase 2H.2 completada (runtime validation PASS, 2026-06-22) y Fase 2H.2.1 completada (hardening PASS, 2026-06-22). Pendiente: push a main y auditoría de chat principal.
+NO-GO 1: RESOLVED_OFFLINE — Fase 2H.2 completada (runtime validation PASS, 2026-06-22), Fase 2H.2.1 completada (hardening PASS, 2026-06-22) y Fase 2H.2.2 completada (aislamiento/lease/identidad PASS, 2026-06-22). Pendiente: push a main y auditoría de chat principal.
 NO-GO 2: fuente física de odometría no validada (L2_ODOMETRY = NOT_READY)
 NO-GO 3: TF física incompleta o no medida (map->odom, odom->base_link,
          base_link->utlidar_lidar; este último requiere extrínseco medido,

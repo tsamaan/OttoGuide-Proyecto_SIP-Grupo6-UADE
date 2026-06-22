@@ -25,17 +25,44 @@ Scenarios (base + offset):
 This file never reaudits DirectNav2ActionBridge's own internal cancel/
 terminal-ownership contract (already accepted in the 2H.1 series); it only
 exercises main.py's selection/lifespan/readiness wiring around it.
+
+Fase 2H.2.2 process/lease model
+-------------------------------
+Every process this script spawns (the child interpreter per scenario, and
+the sandbox wrapper spawned by that child) is created with
+``start_new_session=True`` so it becomes the leader of its own session and
+process group, distinct from its spawner's. Ownership of a process group is
+never assumed from a PID alone: it is established once via the kernel
+identity captured immediately after spawn (``ProcessIdentity``, sourced from
+``/proc/<pid>/stat``: pid, ppid, pgid, sid, start_ticks, uid) and re-verified
+against the live kernel before every signal, so a PID/PGID that has been
+reused by an unrelated process can never be signalled as if it were still
+the original target.
+
+A ``CleanupLease`` (a private 0700 directory containing a 0600 JSON file,
+created with O_CREAT|O_EXCL|O_NOFOLLOW and updated only via write-temp +
+fsync + os.replace) carries the parent/child/sandbox identities across the
+parent/child boundary so the parent can re-validate the sandbox's identity
+during a timeout before it ever sends a signal to a PGID it did not itself
+observe at spawn time. If the lease cannot be validated at any stage, the
+sandbox is never signalled by the parent; only the immediate child (whose
+identity the parent captured directly via Popen) is targeted, and the
+scenario is marked failed.
 """
 
 import argparse
 import asyncio
 import json
 import os
+import secrets
 import signal
+import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -73,6 +100,663 @@ FORBIDDEN_MISSION_NODE_SUBSTRINGS = ("simple_commander", "basic_navigator")
 _INTERACTION_DEPENDENCY_MOCKS = ("pyttsx3", "speech_recognition", "aiohttp")
 _APP_MODULE_PREFIXES = ("main", "src", "src.", "config", "config.")
 
+LEASE_SCHEMA_VERSION = 1
+LEASE_DIR_MODE = 0o700
+LEASE_FILE_MODE = 0o600
+
+# Identifiers a signal may never target, regardless of what a lease or
+# control file claims. PID/PGID/SID 0 and 1 are kernel/init-reserved; the
+# parent's own ids must never be treated as a child/sandbox target.
+PROTECTED_IDS = frozenset({0, 1})
+
+# Cleanup escalation timeouts (seconds). Overridable for tests via
+# CleanupTimeouts; production callers use the defaults.
+DEFAULT_SIGINT_WAIT_S = 15.0
+DEFAULT_SIGTERM_WAIT_S = 10.0
+DEFAULT_SIGKILL_WAIT_S = 5.0
+DEFAULT_CHILD_SIGINT_WAIT_S = 5.0
+DEFAULT_CHILD_SIGTERM_WAIT_S = 5.0
+DEFAULT_CHILD_SIGKILL_WAIT_S = 5.0
+
+# Lease vigencia: must comfortably exceed the longest single scenario
+# (sandbox startup + full nav exercise + cleanup escalation) so a slow but
+# legitimate run is never rejected as expired.
+DEFAULT_LEASE_MAX_AGE_S = 600.0
+
+
+# ---------------------------------------------------------------------------
+# Kernel process identity (Fase 2H.2.2)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ProcessIdentity:
+    pid: int
+    ppid: int
+    pgid: int
+    sid: int
+    start_ticks: int
+    uid: int
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @staticmethod
+    def from_dict(data: dict) -> "ProcessIdentity | None":
+        try:
+            return ProcessIdentity(
+                pid=int(data["pid"]),
+                ppid=int(data["ppid"]),
+                pgid=int(data["pgid"]),
+                sid=int(data["sid"]),
+                start_ticks=int(data["start_ticks"]),
+                uid=int(data["uid"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+
+def _is_strict_positive_int(value) -> bool:
+    """True only for a real int (never bool) strictly greater than 1."""
+    return isinstance(value, int) and not isinstance(value, bool) and value > 1
+
+
+def is_protected_id(value) -> bool:
+    """An identifier is unsafe to ever signal if it is not a strict
+    positive int (>1), or if it equals a protected/reserved id (0, 1)."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        return True
+    return value in PROTECTED_IDS or value <= 1
+
+
+def _parse_proc_stat(text: str) -> "tuple[str, str, list[str]] | None":
+    """Splits /proc/<pid>/stat into (pid_field, comm, remaining_fields).
+
+    comm (field 2) is parenthesized and may itself contain spaces or
+    parentheses (e.g. a process named "a)b(c"); this finds the *last* ')'
+    rather than the first, which is the only way to parse it correctly.
+    """
+    first_paren = text.find("(")
+    last_paren = text.rfind(")")
+    if first_paren == -1 or last_paren == -1 or last_paren <= first_paren:
+        return None
+    pid_field = text[:first_paren].strip()
+    comm = text[first_paren + 1:last_paren]
+    rest = text[last_paren + 1:].strip().split()
+    return pid_field, comm, rest
+
+
+def read_process_identity(pid: int) -> "ProcessIdentity | None":
+    """Reads kernel-authoritative identity for `pid` from /proc/<pid>/stat
+    and /proc/<pid> ownership. Returns None if the process does not exist,
+    /proc is unavailable (e.g. native Windows), or the stat line cannot be
+    parsed -- this is always a normal, expected outcome for an already-gone
+    process, never silently coerced into a fabricated identity.
+    """
+    if is_protected_id(pid):
+        return None
+    proc_dir = Path(f"/proc/{pid}")
+    stat_path = proc_dir / "stat"
+    try:
+        text = stat_path.read_text()
+        owner_uid = proc_dir.stat().st_uid
+    except (FileNotFoundError, ProcessLookupError, PermissionError, OSError):
+        return None
+
+    parsed = _parse_proc_stat(text)
+    if parsed is None:
+        return None
+    pid_field, _comm, rest = parsed
+    # rest[0] = state (field 3, 1-indexed), rest[1] = ppid (field 4),
+    # rest[2] = pgrp (field 5), rest[3] = session (field 6) -- rest[i]
+    # always corresponds to overall field (i+3). starttime is field 22, so
+    # it is rest[22-3] = rest[19].
+    try:
+        pid_value = int(pid_field)
+        ppid = int(rest[1])
+        pgid = int(rest[2])
+        sid = int(rest[3])
+        start_ticks = int(rest[19])
+    except (IndexError, ValueError):
+        return None
+    if pid_value != pid:
+        return None
+    return ProcessIdentity(
+        pid=pid_value, ppid=ppid, pgid=pgid, sid=sid, start_ticks=start_ticks, uid=owner_uid
+    )
+
+
+def identity_still_valid(expected: ProcessIdentity) -> bool:
+    """Re-validates a previously captured identity against the live kernel:
+    same pid, same start_ticks (defeats PID reuse), same owner."""
+    current = read_process_identity(expected.pid)
+    if current is None:
+        return False
+    return (
+        current.pid == expected.pid
+        and current.start_ticks == expected.start_ticks
+        and current.uid == expected.uid
+    )
+
+
+def list_pgid_members(pgid: int) -> "list[ProcessIdentity]":
+    """Enumerates every process currently claiming membership in `pgid` by
+    scanning /proc/<pid>/stat directly (no `ps`, no name matching)."""
+    if is_protected_id(pgid):
+        return []
+    members: list[ProcessIdentity] = []
+    try:
+        candidates = [int(p.name) for p in Path("/proc").iterdir() if p.name.isdigit()]
+    except OSError:
+        return []
+    for pid in candidates:
+        identity = read_process_identity(pid)
+        if identity is not None and identity.pgid == pgid:
+            members.append(identity)
+    return members
+
+
+def _terminate_and_reap_unsafe_spawn(proc: "subprocess.Popen") -> None:
+    """Best-effort termination + mandatory reap of a Popen this function is
+    about to discard because its identity could not be established or
+    validated as safely isolated. Always targets only this exact PID
+    (never a group/PGID, which is precisely what could not be trusted
+    yet), and always calls wait() so the process can never be leaked as a
+    Popen reference with no terminator and no reap.
+    """
+    try:
+        proc.kill()
+    except (ProcessLookupError, OSError):
+        pass
+    try:
+        proc.wait(timeout=5.0)
+    except Exception:
+        try:
+            proc.wait(timeout=5.0)
+        except Exception:
+            pass
+
+
+def spawn_isolated(cmd: list, **popen_kwargs) -> "tuple[subprocess.Popen, ProcessIdentity]":
+    """Spawns `cmd` as the leader of a brand-new session and process group
+    (start_new_session=True, never preexec_fn=os.setsid), then immediately
+    captures and validates its kernel identity. Raises RuntimeError if the
+    spawned process did not actually obtain its own session/group -- this
+    is a fail-closed precondition for every later signal/lease step, never
+    silently downgraded to "best effort". Before raising, the just-spawned
+    process is always terminated and reaped here -- the caller only ever
+    sees the exception, never the Popen, so it would otherwise have no way
+    to clean up a process it cannot trust the identity of.
+    """
+    proc = subprocess.Popen(cmd, start_new_session=True, **popen_kwargs)
+    identity = read_process_identity(proc.pid)
+    if identity is None:
+        # Process may have already exited; give it one more chance to be
+        # observed before giving up (covers a benign race on very fast
+        # exits without papering over a genuine isolation failure).
+        time.sleep(0.05)
+        identity = read_process_identity(proc.pid)
+    if identity is None:
+        _terminate_and_reap_unsafe_spawn(proc)
+        raise RuntimeError(f"SPAWN_IDENTITY_UNAVAILABLE:pid={proc.pid}")
+    if identity.pid != identity.pgid or identity.pid != identity.sid:
+        _terminate_and_reap_unsafe_spawn(proc)
+        raise RuntimeError(
+            f"SPAWN_NOT_OWN_SESSION:pid={identity.pid},pgid={identity.pgid},sid={identity.sid}"
+        )
+    if is_protected_id(identity.pgid) or is_protected_id(identity.sid):
+        _terminate_and_reap_unsafe_spawn(proc)
+        raise RuntimeError(f"SPAWN_PROTECTED_GROUP:pgid={identity.pgid},sid={identity.sid}")
+    return proc, identity
+
+
+# ---------------------------------------------------------------------------
+# Cleanup lease (Fase 2H.2.2)
+# ---------------------------------------------------------------------------
+
+
+class LeaseError(Exception):
+    pass
+
+
+def _fsync_replace(path: Path, payload: bytes) -> None:
+    directory = path.parent
+    fd, tmp_name = tempfile.mkstemp(prefix=".tmp_", dir=str(directory))
+    try:
+        os.chmod(tmp_name, LEASE_FILE_MODE)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_name, str(path))
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _open_nofollow_flags() -> int:
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    return flags | nofollow
+
+
+class CleanupLease:
+    """A private-directory, validated lease that proves identity and
+    vigency across the parent/child process boundary -- never a bare
+    JSON control file. See module docstring for the threat model.
+    """
+
+    FILE_NAME = "cleanup_lease.json"
+
+    def __init__(self, lease_dir: Path):
+        self.lease_dir = lease_dir
+        self.lease_path = lease_dir / self.FILE_NAME
+
+    # -- creation (parent, before spawning the child) --------------------
+
+    @classmethod
+    def create(
+        cls,
+        base_tmp_dir: Path,
+        run_id: str,
+        scenario: str,
+        domain_id: str,
+        parent_identity: ProcessIdentity,
+        max_age_s: float = DEFAULT_LEASE_MAX_AGE_S,
+    ) -> "tuple[CleanupLease, str]":
+        """Returns (lease, lease_token). The token is also written inside
+        the lease file (so the child, which only ever sees the lease
+        directory, can read it back from there), but the *expected* value
+        a caller validates against must always come from this return value
+        -- passed to the child out-of-band via an explicit CLI argument,
+        never re-derived from the lease file's own contents, which is what
+        validate_lease_immutable_fields()'s `expected_token` parameter is
+        for. Comparing the file's self-reported token against itself would
+        validate nothing: any attacker-controlled lease file could simply
+        carry its own forged token alongside forged identities.
+        """
+        lease_dir = base_tmp_dir / f"ottoguide_main_runtime_2h22_{run_id}"
+        lease_dir.mkdir(mode=LEASE_DIR_MODE, parents=False, exist_ok=False)
+        os.chmod(lease_dir, LEASE_DIR_MODE)
+        dir_stat = lease_dir.stat()
+        if stat.S_ISLNK(os.lstat(lease_dir).st_mode):
+            raise LeaseError("LEASE_DIR_IS_SYMLINK")
+        if dir_stat.st_uid != os.getuid():
+            raise LeaseError("LEASE_DIR_WRONG_OWNER")
+
+        lease = cls(lease_dir)
+        now_ns = time.time_ns()
+        token = secrets.token_hex(32)
+        payload = {
+            "schema_version": LEASE_SCHEMA_VERSION,
+            "run_id": run_id,
+            "lease_token": token,
+            "scenario": scenario,
+            "domain_id": domain_id,
+            "max_age_s": max_age_s,
+            "created_at_ns": now_ns,
+            "updated_at_ns": now_ns,
+            "created_monotonic_ns": time.monotonic_ns(),
+            "parent": parent_identity.to_dict(),
+            "child": _EMPTY_IDENTITY_DICT,
+            "sandbox": _EMPTY_IDENTITY_DICT,
+        }
+        flags = _open_nofollow_flags()
+        fd = os.open(str(lease.lease_path), flags, LEASE_FILE_MODE)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(json.dumps(payload).encode("utf-8"))
+                fh.flush()
+                os.fsync(fh.fileno())
+        except Exception:
+            raise
+        lease._validate_file_metadata()
+        return lease, token
+
+    # -- reopen (child / parent re-attaching to an existing lease) -------
+
+    @classmethod
+    def open_existing(cls, lease_dir: Path) -> "CleanupLease":
+        lease = cls(lease_dir)
+        lease._validate_file_metadata()
+        return lease
+
+    def _validate_file_metadata(self) -> None:
+        try:
+            lstat_result = os.lstat(self.lease_path)
+        except OSError as exc:
+            raise LeaseError(f"LEASE_FILE_STAT_FAILED:{exc}") from exc
+        if stat.S_ISLNK(lstat_result.st_mode):
+            raise LeaseError("LEASE_FILE_IS_SYMLINK")
+        if not stat.S_ISREG(lstat_result.st_mode):
+            raise LeaseError("LEASE_FILE_NOT_REGULAR")
+        if lstat_result.st_nlink != 1:
+            raise LeaseError("LEASE_FILE_UNEXPECTED_NLINK")
+        if lstat_result.st_uid != os.getuid():
+            raise LeaseError("LEASE_FILE_WRONG_OWNER")
+        if stat.S_IMODE(lstat_result.st_mode) & 0o077:
+            raise LeaseError("LEASE_FILE_PERMISSIONS_TOO_OPEN")
+
+    def read(self) -> dict:
+        self._validate_file_metadata()
+        try:
+            text = self.lease_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise LeaseError(f"LEASE_FILE_READ_FAILED:{exc}") from exc
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise LeaseError(f"LEASE_FILE_INVALID_JSON:{exc}") from exc
+        if not isinstance(data, dict):
+            raise LeaseError("LEASE_FILE_NOT_OBJECT")
+        return data
+
+    def _write(self, data: dict) -> None:
+        self._validate_file_metadata()
+        payload = json.dumps(data).encode("utf-8")
+        _fsync_replace(self.lease_path, payload)
+        self._validate_file_metadata()
+
+    def update_child_identity(self, child_identity: ProcessIdentity) -> dict:
+        data = self.read()
+        data["child"] = child_identity.to_dict()
+        data["updated_at_ns"] = time.time_ns()
+        self._write(data)
+        return data
+
+    def update_sandbox_identity(self, sandbox_identity: ProcessIdentity) -> dict:
+        data = self.read()
+        data["sandbox"] = sandbox_identity.to_dict()
+        data["updated_at_ns"] = time.time_ns()
+        self._write(data)
+        return data
+
+    def destroy(self) -> None:
+        try:
+            self.lease_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        try:
+            self.lease_dir.rmdir()
+        except OSError:
+            pass
+
+
+_EMPTY_IDENTITY_DICT = {
+    "pid": None, "ppid": None, "pgid": None, "sid": None, "start_ticks": None, "uid": None,
+}
+
+
+def validate_lease_immutable_fields(
+    data: dict,
+    expected_run_id: str,
+    expected_scenario: str,
+    expected_domain_id: str,
+    expected_parent: "ProcessIdentity | None" = None,
+    max_age_s: float = DEFAULT_LEASE_MAX_AGE_S,
+    expected_token: "str | None" = None,
+) -> "list[str]":
+    """Validates the fields that must never change after creation, plus
+    vigency. Returns a list of error codes (empty list = valid). Never
+    raises on a malformed lease -- malformed input is itself a validation
+    failure to report, not an exception to propagate.
+
+    `expected_token`, when given, must be the exact token value the caller
+    obtained out-of-band from CleanupLease.create()'s return value (e.g.
+    passed to a child via an explicit CLI argument) -- never read back from
+    the lease file itself, which would make the check circular. Comparison
+    uses secrets.compare_digest for a constant-time match.
+    """
+    errors: list[str] = []
+
+    if data.get("schema_version") != LEASE_SCHEMA_VERSION:
+        errors.append("LEASE_SCHEMA_MISMATCH")
+        return errors  # Nothing else can be trusted if the schema itself is wrong.
+
+    token = data.get("lease_token")
+    if not isinstance(token, str) or len(token) < 32:
+        errors.append("LEASE_TOKEN_INVALID")
+    elif expected_token is not None:
+        if not isinstance(expected_token, str) or not secrets.compare_digest(token, expected_token):
+            errors.append("LEASE_TOKEN_MISMATCH")
+
+    if data.get("run_id") != expected_run_id:
+        errors.append("LEASE_RUN_ID_MISMATCH")
+    if data.get("scenario") != expected_scenario:
+        errors.append("LEASE_SCENARIO_MISMATCH")
+    if str(data.get("domain_id")) != str(expected_domain_id):
+        errors.append("LEASE_DOMAIN_MISMATCH")
+
+    parent_data = data.get("parent")
+    if not isinstance(parent_data, dict):
+        errors.append("LEASE_PARENT_IDENTITY_MISSING")
+    else:
+        parent_identity = ProcessIdentity.from_dict(parent_data)
+        if parent_identity is None:
+            errors.append("LEASE_PARENT_IDENTITY_MALFORMED")
+        elif is_protected_id(parent_identity.pid) or is_protected_id(parent_identity.pgid):
+            errors.append("LEASE_PARENT_IDENTITY_PROTECTED")
+        elif expected_parent is not None and (
+            parent_identity.pid != expected_parent.pid
+            or parent_identity.ppid != expected_parent.ppid
+            or parent_identity.pgid != expected_parent.pgid
+            or parent_identity.sid != expected_parent.sid
+            or parent_identity.start_ticks != expected_parent.start_ticks
+            or parent_identity.uid != expected_parent.uid
+        ):
+            errors.append("LEASE_PARENT_IDENTITY_MISMATCH")
+
+    created_at_ns = data.get("created_at_ns")
+    updated_at_ns = data.get("updated_at_ns")
+    if not isinstance(created_at_ns, int) or not isinstance(updated_at_ns, int):
+        errors.append("LEASE_TIMESTAMPS_MALFORMED")
+    else:
+        now_ns = time.time_ns()
+        one_minute_ns = 60_000_000_000
+        if created_at_ns > now_ns + one_minute_ns:
+            errors.append("LEASE_CREATED_AT_IN_FUTURE")
+        if updated_at_ns < created_at_ns:
+            errors.append("LEASE_UPDATED_BEFORE_CREATED")
+        age_s = (now_ns - created_at_ns) / 1_000_000_000
+        if age_s > max_age_s:
+            errors.append("LEASE_EXPIRED")
+
+    return errors
+
+
+def validate_lease_identity_field(
+    data: dict, field_name: str, expected: "ProcessIdentity | None" = None
+) -> "list[str]":
+    """Validates data[field_name] (child or sandbox) as a populated,
+    kernel-consistent ProcessIdentity. `field_name` is 'child' or
+    'sandbox'."""
+    errors: list[str] = []
+    raw = data.get(field_name)
+    if not isinstance(raw, dict):
+        return [f"LEASE_{field_name.upper()}_IDENTITY_MISSING"]
+
+    identity = ProcessIdentity.from_dict(raw)
+    if identity is None:
+        return [f"LEASE_{field_name.upper()}_IDENTITY_MALFORMED"]
+
+    if is_protected_id(identity.pid) or is_protected_id(identity.pgid) or is_protected_id(identity.sid):
+        errors.append(f"LEASE_{field_name.upper()}_IDENTITY_PROTECTED")
+
+    if expected is not None:
+        if (
+            identity.pid != expected.pid
+            or identity.pgid != expected.pgid
+            or identity.sid != expected.sid
+            or identity.start_ticks != expected.start_ticks
+        ):
+            errors.append(f"LEASE_{field_name.upper()}_IDENTITY_MISMATCH")
+
+    if not identity_still_valid(identity):
+        errors.append(f"LEASE_{field_name.upper()}_IDENTITY_STALE")
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Signal escalation with kernel re-validation (Fase 2H.2.2)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CleanupTimeouts:
+    sigint_wait_s: float = DEFAULT_SIGINT_WAIT_S
+    sigterm_wait_s: float = DEFAULT_SIGTERM_WAIT_S
+    sigkill_wait_s: float = DEFAULT_SIGKILL_WAIT_S
+    poll_interval_s: float = 0.5
+
+
+def _pgid_alive(pgid: int) -> bool:
+    if is_protected_id(pgid):
+        return False
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def escalate_signal_to_group(
+    pgid: int,
+    expected_leader: "ProcessIdentity | None",
+    timeouts: CleanupTimeouts,
+    attempts_log: "list[dict]",
+    target_kind: str,
+    reap_callback=None,
+) -> bool:
+    """Sends SIGINT, then SIGTERM, then targeted SIGKILL to exactly the
+    members of `pgid`, re-validating the leader's kernel identity (when
+    still alive) before each step, and falling back to per-member identity
+    revalidation if the leader has already exited but members remain.
+    Returns True if the group is confirmed gone afterwards. Every attempt
+    (authorized or not, delivered or not) is appended to `attempts_log`.
+
+    `reap_callback`, if given, is invoked (with no arguments) on every poll
+    iteration of the wait loop. When the group leader is this caller's own
+    *direct* child, `os.killpg(pgid, 0)` keeps reporting the group as alive
+    even after the leader has fully exited, until that child is actually
+    wait()/poll()ed -- an un-reaped zombie's PID is still a live member of
+    its own process group. `reap_callback` should be the owning Popen's
+    `.poll`, so the leader is reaped as soon as it exits instead of only at
+    the end of the whole escalation.
+    """
+    if is_protected_id(pgid):
+        attempts_log.append({
+            "target_kind": target_kind, "pgid": pgid, "signal": None,
+            "authorized": False, "delivered": False,
+            "process_already_gone": False, "error_type": "PROTECTED_PGID",
+            "timestamp_ns": time.time_ns(),
+        })
+        return not _pgid_alive(pgid)
+
+    known_members: "dict[int, ProcessIdentity]" = {}
+    if expected_leader is not None:
+        known_members[expected_leader.pid] = expected_leader
+    for member in list_pgid_members(pgid):
+        known_members.setdefault(member.pid, member)
+
+    def _authorized_targets() -> "list[ProcessIdentity]":
+        leader_current = read_process_identity(pgid)
+        if leader_current is not None and leader_current.pgid == pgid:
+            if expected_leader is None or (
+                leader_current.pid == expected_leader.pid
+                and leader_current.start_ticks == expected_leader.start_ticks
+            ):
+                return [leader_current]
+        # Leader gone or mismatched: fall back to previously-captured
+        # member identities, re-validated individually. Never trust a
+        # newly-discovered member that was not previously authorized.
+        valid: "list[ProcessIdentity]" = []
+        for pid, member in known_members.items():
+            if identity_still_valid(member) and read_process_identity(pid).pgid == pgid:
+                valid.append(member)
+        return valid
+
+    def _wait_gone(deadline: float) -> bool:
+        while time.monotonic() < deadline:
+            if reap_callback is not None:
+                reap_callback()
+            if not _pgid_alive(pgid):
+                return True
+            time.sleep(timeouts.poll_interval_s)
+        if reap_callback is not None:
+            reap_callback()
+        return not _pgid_alive(pgid)
+
+    def _send(sig: int) -> None:
+        targets = _authorized_targets()
+        if not targets:
+            attempts_log.append({
+                "target_kind": target_kind, "pgid": pgid, "signal": int(sig),
+                "authorized": False, "delivered": False,
+                "process_already_gone": True, "error_type": None,
+                "timestamp_ns": time.time_ns(),
+            })
+            return
+        for target in targets:
+            try:
+                if target.pid == pgid:
+                    os.killpg(pgid, sig)
+                else:
+                    os.kill(target.pid, sig)
+                attempts_log.append({
+                    "target_kind": target_kind, "pid": target.pid, "pgid": pgid,
+                    "signal": int(sig), "authorized": True, "delivered": True,
+                    "process_already_gone": False, "error_type": None,
+                    "timestamp_ns": time.time_ns(),
+                })
+            except ProcessLookupError:
+                attempts_log.append({
+                    "target_kind": target_kind, "pid": target.pid, "pgid": pgid,
+                    "signal": int(sig), "authorized": True, "delivered": False,
+                    "process_already_gone": True, "error_type": "ProcessLookupError",
+                    "timestamp_ns": time.time_ns(),
+                })
+            except PermissionError:
+                attempts_log.append({
+                    "target_kind": target_kind, "pid": target.pid, "pgid": pgid,
+                    "signal": int(sig), "authorized": True, "delivered": False,
+                    "process_already_gone": False, "error_type": "PermissionError",
+                    "timestamp_ns": time.time_ns(),
+                })
+            except OSError as exc:
+                attempts_log.append({
+                    "target_kind": target_kind, "pid": target.pid, "pgid": pgid,
+                    "signal": int(sig), "authorized": True, "delivered": False,
+                    "process_already_gone": False, "error_type": type(exc).__name__,
+                    "timestamp_ns": time.time_ns(),
+                })
+
+    if reap_callback is not None:
+        reap_callback()
+    if not _pgid_alive(pgid):
+        return True
+
+    _send(signal.SIGINT)
+    if _wait_gone(time.monotonic() + timeouts.sigint_wait_s):
+        return True
+
+    _send(signal.SIGTERM)
+    if _wait_gone(time.monotonic() + timeouts.sigterm_wait_s):
+        return True
+
+    _send(signal.SIGKILL)
+    return _wait_gone(time.monotonic() + timeouts.sigkill_wait_s)
+
+
+# ---------------------------------------------------------------------------
+# Legacy helpers retained for ros2-cli interaction (unaffected by 2H.2.2)
+# ---------------------------------------------------------------------------
+
 
 def _build_env(domain_id: str) -> dict:
     env = os.environ.copy()
@@ -85,291 +769,139 @@ def _build_env(domain_id: str) -> dict:
     return env
 
 
-def _run(cmd: list[str], env: dict, timeout: float) -> subprocess.CompletedProcess:
+def _run(cmd: list, env: dict, timeout: float) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="TIMEOUT")
 
 
-def _node_list(env: dict, timeout: float) -> list[str]:
+def _node_list(env: dict, timeout: float) -> list:
     proc = _run(["ros2", "node", "list"], env, timeout)
     if proc.returncode != 0:
         return []
     return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
 
-def _lifecycle_get(node_fqn: str, env: dict, timeout: float) -> str | None:
+def _lifecycle_get(node_fqn: str, env: dict, timeout: float) -> "str | None":
     proc = _run(["ros2", "lifecycle", "get", node_fqn], env, timeout)
     if proc.returncode != 0 or not proc.stdout.strip():
         return None
     return proc.stdout.strip().split()[0].lower()
 
 
-def _wait_for_node_discovered(node_fqn: str, env: dict, deadline: float) -> bool:
-    while time.monotonic() < deadline:
-        if node_fqn in _node_list(env, timeout=5.0):
-            return True
-        time.sleep(1.0)
-    return False
-
-
-def _wait_for_lifecycle_active(node_fqn: str, env: dict, deadline: float) -> bool:
-    while time.monotonic() < deadline:
-        if _lifecycle_get(node_fqn, env, timeout=5.0) == "active":
-            return True
-        time.sleep(1.0)
-    return False
-
-
-def _process_group_is_alive(pgid: int) -> bool:
-    try:
-        os.killpg(pgid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-
-
-def _list_pids_in_pgid(pgid: int) -> list[int]:
-    """Enumerates exactly the PIDs currently in the given process group, for
-    the targeted-SIGKILL fallback step (never a wildcard/by-name kill)."""
-    try:
-        proc = subprocess.run(
-            ["ps", "-eo", "pid,pgid", "--no-headers"],
-            capture_output=True, text=True, timeout=5.0,
-        )
-    except Exception:
-        return []
-    pids: list[int] = []
-    for line in proc.stdout.splitlines():
-        parts = line.split()
-        if len(parts) != 2:
-            continue
-        try:
-            pid, group = int(parts[0]), int(parts[1])
-        except ValueError:
-            continue
-        if group == pgid:
-            pids.append(pid)
-    return pids
-
-
-def _shutdown_and_count_orphans(launch_process) -> int:
-    """Shuts down only the process group this smoke test itself created.
-
-    pgid is always resolved (or the function returns) before any signal is
-    sent: a ProcessLookupError while resolving it means the launch process
-    already terminated on its own -- 0 orphans, never an error to retry
-    against an unresolved identifier.
-
-    Liveness is polled on the *process group* directly (not on
-    launch_process.wait(), which only tracks the immediate bash-wrapper
-    child) because run_offline_navigation_runtime.sh's own `wait
-    "${LAUNCH_PID}"` inside its SIGINT/TERM trap can return before every
-    nav2 lifecycle node it spawned has actually exited. The full escalation
-    -- SIGINT, wait, SIGTERM, wait, SIGKILL targeted at exactly the PIDs
-    still present, final check -- matches the cleanup protocol required for
-    this phase; it is never a wildcard/by-name kill.
+def wait_for_components_deterministic(
+    fqns: list, env: dict, deadline: float
+) -> "tuple[bool, dict]":
+    """Fase 2H.2.2: single shared deadline, single `ros2 node list` call per
+    iteration (instead of looping sequentially per-component with its own
+    sub-deadline, which could starve later components of their fair share of
+    time even while they were coming up correctly). Returns
+    (all_active, status_by_fqn) where status_by_fqn values are one of
+    'active', 'NOT_DISCOVERED', 'NOT_ACTIVE:<state>', or
+    'LIFECYCLE_QUERY_FAILED'.
     """
-    if launch_process is None:
-        return 0
+    last_status: dict = {fqn: "NOT_DISCOVERED" for fqn in fqns}
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        list_timeout = min(5.0, max(0.5, remaining))
+        discovered = set(_node_list(env, timeout=list_timeout))
 
-    pgid: int | None = None
+        all_active = True
+        for fqn in fqns:
+            if fqn not in discovered:
+                last_status[fqn] = "NOT_DISCOVERED"
+                all_active = False
+                continue
+            remaining2 = deadline - time.monotonic()
+            if remaining2 <= 0:
+                all_active = False
+                continue
+            lifecycle_timeout = min(5.0, max(0.5, remaining2))
+            state = _lifecycle_get(fqn, env, timeout=lifecycle_timeout)
+            if state is None:
+                last_status[fqn] = "LIFECYCLE_QUERY_FAILED"
+                all_active = False
+            elif state == "active":
+                last_status[fqn] = "active"
+            else:
+                last_status[fqn] = f"NOT_ACTIVE:{state}"
+                all_active = False
+
+        if all_active:
+            return True, last_status
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(1.0)
+
+    return False, last_status
+
+
+def _collect_zombie_children(parent_pid: "int | None" = None) -> list:
+    """Returns PIDs of zombie children of `parent_pid` (default: this
+    process), read directly from /proc -- never via `ps`."""
+    target_ppid = parent_pid if parent_pid is not None else os.getpid()
+    zombies: list = []
     try:
-        pgid = os.getpgid(launch_process.pid)
-    except ProcessLookupError:
-        return 0
-
-    def _wait_until_gone(deadline: float) -> bool:
-        while time.monotonic() < deadline:
-            # launch_process is this process's own immediate child (the
-            # bash wrapper). Without periodically polling/reaping it,
-            # Python leaves it as a zombie in this process's table once it
-            # exits -- and a zombie's PID is still a live member of its own
-            # process group, so _process_group_is_alive(pgid) would keep
-            # reporting "alive" forever even after every real descendant
-            # (ros2 launch, every nav2 node) has actually terminated. This
-            # was the actual root cause of a false-positive ORPHAN_PROCESSES
-            # observed during development, not a real leak: manual
-            # `ps`-based verification after the smoke test process itself
-            # exited (which auto-reaps any of its own remaining zombies)
-            # always showed zero leftover processes.
-            launch_process.poll()
-            if not _process_group_is_alive(pgid):
-                return True
-            time.sleep(0.5)
-        launch_process.poll()
-        return not _process_group_is_alive(pgid)
-
-    try:
-        os.killpg(pgid, signal.SIGINT)
-    except Exception:
-        pass
-    if _wait_until_gone(time.monotonic() + 15.0):
-        return 0
-
-    try:
-        os.killpg(pgid, signal.SIGTERM)
-    except Exception:
-        pass
-    if _wait_until_gone(time.monotonic() + 10.0):
-        return 0
-
-    for pid in _list_pids_in_pgid(pgid):
+        candidates = [int(p.name) for p in Path("/proc").iterdir() if p.name.isdigit()]
+    except OSError:
+        return []
+    for pid in candidates:
+        stat_path = Path(f"/proc/{pid}/stat")
         try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except Exception:
-            pass
+            text = stat_path.read_text()
+        except (FileNotFoundError, ProcessLookupError, PermissionError, OSError):
+            continue
+        parsed = _parse_proc_stat(text)
+        if parsed is None:
+            continue
+        _pid_field, _comm, rest = parsed
+        try:
+            state = rest[0]
+            ppid = int(rest[1])
+        except (IndexError, ValueError):
+            continue
+        if ppid == target_ppid and state.startswith("Z"):
+            zombies.append(pid)
+    return zombies
 
-    if _wait_until_gone(time.monotonic() + 10.0):
-        return 0
-    return 1 if _process_group_is_alive(pgid) else 0
+
+# ---------------------------------------------------------------------------
+# Child <-> parent result/output paths
+# ---------------------------------------------------------------------------
 
 
-def _build_child_output_path(parent_pid: int, scenario: str, domain: str, token_ns: int) -> Path:
-    """One-time-use output path keyed on the parent-generated token_ns so
-    the output and control files share the same unique identifier."""
-    token = f"{parent_pid}_{token_ns}_{scenario}_{domain}"
-    return Path(f"/tmp/ottoguide_main_runtime_2h2_child_{token}.json")
-
-
-def _build_control_file_path(parent_pid: int, scenario: str, domain: str, token_ns: int) -> Path:
-    """Atomic lease/control file: written by parent before child launch,
-    updated atomically by child with its own PID/PGID and sandbox PID/PGID.
-    Parent reads it during timeout cleanup to find the exact processes to
-    kill without relying on names or wildcards."""
-    token = f"{parent_pid}_{token_ns}_{scenario}_{domain}"
-    return Path(f"/tmp/ottoguide_main_runtime_2h2_ctrl_{token}.json")
+def _build_child_output_path(run_id: str) -> Path:
+    return Path(tempfile.gettempdir()) / f"ottoguide_main_runtime_2h22_child_{run_id}.json"
 
 
 def _write_atomic(path: Path, data: dict) -> None:
-    """Write JSON atomically via os.replace (write to .tmp then rename)."""
     tmp = Path(str(path) + ".tmp")
     tmp.write_text(json.dumps(data))
     os.replace(str(tmp), str(path))
 
 
-def _collect_zombie_children() -> list[int]:
-    """Returns PIDs of zombie direct children of this process (stat Z*)."""
-    my_pid = os.getpid()
-    try:
-        proc = subprocess.run(
-            ["ps", "-eo", "pid,ppid,stat", "--no-headers"],
-            capture_output=True, text=True, timeout=5.0,
-        )
-    except Exception:
-        return []
-    zombies: list[int] = []
-    for line in proc.stdout.splitlines():
-        parts = line.split()
-        if len(parts) < 3:
-            continue
-        try:
-            pid, ppid = int(parts[0]), int(parts[1])
-        except ValueError:
-            continue
-        if ppid == my_pid and parts[2].startswith("Z"):
-            zombies.append(pid)
-    return zombies
-
-
-def _parent_timeout_cleanup(child_proc: "subprocess.Popen[str]", control_file: Path) -> None:
-    """Full process-group cleanup escalation used when communicate() times out.
-
-    Sequence:
-      SIGINT  → sandbox PGID (from control file) → wait 15 s
-      SIGTERM → sandbox PGID                     → wait 10 s
-      SIGKILL → exact sandbox PIDs               → wait  5 s
-      SIGINT  → child PGID                       → wait  5 s
-      SIGTERM → child PGID                       → wait  5 s
-      SIGKILL → exact child PIDs                 → wait  5 s
-    Never sends signals by name or via wildcards.
-    """
-    ctrl: dict = {}
-    try:
-        ctrl = json.loads(control_file.read_text())
-    except Exception:
-        pass
-    sandbox_pgid: int | None = ctrl.get("sandbox_pgid")
-
-    def _wait_pgid_gone(pgid: int, timeout_s: float) -> bool:
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
-            try:
-                os.killpg(pgid, 0)
-            except ProcessLookupError:
-                return True
-            except PermissionError:
-                pass
-            time.sleep(0.5)
-        return False
-
-    if sandbox_pgid:
-        try:
-            os.killpg(sandbox_pgid, signal.SIGINT)
-        except Exception:
-            pass
-        if not _wait_pgid_gone(sandbox_pgid, 15.0):
-            try:
-                os.killpg(sandbox_pgid, signal.SIGTERM)
-            except Exception:
-                pass
-            if not _wait_pgid_gone(sandbox_pgid, 10.0):
-                for pid in _list_pids_in_pgid(sandbox_pgid):
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                    except Exception:
-                        pass
-                _wait_pgid_gone(sandbox_pgid, 5.0)
-
-    # SIGINT → child PGID (resolved live when possible, falls back to ctrl)
-    child_pgid: int | None = None
-    try:
-        child_pgid = os.getpgid(child_proc.pid)
-    except Exception:
-        child_pgid = ctrl.get("child_pgid")
-
-    if child_pgid:
-        try:
-            os.killpg(child_pgid, signal.SIGINT)
-        except Exception:
-            pass
-        deadline2 = time.monotonic() + 5.0
-        while child_proc.poll() is None and time.monotonic() < deadline2:
-            time.sleep(0.5)
-
-        if child_proc.poll() is None:
-            try:
-                os.killpg(child_pgid, signal.SIGTERM)
-            except Exception:
-                pass
-            deadline3 = time.monotonic() + 5.0
-            while child_proc.poll() is None and time.monotonic() < deadline3:
-                time.sleep(0.5)
-
-        if child_proc.poll() is None:
-            for pid in _list_pids_in_pgid(child_pgid):
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except Exception:
-                    pass
-            try:
-                child_proc.wait(timeout=5.0)
-            except Exception:
-                pass
-
-
 def _validate_child_result(
-    payload: dict, expected_scenario: str, expected_domain: str, returncode: int
-) -> list[str]:
+    payload: dict,
+    expected_scenario: str,
+    expected_domain: str,
+    expected_run_id: str,
+    returncode: int,
+    expected_child_identity: "ProcessIdentity | None" = None,
+) -> list:
     """Pure identity/exit-code validation of a child's reported JSON. Never
-    trusts the child's self-reported ok/scenario/domain_id alone."""
-    errors: list[str] = []
+    trusts the child's self-reported ok/scenario/domain_id/run_id/identity
+    alone -- expected_child_identity (when given) must be the identity this
+    parent itself captured directly via spawn_isolated() at the moment it
+    launched the child, never re-derived from the JSON payload being
+    validated.
+    """
+    errors: list = []
 
+    if payload.get("run_id") != expected_run_id:
+        errors.append(f"CHILD_RUN_ID_MISMATCH:{payload.get('run_id')!r}!={expected_run_id!r}")
     if payload.get("scenario") != expected_scenario:
         errors.append(
             f"CHILD_SCENARIO_MISMATCH:{payload.get('scenario')!r}!={expected_scenario!r}"
@@ -378,6 +910,22 @@ def _validate_child_result(
         errors.append(
             f"CHILD_DOMAIN_MISMATCH:{payload.get('domain_id')!r}!={expected_domain!r}"
         )
+
+    if expected_child_identity is not None:
+        reported = ProcessIdentity.from_dict(payload.get("child_identity") or {})
+        if reported is None:
+            errors.append("CHILD_IDENTITY_MISSING_OR_MALFORMED")
+        else:
+            if reported.pid != expected_child_identity.pid:
+                errors.append(f"CHILD_PID_MISMATCH:{reported.pid}!={expected_child_identity.pid}")
+            if reported.pgid != expected_child_identity.pgid:
+                errors.append(f"CHILD_PGID_MISMATCH:{reported.pgid}!={expected_child_identity.pgid}")
+            if reported.sid != expected_child_identity.sid:
+                errors.append(f"CHILD_SID_MISMATCH:{reported.sid}!={expected_child_identity.sid}")
+            if reported.start_ticks != expected_child_identity.start_ticks:
+                errors.append(
+                    f"CHILD_START_TICKS_MISMATCH:{reported.start_ticks}!={expected_child_identity.start_ticks}"
+                )
 
     ok = payload.get("ok")
     if ok is True and returncode != 0:
@@ -388,7 +936,31 @@ def _validate_child_result(
     return errors
 
 
-def validate_domain_id_range(base: int, maximum_offset: int) -> str | None:
+def validate_child_output_file_metadata(path: Path) -> "list[str]":
+    """Validates the child output file's filesystem metadata before it is
+    ever parsed as JSON: regular file, owned by this process's own uid,
+    mode not group/other-writable, single hard link, never a symlink.
+    Returns a list of error codes (empty list = valid)."""
+    errors: list[str] = []
+    try:
+        lstat_result = path.lstat()
+    except OSError as exc:
+        return [f"CHILD_OUTPUT_STAT_FAILED:{exc}"]
+    if stat.S_ISLNK(lstat_result.st_mode):
+        errors.append("CHILD_OUTPUT_IS_SYMLINK")
+        return errors
+    if not stat.S_ISREG(lstat_result.st_mode):
+        errors.append("CHILD_OUTPUT_NOT_REGULAR")
+    if hasattr(os, "getuid") and lstat_result.st_uid != os.getuid():
+        errors.append("CHILD_OUTPUT_WRONG_OWNER")
+    if lstat_result.st_nlink != 1:
+        errors.append("CHILD_OUTPUT_UNEXPECTED_NLINK")
+    if stat.S_IMODE(lstat_result.st_mode) & 0o022:
+        errors.append("CHILD_OUTPUT_PERMISSIONS_TOO_OPEN")
+    return errors
+
+
+def validate_domain_id_range(base: int, maximum_offset: int) -> "str | None":
     if not isinstance(base, int) or base < MIN_DOMAIN_ID or base > MAX_DOMAIN_ID:
         return "INVALID_DOMAIN_ID"
     if base + maximum_offset > MAX_DOMAIN_ID:
@@ -396,7 +968,7 @@ def validate_domain_id_range(base: int, maximum_offset: int) -> str | None:
     return None
 
 
-def parse_base_domain_id(raw_value: str) -> tuple[int | None, str | None]:
+def parse_base_domain_id(raw_value: str) -> "tuple[int | None, str | None]":
     try:
         return int(raw_value), None
     except (TypeError, ValueError):
@@ -441,7 +1013,7 @@ class _RecordingMockHardware:
         from hardware.mock_adapter import MockHardwareAPI
 
         self._delegate = MockHardwareAPI()
-        self.move_calls: list[tuple[float, float, int]] = []
+        self.move_calls: list = []
         self.damp_calls = 0
 
     async def initialize(self) -> None:
@@ -501,7 +1073,7 @@ async def _run_tour_success(orchestrator, app, result: dict, timeout_s: float) -
         return
 
     wp = NavWaypoint(x=GOAL_FORWARD_OFFSET_M, y=0.0, yaw_rad=0.0, frame_id="map")
-    plan = TourPlan(waypoints=[wp], tour_id="smoke-2h2-tour-success")
+    plan = TourPlan(waypoints=[wp], tour_id="smoke-2h22-tour-success")
     await orchestrator.dispatch_tour(plan)
 
     deadline = time.monotonic() + timeout_s
@@ -542,7 +1114,7 @@ async def _run_tour_success(orchestrator, app, result: dict, timeout_s: float) -
         result["errors"].append("REMOTE_STATE_UNKNOWN")
 
 
-async def _wait_goal_active_with_feedback(nav_bridge, timeout_s: float) -> "object":
+async def _wait_goal_active_with_feedback(nav_bridge, timeout_s: float):
     deadline = time.monotonic() + timeout_s
     status = await nav_bridge.get_status()
     while not status.task_active and time.monotonic() < deadline:
@@ -566,7 +1138,7 @@ async def _run_interaction_cancel(
     from src.navigation.models import NavWaypoint, NavigationTerminalStatus
 
     wp = NavWaypoint(x=LONG_GOAL_FORWARD_OFFSET_M, y=0.0, yaw_rad=0.0, frame_id="map")
-    plan = TourPlan(waypoints=[wp], tour_id="smoke-2h2-interaction-cancel")
+    plan = TourPlan(waypoints=[wp], tour_id="smoke-2h22-interaction-cancel")
     await orchestrator.dispatch_tour(plan)
 
     nav_bridge = app.state.nav_bridge
@@ -633,7 +1205,7 @@ async def _run_emergency_cancel(
     from src.navigation.models import NavWaypoint, NavigationTerminalStatus
 
     wp = NavWaypoint(x=LONG_GOAL_FORWARD_OFFSET_M, y=0.0, yaw_rad=0.0, frame_id="map")
-    plan = TourPlan(waypoints=[wp], tour_id="smoke-2h2-emergency-cancel")
+    plan = TourPlan(waypoints=[wp], tour_id="smoke-2h22-emergency-cancel")
     await orchestrator.dispatch_tour(plan)
 
     nav_bridge = app.state.nav_bridge
@@ -647,7 +1219,7 @@ async def _run_emergency_cancel(
     damp_calls_before = recording_hardware.damp_calls
 
     await asyncio.wait_for(
-        orchestrator.emergency_stop(reason="smoke_test_2h2_emergency"), timeout=timeout_s
+        orchestrator.emergency_stop(reason="smoke_test_2h22_emergency"), timeout=timeout_s
     )
 
     res = await nav_bridge.get_last_result()
@@ -681,92 +1253,34 @@ async def _run_emergency_cancel(
         result["errors"].append("ZERO_MOTION_COMMAND_NOT_OBSERVED")
 
 
-async def run_single_scenario(
+# ---------------------------------------------------------------------------
+# Child entry point
+# ---------------------------------------------------------------------------
+
+
+async def _run_scenario_body(
     name: str,
     namespace: str,
     domain_id: str,
     timeout_s: float,
-    control_file: "Path | None" = None,
-    child_log_path: "Path | None" = None,
-) -> dict:
-    result = {
-        "ok": False,
-        "scenario": name,
-        "domain_id": domain_id,
-        "errors": [],
-        "orphan_processes": 0,
-        "metrics": {},
-        "owned_threads_remaining": 0,
-        "owned_thread_names": [],
-        "zombies_remaining": 0,
-        "zombie_pids": [],
-    }
-
-    thread_baseline = threading.active_count()
-
-    # Write child identity into control file as soon as possible.
-    if control_file is not None:
-        try:
-            ctrl_data: dict = {}
-            try:
-                ctrl_data = json.loads(control_file.read_text())
-            except Exception:
-                pass
-            ctrl_data["child_pid"] = os.getpid()
-            try:
-                ctrl_data["child_pgid"] = os.getpgid(os.getpid())
-            except Exception:
-                ctrl_data["child_pgid"] = None
-            ctrl_data["started_at_ns"] = time.time_ns()
-            _write_atomic(control_file, ctrl_data)
-        except Exception:
-            pass
-
+    sandbox_proc: "subprocess.Popen | None",
+    result: dict,
+) -> None:
     env = _build_env(domain_id)
-    launch_process = None
     log_fd = None
     main_module = None
     installed_mocks: dict = {}
 
     try:
-        log_path_str = (
-            str(child_log_path)
-            if child_log_path is not None
-            else f"/tmp/ottoguide_main_runtime_2h2_{name}_{domain_id}.log"
-        )
-        log_fd = open(log_path_str, "w")
-        launch_process = subprocess.Popen(
-            ["bash", str(RUNTIME_WRAPPER), f"sandbox_namespace:={namespace}", "use_rviz:=false"],
-            env=env, stdout=log_fd, stderr=subprocess.STDOUT, text=True, preexec_fn=os.setsid
-        )
-
-        # Update control file with sandbox PID/PGID now that it's running.
-        if control_file is not None:
-            try:
-                ctrl_data = {}
-                try:
-                    ctrl_data = json.loads(control_file.read_text())
-                except Exception:
-                    pass
-                ctrl_data["sandbox_pid"] = launch_process.pid
-                try:
-                    ctrl_data["sandbox_pgid"] = os.getpgid(launch_process.pid)
-                except Exception:
-                    ctrl_data["sandbox_pgid"] = None
-                _write_atomic(control_file, ctrl_data)
-            except Exception:
-                pass
-
         fqns = [f"/{namespace}/{component}" for component in REQUIRED_COMPONENTS]
         deadline = time.monotonic() + timeout_s
-        for fqn in fqns:
-            if _wait_for_node_discovered(fqn, env, deadline):
-                if not _wait_for_lifecycle_active(fqn, env, deadline):
-                    result["errors"].append(f"{fqn}_NOT_ACTIVE")
-            else:
-                result["errors"].append(f"{fqn}_NOT_DISCOVERED")
-        if result["errors"]:
-            return result
+        all_active, status_by_fqn = wait_for_components_deterministic(fqns, env, deadline)
+        result["metrics"]["component_status"] = status_by_fqn
+        if not all_active:
+            for fqn, status in status_by_fqn.items():
+                if status != "active":
+                    result["errors"].append(f"{fqn}_{status}")
+            return
 
         nodes = _node_list(env, timeout=5.0)
         if any(any(f in n.lower() for f in FORBIDDEN_NODE_SUBSTRINGS) for n in nodes):
@@ -774,7 +1288,7 @@ async def run_single_scenario(
         if any(any(f in n.lower() for f in FORBIDDEN_MISSION_NODE_SUBSTRINGS) for n in nodes):
             result["errors"].append("MISSION_NODE_DETECTED")
         if result["errors"]:
-            return result
+            return
 
         # This process's own rclpy.init() (inside DirectNav2ActionBridge,
         # constructed lazily by main.lifespan()) reads ROS_DOMAIN_ID/
@@ -845,7 +1359,23 @@ async def run_single_scenario(
                     result["errors"].append(f"UNKNOWN_SCENARIO:{name}")
 
         # The lifespan's own finally block has now run: hardware safety
-        # sequence + nav_bridge.close() already happened.
+        # sequence + nav_bridge.close() already happened. It never calls
+        # ConversationManager.close() itself (a main.py gap outside this
+        # phase's allowlist/frozen-file scope -- main.py cannot be edited
+        # here); ConversationManager.close()'s own docstring documents that
+        # main.py's shutdown is its intended caller. Closing it directly
+        # from the smoke test exercises that already-existing, real method
+        # without modifying any frozen file, so the ProcessPoolExecutor/
+        # ThreadPoolExecutor pair it owns (and their QueueFeederThread) are
+        # never counted as an owned-thread leak belonging to this scenario.
+        conversation_manager = getattr(orchestrator, "_conversation_manager", None)
+        close_fn = getattr(conversation_manager, "close", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception as exc:
+                result["errors"].append(f"CONVERSATION_MANAGER_CLOSE_FAILED:{exc}")
+
         shutdown_error = getattr(app.state, "navigation_shutdown_error", None)
         result["metrics"]["shutdown_error"] = shutdown_error
         if shutdown_error:
@@ -861,47 +1391,272 @@ async def run_single_scenario(
         if main_module is not None:
             _remove_interaction_dependency_mocks(installed_mocks)
             _purge_app_modules()
-        result["orphan_processes"] = _shutdown_and_count_orphans(launch_process)
-        if result["orphan_processes"] > 0:
-            result["errors"].append("ORPHAN_PROCESSES")
         if log_fd:
             log_fd.close()
 
-        # Thread leak detection: count threads that outlived the cleanup.
-        thread_count_after = threading.active_count()
-        owned_remaining = max(0, thread_count_after - thread_baseline)
-        result["owned_threads_remaining"] = owned_remaining
-        result["owned_thread_names"] = [
-            t.name for t in threading.enumerate()
-            if t is not threading.main_thread()
-        ]
 
-        # Zombie detection: direct children of this process that were not reaped.
-        zombie_pids = _collect_zombie_children()
-        result["zombies_remaining"] = len(zombie_pids)
-        result["zombie_pids"] = zombie_pids
+def _shutdown_sandbox_and_reap(
+    sandbox_proc: "subprocess.Popen | None",
+    sandbox_identity: "ProcessIdentity | None",
+    timeouts: CleanupTimeouts,
+) -> dict:
+    """Normal (non-timeout) sandbox cleanup: directed escalation against the
+    sandbox's own kernel-validated process group, followed by a mandatory
+    wait() on the immediate Popen object so it can never remain a zombie.
+    Returns structured evidence; never a bare 0/1.
+    """
+    evidence = {
+        "attempted": sandbox_proc is not None,
+        "signal_attempts": [],
+        "group_alive_after": None,
+        "reaped": False,
+        "returncode": None,
+        "owned_members_remaining": [],
+    }
+    if sandbox_proc is None:
+        evidence["group_alive_after"] = False
+        evidence["reaped"] = True
+        return evidence
 
-    result["ok"] = len(result["errors"]) == 0
-    return result
+    if sandbox_identity is not None:
+        escalate_signal_to_group(
+            sandbox_identity.pgid, sandbox_identity, timeouts, evidence["signal_attempts"], "sandbox",
+            reap_callback=sandbox_proc.poll,
+        )
+        evidence["group_alive_after"] = _pgid_alive(sandbox_identity.pgid)
+        if evidence["group_alive_after"]:
+            evidence["owned_members_remaining"] = [
+                m.to_dict() for m in list_pgid_members(sandbox_identity.pgid)
+            ]
+    else:
+        evidence["group_alive_after"] = None
+
+    try:
+        sandbox_proc.wait(timeout=timeouts.sigkill_wait_s + 5.0)
+        evidence["reaped"] = True
+    except subprocess.TimeoutExpired:
+        evidence["reaped"] = sandbox_proc.poll() is not None
+    evidence["returncode"] = sandbox_proc.returncode
+
+    return evidence
 
 
 def _scenario_main(args: argparse.Namespace) -> int:
-    """Child entry point: exactly one rclpy lifecycle, one ROS_DOMAIN_ID."""
+    """Child entry point: exactly one rclpy lifecycle, one ROS_DOMAIN_ID.
+
+    Owns the sandbox wrapper Popen directly (spawned with its own session
+    via spawn_isolated) and updates the cleanup lease with its own and the
+    sandbox's kernel identity as soon as each is known, so the parent can
+    validate and -- only if valid -- act on them during a timeout.
+    """
     domain_id = args.base_domain_id
-    control_file: "Path | None" = args.control_file
-    child_log_path: "Path | None" = (
-        Path(str(args.output).replace(".json", ".log")) if args.output else None
-    )
-    result = asyncio.run(
-        run_single_scenario(
-            args.scenario,
-            DEFAULT_NAMESPACE,
-            domain_id,
-            args.timeout,
-            control_file=control_file,
-            child_log_path=child_log_path,
+    namespace = DEFAULT_NAMESPACE
+    run_id = args.run_id
+    lease_dir = Path(args.lease_dir) if args.lease_dir else None
+
+    expected_parent: "ProcessIdentity | None" = None
+    if args.expected_parent_pid is not None:
+        try:
+            expected_parent = ProcessIdentity(
+                pid=int(args.expected_parent_pid),
+                ppid=int(args.expected_parent_ppid),
+                pgid=int(args.expected_parent_pgid),
+                sid=int(args.expected_parent_sid),
+                start_ticks=int(args.expected_parent_start_ticks),
+                uid=int(args.expected_parent_uid),
+            )
+        except (TypeError, ValueError):
+            expected_parent = None
+
+    result = {
+        "schema_version": LEASE_SCHEMA_VERSION,
+        "run_id": run_id,
+        "ok": False,
+        "scenario": args.scenario,
+        "domain_id": domain_id,
+        "errors": [],
+        "metrics": {},
+        "child_identity": None,
+        "sandbox_identity": None,
+        "cleanup_evidence": None,
+        "owned_threads_remaining": 0,
+        "owned_thread_names": [],
+        "zombies_remaining": 0,
+        "zombie_pids": [],
+        "orphan_processes": 0,
+    }
+
+    own_identity = read_process_identity(os.getpid())
+    result["child_identity"] = own_identity.to_dict() if own_identity else None
+
+    lease: "CleanupLease | None" = None
+    if lease_dir is not None and expected_parent is not None:
+        try:
+            lease = CleanupLease.open_existing(lease_dir)
+            data = lease.read()
+            lease_errors = validate_lease_immutable_fields(
+                data, run_id, args.scenario, domain_id, expected_parent=expected_parent,
+                max_age_s=args.lease_max_age_s, expected_token=args.lease_token,
+            )
+            if lease_errors:
+                result["errors"].extend(f"LEASE_VALIDATION_FAILED:{e}" for e in lease_errors)
+                lease = None
+            elif own_identity is not None:
+                lease.update_child_identity(own_identity)
+        except LeaseError as exc:
+            result["errors"].append(f"LEASE_VALIDATION_FAILED:{exc}")
+            lease = None
+    elif lease_dir is not None:
+        result["errors"].append("LEASE_VALIDATION_FAILED:EXPECTED_PARENT_IDENTITY_MISSING")
+
+    if result["errors"]:
+        result["ok"] = False
+        payload = json.dumps(result, indent=2)
+        print(payload)
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(payload)
+        return 1
+
+    sandbox_proc: "subprocess.Popen | None" = None
+    sandbox_identity: "ProcessIdentity | None" = None
+    thread_baseline_objects = set(threading.enumerate())
+
+    try:
+        log_path = (
+            Path(str(args.output).replace(".json", ".log"))
+            if args.output
+            else Path(tempfile.gettempdir()) / f"ottoguide_main_runtime_2h22_{args.scenario}_{domain_id}.log"
         )
-    )
+        log_fd = open(log_path, "w")
+        try:
+            sandbox_proc, sandbox_identity = spawn_isolated(
+                ["bash", str(RUNTIME_WRAPPER), f"sandbox_namespace:={namespace}", "use_rviz:=false"],
+                env=_build_env(domain_id), stdout=log_fd, stderr=subprocess.STDOUT, text=True,
+            )
+        except RuntimeError as exc:
+            result["errors"].append(f"SANDBOX_SPAWN_NOT_ISOLATED:{exc}")
+            log_fd.close()
+            payload = json.dumps(result, indent=2)
+            print(payload)
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(payload)
+            return 1
+
+        result["sandbox_identity"] = sandbox_identity.to_dict()
+        if own_identity is not None and (
+            sandbox_identity.pgid == own_identity.pgid or sandbox_identity.sid == own_identity.sid
+        ):
+            result["errors"].append("SANDBOX_GROUP_NOT_DISTINCT_FROM_CHILD")
+
+        if lease is not None:
+            try:
+                data = lease.read()
+                lease_errors = validate_lease_immutable_fields(
+                    data, run_id, args.scenario, domain_id, expected_parent=expected_parent,
+                    max_age_s=args.lease_max_age_s, expected_token=args.lease_token,
+                )
+                lease_errors += validate_lease_identity_field(data, "child", own_identity)
+                if lease_errors:
+                    result["errors"].extend(f"LEASE_VALIDATION_FAILED:{e}" for e in lease_errors)
+                else:
+                    lease.update_sandbox_identity(sandbox_identity)
+            except LeaseError as exc:
+                result["errors"].append(f"LEASE_VALIDATION_FAILED:{exc}")
+
+        if not result["errors"]:
+            asyncio.run(
+                _run_scenario_body(
+                    args.scenario, namespace, domain_id, args.timeout, sandbox_proc, result
+                )
+            )
+    finally:
+        cleanup_evidence = _shutdown_sandbox_and_reap(sandbox_proc, sandbox_identity, CleanupTimeouts())
+        result["cleanup_evidence"] = cleanup_evidence
+        if cleanup_evidence["group_alive_after"]:
+            result["errors"].append("ORPHAN_PROCESSES")
+            result["orphan_processes"] = len(cleanup_evidence["owned_members_remaining"])
+        if not cleanup_evidence["reaped"]:
+            result["errors"].append("SANDBOX_NOT_REAPED")
+        try:
+            log_fd.close()
+        except Exception:
+            pass
+
+        # Thread leak detection: compare thread *objects*, not just counts,
+        # against the baseline captured before the sandbox/lifespan work.
+        # ConversationManager.close() (called above, inside
+        # _run_scenario_body's success path) shuts its executors down with
+        # wait=False by design, so their worker/feeder threads can still be
+        # in the process of exiting for a brief moment after close()
+        # returns; poll with a short, bounded settle window instead of
+        # judging on a single immediate snapshot.
+        settle_deadline = time.monotonic() + 5.0
+        new_threads: list = []
+        while True:
+            current_threads = set(threading.enumerate())
+            new_threads = [
+                t for t in current_threads - thread_baseline_objects
+                if t is not threading.main_thread()
+            ]
+            if not new_threads or time.monotonic() >= settle_deadline:
+                break
+            time.sleep(0.2)
+        result["owned_threads_remaining"] = len(new_threads)
+        result["owned_thread_names"] = [t.name for t in new_threads]
+        if new_threads:
+            result["errors"].append("OWNED_THREADS_REMAINING")
+
+        # Stray-descendant detection: any process other than this one that
+        # is still a member of *this child's own* process group (own_pgid).
+        # ros2cli's discovery daemon (`ros2-daemon`) is the concrete
+        # example found during 2H.2.2 runtime validation: `ros2 node
+        # list`/`ros2 lifecycle get` lazily spawn it once, it inherits this
+        # child's session/group, and it is a long-lived background daemon
+        # by ros2cli's own design -- it never exits on its own and is never
+        # touched by _shutdown_sandbox_and_reap (which only ever targets
+        # the *sandbox's* group, never this child's own). Targeted
+        # os.kill() per stray PID is used here, never os.killpg() on
+        # own_pgid, because that would also signal this process itself.
+        own_identity_now = read_process_identity(os.getpid())
+        if own_identity_now is not None:
+            own_pgid = own_identity_now.pgid
+            stray_members = [
+                m for m in list_pgid_members(own_pgid) if m.pid != os.getpid()
+            ]
+            if stray_members:
+                for member in stray_members:
+                    try:
+                        os.kill(member.pid, signal.SIGTERM)
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+                time.sleep(0.3)
+                still_alive = [
+                    m for m in stray_members if identity_still_valid(m)
+                ]
+                if still_alive:
+                    for member in still_alive:
+                        try:
+                            os.kill(member.pid, signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError, OSError):
+                            pass
+                    time.sleep(0.3)
+                final_remaining = [
+                    m.to_dict() for m in stray_members if identity_still_valid(m)
+                ]
+                if final_remaining:
+                    result["orphan_processes"] += len(final_remaining)
+                    if "ORPHAN_PROCESSES" not in result["errors"]:
+                        result["errors"].append("ORPHAN_PROCESSES")
+
+        zombie_pids = _collect_zombie_children(os.getpid())
+        result["zombies_remaining"] = len(zombie_pids)
+        result["zombie_pids"] = zombie_pids
+        if zombie_pids:
+            result["errors"].append("ZOMBIES_REMAINING")
+
+    result["ok"] = len(result["errors"]) == 0
     payload = json.dumps(result, indent=2)
     print(payload)
     if args.output:
@@ -910,8 +1665,119 @@ def _scenario_main(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 1
 
 
+def _parent_timeout_cleanup(
+    child_proc: "subprocess.Popen[str]",
+    child_identity: "ProcessIdentity | None",
+    run_id: str,
+    scenario: str,
+    domain_id: str,
+    lease_dir: "Path | None",
+    parent_identity: "ProcessIdentity | None",
+    lease_max_age_s: float,
+    lease_token: "str | None" = None,
+) -> dict:
+    """Structured timeout cleanup, never returning None. The sandbox is only
+    ever signalled if the lease can be re-validated end-to-end (schema,
+    token, run_id, scenario, domain, parent identity, child identity, and
+    vigency); otherwise sandbox cleanup is explicitly skipped and only the
+    immediate child (whose identity the parent captured directly at spawn
+    time) is targeted. The child's own `finally` block, if it still gets to
+    run before being killed, attempts to clean up its own sandbox.
+    """
+    timeouts = CleanupTimeouts()
+    evidence = {
+        "executed": True,
+        "ok": False,
+        "lease_validation": {"ok": False, "errors": []},
+        "child_identity_validation": {"ok": False, "errors": []},
+        "targets": {},
+        "signal_attempts": [],
+        "child_reaped": False,
+        "child_returncode": None,
+        "child_group_alive_after": None,
+        "sandbox_group_alive_after": None,
+        "owned_members_remaining": [],
+        "errors": [],
+    }
+
+    if child_identity is not None and identity_still_valid(child_identity):
+        evidence["child_identity_validation"] = {"ok": True, "errors": []}
+    else:
+        evidence["child_identity_validation"] = {"ok": False, "errors": ["CHILD_IDENTITY_STALE_OR_MISSING"]}
+
+    sandbox_identity: "ProcessIdentity | None" = None
+    if lease_dir is not None:
+        try:
+            lease = CleanupLease.open_existing(lease_dir)
+            data = lease.read()
+            lease_errors = validate_lease_immutable_fields(
+                data, run_id, scenario, domain_id, expected_parent=parent_identity,
+                max_age_s=lease_max_age_s, expected_token=lease_token,
+            )
+            lease_errors += validate_lease_identity_field(data, "child", child_identity)
+            sandbox_errors = validate_lease_identity_field(data, "sandbox")
+            if not lease_errors and not sandbox_errors:
+                evidence["lease_validation"] = {"ok": True, "errors": []}
+                sandbox_raw = data.get("sandbox", {})
+                sandbox_identity = ProcessIdentity.from_dict(sandbox_raw)
+            else:
+                evidence["lease_validation"] = {"ok": False, "errors": lease_errors + sandbox_errors}
+        except LeaseError as exc:
+            evidence["lease_validation"] = {"ok": False, "errors": [f"LEASE_ERROR:{exc}"]}
+    else:
+        evidence["lease_validation"] = {"ok": False, "errors": ["LEASE_DIR_NOT_PROVIDED"]}
+
+    if evidence["lease_validation"]["ok"] and sandbox_identity is not None:
+        evidence["targets"]["sandbox_pgid"] = sandbox_identity.pgid
+        escalate_signal_to_group(
+            sandbox_identity.pgid, sandbox_identity, timeouts, evidence["signal_attempts"], "sandbox"
+        )
+        evidence["sandbox_group_alive_after"] = _pgid_alive(sandbox_identity.pgid)
+        if evidence["sandbox_group_alive_after"]:
+            evidence["owned_members_remaining"].extend(
+                m.to_dict() for m in list_pgid_members(sandbox_identity.pgid)
+            )
+            evidence["errors"].append("SANDBOX_GROUP_SURVIVED_ESCALATION")
+    else:
+        evidence["errors"].append("SANDBOX_CLEANUP_NOT_AUTHORIZED")
+
+    # Child cleanup uses exclusively the identity captured directly by this
+    # parent at spawn time -- never the lease's copy of it.
+    child_timeouts = CleanupTimeouts(
+        sigint_wait_s=DEFAULT_CHILD_SIGINT_WAIT_S,
+        sigterm_wait_s=DEFAULT_CHILD_SIGTERM_WAIT_S,
+        sigkill_wait_s=DEFAULT_CHILD_SIGKILL_WAIT_S,
+    )
+    if child_identity is not None:
+        evidence["targets"]["child_pgid"] = child_identity.pgid
+        escalate_signal_to_group(
+            child_identity.pgid, child_identity, child_timeouts, evidence["signal_attempts"], "child",
+            reap_callback=child_proc.poll,
+        )
+        evidence["child_group_alive_after"] = _pgid_alive(child_identity.pgid)
+        if evidence["child_group_alive_after"]:
+            evidence["owned_members_remaining"].extend(
+                m.to_dict() for m in list_pgid_members(child_identity.pgid)
+            )
+            evidence["errors"].append("CHILD_GROUP_SURVIVED_ESCALATION")
+    else:
+        evidence["errors"].append("CHILD_IDENTITY_UNAVAILABLE")
+
+    try:
+        child_proc.wait(timeout=10.0)
+        evidence["child_reaped"] = True
+    except subprocess.TimeoutExpired:
+        evidence["child_reaped"] = child_proc.poll() is not None
+        if not evidence["child_reaped"]:
+            evidence["errors"].append("CHILD_NOT_REAPED")
+    evidence["child_returncode"] = child_proc.returncode
+
+    evidence["ok"] = len(evidence["errors"]) == 0
+    return evidence
+
+
 def _parent_main(args: argparse.Namespace) -> int:
-    def _fail(errors: list[str]) -> int:
+    def _fail(errors: list) -> int:
         payload = {"ok": False, "decision": "FAIL", "errors": errors}
         output_str = json.dumps(payload)
         print(output_str)
@@ -933,16 +1799,15 @@ def _parent_main(args: argparse.Namespace) -> int:
 
     scenarios = list(zip(SCENARIOS, (base + i for i in range(len(SCENARIOS)))))
 
+    parent_identity = read_process_identity(os.getpid())
+
     all_ok = True
     overall_payload = []
 
-    parent_pid = os.getpid()
-
     for name, domain in scenarios:
         domain_str = str(domain)
-        token_ns = time.time_ns()
-        child_output = _build_child_output_path(parent_pid, name, domain_str, token_ns)
-        control_file = _build_control_file_path(parent_pid, name, domain_str, token_ns)
+        run_id = secrets.token_hex(16)
+        child_output = _build_child_output_path(run_id)
 
         if child_output.exists():
             res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": ["CHILD_OUTPUT_PREEXISTING"]}
@@ -950,22 +1815,25 @@ def _parent_main(args: argparse.Namespace) -> int:
             all_ok = False
             continue
 
-        # Write the initial control file before the child starts so it can
-        # be read back on timeout even if the child never updates it.
-        try:
-            _write_atomic(control_file, {
-                "token_ns": token_ns,
-                "scenario": name,
-                "domain_id": domain_str,
-                "parent_pid": parent_pid,
-                "child_pid": None,
-                "child_pgid": None,
-                "sandbox_pid": None,
-                "sandbox_pgid": None,
-                "started_at_ns": None,
-            })
-        except Exception:
-            pass
+        lease: "CleanupLease | None" = None
+        lease_dir: "Path | None" = None
+        lease_token: "str | None" = None
+        if parent_identity is not None:
+            try:
+                lease, lease_token = CleanupLease.create(
+                    Path(tempfile.gettempdir()), run_id, name, domain_str, parent_identity
+                )
+                lease_dir = lease.lease_dir
+            except (LeaseError, OSError) as exc:
+                res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": [f"LEASE_CREATE_FAILED:{exc}"]}
+                overall_payload.append(res)
+                all_ok = False
+                continue
+        else:
+            res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": ["PARENT_IDENTITY_UNAVAILABLE"]}
+            overall_payload.append(res)
+            all_ok = False
+            continue
 
         child_cmd = [
             sys.executable, str(THIS_FILE),
@@ -973,27 +1841,39 @@ def _parent_main(args: argparse.Namespace) -> int:
             "--base-domain-id", domain_str,
             "--timeout", str(args.timeout),
             "--output", str(child_output),
-            "--control-file", str(control_file),
+            "--run-id", run_id,
+            "--lease-dir", str(lease_dir),
+            "--lease-max-age-s", str(args.lease_max_age_s),
+            "--lease-token", lease_token,
+            "--expected-parent-pid", str(parent_identity.pid),
+            "--expected-parent-ppid", str(parent_identity.ppid),
+            "--expected-parent-pgid", str(parent_identity.pgid),
+            "--expected-parent-sid", str(parent_identity.sid),
+            "--expected-parent-start-ticks", str(parent_identity.start_ticks),
+            "--expected-parent-uid", str(parent_identity.uid),
         ]
-        child_proc = subprocess.Popen(
-            child_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-        )
+        try:
+            child_proc, child_identity = spawn_isolated(
+                child_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+        except RuntimeError as exc:
+            res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": [f"CHILD_SPAWN_NOT_ISOLATED:{exc}"]}
+            overall_payload.append(res)
+            all_ok = False
+            lease.destroy()
+            continue
 
         parent_timeout_cleanup_executed = False
         try:
-            # Margin: SIGINT(15s)+SIGTERM(10s)+SIGKILL-settle(5s) sandbox +
-            # SIGINT(5s)+SIGTERM(5s)+SIGKILL(5s) child = 45s on top of the
-            # child's own timeout_s (which already includes sandbox bringup
-            # and cleanup). Using Popen instead of subprocess.run means we
-            # can do the full escalation here on TimeoutExpired rather than
-            # only killing the immediate child wrapper.
+            # Margin on top of the child's own timeout_s (which already
+            # includes sandbox bringup and cleanup), covering the full
+            # sandbox+child escalation performed by _parent_timeout_cleanup.
             child_stdout, _child_stderr = child_proc.communicate(timeout=args.timeout + 150.0)
         except subprocess.TimeoutExpired:
-            _parent_timeout_cleanup(child_proc, control_file)
-            try:
-                child_stdout, _child_stderr = child_proc.communicate(timeout=10.0)
-            except subprocess.TimeoutExpired:
-                child_stdout = ""
+            cleanup_evidence = _parent_timeout_cleanup(
+                child_proc, child_identity, run_id, name, domain_str, lease_dir,
+                parent_identity, args.lease_max_age_s, lease_token,
+            )
             parent_timeout_cleanup_executed = True
             res = {
                 "ok": False,
@@ -1001,25 +1881,31 @@ def _parent_main(args: argparse.Namespace) -> int:
                 "domain_id": domain_str,
                 "errors": ["CHILD_PROCESS_TIMEOUT"],
                 "parent_timeout_cleanup_executed": True,
+                "parent_timeout_cleanup_evidence": cleanup_evidence,
             }
             overall_payload.append(res)
             all_ok = False
-            try:
-                control_file.unlink(missing_ok=True)
-            except Exception:
-                pass
+            lease.destroy()
             continue
 
         completed_returncode = child_proc.returncode
-        try:
-            control_file.unlink(missing_ok=True)
-        except Exception:
-            pass
+        lease.destroy()
 
         if not child_output.is_file():
             res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": ["CHILD_OUTPUT_MISSING"]}
             overall_payload.append(res)
             all_ok = False
+            continue
+
+        metadata_errors = validate_child_output_file_metadata(child_output)
+        if metadata_errors:
+            res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": metadata_errors}
+            overall_payload.append(res)
+            all_ok = False
+            try:
+                child_output.unlink(missing_ok=True)
+            except Exception:
+                pass
             continue
 
         try:
@@ -1029,8 +1915,15 @@ def _parent_main(args: argparse.Namespace) -> int:
             overall_payload.append(res)
             all_ok = False
             continue
+        finally:
+            try:
+                child_output.unlink(missing_ok=True)
+            except Exception:
+                pass
 
-        identity_errors = _validate_child_result(res, name, domain_str, completed_returncode)
+        identity_errors = _validate_child_result(
+            res, name, domain_str, run_id, completed_returncode, expected_child_identity=child_identity
+        )
         if identity_errors:
             res = dict(res)
             res["errors"] = list(res.get("errors", [])) + identity_errors
@@ -1058,7 +1951,21 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_S)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS, help=argparse.SUPPRESS)
-    parser.add_argument("--control-file", type=Path, dest="control_file", help=argparse.SUPPRESS)
+    parser.add_argument("--run-id", dest="run_id", help=argparse.SUPPRESS)
+    parser.add_argument("--lease-dir", dest="lease_dir", help=argparse.SUPPRESS)
+    parser.add_argument("--lease-token", dest="lease_token", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--lease-max-age-s", dest="lease_max_age_s", type=float,
+        default=DEFAULT_LEASE_MAX_AGE_S, help=argparse.SUPPRESS,
+    )
+    parser.add_argument("--expected-parent-pid", dest="expected_parent_pid", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--expected-parent-ppid", dest="expected_parent_ppid", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--expected-parent-pgid", dest="expected_parent_pgid", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--expected-parent-sid", dest="expected_parent_sid", type=int, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--expected-parent-start-ticks", dest="expected_parent_start_ticks", type=int, help=argparse.SUPPRESS
+    )
+    parser.add_argument("--expected-parent-uid", dest="expected_parent_uid", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     if args.scenario:

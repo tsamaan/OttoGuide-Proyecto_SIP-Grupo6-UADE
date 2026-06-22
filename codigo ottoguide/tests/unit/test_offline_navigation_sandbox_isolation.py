@@ -3682,5 +3682,168 @@ class CentralClassesNoBroadSkipContractTests(unittest.TestCase):
             os.remove(path)
 
 
+class MainRuntimeCleanupLeaseContractTests(unittest.TestCase):
+    """Fase 2H.2.2: check_main_runtime_cleanup_lease_contract() guards
+    against regressions in the process-group isolation / cleanup-lease
+    hardening of smoke_test_main_runtime_navigation_selection.py."""
+
+    def test_real_smoke_file_passes_cleanup_lease_contract(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_main_runtime_cleanup_lease_contract(
+            result, [checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE]
+        )
+        self.assertEqual(result["errors"], [])
+
+    def test_rejects_popen_with_preexec_fn(self):
+        source = (
+            "import os, subprocess\n"
+            "def f():\n"
+            "    return subprocess.Popen(['true'], preexec_fn=os.setsid)\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+            checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_main_runtime_cleanup_lease_contract(result, [tmp_file])
+            finally:
+                checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = saved
+        self.assertIn("MAIN_RUNTIME_CLEANUP_PREEXEC_FN_USED", result["errors"])
+        self.assertIn("MAIN_RUNTIME_CLEANUP_POPEN_WITHOUT_OWN_SESSION", result["errors"])
+
+    def test_rejects_popen_without_start_new_session(self):
+        source = (
+            "import subprocess\n"
+            "def f():\n"
+            "    return subprocess.Popen(['true'], stdout=subprocess.PIPE)\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+            checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_main_runtime_cleanup_lease_contract(result, [tmp_file])
+            finally:
+                checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = saved
+        self.assertIn("MAIN_RUNTIME_CLEANUP_POPEN_WITHOUT_OWN_SESSION", result["errors"])
+
+    def test_accepts_popen_with_start_new_session(self):
+        source = (
+            "import subprocess\n"
+            "def f():\n"
+            "    return subprocess.Popen(['true'], start_new_session=True)\n"
+            "secrets_token = 'secrets.token_hex'\n"
+            "is_protected_id = 1\n"
+            "start_ticks = 1\n"
+            "LEASE_VALIDATION_FAILED = 1\n"
+            "validate_lease_immutable_fields = 1\n"
+            "OWNED_THREADS_REMAINING = 1\n"
+            "ZOMBIES_REMAINING = 1\n"
+            "ORPHAN_PROCESSES = 1\n"
+            "def wait_it(p):\n"
+            "    p.wait()\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+            checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_main_runtime_cleanup_lease_contract(result, [tmp_file])
+            finally:
+                checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = saved
+        self.assertNotIn("MAIN_RUNTIME_CLEANUP_POPEN_WITHOUT_OWN_SESSION", result["errors"])
+        self.assertNotIn("MAIN_RUNTIME_CLEANUP_PREEXEC_FN_USED", result["errors"])
+
+    def test_rejects_missing_random_token_symbol(self):
+        source = "def f():\n    return subprocess.Popen(['true'], start_new_session=True)\n"
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+            checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_main_runtime_cleanup_lease_contract(result, [tmp_file])
+            finally:
+                checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = saved
+        self.assertIn("MAIN_RUNTIME_CLEANUP_NO_RANDOM_TOKEN", result["errors"])
+
+    def test_rejects_missing_protected_id_rejection_symbol(self):
+        source = (
+            "import subprocess\n"
+            "import secrets\n"
+            "def f():\n"
+            "    secrets.token_hex(32)\n"
+            "    return subprocess.Popen(['true'], start_new_session=True)\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+            checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_main_runtime_cleanup_lease_contract(result, [tmp_file])
+            finally:
+                checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = saved
+        self.assertIn("MAIN_RUNTIME_CLEANUP_NO_PROTECTED_ID_REJECTION", result["errors"])
+
+    def test_rejects_missing_thread_zombie_orphan_gates(self):
+        source = (
+            "import subprocess, secrets\n"
+            "def f():\n"
+            "    secrets.token_hex(32)\n"
+            "    is_protected_id(1)\n"
+            "    start_ticks = 1\n"
+            "    p = subprocess.Popen(['true'], start_new_session=True)\n"
+            "    p.wait()\n"
+            "    return p\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+            checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_main_runtime_cleanup_lease_contract(result, [tmp_file])
+            finally:
+                checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = saved
+        self.assertIn("MAIN_RUNTIME_CLEANUP_NO_THREAD_GATE", result["errors"])
+        self.assertIn("MAIN_RUNTIME_CLEANUP_NO_ZOMBIE_GATE", result["errors"])
+        self.assertIn("MAIN_RUNTIME_CLEANUP_NO_ORPHAN_GATE", result["errors"])
+
+    def test_rejects_missing_child_wait(self):
+        source = (
+            "import subprocess, secrets\n"
+            "def f():\n"
+            "    secrets.token_hex(32)\n"
+            "    is_protected_id(1)\n"
+            "    start_ticks = 1\n"
+            "    LEASE_VALIDATION_FAILED = 1\n"
+            "    validate_lease_immutable_fields(None)\n"
+            "    OWNED_THREADS_REMAINING = 1\n"
+            "    ZOMBIES_REMAINING = 1\n"
+            "    ORPHAN_PROCESSES = 1\n"
+            "    return subprocess.Popen(['true'], start_new_session=True)\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+            checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_main_runtime_cleanup_lease_contract(result, [tmp_file])
+            finally:
+                checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = saved
+        self.assertIn("MAIN_RUNTIME_CLEANUP_NO_CHILD_WAIT", result["errors"])
+
+    def test_real_cleanup_test_file_exists(self):
+        self.assertTrue(checker.MAIN_RUNTIME_TIMEOUT_CLEANUP_TEST_FILE.is_file())
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
 if __name__ == "__main__":
     unittest.main()
