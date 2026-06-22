@@ -1,5 +1,31 @@
 # Main Runtime Navigation Bridge Selection — Reporte (Fase 2H.2)
 
+> ## ⚠️ STATUS_CORRECTION / SUPERSEDED_BY_2H23 (2026-06-22)
+>
+> Este reporte describe la **implementación original** de la Fase 2H.2. Su
+> afirmación `MAIN_RUNTIME_BRIDGE_SELECTION = READY` debe leerse con esta
+> cronología corregida, no como un cierre único en la primera ejecución:
+>
+> - **Implementación original (2H.2)**: selector `legacy`/`direct`/`stub`,
+>   interlock fail-closed, observabilidad en `/status`. Válida y conservada.
+> - **Evidencia original (2H.2)**: parcial — la validación runtime end-to-end
+>   contra el sandbox no se completó en la primera ejecución.
+> - **Sesión de recuperación (2H.2-R)**: completó la validación runtime de los
+>   cuatro escenarios de aplicación.
+> - **Endurecimiento (2H.2.1, 2H.2.2)**: aislamiento de procesos, lease de
+>   cleanup, identidad de kernel y escalado de señales.
+> - **Corrección de evidencia (2H.2.3, este supersede)**: corrigió exit codes
+>   enmascarados, clasificó el fallo de integración como
+>   `FAIL_PREEXISTING_PROVEN` contra baseline `82d4942`, ejercitó por primera
+>   vez en runtime la ruta de timeout del padre
+>   (`parent_timeout_cleanup_executed = true`), y obtuvo estabilidad de 3
+>   corridas consecutivas 4/4. Ver
+>   `MAIN_RUNTIME_NAVIGATION_SELECTION_2H23_EVIDENCE_CORRECTION_REPORT.md`.
+>
+> Estado vigente tras 2H.2.3:
+> `MAIN_RUNTIME_BRIDGE_SELECTION = READY_OFFLINE_EVIDENCE_CORRECTED_PENDING_INDEPENDENT_AUDIT`;
+> `PHYSICAL_NAVIGATION = NOT_READY`.
+
 ## 1. Resumen ejecutivo
 
 ```text

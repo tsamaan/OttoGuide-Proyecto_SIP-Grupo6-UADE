@@ -277,3 +277,85 @@ diagnóstico 192–195, corrida oficial 1 204–207, corrida oficial 2
 - `controller_server` con `dwb_core::DWBLocalPlanner` es una elección exclusiva de este sandbox por la incompatibilidad de parámetros detectada; no define ni recomienda el controlador del robot físico.
 - `behavior_server` con `max_rotational_vel=0.30 rad/s` y frames sintéticos `odom`/`base_link` es una elección exclusiva de este sandbox; no define ni recomienda parámetros para el robot físico. No se configuraron `BackUp`, `DriveOnHeading` ni `AssistedTeleop`.
 - `waypoint_follower` con `waypoint_task_executor_plugin="wait_at_waypoint"` y `waypoint_pause_duration=0` es una elección exclusiva de este sandbox (el plugin estándar más simple, sin efectos laterales); no representa ninguna tarea de misión real (foto, interacción, audio) en cada waypoint.
+
+## Apéndice 2H.2.3 — Corrección de evidencia (2026-06-22)
+
+Procedimiento exacto usado para corregir la evidencia del runtime selector.
+
+### Captura correcta de exit code (sin pipeline)
+
+PowerShell (Windows venv):
+
+```powershell
+& .\.venv\Scripts\python -m pytest <args> *> $log
+$rc = $LASTEXITCODE
+Get-Content $log -Tail 100
+Write-Output "EXIT_CODE=$rc"
+```
+
+Bash/WSL (preferir redirección sin pipeline; nunca `pytest | tail` y luego `$?`):
+
+```bash
+python3 -m pytest <args> >"$log" 2>&1
+rc=$?
+tail -n 100 "$log"; printf 'EXIT_CODE=%s\n' "$rc"
+```
+
+### Ejercicio de la ruta de timeout del padre (E2E)
+
+Sólo offline, sólo WSL, `ROS_LOCALHOST_ONLY=1`, dominio ≠ 0. Guardado por
+variable explícita; sin ella el driver se niega a estancar:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+export OTTOGUIDE_2H23_FAULT_INJECTION=1
+python3 tools/hil/offline_navigation/run_2h23_evidence_matrix.py \
+  --domain-id 104 --output <out.json>
+```
+
+Evidencia esperada: `parent_timeout_cleanup_executed=true`, `lease_validation.ok=true`,
+`child_identity_validation.ok=true`, `child_reaped=true`,
+`child_group_alive_after=false`, `sandbox_group_alive_after=false`,
+`owned_members_remaining=[]`, `zombies=0`, sentinel no relacionado sobrevive sin
+recibir señal.
+
+### Interpretación del baseline
+
+Worktree detached del baseline (`82d4942`) con el mismo intérprete/venv/args.
+Clasificación: `FAIL_PREEXISTING_PROVEN` exige mismo test, misma assertion/error
+raíz, misma etapa y misma semántica en HEAD y baseline (no exige líneas/timestamps
+idénticos). El fallo `test_emergency_stop_triggers_damp`
+(`assert 'moving' == 'damped'`) es idéntico en ambos.
+
+### Estabilidad runtime — 3 corridas consecutivas
+
+```bash
+for d in 120 128 136; do
+  python3 tools/hil/offline_navigation/smoke_test_main_runtime_navigation_selection.py \
+    --base-domain-id $d --output <out_$d.json>
+done   # cada una debe dar 4/4; un fallo reinicia el contador consecutivo
+```
+
+Máximo 5 intentos oficiales. `RUNTIME_STABILITY = PASS_3_CONSECUTIVE` sólo con 3
+seguidas sin cambios de archivos entre corridas.
+
+### Auditoría post-run
+
+Tras cada escenario/corrida, vía `/proc` (nunca por nombre):
+
+```bash
+ps -eo pid,ppid,pgid,sid,stat,etimes,cmd | grep -E \
+  'smoke_test_main_runtime|run_offline_navigation_runtime|offline_nav_sandbox|ros2 launch|ros2-daemon'
+```
+
+Esperado: sin residuales, sin zombies (`STAT ~ Z`), sin `ros2-daemon`. Sólo se
+terminan residuos creados por la corrida tras validar identidad completa
+(pid/ppid/pgid/sid/uid/start_ticks/cmdline/dominio/run_id) con escalado
+SIGINT→SIGTERM→SIGKILL.
+
+### Ubicación y hashes de evidencia
+
+Raíz Windows: `C:\Users\lucas\OttoGuide_2H23_Evidence_<timestamp>`. La evidencia
+WSL se persiste bajo `…\OttoGuide_2H23_Evidence_<timestamp>\wsl_evidence` (el
+`/tmp` de WSL es volátil entre invocaciones del distro). `evidence_manifest.json`
++ `evidence_manifest.sha256` listan cada artefacto con su SHA-256.

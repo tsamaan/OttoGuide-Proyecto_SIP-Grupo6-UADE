@@ -3,6 +3,26 @@
 **Fecha**: 2026-06-22
 **Fase**: Fase 2H.2 (hereda 2H.0/2H.1/2H.1.2/2H.1.3/2H.1.4/2H.1.5): selector explícito y fail-closed del backend de navegación en `main.py` (`legacy`/`direct`/`stub`), con interlock cerrado por defecto para `direct` contra hardware real y observabilidad en `/status`. El backend directo (`DirectNav2ActionBridge`), validado de forma aislada en toda la serie 2H.1, ahora puede inyectarse en el runtime principal; el default de producción no cambia. Fase 2H.0 original: Reconciliación de contratos de navegación y hardware. `TourOrchestrator` ahora depende de los contratos canónicos abstractos `hardware.interface.RobotHardwareInterface` y `src.navigation.port.NavigationPort` en lugar de implementaciones concretas (`RobotHardwareAPI`, `AsyncNav2Bridge`). No cambia comportamiento de navegación ni de hardware; no ejecuta runtime ROS; no toca el sandbox (`offline_nav_sandbox.launch.py`/`nav2_offline_sandbox_params.yaml` sin cambios). Hereda el estado de Fase 2G: Waypoint Follower aislado (`FollowWaypoints` únicamente) integrado en el sandbox offline, sumado a `bt_navigator` (`NavigateToPose`) + `behavior_server` (`Wait`, `Spin`) + `controller_server` + `collision_monitor` + local costmap de fases previas. `waypoint_follower` envía un goal `NavigateToPose` por waypoint al `bt_navigator` ya validado en Fase 2F; nunca publica velocidad directamente. No incluye `NavigateThroughPoses`, Simple Commander, `BackUp`, `DriveOnHeading`, `AssistedTeleop` ni el orquestador de misión de la aplicación paralela (`BasicNavigator.followWaypoints()`).
 
+> ## 🔄 ACTUALIZACIÓN 2H.2.3 (2026-06-22)
+>
+> Estado vigente del selector de runtime tras la corrección de evidencia 2H.2.3:
+>
+> ```text
+> MAIN_RUNTIME_BRIDGE_SELECTION =
+>   READY_OFFLINE_EVIDENCE_CORRECTED_PENDING_INDEPENDENT_AUDIT
+> PHYSICAL_NAVIGATION = NOT_READY   (sin cambios)
+> PHYSICAL_MOVEMENT   = NOT_AUTHORIZED
+> ```
+>
+> Evidencia 2H.2.3: exit codes recapturados sin pipeline; suite completa Windows
+> `FAIL_PREEXISTING_PROVEN` (único fallo `test_emergency_stop_triggers_damp`,
+> idéntico al baseline `82d4942`); ruta de timeout del padre ejercitada en
+> runtime (`parent_timeout_cleanup_executed = true`); estabilidad de 3 corridas
+> consecutivas 4/4 (dominios 120/128/136). El nivel físico permanece
+> `NOT_READY`; sólo se preparó el paquete P0 read-only (`PREPARED_NOT_AUTHORIZED`,
+> `NOT_EXECUTED`). Ver
+> `../../Arquitectura/MAIN_RUNTIME_NAVIGATION_SELECTION_2H23_EVIDENCE_CORRECTION_REPORT.md`.
+
 Este documento separa el estado de readiness del sandbox en niveles independientes. Ningún nivel implica automáticamente el siguiente.
 
 ## Niveles de readiness

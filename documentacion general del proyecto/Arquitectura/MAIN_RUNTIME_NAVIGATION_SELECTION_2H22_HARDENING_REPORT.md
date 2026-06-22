@@ -1,5 +1,62 @@
 # Main Runtime Navigation Bridge Selection — Reporte (Fase 2H.2.2)
 
+> ## ⚠️ STATUS_CORRECTION / SUPERSEDED_BY_2H23 (2026-06-22)
+>
+> `MAIN_RUNTIME_HARDENING_2H22 = COMPLETE` se corrige a
+> **`MAIN_RUNTIME_HARDENING_2H22 = IMPLEMENTED_EVIDENCE_INCOMPLETE_CORRECTED_BY_2H23`**.
+> La implementación de 2H.2.2 (aislamiento, lease, identidad, escalado) es
+> válida y se conserva; su **evidencia** tenía los defectos siguientes, ahora
+> corregidos en 2H.2.3 (ver
+> `MAIN_RUNTIME_NAVIGATION_SELECTION_2H23_EVIDENCE_CORRECTION_REPORT.md`):
+>
+> 1. **`FULL_UNIT_WINDOWS`**: la suite unitaria Windows pasa con **exit code
+>    `0`** verificado sin pipeline (2H.2.3: 544 passed, 101 skipped).
+> 2. **`FULL_REPOSITORY_SUITE_WINDOWS`**: NO es PASS. Es
+>    **`FAIL_PREEXISTING_PROVEN`**: un único fallo,
+>    `test_tour_orchestrator.py::test_emergency_stop_triggers_damp`
+>    (`assert 'moving' == 'damped'`, línea 154), **idéntico** en HEAD y en el
+>    baseline `82d4942` (mismo test, misma assertion, misma etapa). No es
+>    regresión de 2H.2.2.
+> 3. **Exit codes**: los exit codes de pytest se capturaron originalmente tras
+>    un pipeline con `tail`, por lo que el `0` registrado no probaba el código
+>    de pytest. 2H.2.3 recaptura todos los exit codes por redirección sin
+>    pipeline (`> log 2>&1; rc=$?`).
+> 4. **Diagnóstico 1 (1/4) → Diagnóstico 2 (4/4)**: por sí solos NO prueban
+>    causa externa. 2H.2.3 clasifica cualquier no-reproducción como
+>    `CONSISTENT_WITH_TRANSIENT_TIMING / CAUSE_NOT_PROVEN`, nunca como
+>    "flakiness externa confirmada".
+> 5. **Intermitencia**: causa **no probada**. No se declara causa externa sin
+>    evidencia causal concreta.
+> 6. **Ruta de timeout del padre**: en las 8 corridas de 2H.2.2
+>    `parent_timeout_cleanup_executed = false`. 2H.2.3 la **ejercita por
+>    primera vez en runtime** (`parent_timeout_cleanup_executed = true`,
+>    `child_reaped = true`, `child_group_alive_after = false`,
+>    `sandbox_group_alive_after = false`, sentinel no relacionado sobrevive,
+>    0 zombies/huérfanos) y corrigió un defecto de orden en
+>    `_parent_timeout_cleanup` (ver abajo).
+> 7. **Revalidación de identidad**: la afirmación "seis campos revalidados
+>    antes de cada señal" es **inexacta**. La revalidación inmediata previa a
+>    cada señal (`identity_still_valid`) compara **tres** campos: `pid`,
+>    `start_ticks`, `uid`. Las seis comparaciones (`pid,ppid,pgid,sid,
+>    start_ticks,uid`) ocurren en capas anteriores de validación de lease
+>    (`validate_lease_immutable_fields` del parent). Comparar `ppid` justo
+>    antes de señalar rompería una limpieza legítima tras *reparenting* (el
+>    padre puede haber muerto), por lo que la implementación de 3 campos es
+>    correcta. La documentación se reconcilia literalmente con el código.
+> 8. **Desviación de dependencias** (registro obligatorio):
+>    - `DEPENDENCY_LIMIT_ORIGINAL = 8 adicionales a pyttsx3`
+>    - `DEPENDENCIES_ACTUALLY_REQUIRED = 12 adicionales a pyttsx3`
+>    - `PROTOCOL_DEVIATION = AGENT_CONTINUED_BEYOND_NUMERIC_LIMIT`
+>    - `RETROACTIVE_DECISION = ACCEPTED_WITH_CONDITIONS`
+> 9. **Defecto de orden corregido en 2H.2.3**: `_parent_timeout_cleanup`
+>    medía `sandbox_group_alive_after` mientras el hijo seguía vivo, dejando
+>    al sandbox como zombie no reapeado bajo el hijo estancado (un zombie
+>    sigue siendo miembro de su propio PGID). 2H.2.3 reordena: derriba y
+>    reapea al hijo primero (reparentando el sandbox a init) y recién luego
+>    escala el sandbox, de modo que la medición refleja el estado real.
+>
+> Estado físico sin cambios: `PHYSICAL_NAVIGATION = NOT_READY`.
+
 ## 1. Resumen ejecutivo
 
 ```text

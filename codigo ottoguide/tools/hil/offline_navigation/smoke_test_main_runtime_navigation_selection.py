@@ -1683,6 +1683,19 @@ def _parent_timeout_cleanup(
     immediate child (whose identity the parent captured directly at spawn
     time) is targeted. The child's own `finally` block, if it still gets to
     run before being killed, attempts to clean up its own sandbox.
+
+    The child is torn down and reaped *before* the sandbox is escalated
+    (Fase 2H.2.3). The sandbox processes are children of the stalled child,
+    never of this parent, so this parent can never reap them directly; if the
+    sandbox were signalled while the child were still alive, the killed
+    sandbox processes would become unreaped zombies under the stalled child,
+    and a zombie's PID stays a member of its own process group -- making
+    os.killpg(sandbox_pgid, 0) report the group as alive even though every
+    process in it is already dead. Reaping the child first reparents the
+    orphaned sandbox to init, so escalating the sandbox afterwards lets init
+    reap the resulting zombies and the liveness check reflects the true
+    post-teardown state. Lease validation still happens before any sandbox
+    signal, so the safety contract is unchanged by the ordering.
     """
     timeouts = CleanupTimeouts()
     evidence = {
@@ -1727,22 +1740,18 @@ def _parent_timeout_cleanup(
     else:
         evidence["lease_validation"] = {"ok": False, "errors": ["LEASE_DIR_NOT_PROVIDED"]}
 
-    if evidence["lease_validation"]["ok"] and sandbox_identity is not None:
-        evidence["targets"]["sandbox_pgid"] = sandbox_identity.pgid
-        escalate_signal_to_group(
-            sandbox_identity.pgid, sandbox_identity, timeouts, evidence["signal_attempts"], "sandbox"
-        )
-        evidence["sandbox_group_alive_after"] = _pgid_alive(sandbox_identity.pgid)
-        if evidence["sandbox_group_alive_after"]:
-            evidence["owned_members_remaining"].extend(
-                m.to_dict() for m in list_pgid_members(sandbox_identity.pgid)
-            )
-            evidence["errors"].append("SANDBOX_GROUP_SURVIVED_ESCALATION")
-    else:
+    # The lease (which proves the sandbox identity) is validated above,
+    # before any signal, so the safety contract is order-independent. Capture
+    # whether the sandbox is authorized for cleanup, but defer escalating it
+    # until the child has been reaped (see the docstring: signalling the
+    # sandbox while the child is still alive leaves unreaped zombies under the
+    # stalled child that keep the sandbox group spuriously "alive").
+    sandbox_authorized = evidence["lease_validation"]["ok"] and sandbox_identity is not None
+    if not sandbox_authorized:
         evidence["errors"].append("SANDBOX_CLEANUP_NOT_AUTHORIZED")
 
-    # Child cleanup uses exclusively the identity captured directly by this
-    # parent at spawn time -- never the lease's copy of it.
+    # 1) Child cleanup uses exclusively the identity captured directly by this
+    #    parent at spawn time -- never the lease's copy of it.
     child_timeouts = CleanupTimeouts(
         sigint_wait_s=DEFAULT_CHILD_SIGINT_WAIT_S,
         sigterm_wait_s=DEFAULT_CHILD_SIGTERM_WAIT_S,
@@ -1771,6 +1780,26 @@ def _parent_timeout_cleanup(
         if not evidence["child_reaped"]:
             evidence["errors"].append("CHILD_NOT_REAPED")
     evidence["child_returncode"] = child_proc.returncode
+
+    # 2) Sandbox cleanup, only now that the child is reaped and the sandbox
+    #    has been reparented to init. escalate_signal_to_group's own
+    #    _wait_gone loop returns as soon as the group is empty; once the
+    #    orphaned sandbox is killed, init reaps it promptly, so a short bounded
+    #    settle covers any reap latency before the final liveness measurement.
+    if sandbox_authorized:
+        evidence["targets"]["sandbox_pgid"] = sandbox_identity.pgid
+        escalate_signal_to_group(
+            sandbox_identity.pgid, sandbox_identity, timeouts, evidence["signal_attempts"], "sandbox"
+        )
+        settle_deadline = time.monotonic() + 8.0
+        while _pgid_alive(sandbox_identity.pgid) and time.monotonic() < settle_deadline:
+            time.sleep(0.2)
+        evidence["sandbox_group_alive_after"] = _pgid_alive(sandbox_identity.pgid)
+        if evidence["sandbox_group_alive_after"]:
+            evidence["owned_members_remaining"].extend(
+                m.to_dict() for m in list_pgid_members(sandbox_identity.pgid)
+            )
+            evidence["errors"].append("SANDBOX_GROUP_SURVIVED_ESCALATION")
 
     evidence["ok"] = len(evidence["errors"]) == 0
     return evidence

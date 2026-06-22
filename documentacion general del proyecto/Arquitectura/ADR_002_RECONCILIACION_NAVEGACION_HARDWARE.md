@@ -4,6 +4,18 @@
 **Fecha**: 2026-06-21
 **Fase**: Fase 2H.0 — Reconciliación de arquitecturas de navegación y hardware
 
+> ## ➕ ADDENDUM 2H.2.3 (2026-06-22) — confirmación, no cambio de decisión
+>
+> La Fase 2H.2.3 (corrección de evidencia) **no altera** esta ADR; la confirma.
+> El plano de misión sigue siendo Nav2 (`bt_navigator`/`waypoint_follower` →
+> `cmd_vel_raw` → `collision_monitor` → `cmd_vel_safe`); Unitree NO sustituye a
+> Nav2. El plano Unitree futuro (HAL/seguridad/modos/telemetría/damp/locomoción/
+> DDS·SDK2) permanece **no integrado** en esta fase. No se introdujo SDK2 ni
+> hardware Unitree. La preparación física quedó exclusivamente como un paquete
+> **P0 read-only** (`tools/hil/physical_read_only/`), `PREPARED_NOT_AUTHORIZED`,
+> `NOT_EXECUTED`. `PHYSICAL_MOVEMENT = NOT_AUTHORIZED`. Ver
+> `MAIN_RUNTIME_NAVIGATION_SELECTION_2H23_EVIDENCE_CORRECTION_REPORT.md`.
+
 ## Contexto
 
 El sandbox offline Nav2 (Fases 2A–2G) validó, sobre ROS 2 Jazzy en WSL,

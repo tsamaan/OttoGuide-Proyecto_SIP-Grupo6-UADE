@@ -1,5 +1,23 @@
 # Main Runtime Navigation Bridge Selection — Reporte (Fase 2H.2.1)
 
+> ## ⚠️ STATUS_CORRECTION / SUPERSEDED_BY_2H23 (2026-06-22)
+>
+> `MAIN_RUNTIME_HARDENING_2H21 = COMPLETE` se corrige a
+> **`MAIN_RUNTIME_HARDENING_2H21 = PARTIAL_HISTORICAL`**.
+>
+> El endurecimiento 2H.2.1 (control-file de cleanup, fixes fail-closed, retiro
+> de skips centrales) fue un paso intermedio válido, pero su modelo de
+> cleanup/control-file fue **superado** por:
+> - **2H.2.2**: lease privada con token, identidad de kernel
+>   (`/proc/<pid>/stat`), `start_new_session=True`, escalado
+>   SIGINT→SIGTERM→SIGKILL con re-validación, y gates de threads/zombies/huérfanos.
+> - **2H.2.3**: corrección de evidencia, ejercicio runtime real de la ruta de
+>   timeout del padre, y estabilidad de 3 corridas consecutivas.
+>
+> El control-file simple descrito aquí ya no es el mecanismo vigente. Ver
+> `MAIN_RUNTIME_NAVIGATION_SELECTION_2H22_HARDENING_REPORT.md` y
+> `MAIN_RUNTIME_NAVIGATION_SELECTION_2H23_EVIDENCE_CORRECTION_REPORT.md`.
+
 ## 1. Resumen ejecutivo
 
 ```text

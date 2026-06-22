@@ -37,11 +37,22 @@ MAIN_RUNTIME_MIGRATED         = NO (default ROBOT_MODE=real sigue en legacy)
 LEGACY_NAVIGATION_RUNTIME_ACTIVE = YES (default sin cambio)
 Fase 2H.2                     = completada (selector offline, runtime validation PASS — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H2_REPORT.md)
 Fase 2H.2.1                   = completada (hardening fail-closed, tests, guards estáticos, smoke Popen — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H21_HARDENING_REPORT.md)
-Fase 2H.2.2                   = completada (aislamiento de proceso, lease criptográfico, identidad de kernel, escalada fail-closed — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H22_HARDENING_REPORT.md)
+Fase 2H.2.2                   = implementada; evidencia incompleta, corregida por 2H.2.3 (ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H22_HARDENING_REPORT.md)
+Fase 2H.2.3                   = IMPLEMENTED_PENDING_INDEPENDENT_AUDIT (corrección de evidencia, timeout E2E ejercitado, 3 corridas consecutivas 4/4 — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H23_EVIDENCE_CORRECTION_REPORT.md)
+P0_PHYSICAL_READ_ONLY         = PREPARED_NOT_AUTHORIZED / NOT_EXECUTED (tools/hil/physical_read_only/)
+P1_P2_P3                      = NOT_AUTHORIZED
 L2_ODOMETRY                   = NOT_READY
 L3_LOCALIZATION_MAP           = NOT_READY
 PHYSICAL_NAVIGATION           = NOT_READY
+PHYSICAL_MOVEMENT             = NOT_AUTHORIZED
+RAMA_OPERATIVA_VALIDADA       = robot
 ```
+
+> **Nota 2H.2.3 (2026-06-22)**: la rama operativa validada es `robot` (no `main`).
+> No hay "pendiente push a `main`". El candidato NO-GO de runtime de 2H.2.2 se
+> registra como `CANDIDATE_RESOLVED_OFFLINE_PENDING_INDEPENDENT_AUDIT`. P0 es un
+> paquete read-only preparado pero **no autorizado** y **no ejecutado**; P1/P2/P3
+> permanecen `NOT_AUTHORIZED`. No se inspeccionó el robot en esta fase.
 
 Toda la evidencia de `DirectNav2ActionBridge` recolectada hasta la Fase
 2H.1.5 es exclusivamente contra `offline_runtime_simulator.py` (odometría
@@ -56,7 +67,7 @@ ni por analogía con el sandbox offline; cada uno requiere su propia
 evidencia física.
 
 ```text
-NO-GO 1: RESOLVED_OFFLINE — Fase 2H.2 completada (runtime validation PASS, 2026-06-22), Fase 2H.2.1 completada (hardening PASS, 2026-06-22) y Fase 2H.2.2 completada (aislamiento/lease/identidad PASS, 2026-06-22). Pendiente: push a main y auditoría de chat principal.
+NO-GO 1: CANDIDATE_RESOLVED_OFFLINE_PENDING_INDEPENDENT_AUDIT — Fase 2H.2 (runtime validation), 2H.2.1 (hardening), 2H.2.2 (aislamiento/lease/identidad) y 2H.2.3 (corrección de evidencia: exit codes recapturados, FAIL_PREEXISTING_PROVEN contra baseline 82d4942, ruta de timeout del padre ejercitada en runtime, 3 corridas consecutivas 4/4). La rama operativa validada es `robot` (no `main`). Pendiente: auditoría independiente en otro chat. NO declarar COMPLETE/CLOSED/PHYSICAL_READY/P0_AUTHORIZED.
 NO-GO 2: fuente física de odometría no validada (L2_ODOMETRY = NOT_READY)
 NO-GO 3: TF física incompleta o no medida (map->odom, odom->base_link,
          base_link->utlidar_lidar; este último requiere extrínseco medido,
@@ -151,10 +162,11 @@ P1 — Compatibilidad de interfaces y configuracion
      Estado: PENDING_PHYSICAL_VALIDATION.
 
 P2 — Integracion main.py/bridge
-     Exclusivamente despues de que la Fase 2H.2 y 2H.2.1 esten
-     completadas y auditadas (NO-GO 1: RESOLVED_OFFLINE). No iniciar
-     antes de confirmacion via chat principal y push a main.
-     Estado: PENDING_PHYSICAL_VALIDATION.
+     Exclusivamente despues de que las Fases 2H.2/2H.2.1/2H.2.2/2H.2.3 esten
+     auditadas de forma independiente (NO-GO 1:
+     CANDIDATE_RESOLVED_OFFLINE_PENDING_INDEPENDENT_AUDIT). La rama operativa
+     validada es `robot`. No iniciar antes de la auditoria independiente.
+     Estado: PENDING_PHYSICAL_VALIDATION / NOT_AUTHORIZED.
 
 P3 — Prueba fisica acotada
      Exclusivamente con L2 (odometria) y L3 (localizacion/mapa)
