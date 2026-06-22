@@ -31,6 +31,28 @@ class Settings(BaseSettings):
     ROBOT_MODE: Literal["real", "sim", "mock", "demo"] = "mock"
     ROBOT_NETWORK_INTERFACE: str = ""
 
+    # --- Navigation backend selection (Fase 2H.2) ---
+    # @SECURITY: NAVIGATION_DIRECT_REAL_ENABLED default False es un interlock cerrado por
+    #            defecto: selecciona el backend "direct" en ROBOT_MODE=real exige habilitarlo
+    #            explicitamente. NAVIGATION_ALLOW_STUB_TOURS default False impide despachar
+    #            tours autonomos contra un backend no operativo.
+    NAVIGATION_BACKEND: Literal["auto", "legacy", "direct", "stub"] = "auto"
+    NAVIGATION_DIRECT_REAL_ENABLED: bool = False
+    NAVIGATION_ALLOW_STUB_TOURS: bool = False
+
+    NAVIGATION_NODE_NAME: str = "direct_nav2_action_bridge"
+    NAVIGATION_NAMESPACE: str = "offline_nav"
+
+    NAVIGATION_NTP_ACTION: str = "/offline_nav/navigate_to_pose"
+    NAVIGATION_FW_ACTION: str = "/offline_nav/follow_waypoints"
+    NAVIGATION_INITIAL_POSE_TOPIC: str = "/initialpose"
+
+    NAVIGATION_SERVER_TIMEOUT_S: float = 15.0
+    NAVIGATION_GOAL_RESPONSE_TIMEOUT_S: float = 10.0
+    NAVIGATION_RESULT_TIMEOUT_S: float = 120.0
+    NAVIGATION_CANCEL_RESPONSE_TIMEOUT_S: float = 10.0
+    NAVIGATION_CANCEL_TERMINAL_TIMEOUT_S: float = 15.0
+
     # --- NLP / LLM ---
     OLLAMA_HOST: str = "http://127.0.0.1:11434"
     OLLAMA_MODEL: str = "qwen2.5:3b"
@@ -79,6 +101,42 @@ class Settings(BaseSettings):
         "case_sensitive": True,
         "extra": "ignore",
     }
+
+    def validate_navigation_config(self) -> None:
+        """
+        @TASK: Validar la configuracion de navegacion antes de inicializar hardware
+        @INPUT: Sin parametros; opera sobre los campos NAVIGATION_* de esta instancia
+        @OUTPUT: None si la configuracion es valida; ValueError("NAVIGATION_CONFIG_INVALID:<detalle>") si no
+        @CONTEXT: Invocado desde el lifespan de main.py antes de get_hardware_adapter()/rclpy.init().
+        @SECURITY: No valida alcanzabilidad de red ni del action server; solo forma de los valores.
+        """
+        timeouts = (
+            ("NAVIGATION_SERVER_TIMEOUT_S", self.NAVIGATION_SERVER_TIMEOUT_S),
+            ("NAVIGATION_GOAL_RESPONSE_TIMEOUT_S", self.NAVIGATION_GOAL_RESPONSE_TIMEOUT_S),
+            ("NAVIGATION_RESULT_TIMEOUT_S", self.NAVIGATION_RESULT_TIMEOUT_S),
+            ("NAVIGATION_CANCEL_RESPONSE_TIMEOUT_S", self.NAVIGATION_CANCEL_RESPONSE_TIMEOUT_S),
+            ("NAVIGATION_CANCEL_TERMINAL_TIMEOUT_S", self.NAVIGATION_CANCEL_TERMINAL_TIMEOUT_S),
+        )
+        for name, value in timeouts:
+            if value <= 0:
+                raise ValueError(f"NAVIGATION_CONFIG_INVALID:{name}_must_be_positive")
+
+        for name, value in (
+            ("NAVIGATION_NTP_ACTION", self.NAVIGATION_NTP_ACTION),
+            ("NAVIGATION_FW_ACTION", self.NAVIGATION_FW_ACTION),
+        ):
+            if not value:
+                raise ValueError(f"NAVIGATION_CONFIG_INVALID:{name}_empty")
+            if not value.startswith("/"):
+                raise ValueError(f"NAVIGATION_CONFIG_INVALID:{name}_not_absolute")
+
+        if not self.NAVIGATION_INITIAL_POSE_TOPIC:
+            raise ValueError("NAVIGATION_CONFIG_INVALID:NAVIGATION_INITIAL_POSE_TOPIC_empty")
+        if not self.NAVIGATION_INITIAL_POSE_TOPIC.startswith("/"):
+            raise ValueError("NAVIGATION_CONFIG_INVALID:NAVIGATION_INITIAL_POSE_TOPIC_not_absolute")
+
+        if not self.NAVIGATION_NAMESPACE:
+            raise ValueError("NAVIGATION_CONFIG_INVALID:NAVIGATION_NAMESPACE_empty")
 
 
 @lru_cache(maxsize=1)

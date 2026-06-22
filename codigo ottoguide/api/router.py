@@ -287,6 +287,7 @@ async def endpoint_status(
     ctx = orchestrator.context
     readiness_errors = await _resolve_readiness_errors(request, orchestrator)
     factory_rest = await _resolve_factory_rest_status(request)
+    nav_observability = await _resolve_navigation_observability(request)
     return StatusResponse(
         state=orchestrator.state_id,
         tour_id=ctx.tour_id,
@@ -295,7 +296,49 @@ async def endpoint_status(
         operational_ready=not readiness_errors,
         readiness_errors=readiness_errors,
         factory_rest=factory_rest,
+        **nav_observability,
     )
+
+
+async def _resolve_navigation_observability(request: Request) -> dict:
+    """
+    @TASK: Construir los campos de observabilidad del backend de navegacion para GET /status
+    @INPUT: request.app.state (navigation_backend_requested/resolved/started) y nav_bridge
+    @OUTPUT: dict con las claves de StatusResponse navigation_*; nunca expone objetos ROS
+    @CONTEXT: Si nav_bridge.get_status() falla, no rompe el endpoint: usa valores conservadores
+              (remote_state_unknown=True, action_name/goal_uuid=None) y deja que el fallo se
+              refleje por separado en readiness_errors via _resolve_readiness_errors.
+    @SECURITY: Solo se exponen los campos primitivos de NavigationStatus, nunca el handle/uuid
+               interno de ROS ni la instancia del bridge.
+    """
+    state = request.app.state
+    requested = str(getattr(state, "navigation_backend_requested", "unknown") or "unknown")
+    resolved = str(getattr(state, "navigation_backend_resolved", "unknown") or "unknown")
+    started = bool(getattr(state, "navigation_started", False))
+
+    nav_bridge = getattr(state, "nav_bridge", None)
+    remote_state_unknown = False
+    action_name: Optional[str] = None
+    goal_uuid: Optional[str] = None
+
+    get_status_fn = getattr(nav_bridge, "get_status", None)
+    if callable(get_status_fn):
+        try:
+            nav_status = await asyncio.wait_for(get_status_fn(), timeout=0.25)
+            remote_state_unknown = bool(getattr(nav_status, "remote_state_unknown", False))
+            action_name = getattr(nav_status, "action_name", None)
+            goal_uuid = getattr(nav_status, "goal_uuid", None)
+        except Exception:
+            remote_state_unknown = True
+
+    return {
+        "navigation_backend_requested": requested,
+        "navigation_backend_resolved": resolved,
+        "navigation_started": started,
+        "navigation_remote_state_unknown": remote_state_unknown,
+        "navigation_action_name": action_name,
+        "navigation_goal_uuid": goal_uuid,
+    }
 
 
 async def _resolve_readiness_errors(request: Request, orchestrator) -> list[str]:
@@ -303,10 +346,17 @@ async def _resolve_readiness_errors(request: Request, orchestrator) -> list[str]
     @TASK: Calcular errores de readiness antes de aceptar tours
     @INPUT: request.app.state y orquestador activo
     @OUTPUT: Lista de errores bloqueantes; vacia indica GO
-    @CONTEXT: Gate operativo para no despachar tours sin Nav2/hardware critico
+    @CONTEXT: Gate operativo para no despachar tours sin un backend de navegacion operativo
+              ni hardware critico. Fase 2H.2: el backend stub solo permite tours si
+              NAVIGATION_ALLOW_STUB_TOURS=true; legacy/direct deben estar realmente iniciados
+              (navigation_started en app.state, nunca solo _started); y un estado remoto
+              desconocido (NavigationStatus.remote_state_unknown) bloquea nuevos tours, igual
+              que en el contrato ya aceptado de DirectNav2ActionBridge.
     STEP 1: Validar estado FSM idle
-    STEP 2: En modo real, validar Nav2 iniciado y hardware inicializado
-    @SECURITY: Bloquea movimiento autonomo ante inicializacion incompleta
+    STEP 2: Validar backend de navegacion: presente, resuelto, no-stub-no-autorizado,
+            iniciado si es legacy/direct, y con estado remoto confirmado (no desconocido)
+    STEP 3: En modo real, validar tambien hardware inicializado
+    @SECURITY: Bloquea movimiento autonomo ante inicializacion incompleta o backend degradado
     """
     errors: list[str] = []
 
@@ -315,15 +365,31 @@ async def _resolve_readiness_errors(request: Request, orchestrator) -> list[str]
 
     robot_mode = str(getattr(orchestrator, "_robot_mode", "mock")).lower()
     hardware = getattr(orchestrator, "_hardware_api", None)
-    nav_bridge = getattr(request.app.state, "nav_bridge", None)
-    if nav_bridge is None:
-        nav_bridge = getattr(orchestrator, "_nav_bridge", None)
+
+    state = request.app.state
+    nav_bridge = getattr(state, "nav_bridge", None)
+    backend_resolved = getattr(state, "navigation_backend_resolved", None)
+    navigation_started = bool(getattr(state, "navigation_started", False))
+    stub_tours_allowed = bool(getattr(state, "navigation_stub_tours_allowed", False))
+
+    if nav_bridge is None or backend_resolved is None:
+        errors.append("navigation backend unavailable")
+    else:
+        if backend_resolved == "stub" and not stub_tours_allowed:
+            errors.append("navigation backend stub: autonomous tours disabled")
+        elif backend_resolved in ("legacy", "direct") and not navigation_started:
+            errors.append("navigation backend not started")
+
+        get_status_fn = getattr(nav_bridge, "get_status", None)
+        if callable(get_status_fn):
+            try:
+                nav_status = await asyncio.wait_for(get_status_fn(), timeout=0.25)
+                if getattr(nav_status, "remote_state_unknown", False):
+                    errors.append("navigation remote state unknown")
+            except Exception as exc:
+                errors.append(f"navigation status unavailable:{type(exc).__name__}")
 
     if robot_mode == "real":
-        nav_started = bool(getattr(nav_bridge, "_started", getattr(nav_bridge, "started", False)))
-        if not nav_started:
-            errors.append("nav2_bridge no iniciado")
-
         state_reader = getattr(hardware, "get_state", None)
         if callable(state_reader):
             try:

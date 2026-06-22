@@ -1,6 +1,6 @@
 # Offline Navigation Sandbox — Runtime Runbook
 
-**Fase**: Fase 2G — base de runtime ROS aislada + planificación global + control local closed-loop + Collision Monitor + Behavior Server (`Wait`/`Spin`) + BT Navigator (`NavigateToPose`) + Waypoint Follower (`FollowWaypoints`) aislados, todos con evidencia validada. Los smoke tests de planner, controller, collision monitor, behavior server, BT Navigator y Waypoint Follower pasan por completo con éxito. No incluye `NavigateThroughPoses`, Simple Commander, el orquestador de misión de la aplicación paralela, ni los plugins `BackUp`/`DriveOnHeading`/`AssistedTeleop` de behavior_server. Las Fases 2H.1/2H.1.2/2H.1.3/2H.1.4 (ver sección dedicada más abajo) agregan `DirectNav2ActionBridge`, validado aislado y todavía no conectado a `main.py`.
+**Fase**: Fase 2H.2-R (2026-06-22) — base de runtime ROS aislada + planificación global + control local closed-loop + Collision Monitor + Behavior Server (`Wait`/`Spin`) + BT Navigator (`NavigateToPose`) + Waypoint Follower (`FollowWaypoints`) aislados, todos con evidencia validada. Los smoke tests de planner, controller, collision monitor, behavior server, BT Navigator y Waypoint Follower pasan por completo con éxito. No incluye `NavigateThroughPoses`, Simple Commander, el orquestador de misión de la aplicación paralela, ni los plugins `BackUp`/`DriveOnHeading`/`AssistedTeleop` de behavior_server. Las Fases 2H.1/2H.1.2/2H.1.3/2H.1.4/2H.1.5 (ver sección dedicada más abajo) agregan `DirectNav2ActionBridge`, validado aislado. La Fase 2H.2 agrega un selector explícito y fail-closed de backend en `main.py` que ya puede seleccionarlo (`NAVIGATION_BACKEND=direct`), sin cambiar el default de producción. La sesión de recuperación 2H.2-R completó la validación runtime de los cuatro escenarios de aplicación (`boot_shutdown`/`tour_success`/`interaction_cancel`/`emergency_cancel`) contra el sandbox, en diagnóstico (192–195) y dos corridas oficiales (204–207, 216–219), todos con `--timeout 150`.
 
 ## Alcance
 
@@ -162,9 +162,9 @@ El CLI deriva tres domain IDs consecutivos desde `--base-domain-id` (uno por esc
 
 Validado en dos corridas completas e independientes (domain IDs `200`-`202` y `210`-`212`), sin cambios de código entre ellas, los tres escenarios en `PASS` en ambas corridas, sin tópicos prohibidos, sin nodos de hardware/Simple Commander, y sin procesos huérfanos. Cada escenario escribe su log de `ros2 launch` a un archivo dedicado bajo `/tmp` (`/tmp/ottoguide_waypoint_<escenario>_<domain>.log`) en vez de `stdout=subprocess.PIPE` sin consumidor, evitando que el buffer del pipe se llene y bloquee el proceso lanzado. `NOT_FOR_PHYSICAL_SAFETY_VALIDATION`. Detalle completo en [OFFLINE_NAVIGATION_WAYPOINT_FOLLOWER_REPORT.md](OFFLINE_NAVIGATION_WAYPOINT_FOLLOWER_REPORT.md).
 
-## DirectNav2ActionBridge — validado aislado, no conectado a `main.py`
+## DirectNav2ActionBridge — validado aislado, seleccionable en `main.py` desde 2H.2
 
-`DirectNav2ActionBridge` (`src/navigation/direct_nav2_action_bridge.py`) es un cliente `rclpy.action.ActionClient` directo contra `/offline_nav/navigate_to_pose` y `/offline_nav/follow_waypoints`, sin `BasicNavigator`/Simple Commander y sin publicar velocidad (solo `/initialpose`). Implementado y validado de forma aislada en las Fases 2H.1/2H.1.2/2H.1.3/2H.1.4/2H.1.5; **no está conectado** a `main.py`/`TourOrchestrator` (`MAIN_RUNTIME_MIGRATED=NO`). Esa conexión es trabajo exclusivo de la Fase 2H.2, todavía no autorizada.
+`DirectNav2ActionBridge` (`src/navigation/direct_nav2_action_bridge.py`) es un cliente `rclpy.action.ActionClient` directo contra `/offline_nav/navigate_to_pose` y `/offline_nav/follow_waypoints`, sin `BasicNavigator`/Simple Commander y sin publicar velocidad (solo `/initialpose`). Implementado y validado de forma aislada en las Fases 2H.1/2H.1.2/2H.1.3/2H.1.4/2H.1.5. Desde la Fase 2H.2, **es seleccionable** en `main.py` via `NAVIGATION_BACKEND=direct` (ver sección dedicada más abajo), pero el default de producción no cambia: `ROBOT_MODE=real` + `NAVIGATION_BACKEND=auto` sigue resolviendo a `AsyncNav2Bridge`.
 
 La Fase 2H.1.3 cerró brechas puntuales de evidencia: `close()` ahora detecta degradación preexistente (no solo fallos reactivos de cancelación), el smoke ya no silencia errores de cierre del bridge/observer, el escenario `FollowWaypoints` inalcanzable nunca acepta `REJECTED` como sustituto de `ABORTED`, y los JSON de los procesos hijos del smoke usan una ruta única por invocación con validación de identidad y exit code.
 
@@ -194,6 +194,53 @@ El CLI público acepta únicamente `--base-domain-id`, `--timeout` y `--output`.
 Inspección real del grafo del nodo del bridge vía `ros2 node info /offline_nav/direct_nav2_action_bridge`: se exige que no tenga publishers/subscribers de ningún tópico de velocidad (`cmd_vel`/`cmd_vel_nav`/`cmd_vel_raw`/`cmd_vel_safe`), y se confirma disponibilidad de ambas acciones vía `ros2 action list`.
 
 Validado en dos corridas completas e independientes (domain IDs `220`-`223` y `224`-`227`), sin cambios de código entre ellas, los cuatro escenarios en `PASS` en ambas corridas, sin procesos huérfanos. Un intento intermedio sufrió una carrera de timing transitoria bajo carga WSL (mismo patrón documentado más abajo para otros componentes), resuelta repitiendo la corrida sin tocar código. `NOT_FOR_PHYSICAL_SAFETY_VALIDATION`. Detalle completo en [DIRECT_NAV2_ACTION_BRIDGE_2H1_REPORT.md](../../Arquitectura/DIRECT_NAV2_ACTION_BRIDGE_2H1_REPORT.md).
+
+## Smoke test de integración de aplicación (main.py + TourOrchestrator)
+
+`smoke_test_main_runtime_navigation_selection.py` — valida los cuatro
+escenarios de aplicación usando el runtime principal real (`main.lifespan`
++ `TourOrchestrator` + `DirectNav2ActionBridge` + sandbox completo),
+sin Uvicorn, sin sockets.
+
+```bash
+cd "codigo ottoguide"
+python3 tools/hil/offline_navigation/smoke_test_main_runtime_navigation_selection.py \
+  --base-domain-id 204 --timeout 150
+```
+
+Cuatro escenarios (un proceso hijo y un `ROS_DOMAIN_ID` distinto por
+escenario, derivados del `--base-domain-id` con offsets 0–3):
+
+- **boot_shutdown**: levanta `main.lifespan`, verifica backend
+  `direct` resuelto e iniciado, cierra limpiamente. Exige
+  `navigation_started: true`, `readiness_errors: []`,
+  `shutdown_error: null`.
+- **tour_success**: despacha un tour de un waypoint sintético
+  (`~0.50m`) vía `TourOrchestrator.dispatch_tour()`. Exige FSM en
+  `idle` al terminar, `last_result_status: SUCCEEDED`,
+  `remote_state_unknown: false`.
+- **interaction_cancel**: despacha un tour largo, espera a
+  `task_active=true` con feedback, luego invoca
+  `orchestrator.request_interaction()`. Exige
+  `cancel_accepted: true`, terminal `CANCELED`, FSM retorna a `idle`
+  (o `interacting`), `mission_resume_policy: DEFERRED_2I`.
+- **emergency_cancel**: ídem, luego invoca
+  `orchestrator.emergency_stop()`. Exige terminal `CANCELED`, FSM en
+  `emergency`, `damp_calls: 1`, `zero_command_observed: true`.
+
+El hardware se inyecta como `_RecordingMockHardware` (envuelve
+`MockHardwareAPI` real) para afirmar `MotionCommand(0)`/`damp()`
+observados sin fabricar un HAL paralelo.
+
+**Nota de timing**: usar `--timeout 150` (no el default 120). Con 120s,
+bajo carga WSL, el lifecycle manager de `bt_navigator`/`waypoint_follower`
+puede no completar la transición `active` a tiempo en los escenarios 3–4,
+produciendo `bt_navigator_NOT_ACTIVE`/`waypoint_follower_NOT_DISCOVERED`.
+No es un defecto de diseño; con 150s todas las corridas son limpias.
+
+**Corridas validadas** (sesión 2H.2-R, 2026-06-22, `--timeout 150`):
+diagnóstico 192–195, corrida oficial 1 204–207, corrida oficial 2
+216–219 — los cuatro escenarios PASS en las tres corridas.
 
 ## Troubleshooting
 

@@ -1,0 +1,693 @@
+"""Fase 2H.2 — seleccion fail-closed del backend de navegacion en main.py.
+
+Cubre _resolve_navigation_backend, _check_direct_real_interlock,
+_build_navigation_bridge, el lifespan completo de FastAPI (exito, fallo de
+start, fallo de close), y la observabilidad de readiness/StatusResponse en
+api/router.py. main.py no es importable directamente en este workstation
+porque src.core -> src.interaction depende de pyttsx3/speech_recognition/
+aiohttp (gap preexistente y no relacionado, documentado en
+test_architecture_reconciliation_contract.py); estos tests instalan mocks
+minimos de esos tres modulos antes de importar main, y los retiran despues.
+Nunca depende de ROS 2 real: AsyncNav2Bridge y DirectNav2ActionBridge no
+importan rclpy en __init__, solo en start().
+
+config/settings.py depende de pydantic_settings, que no esta instalado en
+el venv Python 3.12 de WSL Ubuntu-24.04/ROS 2 Jazzy usado para los smoke
+tests ROS de este repositorio (gap de entorno preexistente, simetrico al
+de pyttsx3/speech_recognition/aiohttp en Windows: ningun test anterior que
+importa config.settings -- p.ej. tests/unit/test_settings.py -- puede
+colectarse bajo esa misma WSL). Todas las clases de este modulo se
+saltan (skip, no error) si pydantic_settings no esta disponible, en vez
+de fallar la coleccion completa del archivo.
+"""
+from __future__ import annotations
+
+import asyncio
+import importlib
+import importlib.util
+import sys
+import types
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Optional
+from unittest.mock import AsyncMock, MagicMock
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+CODE_ROOT = REPO_ROOT / "codigo ottoguide"
+if str(CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CODE_ROOT))
+
+_PYDANTIC_SETTINGS_AVAILABLE = importlib.util.find_spec("pydantic_settings") is not None
+_SKIP_REASON = "pydantic_settings not installed in this environment (pre-existing gap)"
+
+# api/router.py imports fastapi at module scope; this is a second,
+# independent pre-existing environment gap (the WSL ROS 2 Jazzy Python 3.12
+# venv used for the ROS smoke tests in this repository has neither
+# pydantic_settings nor fastapi installed -- no test under tests/unit/
+# imported api.router before this phase, so this gap was never exercised).
+_FASTAPI_AVAILABLE = importlib.util.find_spec("fastapi") is not None
+_FASTAPI_SKIP_REASON = "fastapi not installed in this environment (pre-existing gap)"
+
+# src.navigation.models is pure (no pydantic_settings/ROS), so it is always
+# importable here -- only config.settings (and therefore main, which imports
+# it) depends on pydantic_settings being installed.
+from src.navigation.models import (  # noqa: E402
+    NavigationResult,
+    NavigationStatus,
+    NavigationTerminalStatus,
+)
+
+if _PYDANTIC_SETTINGS_AVAILABLE:
+    from config.settings import Settings, get_settings  # noqa: E402
+
+_INTERACTION_DEPENDENCY_MOCKS = ("pyttsx3", "speech_recognition", "aiohttp")
+
+
+def _install_interaction_dependency_mocks() -> dict:
+    """Install minimal fakes for the three pre-existing, unrelated missing
+    packages (pyttsx3/speech_recognition/aiohttp) so that `import main` can
+    walk its real src.core -> src.interaction import chain on a workstation
+    without them. Returns the set of names actually installed (vs already
+    present), so the caller can remove only what it added."""
+    installed = {}
+    for name in _INTERACTION_DEPENDENCY_MOCKS:
+        if name not in sys.modules:
+            sys.modules[name] = MagicMock()
+            installed[name] = True
+    return installed
+
+
+def _remove_interaction_dependency_mocks(installed: dict) -> None:
+    for name in installed:
+        sys.modules.pop(name, None)
+
+
+def _purge_app_modules() -> None:
+    for mod in list(sys.modules):
+        if mod == "main" or mod == "src" or mod.startswith("src.") or mod == "config" or mod.startswith("config."):
+            del sys.modules[mod]
+
+
+def _fresh_import_main():
+    """Reimport main.py from scratch with the interaction dependency mocks
+    installed, returning (main_module, installed_mocks) for cleanup."""
+    _purge_app_modules()
+    installed = _install_interaction_dependency_mocks()
+    import main  # noqa: PLC0415
+    return main, installed
+
+
+class _FakeHardware:
+    def __init__(self, *, state: Optional[dict] = None, initialize_exc: Optional[Exception] = None):
+        self.initialize = AsyncMock(side_effect=initialize_exc)
+        self.damp = AsyncMock()
+        self.move = AsyncMock()
+        self.get_state = AsyncMock(return_value=state if state is not None else {"initialized": True})
+
+
+class _FakeNavBridge:
+    def __init__(
+        self,
+        *,
+        remote_state_unknown: bool = False,
+        action_name: Optional[str] = None,
+        goal_uuid: Optional[str] = None,
+        start_exc: Optional[Exception] = None,
+        close_exc: Optional[Exception] = None,
+    ):
+        self.start = AsyncMock(side_effect=start_exc)
+        self.close = AsyncMock(side_effect=close_exc)
+        self.navigate_to_waypoints = AsyncMock(return_value=True)
+        self.send_goal = AsyncMock(return_value=True)
+        self.cancel_navigation = AsyncMock()
+        self.inject_absolute_pose = AsyncMock()
+        self.is_navigation_active = AsyncMock(return_value=False)
+        self._status = NavigationStatus(
+            remote_state_unknown=remote_state_unknown,
+            action_name=action_name,
+            goal_uuid=goal_uuid,
+        )
+        self.get_status = AsyncMock(return_value=self._status)
+        self.get_last_result = AsyncMock(return_value=None)
+
+
+class _FakeState:
+    pass
+
+
+class _FakeApp:
+    def __init__(self):
+        self.state = _FakeState()
+
+
+# ---------------------------------------------------------------------------
+# _resolve_navigation_backend
+# ---------------------------------------------------------------------------
+
+class BackendResolutionTests(unittest.TestCase):
+    def setUp(self):
+        self.main, self._mocks = _fresh_import_main()
+
+    def tearDown(self):
+        _remove_interaction_dependency_mocks(self._mocks)
+        _purge_app_modules()
+
+    def _settings(self, backend: str, robot_mode: str) -> SimpleNamespace:
+        return SimpleNamespace(NAVIGATION_BACKEND=backend, ROBOT_MODE=robot_mode)
+
+    def test_auto_real_resolves_legacy(self):
+        self.assertEqual(
+            self.main._resolve_navigation_backend(self._settings("auto", "real")), "legacy"
+        )
+
+    def test_auto_mock_resolves_stub(self):
+        self.assertEqual(
+            self.main._resolve_navigation_backend(self._settings("auto", "mock")), "stub"
+        )
+
+    def test_auto_sim_resolves_stub(self):
+        self.assertEqual(
+            self.main._resolve_navigation_backend(self._settings("auto", "sim")), "stub"
+        )
+
+    def test_auto_demo_resolves_stub(self):
+        self.assertEqual(
+            self.main._resolve_navigation_backend(self._settings("auto", "demo")), "stub"
+        )
+
+    def test_legacy_explicit_resolves_legacy_in_any_mode(self):
+        for mode in ("real", "sim", "mock", "demo"):
+            self.assertEqual(
+                self.main._resolve_navigation_backend(self._settings("legacy", mode)), "legacy"
+            )
+
+    def test_direct_explicit_resolves_direct_in_any_mode(self):
+        for mode in ("real", "sim", "mock", "demo"):
+            self.assertEqual(
+                self.main._resolve_navigation_backend(self._settings("direct", mode)), "direct"
+            )
+
+    def test_stub_explicit_resolves_stub_in_non_real_mode(self):
+        for mode in ("sim", "mock", "demo"):
+            self.assertEqual(
+                self.main._resolve_navigation_backend(self._settings("stub", mode)), "stub"
+            )
+
+    def test_stub_real_is_forbidden(self):
+        with self.assertRaisesRegex(RuntimeError, "NAVIGATION_STUB_FORBIDDEN_IN_REAL_MODE"):
+            self.main._resolve_navigation_backend(self._settings("stub", "real"))
+
+
+# ---------------------------------------------------------------------------
+# _check_direct_real_interlock
+# ---------------------------------------------------------------------------
+
+class DirectRealInterlockTests(unittest.TestCase):
+    def setUp(self):
+        self.main, self._mocks = _fresh_import_main()
+
+    def tearDown(self):
+        _remove_interaction_dependency_mocks(self._mocks)
+        _purge_app_modules()
+
+    def _settings(self, robot_mode: str, latch: bool) -> SimpleNamespace:
+        return SimpleNamespace(ROBOT_MODE=robot_mode, NAVIGATION_DIRECT_REAL_ENABLED=latch)
+
+    def test_direct_real_latch_false_raises(self):
+        with self.assertRaisesRegex(RuntimeError, "DIRECT_NAVIGATION_REAL_MODE_NOT_AUTHORIZED"):
+            self.main._check_direct_real_interlock(self._settings("real", False), "direct")
+
+    def test_direct_real_latch_true_permitted(self):
+        self.main._check_direct_real_interlock(self._settings("real", True), "direct")  # no raise
+
+    def test_direct_non_real_never_blocked_by_latch(self):
+        for mode in ("sim", "mock", "demo"):
+            self.main._check_direct_real_interlock(self._settings(mode, False), "direct")
+
+    def test_legacy_and_stub_never_blocked_regardless_of_latch(self):
+        for backend in ("legacy", "stub"):
+            for latch in (False, True):
+                self.main._check_direct_real_interlock(self._settings("real", latch), backend)
+
+
+# ---------------------------------------------------------------------------
+# _build_navigation_bridge
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(_PYDANTIC_SETTINGS_AVAILABLE, _SKIP_REASON)
+class NavigationBridgeFactoryTests(unittest.TestCase):
+    def setUp(self):
+        self.main, self._mocks = _fresh_import_main()
+
+    def tearDown(self):
+        _remove_interaction_dependency_mocks(self._mocks)
+        _purge_app_modules()
+
+    def test_legacy_builds_async_nav2_bridge(self):
+        # AsyncNav2Bridge's module imports rclpy/cv2 at module scope (unlike
+        # DirectNav2ActionBridge, which only imports rclpy lazily inside
+        # start()), so building it even just for __init__ requires the same
+        # ROS mocks used by ModelCompatibilityTests in
+        # test_architecture_reconciliation_contract.py.
+        from tests.mocks.mock_ros2 import install_mocks
+
+        install_mocks(sys.modules)
+        try:
+            from src.navigation import AsyncNav2Bridge
+
+            settings = Settings(NAVIGATION_BACKEND="legacy")
+            bridge = self.main._build_navigation_bridge(settings, "legacy")
+            self.assertIsInstance(bridge, AsyncNav2Bridge)
+        finally:
+            for name in (
+                "rclpy", "rclpy.executors", "rclpy.node",
+                "geometry_msgs", "geometry_msgs.msg",
+                "nav2_simple_commander", "nav2_simple_commander.robot_navigator",
+            ):
+                sys.modules.pop(name, None)
+
+    def test_direct_builds_direct_bridge_with_every_setting(self):
+        from src.navigation import DirectNav2ActionBridge
+
+        settings = Settings(
+            NAVIGATION_BACKEND="direct",
+            NAVIGATION_NODE_NAME="custom_node",
+            NAVIGATION_NAMESPACE="custom_ns",
+            NAVIGATION_NTP_ACTION="/custom_ns/navigate_to_pose",
+            NAVIGATION_FW_ACTION="/custom_ns/follow_waypoints",
+            NAVIGATION_INITIAL_POSE_TOPIC="/custom_initialpose",
+            NAVIGATION_SERVER_TIMEOUT_S=1.0,
+            NAVIGATION_GOAL_RESPONSE_TIMEOUT_S=2.0,
+            NAVIGATION_RESULT_TIMEOUT_S=3.0,
+            NAVIGATION_CANCEL_RESPONSE_TIMEOUT_S=4.0,
+            NAVIGATION_CANCEL_TERMINAL_TIMEOUT_S=5.0,
+        )
+        bridge = self.main._build_navigation_bridge(settings, "direct")
+        self.assertIsInstance(bridge, DirectNav2ActionBridge)
+        self.assertEqual(bridge._node_name, "custom_node")
+        self.assertEqual(bridge._namespace, "custom_ns")
+        self.assertEqual(bridge._ntp_action, "/custom_ns/navigate_to_pose")
+        self.assertEqual(bridge._fw_action, "/custom_ns/follow_waypoints")
+        self.assertEqual(bridge._initial_pose_topic, "/custom_initialpose")
+        self.assertEqual(bridge._server_timeout_s, 1.0)
+        self.assertEqual(bridge._goal_response_timeout_s, 2.0)
+        self.assertEqual(bridge._result_timeout_s, 3.0)
+        self.assertEqual(bridge._cancel_response_timeout_s, 4.0)
+        self.assertEqual(bridge._cancel_terminal_timeout_s, 5.0)
+
+    def test_stub_builds_minimal_nav_stub(self):
+        settings = Settings(NAVIGATION_BACKEND="stub")
+        bridge = self.main._build_navigation_bridge(settings, "stub")
+        self.assertIsInstance(bridge, self.main._MinimalNavStub)
+
+    def test_unknown_resolved_backend_fails_closed(self):
+        settings = Settings()
+        with self.assertRaisesRegex(RuntimeError, "NAVIGATION_BACKEND_BUILD_FAILED:bogus"):
+            self.main._build_navigation_bridge(settings, "bogus")
+
+    def test_import_legacy_failure_never_falls_back_to_stub(self):
+        import src.navigation as navigation_pkg
+
+        original_getattr = navigation_pkg.__getattr__
+
+        def failing_getattr(name):
+            if name == "AsyncNav2Bridge":
+                raise ImportError("simulated legacy import failure")
+            return original_getattr(name)
+
+        navigation_pkg.__getattr__ = failing_getattr
+        try:
+            settings = Settings()
+            with self.assertRaisesRegex(RuntimeError, "NAVIGATION_BACKEND_BUILD_FAILED:legacy"):
+                self.main._build_navigation_bridge(settings, "legacy")
+        finally:
+            navigation_pkg.__getattr__ = original_getattr
+
+    def test_import_direct_failure_never_falls_back_to_stub(self):
+        import src.navigation as navigation_pkg
+
+        original_getattr = navigation_pkg.__getattr__
+
+        def failing_getattr(name):
+            if name == "DirectNav2ActionBridge":
+                raise ImportError("simulated direct import failure")
+            return original_getattr(name)
+
+        navigation_pkg.__getattr__ = failing_getattr
+        try:
+            settings = Settings()
+            with self.assertRaisesRegex(RuntimeError, "NAVIGATION_BACKEND_BUILD_FAILED:direct"):
+                self.main._build_navigation_bridge(settings, "direct")
+        finally:
+            navigation_pkg.__getattr__ = original_getattr
+
+
+# ---------------------------------------------------------------------------
+# Config validation
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(_PYDANTIC_SETTINGS_AVAILABLE, _SKIP_REASON)
+class NavigationConfigValidationTests(unittest.TestCase):
+    def test_negative_timeout_rejected(self):
+        settings = Settings(NAVIGATION_SERVER_TIMEOUT_S=-1.0)
+        with self.assertRaisesRegex(ValueError, "NAVIGATION_CONFIG_INVALID"):
+            settings.validate_navigation_config()
+
+    def test_zero_timeout_rejected(self):
+        settings = Settings(NAVIGATION_RESULT_TIMEOUT_S=0.0)
+        with self.assertRaisesRegex(ValueError, "NAVIGATION_CONFIG_INVALID"):
+            settings.validate_navigation_config()
+
+    def test_relative_action_name_rejected(self):
+        settings = Settings(NAVIGATION_NTP_ACTION="navigate_to_pose")
+        with self.assertRaisesRegex(ValueError, "NAVIGATION_CONFIG_INVALID"):
+            settings.validate_navigation_config()
+
+    def test_empty_action_name_rejected(self):
+        settings = Settings(NAVIGATION_FW_ACTION="")
+        with self.assertRaisesRegex(ValueError, "NAVIGATION_CONFIG_INVALID"):
+            settings.validate_navigation_config()
+
+    def test_relative_initial_pose_topic_rejected(self):
+        settings = Settings(NAVIGATION_INITIAL_POSE_TOPIC="initialpose")
+        with self.assertRaisesRegex(ValueError, "NAVIGATION_CONFIG_INVALID"):
+            settings.validate_navigation_config()
+
+    def test_empty_namespace_rejected(self):
+        settings = Settings(NAVIGATION_NAMESPACE="")
+        with self.assertRaisesRegex(ValueError, "NAVIGATION_CONFIG_INVALID"):
+            settings.validate_navigation_config()
+
+    def test_default_settings_pass_validation(self):
+        Settings().validate_navigation_config()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed ordering: interlock before any hardware/ROS touch
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(_PYDANTIC_SETTINGS_AVAILABLE, _SKIP_REASON)
+class FailClosedOrderTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.main, self._mocks = _fresh_import_main()
+        try:
+            from src.core.event_bus import OttoEventBus
+            OttoEventBus.reset_for_testing()
+        except Exception:
+            pass
+
+    def tearDown(self):
+        try:
+            from src.core.event_bus import OttoEventBus
+            OttoEventBus.reset_for_testing()
+        except Exception:
+            pass
+        _remove_interaction_dependency_mocks(self._mocks)
+        _purge_app_modules()
+
+    async def test_direct_real_latch_false_never_calls_hardware_adapter(self):
+        app = _FakeApp()
+        settings = Settings(
+            ROBOT_MODE="real",
+            NAVIGATION_BACKEND="direct",
+            NAVIGATION_DIRECT_REAL_ENABLED=False,
+            ROBOT_NETWORK_INTERFACE="eth0",
+        )
+        get_hardware_adapter_mock = MagicMock(side_effect=AssertionError("must not be called"))
+        self.main.get_settings = lambda: settings
+        self.main.get_hardware_adapter = get_hardware_adapter_mock
+
+        with self.assertRaisesRegex(RuntimeError, "DIRECT_NAVIGATION_REAL_MODE_NOT_AUTHORIZED"):
+            async with self.main.lifespan(app):
+                pass
+
+        get_hardware_adapter_mock.assert_not_called()
+        self.assertEqual(app.state.navigation_backend_resolved, "direct")
+        self.assertIsNotNone(app.state.navigation_startup_error)
+        self.assertIn("DIRECT_NAVIGATION_REAL_MODE_NOT_AUTHORIZED", app.state.navigation_startup_error)
+
+
+# ---------------------------------------------------------------------------
+# Lifespan integration (direct backend, success / start failure / close failure)
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(_PYDANTIC_SETTINGS_AVAILABLE, _SKIP_REASON)
+class LifespanDirectBackendTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.main, self._mocks = _fresh_import_main()
+        try:
+            from src.core.event_bus import OttoEventBus
+            OttoEventBus.reset_for_testing()
+        except Exception:
+            pass
+
+    def tearDown(self):
+        try:
+            from src.core.event_bus import OttoEventBus
+            OttoEventBus.reset_for_testing()
+        except Exception:
+            pass
+        _remove_interaction_dependency_mocks(self._mocks)
+        _purge_app_modules()
+
+    def _settings(self, **overrides) -> Settings:
+        base = dict(ROBOT_MODE="mock", NAVIGATION_BACKEND="direct")
+        base.update(overrides)
+        return Settings(**base)
+
+    async def test_success_path_starts_bridge_once_and_wires_same_instance(self):
+        app = _FakeApp()
+        fake_bridge = _FakeNavBridge()
+        fake_hardware = _FakeHardware()
+
+        self.main.get_settings = lambda: self._settings()
+        self.main.get_hardware_adapter = lambda: fake_hardware
+        self.main._build_navigation_bridge = lambda settings, backend: fake_bridge
+
+        async with self.main.lifespan(app):
+            self.assertIs(app.state.nav_bridge, fake_bridge)
+            self.assertIs(app.state.orchestrator._nav_bridge, fake_bridge)
+            self.assertEqual(app.state.navigation_backend_requested, "direct")
+            self.assertEqual(app.state.navigation_backend_resolved, "direct")
+            self.assertTrue(app.state.navigation_started)
+            self.assertIsNone(app.state.navigation_startup_error)
+
+        fake_bridge.start.assert_awaited_once()
+        fake_bridge.close.assert_awaited_once()
+        fake_hardware.initialize.assert_awaited_once()
+
+    async def test_start_failure_fails_closed_no_orchestrator_no_fallback(self):
+        app = _FakeApp()
+        fake_bridge = _FakeNavBridge(start_exc=RuntimeError("boom"))
+        fake_hardware = _FakeHardware()
+
+        self.main.get_settings = lambda: self._settings()
+        self.main.get_hardware_adapter = lambda: fake_hardware
+        self.main._build_navigation_bridge = lambda settings, backend: fake_bridge
+
+        with self.assertRaisesRegex(RuntimeError, "NAVIGATION_BACKEND_START_FAILED:direct:boom"):
+            async with self.main.lifespan(app):
+                pass
+
+        self.assertFalse(hasattr(app.state, "orchestrator"))
+        self.assertFalse(app.state.navigation_started)
+        self.assertIsNotNone(app.state.navigation_startup_error)
+        self.assertIn("NAVIGATION_BACKEND_START_FAILED", app.state.navigation_startup_error)
+        # Hardware safety sequence still ran on the already-initialized hardware:
+        fake_hardware.damp.assert_awaited()
+        fake_hardware.move.assert_awaited()
+        # Partial bridge close was attempted even though start() failed:
+        fake_bridge.close.assert_awaited_once()
+        self.assertNotIsInstance(app.state.nav_bridge, self.main._MinimalNavStub)
+
+    async def test_close_failure_does_not_block_zero_and_damp_and_is_observable(self):
+        app = _FakeApp()
+        fake_bridge = _FakeNavBridge(close_exc=RuntimeError("close boom"))
+        fake_hardware = _FakeHardware()
+
+        self.main.get_settings = lambda: self._settings()
+        self.main.get_hardware_adapter = lambda: fake_hardware
+        self.main._build_navigation_bridge = lambda settings, backend: fake_bridge
+
+        async with self.main.lifespan(app):
+            pass
+
+        fake_hardware.damp.assert_awaited()
+        fake_hardware.move.assert_awaited()
+        fake_bridge.close.assert_awaited_once()
+        self.assertIsNotNone(app.state.navigation_shutdown_error)
+        self.assertIn("NAVIGATION_BACKEND_CLOSE_FAILED:direct", app.state.navigation_shutdown_error)
+        self.assertIn("close boom", app.state.navigation_shutdown_error)
+
+    async def test_stub_backend_does_not_mark_navigation_started(self):
+        app = _FakeApp()
+        fake_hardware = _FakeHardware()
+
+        self.main.get_settings = lambda: self._settings(NAVIGATION_BACKEND="stub")
+        self.main.get_hardware_adapter = lambda: fake_hardware
+
+        async with self.main.lifespan(app):
+            self.assertEqual(app.state.navigation_backend_resolved, "stub")
+            self.assertFalse(app.state.navigation_started)
+            self.assertIsInstance(app.state.nav_bridge, self.main._MinimalNavStub)
+
+
+# ---------------------------------------------------------------------------
+# Readiness gating (api/router.py _resolve_readiness_errors)
+# ---------------------------------------------------------------------------
+
+class _FakeRequestApp:
+    def __init__(self, state):
+        self.state = state
+
+
+class _FakeRequest:
+    def __init__(self, state):
+        self.app = _FakeRequestApp(state)
+
+
+def _fake_orchestrator(*, state_id="idle", robot_mode="mock", hardware=None):
+    return SimpleNamespace(state_id=state_id, _robot_mode=robot_mode, _hardware_api=hardware)
+
+
+@unittest.skipUnless(_FASTAPI_AVAILABLE, _FASTAPI_SKIP_REASON)
+class ReadinessTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # NOT "import api.router as router": api/__init__.py does
+        # "from .router import router", which rebinds the *attribute*
+        # api.router on the package object to the APIRouter instance,
+        # shadowing the submodule. importlib.import_module reads
+        # sys.modules['api.router'] directly, returning the real module.
+        self.router = importlib.import_module("api.router")
+
+    def _state(self, **overrides):
+        state = _FakeState()
+        state.nav_bridge = overrides.get("nav_bridge", _FakeNavBridge())
+        state.navigation_backend_resolved = overrides.get("navigation_backend_resolved", "direct")
+        state.navigation_started = overrides.get("navigation_started", True)
+        state.navigation_stub_tours_allowed = overrides.get("navigation_stub_tours_allowed", False)
+        return state
+
+    async def test_nav_bridge_absent_blocks(self):
+        state = self._state(nav_bridge=None, navigation_backend_resolved=None)
+        request = _FakeRequest(state)
+        errors = await self.router._resolve_readiness_errors(request, _fake_orchestrator())
+        self.assertIn("navigation backend unavailable", errors)
+
+    async def test_stub_without_allow_flag_blocks(self):
+        state = self._state(navigation_backend_resolved="stub", navigation_started=False)
+        request = _FakeRequest(state)
+        errors = await self.router._resolve_readiness_errors(request, _fake_orchestrator())
+        self.assertIn("navigation backend stub: autonomous tours disabled", errors)
+
+    async def test_stub_with_allow_flag_in_mock_permits(self):
+        state = self._state(
+            navigation_backend_resolved="stub",
+            navigation_started=False,
+            navigation_stub_tours_allowed=True,
+        )
+        request = _FakeRequest(state)
+        errors = await self.router._resolve_readiness_errors(request, _fake_orchestrator())
+        self.assertEqual(errors, [])
+
+    async def test_direct_not_started_blocks(self):
+        state = self._state(navigation_backend_resolved="direct", navigation_started=False)
+        request = _FakeRequest(state)
+        errors = await self.router._resolve_readiness_errors(request, _fake_orchestrator())
+        self.assertIn("navigation backend not started", errors)
+
+    async def test_direct_started_permits(self):
+        state = self._state(navigation_backend_resolved="direct", navigation_started=True)
+        request = _FakeRequest(state)
+        errors = await self.router._resolve_readiness_errors(request, _fake_orchestrator())
+        self.assertEqual(errors, [])
+
+    async def test_remote_state_unknown_blocks(self):
+        bridge = _FakeNavBridge(remote_state_unknown=True)
+        state = self._state(nav_bridge=bridge, navigation_backend_resolved="direct", navigation_started=True)
+        request = _FakeRequest(state)
+        errors = await self.router._resolve_readiness_errors(request, _fake_orchestrator())
+        self.assertIn("navigation remote state unknown", errors)
+
+    async def test_get_status_failure_blocks(self):
+        bridge = _FakeNavBridge()
+        bridge.get_status = AsyncMock(side_effect=RuntimeError("boom"))
+        state = self._state(nav_bridge=bridge, navigation_backend_resolved="direct", navigation_started=True)
+        request = _FakeRequest(state)
+        errors = await self.router._resolve_readiness_errors(request, _fake_orchestrator())
+        self.assertTrue(any(e.startswith("navigation status unavailable:") for e in errors))
+
+    async def test_non_idle_fsm_blocks(self):
+        state = self._state()
+        request = _FakeRequest(state)
+        errors = await self.router._resolve_readiness_errors(
+            request, _fake_orchestrator(state_id="navigating")
+        )
+        self.assertTrue(any("se requiere idle" in e for e in errors))
+
+
+# ---------------------------------------------------------------------------
+# StatusResponse navigation observability (api/router.py)
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(_FASTAPI_AVAILABLE, _FASTAPI_SKIP_REASON)
+class StatusObservabilityTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # NOT "import api.router as router": api/__init__.py does
+        # "from .router import router", which rebinds the *attribute*
+        # api.router on the package object to the APIRouter instance,
+        # shadowing the submodule. importlib.import_module reads
+        # sys.modules['api.router'] directly, returning the real module.
+        self.router = importlib.import_module("api.router")
+
+    async def test_resolves_requested_resolved_started_and_status_fields(self):
+        state = _FakeState()
+        state.navigation_backend_requested = "direct"
+        state.navigation_backend_resolved = "direct"
+        state.navigation_started = True
+        state.nav_bridge = _FakeNavBridge(
+            remote_state_unknown=True,
+            action_name="/offline_nav/navigate_to_pose",
+            goal_uuid="abc123",
+        )
+        request = _FakeRequest(state)
+
+        observability = await self.router._resolve_navigation_observability(request)
+
+        self.assertEqual(observability["navigation_backend_requested"], "direct")
+        self.assertEqual(observability["navigation_backend_resolved"], "direct")
+        self.assertTrue(observability["navigation_started"])
+        self.assertTrue(observability["navigation_remote_state_unknown"])
+        self.assertEqual(observability["navigation_action_name"], "/offline_nav/navigate_to_pose")
+        self.assertEqual(observability["navigation_goal_uuid"], "abc123")
+
+    async def test_get_status_failure_does_not_raise_and_uses_conservative_values(self):
+        state = _FakeState()
+        state.navigation_backend_requested = "direct"
+        state.navigation_backend_resolved = "direct"
+        state.navigation_started = True
+        bridge = _FakeNavBridge()
+        bridge.get_status = AsyncMock(side_effect=RuntimeError("boom"))
+        state.nav_bridge = bridge
+        request = _FakeRequest(state)
+
+        observability = await self.router._resolve_navigation_observability(request)
+
+        self.assertTrue(observability["navigation_remote_state_unknown"])
+        self.assertIsNone(observability["navigation_action_name"])
+        self.assertIsNone(observability["navigation_goal_uuid"])
+
+    async def test_missing_state_fields_use_unknown_defaults(self):
+        state = _FakeState()
+        request = _FakeRequest(state)
+
+        observability = await self.router._resolve_navigation_observability(request)
+
+        self.assertEqual(observability["navigation_backend_requested"], "unknown")
+        self.assertEqual(observability["navigation_backend_resolved"], "unknown")
+        self.assertFalse(observability["navigation_started"])
+
+
+if __name__ == "__main__":
+    unittest.main()

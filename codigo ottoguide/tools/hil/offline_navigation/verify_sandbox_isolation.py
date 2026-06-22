@@ -104,6 +104,13 @@ DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = (
     / "offline_navigation"
     / "smoke_test_direct_nav2_action_bridge.py"
 )
+MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = (
+    CODE_ROOT
+    / "tools"
+    / "hil"
+    / "offline_navigation"
+    / "smoke_test_main_runtime_navigation_selection.py"
+)
 BT_XML_FILE = CODE_ROOT / "config" / "navigation" / "bt" / "offline_navigate_to_pose.xml"
 
 # Fase 2H.0 — Reconciliacion de arquitecturas de navegacion y hardware. These
@@ -139,6 +146,7 @@ RUNTIME_SCAN_FILES = [
     WAYPOINT_FOLLOWER_SMOKE_TEST_FILE,
     DIRECT_NAV2_ACTION_BRIDGE_FILE,
     DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE,
+    MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE,
 ]
 EXPECTED_REAL_NAMESPACE = "offline_nav"
 
@@ -1114,6 +1122,148 @@ def check_direct_nav2_action_bridge_ownership_contract(result: dict, files: list
                 result["errors"].append("DIRECT_BRIDGE_SILENT_IMPORT_ERROR")
 
 
+NAVIGATION_SETTINGS_FILE = CODE_ROOT / "config" / "settings.py"
+
+MAIN_NAVIGATION_REQUIRED_FUNCTIONS = (
+    "_resolve_navigation_backend",
+    "_check_direct_real_interlock",
+    "_build_navigation_bridge",
+)
+
+
+def check_navigation_backend_selector_contract(result: dict) -> None:
+    """Fase 2H.2: Settings debe declarar un selector explicito de backend
+    (auto|legacy|direct|stub) y el interlock de hardware real debe estar
+    cerrado por defecto. Guard de texto sobre config/settings.py: no
+    requiere instanciar Settings ni ROS.
+    """
+    result["checked_files"].append(str(NAVIGATION_SETTINGS_FILE))
+    if not NAVIGATION_SETTINGS_FILE.is_file():
+        result["errors"].append("NAVIGATION_SETTINGS_FILE_MISSING")
+        return
+
+    text = _read_text(NAVIGATION_SETTINGS_FILE)
+    if 'NAVIGATION_BACKEND: Literal["auto", "legacy", "direct", "stub"]' not in text:
+        result["errors"].append("NAVIGATION_BACKEND_SELECTOR_NOT_EXPLICIT")
+    if "NAVIGATION_DIRECT_REAL_ENABLED: bool = False" not in text:
+        result["errors"].append("NAVIGATION_DIRECT_REAL_INTERLOCK_NOT_CLOSED_BY_DEFAULT")
+    if "NAVIGATION_ALLOW_STUB_TOURS: bool = False" not in text:
+        result["errors"].append("NAVIGATION_ALLOW_STUB_TOURS_NOT_CLOSED_BY_DEFAULT")
+
+
+def check_main_runtime_navigation_selection_contract(result: dict) -> None:
+    """Fase 2H.2: main.py debe resolver el backend de navegacion via
+    helpers explicitos, fail-closed, sin fallback silencioso a stub, y sin
+    imports ROS/bridge a nivel de modulo (deben permanecer lazy, dentro de
+    las funciones que efectivamente necesitan el backend resuelto).
+    """
+    result["checked_files"].append(str(ARCHITECTURE_MAIN_FILE))
+    if not ARCHITECTURE_MAIN_FILE.is_file():
+        result["errors"].append("MAIN_NAVIGATION_FILE_MISSING")
+        return
+
+    text = _read_text(ARCHITECTURE_MAIN_FILE)
+    try:
+        tree = ast.parse(text, filename=str(ARCHITECTURE_MAIN_FILE))
+    except SyntaxError:
+        result["errors"].append("MAIN_NAVIGATION_SYNTAX_ERROR")
+        return
+
+    top_level_funcs = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+    for fn_name in MAIN_NAVIGATION_REQUIRED_FUNCTIONS:
+        if fn_name not in top_level_funcs:
+            result["errors"].append(f"MAIN_NAVIGATION_FUNCTION_MISSING:{fn_name}")
+
+    resolve_fn = top_level_funcs.get("_resolve_navigation_backend")
+    if resolve_fn is not None:
+        resolve_source = ast.get_source_segment(text, resolve_fn) or ""
+        if '"legacy"' not in resolve_source or '"stub"' not in resolve_source:
+            result["errors"].append("MAIN_NAVIGATION_AUTO_MATRIX_INCOMPLETE")
+        if "NAVIGATION_STUB_FORBIDDEN_IN_REAL_MODE" not in resolve_source:
+            result["errors"].append("MAIN_NAVIGATION_STUB_REAL_NOT_FORBIDDEN")
+
+    interlock_fn = top_level_funcs.get("_check_direct_real_interlock")
+    if interlock_fn is not None:
+        interlock_source = ast.get_source_segment(text, interlock_fn) or ""
+        if "DIRECT_NAVIGATION_REAL_MODE_NOT_AUTHORIZED" not in interlock_source:
+            result["errors"].append("MAIN_NAVIGATION_INTERLOCK_MISSING_ERROR")
+        if "NAVIGATION_DIRECT_REAL_ENABLED" not in interlock_source:
+            result["errors"].append("MAIN_NAVIGATION_INTERLOCK_MISSING_LATCH_CHECK")
+
+    build_fn = top_level_funcs.get("_build_navigation_bridge")
+    if build_fn is not None:
+        build_source = ast.get_source_segment(text, build_fn) or ""
+        if "NAVIGATION_BACKEND_BUILD_FAILED" not in build_source:
+            result["errors"].append("MAIN_NAVIGATION_BUILD_NOT_FAIL_CLOSED")
+
+        for required_kw in (
+            "node_name=settings.",
+            "namespace=settings.",
+            "navigate_to_pose_action=settings.",
+            "follow_waypoints_action=settings.",
+            "initial_pose_topic=settings.",
+            "server_timeout_s=settings.",
+            "goal_response_timeout_s=settings.",
+            "result_timeout_s=settings.",
+            "cancel_response_timeout_s=settings.",
+            "cancel_terminal_timeout_s=settings.",
+        ):
+            if required_kw not in build_source:
+                result["errors"].append(
+                    f"MAIN_NAVIGATION_DIRECT_BRIDGE_NOT_CONFIGURABLE:{required_kw}"
+                )
+
+        # The literal pre-2H.2 defect: any broad except clause inside the
+        # factory that constructs _MinimalNavStub() as a silent fallback
+        # for a DIFFERENT requested backend (legacy/direct), instead of
+        # propagating NAVIGATION_BACKEND_BUILD_FAILED.
+        for node in ast.walk(build_fn):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            is_broad_except = node.type is None or (
+                isinstance(node.type, ast.Name) and node.type.id == "Exception"
+            )
+            if not is_broad_except:
+                continue
+            for inner in ast.walk(node):
+                if (
+                    isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Name)
+                    and inner.func.id == "_MinimalNavStub"
+                ):
+                    result["errors"].append("MAIN_NAVIGATION_SILENT_STUB_FALLBACK")
+
+    # Lazy ROS/bridge imports: rclpy and the two concrete bridge classes
+    # must never be imported at module scope in main.py.
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "rclpy" or alias.name.startswith("rclpy."):
+                    result["errors"].append("MAIN_NAVIGATION_EAGER_ROS_IMPORT:rclpy")
+        elif isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            if mod == "rclpy" or mod.startswith("rclpy."):
+                result["errors"].append("MAIN_NAVIGATION_EAGER_ROS_IMPORT:rclpy")
+            if mod in (
+                "src.navigation",
+                "src.navigation.nav2_bridge",
+                "src.navigation.direct_nav2_action_bridge",
+            ):
+                for alias in node.names:
+                    if alias.name in ("AsyncNav2Bridge", "DirectNav2ActionBridge"):
+                        result["errors"].append(
+                            f"MAIN_NAVIGATION_EAGER_BRIDGE_IMPORT:{alias.name}"
+                        )
+
+    if "/cmd_vel" in text:
+        result["errors"].append("MAIN_NAVIGATION_FORBIDDEN_CMD_VEL_LITERAL")
+
+
 def check_direct_nav2_action_bridge_close_degraded_contract(result: dict, files: list[Path]) -> None:
     """Fase 2H.1.3: _cleanup() debe detectar degradacion ya existente al
     entrar (remote_state_unknown en True, o task_active=True sin un goal
@@ -1282,6 +1432,8 @@ def verify(runtime: bool = False) -> dict:
     check_direct_nav2_action_bridge_ownership_contract(result, files_to_scan)
     check_direct_nav2_action_bridge_close_degraded_contract(result, files_to_scan)
     check_direct_nav2_action_bridge_smoke_hardening_contract(result, files_to_scan)
+    check_navigation_backend_selector_contract(result)
+    check_main_runtime_navigation_selection_contract(result)
 
     result["checked_files"] = sorted(set(result["checked_files"]) | {str(p) for p in files_to_scan if p.is_file()})
     result["errors"] = sorted(set(result["errors"]))

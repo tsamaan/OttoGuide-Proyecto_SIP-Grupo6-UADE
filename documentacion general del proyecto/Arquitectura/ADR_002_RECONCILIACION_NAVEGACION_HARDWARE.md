@@ -132,8 +132,9 @@ concretas de hardware y navegación, sin:
   `navigate_to_waypoints` por waypoint, continuar si uno falla) no se
   resolvió en esta fase. Las Fases 2H.1/2H.1.2/2H.1.3/2H.1.4/2H.1.5
   validaron `DirectNav2ActionBridge` de forma aislada sin tocar esta
-  política; queda pendiente para 2H.2/2I, documentada como legacy y
-  sujeta a revisión.
+  política, y la Fase 2H.2 inyectó el selector de backend sin tocarla
+  tampoco; queda pendiente para 2I, documentada como legacy y sujeta a
+  revisión.
 
 ## Plan de migración
 
@@ -194,8 +195,22 @@ concretas de hardware y navegación, sin:
    exclusivamente validación aislada; no se ejecutó ningún comando sobre
    hardware físico. Con esta fase, la serie 2H.1 queda documentada como
    cerrada.
-7. **Fase 2H.2 (pendiente, no autorizada)**: seleccionar e inyectar el
-   bridge en main.py.
+7. **Fase 2H.2**: selector explícito y fail-closed del backend de
+   navegación en `main.py` (`legacy`/`direct`/`stub`, resuelto desde
+   `NAVIGATION_BACKEND`/`ROBOT_MODE`), interlock cerrado por defecto para
+   bloquear `direct` contra hardware real
+   (`NAVIGATION_DIRECT_REAL_ENABLED=False`), factory sin fallback
+   silencioso a stub, y observabilidad del backend en `/status`. El
+   default de producción no cambia: `ROBOT_MODE=real` sigue resolviendo a
+   `AsyncNav2Bridge` salvo selección explícita. Completada — ver
+   `MAIN_RUNTIME_NAVIGATION_SELECTION_2H2_REPORT.md`. La validación
+   runtime completa de los cuatro escenarios de aplicación
+   (`boot_shutdown`/`tour_success`/`interaction_cancel`/
+   `emergency_cancel`) se completó en la sesión de recuperación 2H.2-R
+   (2026-06-22): diagnóstico PASS (192–195), corrida oficial 1 PASS
+   (204–207), corrida oficial 2 PASS (216–219), todos con `--timeout 150`;
+   ver sección 9.4 del reporte. No se ejecutó ningún comando sobre
+   hardware físico.
 8. **Fase 2I (pendiente, no autorizada)**: política de misión,
    reintentos, skip, abort y handover.
 9. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
@@ -223,10 +238,10 @@ concretas de hardware y navegación, sin:
 | Orquestador    | `TourOrchestrator`                                 | alternativas históricas                 | conservar FSM         |
 | HAL            | `hardware/`                                        | `src/hardware/`                         | `hardware/` canónico  |
 | MotionCommand  | `hardware.interface.MotionCommand`                 | `src.hardware.interface.MotionCommand`  | canónico único        |
-| Navegación     | `DirectNav2ActionBridge` (validado aislado, 2H.1.5) | `AsyncNav2Bridge` + `BasicNavigator`    | inyectar en 2H.2       |
+| Navegación     | `DirectNav2ActionBridge` (seleccionable via `NAVIGATION_BACKEND=direct`, 2H.2) | `AsyncNav2Bridge` (default real, `BasicNavigator`) | selector ya inyectado, default sin cambios |
 | Velocidad      | `cmd_vel_raw → collision_monitor → cmd_vel_safe`   | `/cmd_vel → /cmd_vel_nav`               | conservar sandbox      |
-| Waypoints      | `NavigateToPose` y `FollowWaypoints` según misión  | selección por `ROBOT_MODE`              | resolver en 2H.2        |
-| Fallo waypoint | política fail-closed pendiente                     | continuar actualmente                   | resolver en 2H.2/2I     |
+| Waypoints      | `NavigateToPose` y `FollowWaypoints` según misión  | selección por `ROBOT_MODE`              | resolver en 2I           |
+| Fallo waypoint | política fail-closed pendiente                     | continuar actualmente                   | resolver en 2I            |
 
 ## Notas adicionales
 

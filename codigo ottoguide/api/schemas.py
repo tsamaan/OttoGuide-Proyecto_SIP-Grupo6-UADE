@@ -64,6 +64,14 @@ class StatusResponse(BaseModel):
     readiness_errors: list[str] = Field(default_factory=list)
     factory_rest: dict = Field(default_factory=dict)
 
+    # --- Observabilidad del backend de navegacion (Fase 2H.2) ---
+    navigation_backend_requested: str = "unknown"
+    navigation_backend_resolved: str = "unknown"
+    navigation_started: bool = False
+    navigation_remote_state_unknown: bool = False
+    navigation_action_name: Optional[str] = None
+    navigation_goal_uuid: Optional[str] = None
+
 
 class QuestionRequest(BaseModel):
     """Payload para POST /question."""

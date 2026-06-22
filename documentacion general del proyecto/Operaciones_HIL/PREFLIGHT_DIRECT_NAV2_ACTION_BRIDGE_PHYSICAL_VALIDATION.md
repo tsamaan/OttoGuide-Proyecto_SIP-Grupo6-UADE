@@ -32,10 +32,10 @@ procedimiento ya establecidos en:
 
 ```text
 DirectNav2ActionBridge        = aislado y validado offline (Fases 2H.1/2H.1.2/2H.1.3/2H.1.4/2H.1.5)
-main.py / TourOrchestrator    = sigue usando AsyncNav2Bridge (legacy)
-MAIN_RUNTIME_MIGRATED         = NO
-LEGACY_NAVIGATION_RUNTIME_ACTIVE = YES
-Fase 2H.2                     = pendiente, no autorizada
+main.py / TourOrchestrator    = seleccionable via NAVIGATION_BACKEND=direct (Fase 2H.2)
+MAIN_RUNTIME_MIGRATED         = NO (default ROBOT_MODE=real sigue en legacy)
+LEGACY_NAVIGATION_RUNTIME_ACTIVE = YES (default sin cambio)
+Fase 2H.2                     = completada (selector offline, runtime validation PASS — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H2_REPORT.md)
 L2_ODOMETRY                   = NOT_READY
 L3_LOCALIZATION_MAP           = NOT_READY
 PHYSICAL_NAVIGATION           = NOT_READY
@@ -54,7 +54,7 @@ ni por analogía con el sandbox offline; cada uno requiere su propia
 evidencia física.
 
 ```text
-NO-GO 1: Fase 2H.2 no completada y auditada
+NO-GO 1: Fase 2H.2 completada (RESOLVED — runtime validation PASS, 2026-06-22). Pendiente: auditoria de commit y push a main.
 NO-GO 2: fuente física de odometría no validada (L2_ODOMETRY = NOT_READY)
 NO-GO 3: TF física incompleta o no medida (map->odom, odom->base_link,
          base_link->utlidar_lidar; este último requiere extrínseco medido,

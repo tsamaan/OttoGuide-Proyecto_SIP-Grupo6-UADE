@@ -6,19 +6,26 @@
           hardware/ es la HAL canonica (RobotHardwareInterface, MotionCommand); get_hardware_adapter()
           en config/settings.py resuelve real/sim/mock exclusivamente contra hardware/*.
           src/hardware/ es legacy, en cuarentena, y no debe ser importado desde este entrypoint.
-          La navegacion inyectada implementa src.navigation.port.NavigationPort; la implementacion
-          activa sigue siendo AsyncNav2Bridge (legacy) hasta la Fase 2H.1 (cliente ActionClient
-          directo contra /offline_nav/navigate_to_pose y /offline_nav/follow_waypoints).
+          La navegacion inyectada implementa src.navigation.port.NavigationPort. Fase 2H.2:
+          el backend concreto (AsyncNav2Bridge legacy, DirectNav2ActionBridge, o un stub no
+          operativo) se selecciona explicitamente via NAVIGATION_BACKEND/ROBOT_MODE en
+          config/settings.py (_resolve_navigation_backend/_build_navigation_bridge en este
+          archivo), nunca con un fallback silencioso a stub. DirectNav2ActionBridge sigue
+          siendo offline-only (sandbox /offline_nav/*); contra hardware real esta bloqueado
+          por el interlock NAVIGATION_DIRECT_REAL_ENABLED (cerrado por defecto).
 @SECURITY: damp() garantizado en cualquier causa de shutdown (SIGINT/SIGTERM/excepcion).
            Graceful shutdown HIL-safe: EventBus -> FSM EMERGENCY -> MotionCommand(0) -> damp()
+           -> close() del backend de navegacion (nunca silenciado).
 @AI_CONTEXT: Cero sys.path.append; cero imports de unitree_sdk2py en el entrypoint.
 
 STEP 1: Crear FastAPI con asynccontextmanager lifespan
-STEP 2: lifespan: hardware = get_hardware_adapter(), await initialize()
-STEP 3: lifespan: app.state.orchestrator = TourOrchestrator(hardware)
-STEP 4: Instalar handlers SIGINT/SIGTERM con _install_signal_handlers()
-STEP 5: lifespan yield; en shutdown: _run_shutdown_sequence() garantizado
-STEP 6: uvicorn.run con factory=True
+STEP 2: lifespan: resolver backend de navegacion, validar config, chequear interlock,
+        construir el bridge (sin iniciar ROS) ANTES de tocar hardware
+STEP 3: lifespan: hardware = get_hardware_adapter(), await initialize(), await nav_bridge.start()
+STEP 4: lifespan: app.state.orchestrator = TourOrchestrator(hardware, nav_bridge)
+STEP 5: Instalar handlers SIGINT/SIGTERM con _install_signal_handlers()
+STEP 6: lifespan yield; en shutdown: _run_shutdown_sequence() garantizado, luego close()
+STEP 7: uvicorn.run con factory=True
 """
 
 from __future__ import annotations
@@ -32,23 +39,11 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
 
-import uvicorn
-from fastapi import FastAPI, HTTPException, status
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
-
-from api.router import router, telemetry_manager
-from config.settings import get_hardware_adapter, get_settings
 from hardware.interface import RobotHardwareInterface
-from src.core.mission_audit import MissionAuditLogger
-from src.infrastructure.unitree import UnitreeFactoryRestClient
-from src.core.event_bus import OttoEventBus
-from src.core.events import EventType
 
 LOGGER = logging.getLogger("otto_guide.main")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DASHBOARD_FILE = STATIC_DIR / "dashboard.html"
-MISSION_AUDIT_LOGGER = MissionAuditLogger()
 
 # ---------------------------------------------------------------------------
 # Constantes de seguridad
@@ -67,6 +62,33 @@ _shutdown_event: asyncio.Event = asyncio.Event()
 
 
 # ---------------------------------------------------------------------------
+# Thin wrappers — lazy imports so main.py is importable without pydantic_settings.
+# Exposed at module scope so tests can patch self.main.get_settings / get_hardware_adapter.
+# ---------------------------------------------------------------------------
+
+def get_settings():
+    from config.settings import get_settings as _fn
+    return _fn()
+
+
+def _clear_settings_cache():
+    try:
+        from config.settings import get_settings as _fn
+        if hasattr(_fn, "cache_clear"):
+            _fn.cache_clear()
+    except Exception:
+        pass
+
+
+get_settings.cache_clear = _clear_settings_cache
+
+
+def get_hardware_adapter():
+    from config.settings import get_hardware_adapter as _fn
+    return _fn()
+
+
+# ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
 
@@ -76,66 +98,110 @@ async def lifespan(app: FastAPI):
     @TASK: Gestionar ciclo de vida completo del sistema
     @INPUT: app — instancia FastAPI
     @OUTPUT: Stack inicializado durante yield; _run_shutdown_sequence() en shutdown
-    @CONTEXT: asynccontextmanager — reemplaza on_startup/on_shutdown
+    @CONTEXT: asynccontextmanager — reemplaza on_startup/on_shutdown.
+              Fase 2H.2: el backend de navegacion se resuelve y construye ANTES de tocar
+              hardware/ROS (ver _resolve_navigation_backend/_check_direct_real_interlock/
+              _build_navigation_bridge), nunca con un fallback silencioso a un stub.
     STEP 1: Instalar signal handlers SIGINT/SIGTERM
-    STEP 2: hardware = get_hardware_adapter(); await initialize()
-    STEP 3: app.state.orchestrator = TourOrchestrator(hardware)
-    STEP 4: yield
-    STEP 5: _run_shutdown_sequence() — garantizado en cualquier causa de shutdown
+    STEP 2: Validar config de navegacion, resolver backend, chequear interlock, construir bridge
+    STEP 3: hardware = get_hardware_adapter(); await initialize(); await nav_bridge.start()
+    STEP 4: app.state.orchestrator = TourOrchestrator(hardware, nav_bridge)
+    STEP 5: yield
+    STEP 6: _run_shutdown_sequence() — garantizado en cualquier causa de shutdown; luego
+            intento de cierre del bridge (parcial o completo), nunca silenciado.
     @SECURITY: damp() es el ultimo comando en _run_shutdown_sequence; siempre garantizado.
+               Un fallo de arranque del backend de navegacion nunca degrada a un stub.
     """
     settings = get_settings()
     hardware: Optional[RobotHardwareInterface] = None
     nav_bridge = None
+    resolved_backend: Optional[str] = None
+    reached_yield = False
 
     # STEP 1: Instalar handlers de senales al arrancar el event loop
     _install_signal_handlers(asyncio.get_running_loop())
 
+    app.state.navigation_backend_requested = settings.NAVIGATION_BACKEND
+    app.state.navigation_backend_resolved = None
+    app.state.navigation_started = False
+    app.state.navigation_stub_tours_allowed = settings.NAVIGATION_ALLOW_STUB_TOURS
+    app.state.navigation_startup_error = None
+    app.state.navigation_shutdown_error = None
+    app.state.nav_bridge = None
+
     try:
-        LOGGER.info(
-            "[BOOT] Inicializando hardware. ROBOT_MODE=%s",
-            settings.ROBOT_MODE,
-        )
-        hardware = get_hardware_adapter()
+        try:
+            # STEP 2: Config, resolucion de backend e interlock — antes de tocar hardware/ROS
+            settings.validate_navigation_config()
 
-        await hardware.initialize()
-        LOGGER.info("[BOOT] Hardware inicializado correctamente.")
+            resolved_backend = _resolve_navigation_backend(settings)
+            app.state.navigation_backend_resolved = resolved_backend
+            _check_direct_real_interlock(settings, resolved_backend)
 
-        # Instanciar orquestador con dependencias congeladas
-        # Los modulos congelados siguen usando src.* — no modificar sus imports
-        from src.core import TourOrchestrator
+            nav_bridge = _build_navigation_bridge(settings, resolved_backend)
+            app.state.nav_bridge = nav_bridge
 
-        nav_bridge = _get_nav_bridge_stub()
-        if settings.ROBOT_MODE == "real":
-            LOGGER.info("[BOOT] ROBOT_MODE=real. Inicializando AsyncNav2Bridge obligatorio.")
-            await nav_bridge.start()
+            LOGGER.info(
+                "[BOOT] Inicializando hardware. ROBOT_MODE=%s navigation_backend=%s",
+                settings.ROBOT_MODE, resolved_backend,
+            )
+            hardware = get_hardware_adapter()
+            await hardware.initialize()
+            LOGGER.info("[BOOT] Hardware inicializado correctamente.")
 
-        orchestrator = TourOrchestrator(
-            hardware_api=hardware,
-            nav_bridge=nav_bridge,
-            conversation_manager=_get_conversation_manager_stub(settings),
-            vision_processor=_get_vision_processor_stub(),
-            telemetry_manager=telemetry_manager,
-            mission_audit_logger=MISSION_AUDIT_LOGGER,
-            robot_mode=settings.ROBOT_MODE,
-        )
-        app.state.orchestrator = orchestrator
-        app.state.nav_bridge = nav_bridge
-        app.state.factory_rest_client = UnitreeFactoryRestClient.get_instance(
-            base_url=settings.UNITREE_FACTORY_BASE_URL,
-            timeout_s=settings.UNITREE_FACTORY_TIMEOUT_S,
-            enabled=settings.UNITREE_FACTORY_DIAGNOSTICS_ENABLED,
-        )
-        LOGGER.info(
-            "[BOOT] TourOrchestrator instanciado. state_id='%s'",
-            orchestrator.state_id,
-        )
+            try:
+                await nav_bridge.start()
+            except Exception as exc:
+                raise RuntimeError(
+                    f"NAVIGATION_BACKEND_START_FAILED:{resolved_backend}:{exc}"
+                ) from exc
 
-        yield
+            app.state.navigation_started = resolved_backend in ("legacy", "direct")
+            LOGGER.info(
+                "[BOOT] Backend de navegacion '%s' iniciado. navigation_started=%s",
+                resolved_backend, app.state.navigation_started,
+            )
+
+            # Instanciar orquestador con dependencias congeladas
+            # Los modulos congelados siguen usando src.* — no modificar sus imports
+            from api.router import telemetry_manager
+            from src.core import TourOrchestrator
+            from src.core.mission_audit import MissionAuditLogger
+            from src.infrastructure.unitree import UnitreeFactoryRestClient
+            mission_audit_logger = MissionAuditLogger()
+
+            orchestrator = TourOrchestrator(
+                hardware_api=hardware,
+                nav_bridge=nav_bridge,
+                conversation_manager=_get_conversation_manager_stub(settings),
+                vision_processor=_get_vision_processor_stub(),
+                telemetry_manager=telemetry_manager,
+                mission_audit_logger=mission_audit_logger,
+                robot_mode=settings.ROBOT_MODE,
+            )
+            app.state.orchestrator = orchestrator
+            await orchestrator.activate_initial_state()
+            app.state.factory_rest_client = UnitreeFactoryRestClient.get_instance(
+                base_url=settings.UNITREE_FACTORY_BASE_URL,
+                timeout_s=settings.UNITREE_FACTORY_TIMEOUT_S,
+                enabled=settings.UNITREE_FACTORY_DIAGNOSTICS_ENABLED,
+            )
+            LOGGER.info(
+                "[BOOT] TourOrchestrator instanciado. state_id='%s'",
+                orchestrator.state_id,
+            )
+
+            reached_yield = True
+            yield
+        except Exception as exc:
+            if not reached_yield:
+                app.state.navigation_startup_error = str(exc)
+                LOGGER.critical("[BOOT] Fallo critico de arranque: %s", exc)
+            raise
 
     finally:
         # @SECURITY: La secuencia de shutdown HIL-safe se ejecuta siempre en el finally.
-        #            El orden es critico: EventBus -> FSM -> hardware.
+        #            El orden es critico: EventBus -> FSM -> hardware -> bridge de navegacion.
         LOGGER.info("[SHUTDOWN] Iniciando secuencia de cierre HIL-safe.")
         await _run_shutdown_sequence(
             hardware=hardware,
@@ -143,12 +209,12 @@ async def lifespan(app: FastAPI):
         )
 
         if nav_bridge is not None:
-            close_nav = getattr(nav_bridge, "close", None)
-            if callable(close_nav):
-                try:
-                    await close_nav()
-                except Exception as exc:
-                    LOGGER.warning("[SHUTDOWN] Fallo cerrando nav_bridge: %s", exc)
+            try:
+                await nav_bridge.close()
+            except Exception as exc:
+                shutdown_error = f"NAVIGATION_BACKEND_CLOSE_FAILED:{resolved_backend}:{exc}"
+                app.state.navigation_shutdown_error = shutdown_error
+                LOGGER.critical("[SHUTDOWN] %s", shutdown_error)
 
         LOGGER.info("[SHUTDOWN] Secuencia de apagado completada.")
 
@@ -234,6 +300,8 @@ async def _run_shutdown_sequence(
     # @AI_CONTEXT: Permite que WakeWordDetector, ConversationManager y otros suscriptores
     #              limpien sus recursos antes de que el hardware se apague.
     try:
+        from src.core.event_bus import OttoEventBus
+        from src.core.events import EventType
         bus = OttoEventBus.get_instance()
         await bus.publish(
             EventType.EMERGENCY_STOP,
@@ -317,22 +385,115 @@ async def _run_shutdown_sequence(
 # En despliegue real, estas se reemplazan por las instancias completas
 # creadas por start_robot.sh (capas 2-3).
 
-def _get_nav_bridge_stub():
+# ---------------------------------------------------------------------------
+# Seleccion fail-closed del backend de navegacion (Fase 2H.2)
+# ---------------------------------------------------------------------------
+# @SECURITY: Ninguna de estas tres funciones inicializa ROS 2, hardware, ni red.
+#            _resolve_navigation_backend() y _check_direct_real_interlock() son
+#            puro calculo sobre Settings; _build_navigation_bridge() construye
+#            (__init__) la instancia elegida pero nunca invoca start()/rclpy.init().
+#            Ninguna rama usa "except Exception: return _MinimalNavStub()" — un
+#            fallo de import o construccion del backend solicitado SIEMPRE se
+#            propaga como NAVIGATION_BACKEND_BUILD_FAILED, nunca degrada a stub.
+
+def _resolve_navigation_backend(settings) -> str:
     """
-    @TASK: Obtener stub o instancia real de AsyncNav2Bridge
-    @INPUT: Sin parametros
-    @OUTPUT: Instancia de AsyncNav2Bridge
-    @CONTEXT: Nav2 es infraestructura externa (Capa 2); este stub es placeholder
-    @SECURITY: No inicializa ROS 2 desde Python
+    @TASK: Resolver el backend de navegacion concreto a partir de Settings
+    @INPUT: settings — instancia de Settings con NAVIGATION_BACKEND/ROBOT_MODE
+    @OUTPUT: "legacy" | "direct" | "stub"
+    @CONTEXT: NAVIGATION_BACKEND="auto" resuelve a "legacy" en ROBOT_MODE=real
+              (rollback explicito al stack ya validado) y a "stub" en cualquier
+              otro modo. "legacy"/"direct" explicitos se devuelven tal cual,
+              permitiendo overridear "auto" en cualquier ROBOT_MODE (incluido
+              "legacy" como rollback manual incluso en real).
+    @SECURITY: "stub" explicito en ROBOT_MODE=real esta prohibido: un tour
+               autonomo nunca debe correr contra un backend no operativo
+               mientras hay hardware real activo.
+
+    STEP 1: NAVIGATION_BACKEND="auto" → legacy si real, stub en caso contrario
+    STEP 2: NAVIGATION_BACKEND="stub" + ROBOT_MODE=real → error estable
+    STEP 3: Cualquier otro valor explicito ("legacy"/"direct"/"stub" no-real)
+            se devuelve sin modificar
     """
-    try:
-        from src.navigation import AsyncNav2Bridge
-        return AsyncNav2Bridge()
-    except Exception:
-        LOGGER.warning(
-            "[BOOT] AsyncNav2Bridge no disponible. Usando stub minimo."
-        )
+    requested = settings.NAVIGATION_BACKEND
+
+    if requested == "auto":
+        return "legacy" if settings.ROBOT_MODE == "real" else "stub"
+
+    if requested == "stub" and settings.ROBOT_MODE == "real":
+        raise RuntimeError("NAVIGATION_STUB_FORBIDDEN_IN_REAL_MODE")
+
+    return requested
+
+
+def _check_direct_real_interlock(settings, resolved_backend: str) -> None:
+    """
+    @TASK: Bloquear el backend "direct" contra hardware real sin habilitacion explicita
+    @INPUT: settings — Settings con ROBOT_MODE/NAVIGATION_DIRECT_REAL_ENABLED;
+            resolved_backend — valor ya resuelto por _resolve_navigation_backend()
+    @OUTPUT: None si el interlock permite continuar; RuntimeError si no
+    @CONTEXT: Debe invocarse ANTES de get_hardware_adapter(), hardware.initialize()
+              y de cualquier construccion que pueda iniciar ROS 2 (rclpy.init()).
+              Esta fase (2H.2) solo autoriza construccion y tests unitarios de la
+              combinacion direct+real+latch=true; nunca autoriza ejecutarla
+              contra hardware.
+    @SECURITY: NAVIGATION_DIRECT_REAL_ENABLED default False es el interlock
+               cerrado por defecto exigido por esta fase.
+    """
+    if (
+        resolved_backend == "direct"
+        and settings.ROBOT_MODE == "real"
+        and not settings.NAVIGATION_DIRECT_REAL_ENABLED
+    ):
+        raise RuntimeError("DIRECT_NAVIGATION_REAL_MODE_NOT_AUTHORIZED")
+
+
+def _build_navigation_bridge(settings, resolved_backend: str):
+    """
+    @TASK: Construir la instancia concreta del backend de navegacion ya resuelto
+    @INPUT: settings — Settings con los parametros NAVIGATION_* configurables;
+            resolved_backend — "legacy" | "direct" | "stub"
+    @OUTPUT: Instancia construida (sin start()) que conforma NavigationPort
+    @CONTEXT: Imports de AsyncNav2Bridge/DirectNav2ActionBridge son lazy (solo
+              se importa rclpy/ROS si el backend resuelto realmente lo requiere).
+    @SECURITY: Fail-closed: si el import o la construccion del backend
+               solicitado fallan, se propaga NAVIGATION_BACKEND_BUILD_FAILED.
+               Nunca se sustituye por otro backend ni por un stub.
+
+    STEP 1: "legacy" → import lazy de AsyncNav2Bridge, instancia con defaults
+    STEP 2: "direct" → import lazy de DirectNav2ActionBridge, instancia con
+            todos los valores NAVIGATION_* de Settings
+    STEP 3: "stub" → _MinimalNavStub, sin imports de ROS
+    """
+    if resolved_backend == "legacy":
+        try:
+            from src.navigation import AsyncNav2Bridge
+            return AsyncNav2Bridge()
+        except Exception as exc:
+            raise RuntimeError(f"NAVIGATION_BACKEND_BUILD_FAILED:legacy:{exc}") from exc
+
+    if resolved_backend == "direct":
+        try:
+            from src.navigation import DirectNav2ActionBridge
+            return DirectNav2ActionBridge(
+                node_name=settings.NAVIGATION_NODE_NAME,
+                namespace=settings.NAVIGATION_NAMESPACE,
+                navigate_to_pose_action=settings.NAVIGATION_NTP_ACTION,
+                follow_waypoints_action=settings.NAVIGATION_FW_ACTION,
+                initial_pose_topic=settings.NAVIGATION_INITIAL_POSE_TOPIC,
+                server_timeout_s=settings.NAVIGATION_SERVER_TIMEOUT_S,
+                goal_response_timeout_s=settings.NAVIGATION_GOAL_RESPONSE_TIMEOUT_S,
+                result_timeout_s=settings.NAVIGATION_RESULT_TIMEOUT_S,
+                cancel_response_timeout_s=settings.NAVIGATION_CANCEL_RESPONSE_TIMEOUT_S,
+                cancel_terminal_timeout_s=settings.NAVIGATION_CANCEL_TERMINAL_TIMEOUT_S,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"NAVIGATION_BACKEND_BUILD_FAILED:direct:{exc}") from exc
+
+    if resolved_backend == "stub":
         return _MinimalNavStub()
+
+    raise RuntimeError(f"NAVIGATION_BACKEND_BUILD_FAILED:{resolved_backend}:unknown backend")
 
 
 def _get_conversation_manager_stub(settings):
@@ -515,6 +676,10 @@ def create_app() -> FastAPI:
     @CONTEXT: Invocada por uvicorn con factory=True
     @SECURITY: La politica de exposicion de documentacion OpenAPI se gestiona fuera de esta factory.
     """
+    from fastapi import FastAPI, HTTPException, status
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+    from api.router import router
     _configure_logging()
 
     app = FastAPI(
@@ -569,6 +734,7 @@ if __name__ == "__main__":
     @CONTEXT: Ejecutable como: python main.py
     @SECURITY: KeyboardInterrupt suprimida; SIGINT capturada por _install_signal_handlers()
     """
+    import uvicorn
     settings = get_settings()
     with contextlib.suppress(KeyboardInterrupt):
         uvicorn.run(

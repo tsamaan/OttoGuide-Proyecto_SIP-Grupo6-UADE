@@ -3297,5 +3297,214 @@ class DirectNav2ActionBridgeSmokeHardeningContractTests(unittest.TestCase):
             os.remove(path)
 
 
+class NavigationBackendSelectorContractTests(unittest.TestCase):
+    """Fase 2H.2: Settings debe declarar un selector explicito de backend
+    y los interlocks de hardware real/stub deben estar cerrados por
+    defecto. Guard de texto sobre config/settings.py.
+    """
+
+    REAL_SETTINGS_FILE = checker.NAVIGATION_SETTINGS_FILE
+
+    def test_real_settings_file_passes_selector_contract(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_navigation_backend_selector_contract(result)
+        self.assertEqual(result["errors"], [])
+
+    def test_rejects_missing_explicit_selector_literal(self):
+        saved = checker.NAVIGATION_SETTINGS_FILE
+        try:
+            with self._temp_file("NAVIGATION_BACKEND: str = 'auto'\n") as tmp_file:
+                checker.NAVIGATION_SETTINGS_FILE = tmp_file
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_navigation_backend_selector_contract(result)
+        finally:
+            checker.NAVIGATION_SETTINGS_FILE = saved
+        self.assertIn("NAVIGATION_BACKEND_SELECTOR_NOT_EXPLICIT", result["errors"])
+
+    def test_rejects_interlock_not_closed_by_default(self):
+        saved = checker.NAVIGATION_SETTINGS_FILE
+        source = (
+            'NAVIGATION_BACKEND: Literal["auto", "legacy", "direct", "stub"] = "auto"\n'
+            "NAVIGATION_DIRECT_REAL_ENABLED: bool = True\n"
+            "NAVIGATION_ALLOW_STUB_TOURS: bool = False\n"
+        )
+        try:
+            with self._temp_file(source) as tmp_file:
+                checker.NAVIGATION_SETTINGS_FILE = tmp_file
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_navigation_backend_selector_contract(result)
+        finally:
+            checker.NAVIGATION_SETTINGS_FILE = saved
+        self.assertIn("NAVIGATION_DIRECT_REAL_INTERLOCK_NOT_CLOSED_BY_DEFAULT", result["errors"])
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
+class MainRuntimeNavigationSelectionContractTests(unittest.TestCase):
+    """Fase 2H.2: main.py debe resolver el backend de navegacion de forma
+    fail-closed: helpers explicitos presentes, sin fallback silencioso a
+    _MinimalNavStub(), sin imports ROS/bridge a nivel de modulo.
+    """
+
+    REAL_MAIN_FILE = checker.ARCHITECTURE_MAIN_FILE
+
+    def test_real_main_file_passes_selection_contract(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_main_runtime_navigation_selection_contract(result)
+        self.assertEqual(result["errors"], [])
+
+    def test_rejects_missing_required_functions(self):
+        source = "def create_app():\n    pass\n"
+        with self._temp_file(source) as tmp_file:
+            saved = checker.ARCHITECTURE_MAIN_FILE
+            checker.ARCHITECTURE_MAIN_FILE = tmp_file
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_main_runtime_navigation_selection_contract(result)
+            finally:
+                checker.ARCHITECTURE_MAIN_FILE = saved
+        for fn_name in checker.MAIN_NAVIGATION_REQUIRED_FUNCTIONS:
+            self.assertIn(f"MAIN_NAVIGATION_FUNCTION_MISSING:{fn_name}", result["errors"])
+
+    def test_rejects_silent_stub_fallback_in_factory(self):
+        """The literal pre-2H.2 defect: _get_nav_bridge_stub()'s
+        'except Exception: return _MinimalNavStub()' pattern, now inside
+        the renamed factory, must be rejected even though every required
+        string/function is technically present."""
+        source = (
+            "def _resolve_navigation_backend(settings):\n"
+            "    if settings.NAVIGATION_BACKEND == 'auto':\n"
+            "        return 'legacy' if settings.ROBOT_MODE == 'real' else 'stub'\n"
+            "    if settings.NAVIGATION_BACKEND == 'stub' and settings.ROBOT_MODE == 'real':\n"
+            "        raise RuntimeError('NAVIGATION_STUB_FORBIDDEN_IN_REAL_MODE')\n"
+            "    return settings.NAVIGATION_BACKEND\n"
+            "\n"
+            "def _check_direct_real_interlock(settings, resolved_backend):\n"
+            "    if resolved_backend == 'direct' and settings.ROBOT_MODE == 'real' and not settings.NAVIGATION_DIRECT_REAL_ENABLED:\n"
+            "        raise RuntimeError('DIRECT_NAVIGATION_REAL_MODE_NOT_AUTHORIZED')\n"
+            "\n"
+            "def _build_navigation_bridge(settings, resolved_backend):\n"
+            "    if resolved_backend == 'legacy':\n"
+            "        try:\n"
+            "            from src.navigation import AsyncNav2Bridge\n"
+            "            return AsyncNav2Bridge()\n"
+            "        except Exception:\n"
+            "            return _MinimalNavStub()\n"
+            "    if resolved_backend == 'direct':\n"
+            "        from src.navigation import DirectNav2ActionBridge\n"
+            "        return DirectNav2ActionBridge(\n"
+            "            node_name=settings.NAVIGATION_NODE_NAME,\n"
+            "            namespace=settings.NAVIGATION_NAMESPACE,\n"
+            "            navigate_to_pose_action=settings.NAVIGATION_NTP_ACTION,\n"
+            "            follow_waypoints_action=settings.NAVIGATION_FW_ACTION,\n"
+            "            initial_pose_topic=settings.NAVIGATION_INITIAL_POSE_TOPIC,\n"
+            "            server_timeout_s=settings.NAVIGATION_SERVER_TIMEOUT_S,\n"
+            "            goal_response_timeout_s=settings.NAVIGATION_GOAL_RESPONSE_TIMEOUT_S,\n"
+            "            result_timeout_s=settings.NAVIGATION_RESULT_TIMEOUT_S,\n"
+            "            cancel_response_timeout_s=settings.NAVIGATION_CANCEL_RESPONSE_TIMEOUT_S,\n"
+            "            cancel_terminal_timeout_s=settings.NAVIGATION_CANCEL_TERMINAL_TIMEOUT_S,\n"
+            "        )\n"
+            "    if resolved_backend == 'stub':\n"
+            "        return _MinimalNavStub()\n"
+            "    raise RuntimeError(f'NAVIGATION_BACKEND_BUILD_FAILED:{resolved_backend}:unknown')\n"
+        )
+        with self._temp_file(source) as tmp_file:
+            saved = checker.ARCHITECTURE_MAIN_FILE
+            checker.ARCHITECTURE_MAIN_FILE = tmp_file
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_main_runtime_navigation_selection_contract(result)
+            finally:
+                checker.ARCHITECTURE_MAIN_FILE = saved
+        self.assertIn("MAIN_NAVIGATION_SILENT_STUB_FALLBACK", result["errors"])
+
+    def test_rejects_eager_module_level_ros_import(self):
+        source = (
+            "import rclpy\n"
+            "\n"
+            "def _resolve_navigation_backend(settings):\n"
+            "    return 'legacy'\n"
+            "\n"
+            "def _check_direct_real_interlock(settings, resolved_backend):\n"
+            "    pass\n"
+            "\n"
+            "def _build_navigation_bridge(settings, resolved_backend):\n"
+            "    raise RuntimeError('NAVIGATION_BACKEND_BUILD_FAILED:x:x')\n"
+        )
+        with self._temp_file(source) as tmp_file:
+            saved = checker.ARCHITECTURE_MAIN_FILE
+            checker.ARCHITECTURE_MAIN_FILE = tmp_file
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_main_runtime_navigation_selection_contract(result)
+            finally:
+                checker.ARCHITECTURE_MAIN_FILE = saved
+        self.assertIn("MAIN_NAVIGATION_EAGER_ROS_IMPORT:rclpy", result["errors"])
+
+    def test_rejects_eager_module_level_bridge_import(self):
+        source = (
+            "from src.navigation import DirectNav2ActionBridge\n"
+            "\n"
+            "def _resolve_navigation_backend(settings):\n"
+            "    return 'direct'\n"
+            "\n"
+            "def _check_direct_real_interlock(settings, resolved_backend):\n"
+            "    pass\n"
+            "\n"
+            "def _build_navigation_bridge(settings, resolved_backend):\n"
+            "    return DirectNav2ActionBridge()\n"
+        )
+        with self._temp_file(source) as tmp_file:
+            saved = checker.ARCHITECTURE_MAIN_FILE
+            checker.ARCHITECTURE_MAIN_FILE = tmp_file
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_main_runtime_navigation_selection_contract(result)
+            finally:
+                checker.ARCHITECTURE_MAIN_FILE = saved
+        self.assertIn("MAIN_NAVIGATION_EAGER_BRIDGE_IMPORT:DirectNav2ActionBridge", result["errors"])
+
+    def test_rejects_forbidden_cmd_vel_literal(self):
+        source = (
+            "TOPIC = '/cmd_vel'\n"
+            "\n"
+            "def _resolve_navigation_backend(settings):\n"
+            "    return 'legacy'\n"
+            "\n"
+            "def _check_direct_real_interlock(settings, resolved_backend):\n"
+            "    pass\n"
+            "\n"
+            "def _build_navigation_bridge(settings, resolved_backend):\n"
+            "    raise RuntimeError('NAVIGATION_BACKEND_BUILD_FAILED:x:x')\n"
+        )
+        with self._temp_file(source) as tmp_file:
+            saved = checker.ARCHITECTURE_MAIN_FILE
+            checker.ARCHITECTURE_MAIN_FILE = tmp_file
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_main_runtime_navigation_selection_contract(result)
+            finally:
+                checker.ARCHITECTURE_MAIN_FILE = saved
+        self.assertIn("MAIN_NAVIGATION_FORBIDDEN_CMD_VEL_LITERAL", result["errors"])
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
 if __name__ == "__main__":
     unittest.main()
