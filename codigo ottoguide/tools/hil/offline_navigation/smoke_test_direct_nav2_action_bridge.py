@@ -178,10 +178,23 @@ def _process_group_is_alive(pgid: int) -> bool:
 
 
 def _shutdown_and_count_orphans(launch_process) -> int:
+    """Shuts down only the process group this smoke test itself created.
+
+    pgid is always assigned (or the function returns) before any signal is
+    sent: a ProcessLookupError while resolving the PGID means the launch
+    process already terminated on its own, which is 0 orphans, not an
+    error to retry against an unresolved/stale identifier.
+    """
     if launch_process is None:
         return 0
+
+    pgid: int | None = None
     try:
         pgid = os.getpgid(launch_process.pid)
+    except ProcessLookupError:
+        return 0
+
+    try:
         os.killpg(pgid, signal.SIGINT)
         launch_process.wait(timeout=15.0)
     except Exception:
@@ -217,6 +230,44 @@ def _wait_for_lifecycle_active(node_fqn: str, env: dict, deadline: float) -> boo
             return True
         time.sleep(1.0)
     return False
+
+
+def _build_child_output_path(parent_pid: int, scenario: str, domain: str) -> Path:
+    """Builds a one-time-use output path: PID + time_ns() + scenario +
+    domain. Never reused across invocations, so a stale JSON from a
+    previous run can never be silently re-read as if it were fresh.
+    """
+    token = f"{parent_pid}_{time.time_ns()}_{scenario}_{domain}"
+    return Path(f"/tmp/ottoguide_direct_bridge_child_{token}.json")
+
+
+def _validate_child_result(
+    payload: dict, expected_scenario: str, expected_domain: str, returncode: int
+) -> list[str]:
+    """Pure identity/exit-code validation of a child's reported JSON.
+
+    Never trusts the child's self-reported ok/scenario/domain_id alone:
+    cross-checks them against what the parent actually requested and
+    against the process's real exit code.
+    """
+    errors: list[str] = []
+
+    if payload.get("scenario") != expected_scenario:
+        errors.append(
+            f"CHILD_SCENARIO_MISMATCH:{payload.get('scenario')!r}!={expected_scenario!r}"
+        )
+    if str(payload.get("domain_id")) != str(expected_domain):
+        errors.append(
+            f"CHILD_DOMAIN_MISMATCH:{payload.get('domain_id')!r}!={expected_domain!r}"
+        )
+
+    ok = payload.get("ok")
+    if ok is True and returncode != 0:
+        errors.append(f"CHILD_EXIT_CODE_MISMATCH:ok=True,returncode={returncode}")
+    elif ok is False and returncode != 1:
+        errors.append(f"CHILD_EXIT_CODE_MISMATCH:ok=False,returncode={returncode}")
+
+    return errors
 
 
 def validate_domain_id_range(base: int, maximum_offset: int) -> str | None:
@@ -331,21 +382,38 @@ class TelemetryObserver:
         return False
 
     def shutdown(self) -> None:
+        """Tears down executor/node/context/thread.
+
+        Non-critical teardown failures (executor/node/context) are
+        accumulated and raised together as OBSERVER_SHUTDOWN_FAILED. A
+        thread that fails to terminate after join() is never silenced: it
+        always raises the distinct OBSERVER_THREAD_STILL_ALIVE, even if
+        every other teardown step succeeded.
+        """
+        errors: list[str] = []
         try:
             self._executor.shutdown(timeout_sec=1.0)
-        except Exception:
-            pass
+        except Exception as exc:
+            errors.append(f"executor_shutdown:{exc}")
         try:
             self._node.destroy_node()
-        except Exception:
-            pass
+        except Exception as exc:
+            errors.append(f"node_destroy:{exc}")
         try:
             if self._rclpy.ok(context=self._context):
                 self._rclpy.shutdown(context=self._context)
-        except Exception:
-            pass
+        except Exception as exc:
+            errors.append(f"context_shutdown:{exc}")
+
+        thread_still_alive = False
         if self._thread.is_alive():
             self._thread.join(timeout=2.0)
+            thread_still_alive = self._thread.is_alive()
+
+        if thread_still_alive:
+            raise RuntimeError("OBSERVER_THREAD_STILL_ALIVE")
+        if errors:
+            raise RuntimeError("OBSERVER_SHUTDOWN_FAILED:" + ";".join(errors))
 
 
 async def run_single_scenario(name: str, namespace: str, domain_id: str, timeout_s: float) -> dict:
@@ -502,10 +570,13 @@ async def run_single_scenario(name: str, namespace: str, domain_id: str, timeout
         if bridge:
             try:
                 await bridge.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                result["errors"].append(f"BRIDGE_CLOSE_FAILED:{exc}")
         if observer:
-            observer.shutdown()
+            try:
+                observer.shutdown()
+            except Exception as exc:
+                result["errors"].append(str(exc))
         result["orphan_processes"] = _shutdown_and_count_orphans(launch_process)
         if result["orphan_processes"] > 0:
             result["errors"].append("ORPHAN_PROCESSES")
@@ -745,6 +816,46 @@ async def _run_fw_success(bridge, observer, x0, y0, yaw0, overall_deadline, resu
         result["errors"].append("FINAL_GOAL_DISTANCE_OUT_OF_TOLERANCE")
 
 
+def _validate_fw_unreachable_result(
+    res, normalized_progress: list[int], nav_task_result: bool, NavigationTerminalStatus
+) -> list[str]:
+    """Pure validation of the FollowWaypoints-unreachable contract.
+
+    Never accepts REJECTED, TIMEOUT, or ERROR as a substitute for the
+    required ABORTED terminal, and never short-circuits: every check below
+    always runs against the final nav_task result, regardless of whether
+    local polling ever observed task_active=True (a goal can abort before
+    a single poll iteration completes).
+    """
+    errors: list[str] = []
+
+    if res is None:
+        errors.append("FW_UNREACHABLE_NO_RESULT")
+        return errors
+
+    if res.status == NavigationTerminalStatus.REJECTED:
+        errors.append("FW_UNREACHABLE_REJECTED_NOT_ALLOWED")
+    if res.status == NavigationTerminalStatus.TIMEOUT:
+        errors.append("FW_UNREACHABLE_REPORTED_AS_TIMEOUT")
+    if res.status == NavigationTerminalStatus.ERROR:
+        errors.append("FW_UNREACHABLE_REPORTED_AS_ERROR")
+    if res.status != NavigationTerminalStatus.ABORTED:
+        errors.append(f"FW_UNREACHABLE_WRONG_TERMINAL_STATUS:{res.status}")
+
+    missed_by_index = {mw.index: mw.error_code for mw in res.missed_waypoints}
+    if 1 not in missed_by_index:
+        errors.append("MISSED_WAYPOINT_INDEX_1_ABSENT")
+    elif missed_by_index[1] != GOAL_OUTSIDE_MAP_ERROR_CODE:
+        errors.append(f"MISSED_WAYPOINT_ERROR_CODE_NOT_204:{missed_by_index[1]}")
+
+    if 2 in normalized_progress:
+        errors.append("FEEDBACK_PROGRESSED_TO_INDEX_2")
+    if nav_task_result:
+        errors.append("NAVIGATION_TASK_RESULT_TRUE_FOR_UNREACHABLE")
+
+    return errors
+
+
 async def _run_fw_unreachable(bridge, observer, x0, y0, yaw0, overall_deadline, result, clamp, NavWaypoint, NavigationTerminalStatus):
     rx, ry = clamp(*_rotate_relative(x0, y0, yaw0, *FW_UNREACHABLE_REACHABLE_OFFSET_M))
     waypoints = [
@@ -755,47 +866,34 @@ async def _run_fw_unreachable(bridge, observer, x0, y0, yaw0, overall_deadline, 
 
     nav_task = asyncio.create_task(bridge.navigate_to_waypoints(waypoints))
 
+    # A single bounded wait on nav_task.done() covers both a goal that
+    # aborts before any poll iteration observes task_active=True, and a
+    # goal that runs through normal feedback first -- there is no early
+    # branch that returns without validating the full contract below.
     progress: list[int] = []
-    deadline = time.monotonic() + 15.0
-    status = await bridge.get_status()
-    while not status.task_active and time.monotonic() < deadline and time.monotonic() < overall_deadline:
-        await asyncio.sleep(0.1)
-        status = await bridge.get_status()
-
-    if not status.task_active:
-        res = await bridge.get_last_result()
-        if not (res and res.status in (NavigationTerminalStatus.REJECTED, NavigationTerminalStatus.ABORTED)):
-            result["errors"].append("GOAL_NOT_ACCEPTED_NOR_PROPERLY_REJECTED")
-        return
-
     deadline = time.monotonic() + 60.0
-    while status.task_active and time.monotonic() < deadline and time.monotonic() < overall_deadline:
+    while not nav_task.done() and time.monotonic() < deadline and time.monotonic() < overall_deadline:
         await asyncio.sleep(0.1)
         status = await bridge.get_status()
         progress.append(status.active_waypoint_index)
+
+    if not nav_task.done():
+        nav_task.cancel()
+        result["errors"].append("FW_UNREACHABLE_DID_NOT_COMPLETE")
+        return
 
     nav_task_result = await nav_task
     res = await bridge.get_last_result()
     normalized = _normalize_progress(progress)
 
-    missed_by_index = {mw.index: mw.error_code for mw in (res.missed_waypoints if res else ())}
     result["metrics"]["terminal_status"] = res.status.value if res else None
-    result["metrics"]["missed_waypoints"] = missed_by_index
+    result["metrics"]["missed_waypoints"] = {mw.index: mw.error_code for mw in (res.missed_waypoints if res else ())}
     result["metrics"]["feedback_progression"] = normalized
     result["metrics"]["navigation_task_result"] = nav_task_result
 
-    if not res or res.status != NavigationTerminalStatus.ABORTED:
-        result["errors"].append(f"FW_UNREACHABLE_WRONG_TERMINAL_STATUS:{res.status if res else None}")
-    if res and res.status == NavigationTerminalStatus.TIMEOUT:
-        result["errors"].append("FW_UNREACHABLE_REPORTED_AS_TIMEOUT")
-    if 1 not in missed_by_index:
-        result["errors"].append("MISSED_WAYPOINT_INDEX_1_ABSENT")
-    elif missed_by_index[1] != GOAL_OUTSIDE_MAP_ERROR_CODE:
-        result["errors"].append(f"MISSED_WAYPOINT_ERROR_CODE_NOT_204:{missed_by_index[1]}")
-    if 2 in normalized:
-        result["errors"].append("FEEDBACK_PROGRESSED_TO_INDEX_2")
-    if nav_task_result:
-        result["errors"].append("NAVIGATION_TASK_RESULT_TRUE_FOR_UNREACHABLE")
+    result["errors"].extend(
+        _validate_fw_unreachable_result(res, normalized, nav_task_result, NavigationTerminalStatus)
+    )
 
 
 def _scenario_main(args: argparse.Namespace) -> int:
@@ -837,31 +935,53 @@ def _parent_main(args: argparse.Namespace) -> int:
     overall_payload = []
 
     for name, domain in scenarios:
-        child_output = Path(f"/tmp/ottoguide_direct_bridge_child_{name}_{domain}.json")
-        child_cmd = [
-            sys.executable, str(THIS_FILE),
-            "--scenario", name,
-            "--base-domain-id", str(domain),
-            "--timeout", str(args.timeout),
-            "--output", str(child_output),
-        ]
-        try:
-            subprocess.run(
-                child_cmd, capture_output=True, text=True, timeout=args.timeout + 60.0
-            )
-        except subprocess.TimeoutExpired:
-            res = {"ok": False, "scenario": name, "domain_id": str(domain), "errors": ["CHILD_PROCESS_TIMEOUT"]}
+        domain_str = str(domain)
+        child_output = _build_child_output_path(os.getpid(), name, domain_str)
+        if child_output.exists():
+            # A token derived from time_ns() must never already exist;
+            # if it does, refuse to read it rather than risk reusing a
+            # stale result from an unrelated invocation.
+            res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": ["CHILD_OUTPUT_PREEXISTING"]}
             overall_payload.append(res)
             all_ok = False
             continue
 
-        if child_output.is_file():
-            try:
-                res = json.loads(child_output.read_text())
-            except Exception:
-                res = {"ok": False, "scenario": name, "domain_id": str(domain), "errors": ["CHILD_OUTPUT_NOT_VALID_JSON"]}
-        else:
-            res = {"ok": False, "scenario": name, "domain_id": str(domain), "errors": ["CHILD_OUTPUT_MISSING"]}
+        child_cmd = [
+            sys.executable, str(THIS_FILE),
+            "--scenario", name,
+            "--base-domain-id", domain_str,
+            "--timeout", str(args.timeout),
+            "--output", str(child_output),
+        ]
+        try:
+            completed = subprocess.run(
+                child_cmd, capture_output=True, text=True, timeout=args.timeout + 60.0
+            )
+        except subprocess.TimeoutExpired:
+            res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": ["CHILD_PROCESS_TIMEOUT"]}
+            overall_payload.append(res)
+            all_ok = False
+            continue
+
+        if not child_output.is_file():
+            res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": ["CHILD_OUTPUT_MISSING"]}
+            overall_payload.append(res)
+            all_ok = False
+            continue
+
+        try:
+            res = json.loads(child_output.read_text())
+        except Exception:
+            res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": ["CHILD_OUTPUT_INVALID_JSON"]}
+            overall_payload.append(res)
+            all_ok = False
+            continue
+
+        identity_errors = _validate_child_result(res, name, domain_str, completed.returncode)
+        if identity_errors:
+            res = dict(res)
+            res["errors"] = list(res.get("errors", [])) + identity_errors
+            res["ok"] = False
 
         overall_payload.append(res)
         if not res.get("ok"):

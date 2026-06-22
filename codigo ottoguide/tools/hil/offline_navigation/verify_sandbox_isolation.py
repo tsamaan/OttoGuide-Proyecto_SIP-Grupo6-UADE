@@ -1003,6 +1003,143 @@ def check_direct_nav2_action_bridge_ownership_contract(result: dict, files: list
                 result["errors"].append("DIRECT_BRIDGE_SILENT_IMPORT_ERROR")
 
 
+def check_direct_nav2_action_bridge_close_degraded_contract(result: dict, files: list[Path]) -> None:
+    """Fase 2H.1.3: _cleanup() debe detectar degradacion ya existente al
+    entrar (remote_state_unknown en True, o task_active=True sin un goal
+    handle -- p.ej. tras un goal-response timeout, que nunca crea un
+    result task que pudiera reportar el fallo por su cuenta) ANTES de
+    los intentos reactivos de cancelacion/espera de terminal, no solo a
+    partir de fallos de esos intentos.
+    """
+    if DIRECT_NAV2_ACTION_BRIDGE_FILE not in files or not DIRECT_NAV2_ACTION_BRIDGE_FILE.is_file():
+        return
+
+    text = _read_text(DIRECT_NAV2_ACTION_BRIDGE_FILE)
+    try:
+        tree = ast.parse(text, filename=str(DIRECT_NAV2_ACTION_BRIDGE_FILE))
+    except SyntaxError:
+        result["errors"].append("DIRECT_BRIDGE_CLOSE_DEGRADED_SYNTAX_ERROR")
+        return
+
+    cleanup_method = _find_class_method(tree, "DirectNav2ActionBridge", "_cleanup")
+    if cleanup_method is None:
+        result["errors"].append("DIRECT_BRIDGE_CLEANUP_METHOD_MISSING")
+        return
+
+    first_try_index = None
+    for idx, stmt in enumerate(cleanup_method.body):
+        if isinstance(stmt, ast.Try):
+            first_try_index = idx
+            break
+
+    pre_try_statements = (
+        cleanup_method.body if first_try_index is None else cleanup_method.body[:first_try_index]
+    )
+    pre_try_source = "\n".join(ast.get_source_segment(text, s) or "" for s in pre_try_statements)
+
+    if "remote_state_unknown" not in pre_try_source:
+        result["errors"].append("DIRECT_BRIDGE_CLOSE_DOES_NOT_CHECK_PREEXISTING_DEGRADED_STATE")
+    if "task_active" not in pre_try_source:
+        result["errors"].append("DIRECT_BRIDGE_CLOSE_DOES_NOT_CHECK_DANGLING_TASK_ACTIVE")
+
+
+def check_direct_nav2_action_bridge_smoke_hardening_contract(result: dict, files: list[Path]) -> None:
+    """Fase 2H.1.3: guards contra regresiones puntuales del smoke runtime:
+    cleanup del bridge silenciado, aceptacion de REJECTED en el escenario
+    inalcanzable, ruta de salida de hijo sin token unico, thread del
+    observer unido sin comprobacion posterior, y pgid potencialmente sin
+    inicializar en la limpieza de process group.
+    """
+    if DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE not in files or not DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE.is_file():
+        return
+
+    text = _read_text(DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE)
+    try:
+        tree = ast.parse(text, filename=str(DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE))
+    except SyntaxError:
+        result["errors"].append("SMOKE_HARDENING_SYNTAX_ERROR")
+        return
+
+    # 1. No bare 'except ...: pass' wrapping a bridge.close() call.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Try):
+            body_calls_bridge_close = any(
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "close"
+                and isinstance(n.func.value, ast.Name)
+                and n.func.value.id == "bridge"
+                for stmt in node.body
+                for n in ast.walk(stmt)
+            )
+            if body_calls_bridge_close:
+                for handler in node.handlers:
+                    if len(handler.body) == 1 and isinstance(handler.body[0], ast.Pass):
+                        result["errors"].append("SMOKE_BRIDGE_CLOSE_EXCEPTION_SILENCED")
+
+    # 2. fw_unreachable must never treat REJECTED as equivalent to ABORTED.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare):
+            for op, comparator in zip(node.ops, node.comparators):
+                if isinstance(op, ast.In) and isinstance(comparator, (ast.Tuple, ast.List, ast.Set)):
+                    attr_names = {
+                        elt.attr for elt in comparator.elts if isinstance(elt, ast.Attribute)
+                    }
+                    if "REJECTED" in attr_names and "ABORTED" in attr_names:
+                        result["errors"].append("SMOKE_FW_UNREACHABLE_ACCEPTS_REJECTED")
+
+    # 3. Child output paths must carry a uniqueness token (time_ns()).
+    has_time_ns = any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "time_ns"
+        for n in ast.walk(tree)
+    )
+    if not has_time_ns:
+        result["errors"].append("SMOKE_CHILD_OUTPUT_PATH_NOT_UNIQUE")
+
+    # 4. Observer thread must be checked again after join(), not just before.
+    shutdown_method = _find_class_method(tree, "TelemetryObserver", "shutdown")
+    if shutdown_method is None:
+        result["errors"].append("SMOKE_OBSERVER_SHUTDOWN_METHOD_MISSING")
+    else:
+        is_alive_count = sum(
+            1 for n in ast.walk(shutdown_method)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "is_alive"
+        )
+        join_count = sum(
+            1 for n in ast.walk(shutdown_method)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "join"
+        )
+        if join_count == 0:
+            result["errors"].append("SMOKE_OBSERVER_SHUTDOWN_NEVER_JOINS_THREAD")
+        elif is_alive_count < 2:
+            result["errors"].append("SMOKE_OBSERVER_THREAD_JOINED_WITHOUT_POST_CHECK")
+
+    # 5. pgid must be initialized before any use in _shutdown_and_count_orphans.
+    orphans_fn = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_shutdown_and_count_orphans":
+            orphans_fn = node
+            break
+    if orphans_fn is None:
+        result["errors"].append("SMOKE_ORPHAN_CLEANUP_FUNCTION_MISSING")
+    else:
+        has_none_init = False
+        for stmt in orphans_fn.body:
+            targets = None
+            if isinstance(stmt, ast.Assign):
+                targets = stmt.targets
+            elif isinstance(stmt, ast.AnnAssign):
+                targets = [stmt.target]
+            if targets is None:
+                continue
+            if isinstance(stmt.value, ast.Constant) and stmt.value.value is None:
+                if any(isinstance(t, ast.Name) and t.id == "pgid" for t in targets):
+                    has_none_init = True
+                    break
+        if not has_none_init:
+            result["errors"].append("SMOKE_PGID_POTENTIALLY_UNINITIALIZED")
+
+
 def verify(runtime: bool = False) -> dict:
     result = {
         "ok": True,
@@ -1032,6 +1169,8 @@ def verify(runtime: bool = False) -> dict:
     check_architecture_reconciliation_contract(result)
     check_direct_nav2_action_bridge_contract(result, files_to_scan)
     check_direct_nav2_action_bridge_ownership_contract(result, files_to_scan)
+    check_direct_nav2_action_bridge_close_degraded_contract(result, files_to_scan)
+    check_direct_nav2_action_bridge_smoke_hardening_contract(result, files_to_scan)
 
     result["checked_files"] = sorted(set(result["checked_files"]) | {str(p) for p in files_to_scan if p.is_file()})
     result["errors"] = sorted(set(result["errors"]))

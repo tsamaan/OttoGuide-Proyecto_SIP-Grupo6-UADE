@@ -171,9 +171,14 @@ class TestDirectNav2ActionBridge(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN"):
             await self.bridge.close()
         self.assertFalse(self.bridge._started)
+        self.assertFalse(self.bridge._status.task_active)
+        self.assertTrue(self.bridge._status.remote_state_unknown)
 
-        # Second close: nothing left to cancel/wait on, must complete cleanly.
-        await self.bridge.close()
+        # Second close: nothing left to cancel/wait on (idempotent in
+        # effects -- no resources to repeat), but the historical
+        # degradation is preserved and may be reported again.
+        with self.assertRaisesRegex(RuntimeError, "DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN"):
+            await self.bridge.close()
 
     def test_16_create_pose_stamped(self):
         with patch.dict('sys.modules', {'geometry_msgs.msg': MagicMock()}):
@@ -746,6 +751,61 @@ class TestDirectNav2ActionBridgeOwnershipAndTerminalSafety(unittest.IsolatedAsyn
             elapsed = loop.time() - start
 
         self.assertGreaterEqual(elapsed, 0.04)
+
+    async def test_45_close_detects_preexisting_remote_state_unknown_with_done_result_task(self):
+        """2H.1.3 #1: degraded state must be detected from what is already
+        true at entry (remote_state_unknown=True), even when there is no
+        goal handle to cancel and the result task already completed."""
+        self.bridge._started = True
+        self.bridge._status.task_active = True
+        self.bridge._status.remote_state_unknown = True
+        self.bridge._active_goal_handle = None
+
+        loop = asyncio.get_running_loop()
+        done_future = loop.create_future()
+        done_future.set_result(NavigationResult("test", NavigationTerminalStatus.TIMEOUT, False))
+        self.bridge._active_result_task = done_future
+
+        with self.assertRaisesRegex(RuntimeError, "DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN"):
+            await self.bridge.close()
+
+        self.assertFalse(self.bridge._status.task_active)
+        self.assertTrue(self.bridge._status.remote_state_unknown)
+
+    async def test_46_close_after_goal_response_timeout_raises_remote_state_unknown(self):
+        """2H.1.3 #2: a goal-response timeout never creates a goal handle
+        or a result task, so close() must still detect the degradation
+        from task_active=True with no handle, not from a reactive
+        cancel/wait failure (there is nothing to react to)."""
+        self.bridge._started = True
+        client = MagicMock()
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()  # never resolves -> goal response timeout
+        self.bridge._ros_future_to_asyncio = lambda f: future
+        client.send_goal_async.return_value = future
+
+        with patch.dict('sys.modules', {
+            'uuid': MagicMock(), 'unique_identifier_msgs': MagicMock(), 'unique_identifier_msgs.msg': MagicMock()
+        }):
+            res = await self.bridge._execute_action(client, MagicMock(), "test", None)
+        self.assertEqual(res.status, NavigationTerminalStatus.TIMEOUT)
+
+        self.assertIsNone(self.bridge._active_goal_handle)
+        self.assertIsNone(self.bridge._active_result_task)
+        self.assertTrue(self.bridge._status.task_active)
+
+        with self.assertRaisesRegex(RuntimeError, "DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN"):
+            await self.bridge.close()
+
+    async def test_47_close_clean_called_twice_does_not_raise(self):
+        """2H.1.3 #3: a clean close (no active goal, no remote state
+        unknown) must remain idempotent across repeated calls."""
+        self.bridge._started = True
+        await self.bridge.close()
+        self.assertFalse(self.bridge._status.task_active)
+        self.assertFalse(self.bridge._status.remote_state_unknown)
+        await self.bridge.close()
+        self.assertFalse(self.bridge._status.remote_state_unknown)
 
 
 if __name__ == '__main__':

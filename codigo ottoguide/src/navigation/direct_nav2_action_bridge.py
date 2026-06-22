@@ -146,25 +146,38 @@ class DirectNav2ActionBridge(NavigationPort):
     async def _cleanup(self) -> None:
         """Limpieza interna idempotente.
 
-        Siempre completa el teardown local (executor/nodo/contexto/thread)
-        incluso si la cancelacion remota o la espera de su terminal fallan,
-        pero nunca silencia ese fallo: si el estado remoto queda sin
-        confirmar, se levanta DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN
-        despues de liberar los recursos locales.
+        El estado degradado se detecta primero a partir del estado YA
+        existente al entrar (remote_state_unknown ya en True, o
+        task_active=True sin un goal handle -- p.ej. tras un goal-response
+        timeout, donde nunca hubo result task que pudiera reportar el
+        fallo por su cuenta), y luego se amplia si la cancelacion o la
+        espera de su terminal fallan durante este mismo cierre. Siempre
+        completa el teardown local (executor/nodo/contexto/thread)
+        independientemente del resultado de la cancelacion, pero nunca
+        silencia la degradacion: se levanta
+        DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN despues de liberar los
+        recursos locales si corresponde.
         """
         self._started = False
-        degraded = False
 
-        if self._active_goal_handle and self._active_result_task and not self._active_result_task.done():
+        with self._state_lock:
+            had_handle = self._active_goal_handle is not None
+            result_task = self._active_result_task
+            degraded = bool(
+                self._status.remote_state_unknown
+                or (self._status.task_active and self._active_goal_handle is None)
+            )
+
+        if had_handle:
             try:
                 await self.cancel_navigation()
             except Exception as exc:
                 LOGGER.error("Cleanup cancel failed, remote state unknown: %s", exc)
                 degraded = True
 
-        if self._active_result_task and not self._active_result_task.done():
+        if result_task and not result_task.done():
             try:
-                await asyncio.wait_for(asyncio.shield(self._active_result_task), timeout=self._cancel_terminal_timeout_s)
+                await asyncio.wait_for(asyncio.shield(result_task), timeout=self._cancel_terminal_timeout_s)
             except Exception as exc:
                 LOGGER.error("Cleanup waiting for result task failed, remote state unknown: %s", exc)
                 degraded = True
@@ -204,6 +217,16 @@ class DirectNav2ActionBridge(NavigationPort):
         self._active_result_task = None
         self._active_action_name = None
         self._active_goal_uuid = None
+
+        with self._state_lock:
+            # El bridge local esta cerrado: no hay event loop ROS propio
+            # que pueda seguir resolviendo este goal, sin importar si su
+            # estado remoto fue confirmado.
+            self._status.task_active = False
+            # Si hubo degradacion (previa o detectada durante este cierre),
+            # remote_state_unknown se conserva en True como evidencia
+            # historica; un cierre limpio lo deja en False.
+            self._status.remote_state_unknown = degraded
 
         if degraded:
             raise RuntimeError("DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN")

@@ -153,9 +153,20 @@ concretas de hardware y navegación, sin:
    exclusivamente validación aislada: `DirectNav2ActionBridge` continúa
    desconectado de `main.py`/`TourOrchestrator`.
    `MAIN_RUNTIME_MIGRATED=NO`, `LEGACY_NAVIGATION_RUNTIME_ACTIVE=YES`.
-4. **Fase 2H.2 (pendiente, no autorizada)**: seleccionar e inyectar el
+4. **Fase 2H.1.3**: microincremento aditivo que cierra brechas
+   puntuales detectadas tras 2H.1.2: detección de estado remoto
+   desconocido preexistente en `close()`, propagación de errores de
+   cleanup en el smoke (sin silenciarlos), validación estricta del
+   escenario `FollowWaypoints` inalcanzable (nunca acepta `REJECTED`),
+   integridad/frescura de los JSON de los procesos hijos del smoke,
+   verificación real del cierre del thread del observer, y manejo
+   seguro de un PGID potencialmente sin inicializar. Completada — ver
+   `DIRECT_NAV2_ACTION_BRIDGE_2H1_REPORT.md`, sección 8. Sigue siendo
+   exclusivamente validación aislada; sin cambios en
+   `MAIN_RUNTIME_MIGRATED`/`LEGACY_NAVIGATION_RUNTIME_ACTIVE`.
+5. **Fase 2H.2 (pendiente, no autorizada)**: seleccionar e inyectar el
    bridge en main.py.
-5. **Fase 2I (pendiente, no autorizada)**: política de misión,
+6. **Fase 2I (pendiente, no autorizada)**: política de misión,
    reintentos, skip, abort y handover.
 6. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
    ningún test ni código de producción lo necesita.
@@ -182,7 +193,7 @@ concretas de hardware y navegación, sin:
 | Orquestador    | `TourOrchestrator`                                 | alternativas históricas                 | conservar FSM         |
 | HAL            | `hardware/`                                        | `src/hardware/`                         | `hardware/` canónico  |
 | MotionCommand  | `hardware.interface.MotionCommand`                 | `src.hardware.interface.MotionCommand`  | canónico único        |
-| Navegación     | `DirectNav2ActionBridge` (validado aislado, 2H.1.2) | `AsyncNav2Bridge` + `BasicNavigator`    | inyectar en 2H.2       |
+| Navegación     | `DirectNav2ActionBridge` (validado aislado, 2H.1.3) | `AsyncNav2Bridge` + `BasicNavigator`    | inyectar en 2H.2       |
 | Velocidad      | `cmd_vel_raw → collision_monitor → cmd_vel_safe`   | `/cmd_vel → /cmd_vel_nav`               | conservar sandbox      |
 | Waypoints      | `NavigateToPose` y `FollowWaypoints` según misión  | selección por `ROBOT_MODE`              | resolver en 2H.1        |
 | Fallo waypoint | política fail-closed pendiente                     | continuar actualmente                   | resolver en 2H.1/2I     |

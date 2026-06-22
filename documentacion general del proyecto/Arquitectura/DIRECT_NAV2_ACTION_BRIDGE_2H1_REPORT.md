@@ -1,4 +1,4 @@
-# DirectNav2ActionBridge — Hardening Report (Fases 2H.1 y 2H.1.2)
+# DirectNav2ActionBridge — Hardening Report (Fases 2H.1, 2H.1.2 y 2H.1.3)
 
 ## 1. Resumen ejecutivo
 
@@ -9,11 +9,19 @@ continúa usando `AsyncNav2Bridge` (legacy, basado en
 `BasicNavigator`/Simple Commander). La selección del bridge directo como
 implementación inyectada en producción corresponde a la **Fase
 2H.2 — Main Runtime Navigation Bridge Selection**, todavía no
-autorizada. Este documento describe el estado tras la **Fase 2H.1.2**,
-que auditó el commit publicado por la Fase 2H.1.1 (`49a998c`), confirmó
-defectos reales de ownership terminal/cancelación/timeout, los corrigió,
-y completó evidencia runtime estricta de los cuatro contratos
-funcionales del bridge.
+autorizada. Este documento describe el estado tras la **Fase 2H.1.3**,
+microincremento aditivo que cerró brechas puntuales detectadas en la
+auditoría de la propia Fase 2H.1.2: detección de estado remoto
+desconocido preexistente en `close()`, propagación de errores de
+cleanup en el smoke (en vez de silenciarlos), validación estricta del
+escenario `FollowWaypoints` inalcanzable (rechazando `REJECTED` como
+sustituto de `ABORTED`), integridad/frescura de los JSON producidos por
+los procesos hijos del smoke, verificación real del cierre del thread
+del observer, y manejo seguro de un PGID potencialmente sin inicializar
+en la limpieza de procesos. Las Fases 2H.1/2H.1.2 ya habían auditado y
+corregido los defectos de ownership terminal/cancelación/timeout
+descritos más abajo; esta fase no los reaudita, solo agrega tests de
+regresión que los preservan.
 
 Esta validación es exclusivamente un **offline ROS runtime smoke test**
 sobre `offline_runtime_simulator.py` (odometría/scan sintéticos, sin
@@ -220,7 +228,104 @@ precedentes.
 `smoke_test_offline_waypoint_follower.py` (`--base-domain-id 200`) —
 ambos sin modificar — continúan en `PASS` tras estos cambios.
 
-## 8. Limitaciones
+## 8. Fase 2H.1.3 — Close degraded-state and harden smoke evidence
+
+Microincremento aditivo sobre la Fase 2H.1.2. No reaudita ownership
+terminal/cancelación/timeout (ya `PASS`); cierra seis brechas puntuales
+detectadas tras esa fase:
+
+1. **`_cleanup()` no detectaba degradación preexistente al entrar.**
+   Si `remote_state_unknown` ya era `True` (p.ej. tras un goal-response
+   timeout, que nunca crea un goal handle ni un result task), o si
+   `task_active=True` sin un handle, `close()` podía completar sin
+   lanzar `DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN` porque el código
+   solo computaba `degraded` a partir de fallos *reactivos* de
+   cancelación/espera. Corregido: `degraded` se computa primero desde
+   el estado ya existente, antes de cualquier intento reactivo. Un
+   cierre degradado es idempotente en efectos (no repite recursos) pero
+   puede volver a reportar la misma degradación en llamadas
+   posteriores, según lo autorizado por el encargo de esta fase.
+2. **El smoke silenciaba errores de `bridge.close()`** con
+   `except Exception: pass`. Corregido: se registra
+   `BRIDGE_CLOSE_FAILED:<detalle>` y el escenario no puede dar `PASS`.
+3. **`TelemetryObserver.shutdown()` no verificaba el thread tras
+   `join()`.** Corregido: comprueba `is_alive()` después del join y
+   lanza `OBSERVER_THREAD_STILL_ALIVE` (nunca silenciado); fallos no
+   críticos de executor/nodo/contexto se acumulan y reportan juntos
+   como `OBSERVER_SHUTDOWN_FAILED:<detalle>`.
+4. **`_shutdown_and_count_orphans()` podía usar un `pgid` sin
+   inicializar** si `os.getpgid()` fallaba. Corregido: `pgid` se
+   inicializa explícitamente a `None`; un `ProcessLookupError` al
+   resolver el PGID se trata como proceso ya terminado (0 huérfanos),
+   nunca como una condición a reintentar contra un identificador no
+   resuelto.
+5. **El escenario `fw_unreachable` aceptaba `REJECTED` como
+   equivalente a `ABORTED`** y podía retornar temprano sin validar el
+   contrato completo si el polling local nunca observó
+   `task_active=True` (el goal puede abortar antes de la primera
+   iteración). Corregido: se extrajo un validador puro
+   (`_validate_fw_unreachable_result`) que siempre exige `ABORTED`
+   (nunca `REJECTED`/`TIMEOUT`/`ERROR`), índice de waypoint perdido `1`,
+   `error_code=204`, ausencia de progreso al índice `2`, y
+   `navigation_task_result=False`; la espera ahora se basa en
+   `nav_task.done()`, cubriendo tanto el abort instantáneo como el
+   normal, sin ninguna rama de retorno temprano que omita la
+   validación.
+6. **Los JSON de los procesos hijos del smoke usaban una ruta fija**
+   (`..._child_{name}_{domain}.json`), reutilizable entre invocaciones,
+   sin validar identidad ni coherencia de exit code. Corregido: cada
+   invocación construye una ruta única (PID del padre + `time.time_ns()`
+   + escenario + dominio) que debe no existir antes de lanzar el hijo;
+   tras la ejecución se exige que el archivo exista, sea JSON válido, y
+   que `scenario`/`domain_id` coincidan con lo solicitado y que
+   `ok`/`returncode` sean consistentes (`CHILD_OUTPUT_PREEXISTING`,
+   `CHILD_OUTPUT_MISSING`, `CHILD_OUTPUT_INVALID_JSON`,
+   `CHILD_SCENARIO_MISMATCH`, `CHILD_DOMAIN_MISMATCH`,
+   `CHILD_EXIT_CODE_MISMATCH`).
+
+### Tests
+
+`tests/unit/test_direct_nav2_action_bridge.py` pasó de 44 a 47 tests
+(3 nuevos: close con degradación preexistente y result task ya
+terminada, close tras goal-response timeout, close limpio llamado dos
+veces). `tests/unit/test_offline_navigation_sandbox_isolation.py`
+agrega dos clases nuevas: `DirectNav2ActionBridgeCloseDegradedContractTests`
+(guard estático del punto 1) y
+`DirectNav2ActionBridgeSmokeHardeningContractTests` (guards estáticos de
+los puntos 2–6, más tests directos de los helpers puros extraídos del
+smoke: `_validate_child_result`, `_build_child_output_path`,
+`_validate_fw_unreachable_result`, y `TelemetryObserver.shutdown()`
+instanciado sin ROS vía `__new__` + mocks).
+
+### Verificadores estáticos
+
+`verify_sandbox_isolation.py` agrega
+`check_direct_nav2_action_bridge_close_degraded_contract` y
+`check_direct_nav2_action_bridge_smoke_hardening_contract`, ambos
+`PASS` en Windows y WSL, modo estático y runtime.
+
+### Evidencia runtime (dos corridas oficiales, sin cambios de código)
+
+Diagnóstico (`--base-domain-id 212`): `PASS` en el primer intento, los
+cuatro escenarios sin errores.
+
+| Escenario | Run 1 (base 220) | Run 2 (base 224) |
+|---|---|---|
+| NavigateToPose éxito | PASS | PASS |
+| NavigateToPose cancel | PASS | PASS |
+| FollowWaypoints éxito | PASS | PASS |
+| FollowWaypoints inalcanzable | PASS | PASS |
+
+Run 2 sufrió, en un primer intento, la misma carrera de timing
+transitoria bajo carga WSL ya documentada para fases anteriores
+(componentes del sandbox sin activarse a tiempo, 1 proceso huérfano sin
+relación con el bridge ni con esta fase); se resolvió limpiando el
+proceso huérfano y repitiendo la corrida completa sin ningún cambio de
+código ni configuración. Las regresiones de BT Navigator (`PASS`) y
+Waypoint Follower también sufrieron, de forma independiente, el mismo
+patrón transitorio una vez cada una, resuelto del mismo modo.
+
+## 9. Limitaciones
 
 - Esta validación es exclusivamente offline/sintética
   (`offline_runtime_simulator.py`); no constituye evidencia de
@@ -236,10 +341,15 @@ ambos sin modificar — continúan en `PASS` tras estos cambios.
   `--base-domain-id`, como se hizo en la sección 7.
 - La política de reintento/skip/abort de waypoints fallidos a nivel de
   misión sigue pendiente para la Fase 2I.
+- La carrera de timing transitoria bajo carga WSL (sandbox completo de
+  ~18 procesos ROS) sigue siendo una característica conocida del
+  entorno de desarrollo, no del código de esta fase ni de fases
+  anteriores; se resuelve repitiendo la corrida, nunca modificando
+  `launch/` ni `config/navigation/`.
 
-## 9. Próximo incremento
+## 10. Próximo incremento
 
-El chat principal debe auditar el commit de la Fase 2H.1.2 y decidir si
+El chat principal debe auditar el commit de la Fase 2H.1.3 y decidir si
 se autoriza la **Fase 2H.2 — Main Runtime Navigation Bridge
 Selection**. La política de misión de la Fase 2I no debe iniciarse
 todavía.

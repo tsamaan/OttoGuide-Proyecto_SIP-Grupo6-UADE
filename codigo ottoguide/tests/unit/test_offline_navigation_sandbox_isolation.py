@@ -14,6 +14,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CODE_ROOT = REPO_ROOT / "codigo ottoguide"
@@ -42,6 +43,9 @@ BT_NAVIGATOR_SMOKE_TEST_FILE = (
 WAYPOINT_FOLLOWER_SMOKE_TEST_FILE = (
     CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_offline_waypoint_follower.py"
 )
+DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "smoke_test_direct_nav2_action_bridge.py"
+)
 BT_XML_FILE = CODE_ROOT / "config" / "navigation" / "bt" / "offline_navigate_to_pose.xml"
 PARAMS_FILE = CODE_ROOT / "config" / "navigation" / "nav2_offline_sandbox_params.yaml"
 MAP_DIR = CODE_ROOT / "tests" / "fixtures" / "offline_navigation"
@@ -57,6 +61,22 @@ def _load_checker():
 
 
 checker = _load_checker()
+
+
+def _load_smoke_module():
+    """Loads the direct-bridge smoke test as a plain module. Safe without
+    ROS: every rclpy import in that file is local to a function/method
+    body, never at module scope.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "smoke_test_direct_nav2_action_bridge", DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+smoke = _load_smoke_module()
 
 
 class SyntheticMapFixtureTests(unittest.TestCase):
@@ -2772,6 +2792,303 @@ class DirectNav2ActionBridgeOwnershipContractTests(unittest.TestCase):
             finally:
                 checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = saved
         self.assertIn("DIRECT_BRIDGE_SILENT_IMPORT_ERROR", result["errors"])
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
+class DirectNav2ActionBridgeCloseDegradedContractTests(unittest.TestCase):
+    """Fase 2H.1.3: el bridge debe detectar degradacion preexistente al
+    entrar a _cleanup(), no solo a partir de fallos reactivos.
+    """
+
+    def test_real_bridge_file_passes_close_degraded_contract(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_direct_nav2_action_bridge_close_degraded_contract(
+            result, [checker.DIRECT_NAV2_ACTION_BRIDGE_FILE]
+        )
+        self.assertEqual(result["errors"], [])
+
+    def test_rejects_cleanup_without_preexisting_state_check(self):
+        source = (
+            "class DirectNav2ActionBridge:\n"
+            "    async def _cleanup(self):\n"
+            "        degraded = False\n"
+            "        try:\n"
+            "            pass\n"
+            "        except Exception:\n"
+            "            degraded = True\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_close_degraded_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = saved
+        self.assertIn("DIRECT_BRIDGE_CLOSE_DOES_NOT_CHECK_PREEXISTING_DEGRADED_STATE", result["errors"])
+        self.assertIn("DIRECT_BRIDGE_CLOSE_DOES_NOT_CHECK_DANGLING_TASK_ACTIVE", result["errors"])
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
+class DirectNav2ActionBridgeSmokeHardeningContractTests(unittest.TestCase):
+    """Fase 2H.1.3: guards estaticos para el smoke runtime + tests directos
+    de los helpers puros extraidos de smoke_test_direct_nav2_action_bridge.py.
+    """
+
+    def test_real_smoke_file_passes_hardening_contract(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_direct_nav2_action_bridge_smoke_hardening_contract(
+            result, [checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE]
+        )
+        self.assertEqual(result["errors"], [])
+
+    def test_rejects_silenced_bridge_close_exception(self):
+        source = (
+            "async def f(bridge):\n"
+            "    try:\n"
+            "        await bridge.close()\n"
+            "    except Exception:\n"
+            "        pass\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_smoke_hardening_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = saved
+        self.assertIn("SMOKE_BRIDGE_CLOSE_EXCEPTION_SILENCED", result["errors"])
+
+    def test_rejects_fw_unreachable_accepting_rejected(self):
+        source = (
+            "def f(res, NavigationTerminalStatus):\n"
+            "    if res.status in (NavigationTerminalStatus.REJECTED, NavigationTerminalStatus.ABORTED):\n"
+            "        pass\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_smoke_hardening_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = saved
+        self.assertIn("SMOKE_FW_UNREACHABLE_ACCEPTS_REJECTED", result["errors"])
+
+    def test_rejects_fixed_child_output_path_without_token(self):
+        source = (
+            "def f(name, domain):\n"
+            "    return f'/tmp/ottoguide_direct_bridge_child_{name}_{domain}.json'\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_smoke_hardening_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = saved
+        self.assertIn("SMOKE_CHILD_OUTPUT_PATH_NOT_UNIQUE", result["errors"])
+
+    def test_rejects_observer_thread_joined_without_post_check(self):
+        source = (
+            "class TelemetryObserver:\n"
+            "    def shutdown(self):\n"
+            "        if self._thread.is_alive():\n"
+            "            self._thread.join(timeout=2.0)\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_smoke_hardening_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = saved
+        self.assertIn("SMOKE_OBSERVER_THREAD_JOINED_WITHOUT_POST_CHECK", result["errors"])
+
+    def test_rejects_potentially_uninitialized_pgid(self):
+        source = (
+            "def _shutdown_and_count_orphans(launch_process):\n"
+            "    if launch_process is None:\n"
+            "        return 0\n"
+            "    try:\n"
+            "        pgid = os.getpgid(launch_process.pid)\n"
+            "        os.killpg(pgid, 2)\n"
+            "    except Exception:\n"
+            "        pass\n"
+            "    return 1 if _process_group_is_alive(pgid) else 0\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_smoke_hardening_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = saved
+        self.assertIn("SMOKE_PGID_POTENTIALLY_UNINITIALIZED", result["errors"])
+
+    # -- direct tests of the pure helpers extracted from the smoke test --
+
+    def test_validate_child_result_detects_scenario_mismatch(self):
+        payload = {"ok": True, "scenario": "ntp_cancel", "domain_id": "213"}
+        errors = smoke._validate_child_result(payload, "ntp_success", "213", 0)
+        self.assertTrue(any(e.startswith("CHILD_SCENARIO_MISMATCH") for e in errors))
+
+    def test_validate_child_result_detects_domain_mismatch(self):
+        payload = {"ok": True, "scenario": "ntp_success", "domain_id": "999"}
+        errors = smoke._validate_child_result(payload, "ntp_success", "213", 0)
+        self.assertTrue(any(e.startswith("CHILD_DOMAIN_MISMATCH") for e in errors))
+
+    def test_validate_child_result_detects_exit_code_mismatch_ok_true(self):
+        payload = {"ok": True, "scenario": "ntp_success", "domain_id": "213"}
+        errors = smoke._validate_child_result(payload, "ntp_success", "213", 1)
+        self.assertTrue(any(e.startswith("CHILD_EXIT_CODE_MISMATCH") for e in errors))
+
+    def test_validate_child_result_detects_exit_code_mismatch_ok_false(self):
+        payload = {"ok": False, "scenario": "ntp_success", "domain_id": "213"}
+        errors = smoke._validate_child_result(payload, "ntp_success", "213", 0)
+        self.assertTrue(any(e.startswith("CHILD_EXIT_CODE_MISMATCH") for e in errors))
+
+    def test_validate_child_result_accepts_consistent_payload(self):
+        payload = {"ok": True, "scenario": "ntp_success", "domain_id": "213"}
+        self.assertEqual(smoke._validate_child_result(payload, "ntp_success", "213", 0), [])
+        payload_fail = {"ok": False, "scenario": "ntp_success", "domain_id": "213"}
+        self.assertEqual(smoke._validate_child_result(payload_fail, "ntp_success", "213", 1), [])
+
+    def test_build_child_output_path_is_unique_per_call(self):
+        path1 = smoke._build_child_output_path(1234, "ntp_success", "212")
+        path2 = smoke._build_child_output_path(1234, "ntp_success", "212")
+        self.assertNotEqual(path1, path2)
+        self.assertFalse(path1.exists())
+        self.assertFalse(path2.exists())
+
+    def test_shutdown_and_count_orphans_handles_process_lookup_error(self):
+        launch_process = MagicMock()
+        launch_process.pid = 999999
+        with patch.object(smoke.os, "getpgid", side_effect=ProcessLookupError, create=True):
+            orphan_count = smoke._shutdown_and_count_orphans(launch_process)
+        self.assertEqual(orphan_count, 0)
+
+    def test_validate_fw_unreachable_result_rejects_rejected(self):
+        from src.navigation.models import NavigationResult, NavigationTerminalStatus
+        res = NavigationResult("test", NavigationTerminalStatus.REJECTED, False)
+        errors = smoke._validate_fw_unreachable_result(res, [0], False, NavigationTerminalStatus)
+        self.assertIn("FW_UNREACHABLE_REJECTED_NOT_ALLOWED", errors)
+
+    def test_validate_fw_unreachable_result_rejects_timeout_and_error(self):
+        from src.navigation.models import NavigationResult, NavigationTerminalStatus
+        timeout_res = NavigationResult("test", NavigationTerminalStatus.TIMEOUT, False)
+        errors = smoke._validate_fw_unreachable_result(timeout_res, [0], False, NavigationTerminalStatus)
+        self.assertIn("FW_UNREACHABLE_REPORTED_AS_TIMEOUT", errors)
+
+        error_res = NavigationResult("test", NavigationTerminalStatus.ERROR, False)
+        errors = smoke._validate_fw_unreachable_result(error_res, [0], False, NavigationTerminalStatus)
+        self.assertIn("FW_UNREACHABLE_REPORTED_AS_ERROR", errors)
+
+    def test_validate_fw_unreachable_result_accepts_full_contract(self):
+        from src.navigation.models import MissedWaypointDetail, NavigationResult, NavigationTerminalStatus
+        res = NavigationResult(
+            "test", NavigationTerminalStatus.ABORTED, False,
+            missed_waypoints=(MissedWaypointDetail(index=1, error_code=204),)
+        )
+        errors = smoke._validate_fw_unreachable_result(res, [0, 1], False, NavigationTerminalStatus)
+        self.assertEqual(errors, [])
+
+    def test_validate_fw_unreachable_result_requires_index_1_and_code_204(self):
+        from src.navigation.models import MissedWaypointDetail, NavigationResult, NavigationTerminalStatus
+        wrong_code = NavigationResult(
+            "test", NavigationTerminalStatus.ABORTED, False,
+            missed_waypoints=(MissedWaypointDetail(index=1, error_code=105),)
+        )
+        errors = smoke._validate_fw_unreachable_result(wrong_code, [0, 1], False, NavigationTerminalStatus)
+        self.assertTrue(any(e.startswith("MISSED_WAYPOINT_ERROR_CODE_NOT_204") for e in errors))
+
+        no_missed = NavigationResult("test", NavigationTerminalStatus.ABORTED, False)
+        errors = smoke._validate_fw_unreachable_result(no_missed, [0, 1], False, NavigationTerminalStatus)
+        self.assertIn("MISSED_WAYPOINT_INDEX_1_ABSENT", errors)
+
+    def test_validate_fw_unreachable_result_rejects_progress_to_index_2(self):
+        from src.navigation.models import MissedWaypointDetail, NavigationResult, NavigationTerminalStatus
+        res = NavigationResult(
+            "test", NavigationTerminalStatus.ABORTED, False,
+            missed_waypoints=(MissedWaypointDetail(index=1, error_code=204),)
+        )
+        errors = smoke._validate_fw_unreachable_result(res, [0, 1, 2], False, NavigationTerminalStatus)
+        self.assertIn("FEEDBACK_PROGRESSED_TO_INDEX_2", errors)
+
+    def test_validate_fw_unreachable_result_rejects_true_task_result(self):
+        from src.navigation.models import MissedWaypointDetail, NavigationResult, NavigationTerminalStatus
+        res = NavigationResult(
+            "test", NavigationTerminalStatus.ABORTED, False,
+            missed_waypoints=(MissedWaypointDetail(index=1, error_code=204),)
+        )
+        errors = smoke._validate_fw_unreachable_result(res, [0, 1], True, NavigationTerminalStatus)
+        self.assertIn("NAVIGATION_TASK_RESULT_TRUE_FOR_UNREACHABLE", errors)
+
+    def test_validate_fw_unreachable_result_fails_without_result(self):
+        from src.navigation.models import NavigationTerminalStatus
+        errors = smoke._validate_fw_unreachable_result(None, [0], False, NavigationTerminalStatus)
+        self.assertEqual(errors, ["FW_UNREACHABLE_NO_RESULT"])
+
+    def test_telemetry_observer_shutdown_raises_on_thread_still_alive(self):
+        observer = smoke.TelemetryObserver.__new__(smoke.TelemetryObserver)
+        observer._executor = MagicMock()
+        observer._node = MagicMock()
+        observer._rclpy = MagicMock()
+        observer._context = MagicMock()
+        observer._thread = MagicMock()
+        observer._thread.is_alive.return_value = True
+
+        with self.assertRaisesRegex(RuntimeError, "OBSERVER_THREAD_STILL_ALIVE"):
+            observer.shutdown()
+        observer._thread.join.assert_called_once()
+
+    def test_telemetry_observer_shutdown_reports_nonfatal_failures_together(self):
+        observer = smoke.TelemetryObserver.__new__(smoke.TelemetryObserver)
+        observer._executor = MagicMock()
+        observer._executor.shutdown.side_effect = Exception("executor boom")
+        observer._node = MagicMock()
+        observer._node.destroy_node.side_effect = Exception("node boom")
+        observer._rclpy = MagicMock()
+        observer._context = MagicMock()
+        observer._thread = MagicMock()
+        observer._thread.is_alive.return_value = False
+
+        with self.assertRaisesRegex(RuntimeError, "OBSERVER_SHUTDOWN_FAILED"):
+            observer.shutdown()
+
+    def test_telemetry_observer_shutdown_clean_does_not_raise(self):
+        observer = smoke.TelemetryObserver.__new__(smoke.TelemetryObserver)
+        observer._executor = MagicMock()
+        observer._node = MagicMock()
+        observer._rclpy = MagicMock()
+        observer._rclpy.ok.return_value = False
+        observer._context = MagicMock()
+        observer._thread = MagicMock()
+        observer._thread.is_alive.return_value = False
+
+        observer.shutdown()  # must not raise
 
     @contextmanager
     def _temp_file(self, content: str):
