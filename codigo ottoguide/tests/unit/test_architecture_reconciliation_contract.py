@@ -67,6 +67,8 @@ NAVIGATION_PORT_METHODS = {
     "cancel_navigation",
     "inject_absolute_pose",
     "is_navigation_active",
+    "get_status",
+    "get_last_result",
 }
 
 
@@ -306,6 +308,11 @@ class StructuralConformanceTests(unittest.TestCase):
         methods = _async_method_names(_parse(NAV2_BRIDGE_FILE), "AsyncNav2Bridge")
         missing = NAVIGATION_PORT_METHODS - methods
         self.assertEqual(missing, set(), f"missing methods on AsyncNav2Bridge: {missing}")
+
+    def test_direct_nav2_action_bridge_has_all_navigation_port_methods(self):
+        methods = _async_method_names(_parse(CODE_ROOT / "src" / "navigation" / "direct_nav2_action_bridge.py"), "DirectNav2ActionBridge")
+        missing = NAVIGATION_PORT_METHODS - methods
+        self.assertEqual(missing, set(), f"missing methods on DirectNav2ActionBridge: {missing}")
 
     def test_mock_nav2_bridge_conforms_via_isinstance(self):
         for mod in list(sys.modules):

@@ -391,94 +391,46 @@ class _MinimalNavStub:
     @SECURITY: No inicializa ROS 2 ni ejecuta I/O externo
     """
 
+    def __init__(self):
+        from src.navigation.models import NavigationStatus, NavigationResult, NavigationTerminalStatus
+        self._status = NavigationStatus(
+            task_active=False,
+            last_result_succeeded=False,
+            last_result=NavigationResult(
+                action_name="_MinimalNavStub",
+                status=NavigationTerminalStatus.ERROR,
+                succeeded=False,
+                error_msg="NAVIGATION_UNAVAILABLE"
+            )
+        )
+
     async def start(self):
-        """
-        @TASK: Simular inicio del bridge de navegacion
-        @INPUT: Sin parametros
-        @OUTPUT: Retorno inmediato
-        @CONTEXT: Stub no operativo
-        @SECURITY: Sin side effects
-        """
         return None
 
     async def close(self):
-        """
-        @TASK: Simular cierre del bridge de navegacion
-        @INPUT: Sin parametros
-        @OUTPUT: Retorno inmediato
-        @CONTEXT: Stub no operativo
-        @SECURITY: Sin side effects
-        """
         return None
 
     async def navigate_to_waypoints(self, waypoints):
-        """
-        @TASK: Simular navegacion por waypoints
-        @INPUT: waypoints
-        @OUTPUT: False para indicar no ejecucion de navegacion real
-        @CONTEXT: Fallback de compatibilidad cuando Nav2 no esta disponible
-        @SECURITY: No despacha movimiento fisico
-        """
         return False
 
     async def cancel_navigation(self):
-        """
-        @TASK: Simular cancelacion de navegacion
-        @INPUT: Sin parametros
-        @OUTPUT: Retorno inmediato
-        @CONTEXT: Stub no operativo
-        @SECURITY: Sin side effects
-        """
         return None
 
     async def inject_absolute_pose(self, pose):
-        """
-        @TASK: Simular inyeccion de pose absoluta
-        @INPUT: pose
-        @OUTPUT: Retorno inmediato
-        @CONTEXT: Stub no operativo
-        @SECURITY: No publica en ROS 2
-        """
         return None
 
     async def send_goal(self, waypoint) -> bool:
-        """
-        @TASK: Simular envio de un unico goal de navegacion
-        @INPUT: waypoint
-        @OUTPUT: False para indicar no ejecucion de navegacion real
-        @CONTEXT: Completa la conformidad estructural con NavigationPort
-        @SECURITY: No despacha movimiento fisico
-        """
         return False
 
     async def is_navigation_active(self) -> bool:
-        """
-        @TASK: Simular consulta de actividad de navegacion
-        @INPUT: Sin parametros
-        @OUTPUT: False; el stub nunca tiene una tarea activa
-        @CONTEXT: Completa la conformidad estructural con NavigationPort
-        @SECURITY: Sin side effects
-        """
-        return False
+        return self._status.task_active
 
     async def get_status(self) -> "NavigationStatus":
-        """
-        @TASK: Simular consulta de estado
-        @INPUT: Sin parametros
-        @OUTPUT: Estado inactivo
-        @CONTEXT: Completa la conformidad estructural con NavigationPort
-        """
-        from src.navigation.models import NavigationStatus
-        return NavigationStatus(task_active=False)
+        from dataclasses import replace
+        return replace(self._status)
 
-    async def get_last_result(self) -> None:
-        """
-        @TASK: Simular consulta de ultimo resultado
-        @INPUT: Sin parametros
-        @OUTPUT: None
-        @CONTEXT: Completa la conformidad estructural con NavigationPort
-        """
-        return None
+    async def get_last_result(self) -> "NavigationResult":
+        return self._status.last_result
 
 
 class _MinimalConversationStub:

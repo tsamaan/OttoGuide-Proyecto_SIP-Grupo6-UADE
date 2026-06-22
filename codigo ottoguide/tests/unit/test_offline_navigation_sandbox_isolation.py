@@ -2598,6 +2598,54 @@ class CancelAcceptanceSemanticsTests(_ModuleLoaderMixin, unittest.TestCase):
         self.assertNotIn('result["cancel_request_accepted"] = bool(cancel_accepted)', text)
         self.assertIn("response.return_code != CancelGoal.Response.ERROR_NONE", text)
         self.assertIn("goal_handle.goal_id.uuid", text)
+        self.assertIn("goal_handle.goal_id.uuid", text)
+
+
+class DirectNav2ActionBridgeIsolationTests(unittest.TestCase):
+    def test_direct_bridge_rejects_basic_navigator(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("from nav2_simple_commander.robot_navigator import BasicNavigator\n") as tmp_file:
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            checker.check_direct_nav2_action_bridge_contract(result, [tmp_file])
+        self.assertTrue(any("DIRECT_BRIDGE_FORBIDDEN_IMPORT" in e for e in result["errors"]))
+
+    def test_direct_bridge_rejects_twist(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("from geometry_msgs.msg import Twist\n") as tmp_file:
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            checker.check_direct_nav2_action_bridge_contract(result, [tmp_file])
+        self.assertTrue(any("DIRECT_BRIDGE_FORBIDDEN_IMPORT" in e for e in result["errors"]))
+
+    def test_direct_bridge_rejects_create_subscription(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("node.create_subscription(Msg, 'topic', cb, 10)\n") as tmp_file:
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            checker.check_direct_nav2_action_bridge_contract(result, [tmp_file])
+        self.assertTrue(any("DIRECT_BRIDGE_FORBIDDEN_CALL" in e for e in result["errors"]))
+
+    def test_direct_bridge_rejects_hardware_import(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("import src.hardware.real_adapter\n") as tmp_file:
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            checker.check_direct_nav2_action_bridge_contract(result, [tmp_file])
+        self.assertTrue(any("DIRECT_BRIDGE_FORBIDDEN_IMPORT" in e for e in result["errors"]))
+
+    def test_direct_bridge_rejects_forbidden_topics(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file("topic = '/cmd_vel'\n") as tmp_file:
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            checker.check_direct_nav2_action_bridge_contract(result, [tmp_file])
+        self.assertTrue(any("DIRECT_BRIDGE_FORBIDDEN_TOPIC" in e for e in result["errors"]))
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
 
 
 if __name__ == "__main__":

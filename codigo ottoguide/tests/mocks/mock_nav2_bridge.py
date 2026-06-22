@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, List
+from typing import Any, List, Optional
 
+from src.navigation.models import NavigationResult, NavigationStatus, NavigationTerminalStatus
 
 @dataclass(slots=True)
 class MockNav2Bridge:
@@ -13,41 +14,73 @@ class MockNav2Bridge:
     cancel_calls: int = 0
     injected_poses: List[Any] = field(default_factory=list)
     started: bool = False
-    _task_active: bool = False
+    _status: NavigationStatus = field(default_factory=NavigationStatus)
 
     async def start(self) -> None:
         self.started = True
 
     async def navigate_to_waypoints(self, waypoints: List[Any]) -> bool:
         self.navigation_calls.append(list(waypoints))
-        self._task_active = True
+
+        if not waypoints:
+            self._status.task_active = False
+            self._status.last_result_succeeded = True
+            self._status.last_result = NavigationResult(
+                action_name="MockNav2Bridge",
+                status=NavigationTerminalStatus.SUCCEEDED,
+                succeeded=True
+            )
+            return True
+
+        self._status.task_active = True
+        self._status.last_result_succeeded = None
         await asyncio.sleep(self.navigation_delay_s)
-        self._task_active = False
+        self._status.task_active = False
+        self._status.last_result_succeeded = True
+        self._status.last_result = NavigationResult(
+            action_name="MockNav2Bridge",
+            status=NavigationTerminalStatus.SUCCEEDED,
+            succeeded=True
+        )
         return True
 
     async def send_goal(self, waypoint: Any) -> bool:
         self.send_goal_calls.append(waypoint)
-        self._task_active = True
+        self._status.task_active = True
+        self._status.last_result_succeeded = None
         await asyncio.sleep(self.navigation_delay_s)
-        self._task_active = False
+        self._status.task_active = False
+        self._status.last_result_succeeded = True
+        self._status.last_result = NavigationResult(
+            action_name="MockNav2Bridge",
+            status=NavigationTerminalStatus.SUCCEEDED,
+            succeeded=True
+        )
         return True
 
     async def cancel_navigation(self) -> None:
         self.cancel_calls += 1
-        self._task_active = False
+        self._status.task_active = False
+        self._status.last_result_succeeded = False
+        self._status.last_result = NavigationResult(
+            action_name="MockNav2Bridge",
+            status=NavigationTerminalStatus.CANCELED,
+            succeeded=False,
+            cancel_requested=True
+        )
 
     async def inject_absolute_pose(self, pose_estimate: Any) -> None:
         self.injected_poses.append(pose_estimate)
 
     async def is_navigation_active(self) -> bool:
-        return self._task_active
+        return self._status.task_active
 
-    async def get_status(self) -> Any:
-        from src.navigation.models import NavigationStatus
-        return NavigationStatus(task_active=self._task_active)
+    async def get_status(self) -> NavigationStatus:
+        from dataclasses import replace
+        return replace(self._status)
 
-    async def get_last_result(self) -> Any:
-        return None
+    async def get_last_result(self) -> Optional[NavigationResult]:
+        return self._status.last_result
 
     async def close(self) -> None:
         self.started = False

@@ -66,14 +66,6 @@ class NavWaypoint:
 @dataclass(slots=True)
 class NavigationStatus:
     """
-    @TASK: Encapsular el estado observable de la tarea de navegacion activa en el bridge
-    @INPUT: Indicadores de tarea activa, resultado del ultimo plan y waypoint activo actual
-    @OUTPUT: Snapshot del estado compartido entre el hilo ROS 2 y las corrutinas async
-    @CONTEXT: Estado mutable compartido; acceso protegido por asyncio.Lock en el bridge.
-              No usar directamente; consultado via propiedades y metodos protegidos del bridge.
-    @SECURITY: Acceso siempre protegido por _status_lock (asyncio.Lock) para evitar race conditions
-               entre el hilo de spin ROS 2 y las corrutinas de asyncio.
-
     STEP 1: Registrar si hay una tarea Nav2 activa y resultado del ultimo plan ejecutado
     STEP 2: Mantener indice del waypoint activo para observabilidad y telemetria
     """

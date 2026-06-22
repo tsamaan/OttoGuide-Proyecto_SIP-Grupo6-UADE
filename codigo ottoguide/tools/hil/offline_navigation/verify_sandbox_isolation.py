@@ -93,6 +93,16 @@ WAYPOINT_FOLLOWER_SMOKE_TEST_FILE = (
     / "offline_navigation"
     / "smoke_test_offline_waypoint_follower.py"
 )
+DIRECT_NAV2_ACTION_BRIDGE_FILE = (
+    CODE_ROOT / "src" / "navigation" / "direct_nav2_action_bridge.py"
+)
+DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE = (
+    CODE_ROOT
+    / "tools"
+    / "hil"
+    / "offline_navigation"
+    / "smoke_test_direct_nav2_action_bridge.py"
+)
 BT_XML_FILE = CODE_ROOT / "config" / "navigation" / "bt" / "offline_navigate_to_pose.xml"
 
 # Fase 2H.0 — Reconciliacion de arquitecturas de navegacion y hardware. These
@@ -126,6 +136,8 @@ RUNTIME_SCAN_FILES = [
     BEHAVIOR_SERVER_SMOKE_TEST_FILE,
     BT_NAVIGATOR_SMOKE_TEST_FILE,
     WAYPOINT_FOLLOWER_SMOKE_TEST_FILE,
+    DIRECT_NAV2_ACTION_BRIDGE_FILE,
+    DIRECT_NAV2_ACTION_BRIDGE_SMOKE_TEST_FILE,
 ]
 EXPECTED_REAL_NAMESPACE = "offline_nav"
 
@@ -877,6 +889,45 @@ def check_architecture_reconciliation_contract(result: dict) -> None:
                     f"ARCHITECTURE_FORBIDDEN_IMPORT:{path.name}:{module_name}"
                 )
 
+def check_direct_nav2_action_bridge_contract(result: dict, files: list[Path]) -> None:
+    bridge_files = [DIRECT_NAV2_ACTION_BRIDGE_FILE]
+    for path in bridge_files:
+        if path not in files or not path.is_file():
+            continue
+        text = _read_text(path)
+        try:
+            tree = ast.parse(text, filename=str(path))
+        except SyntaxError:
+            result["errors"].append(f"DIRECT_BRIDGE_SYNTAX_ERROR:{path.name}")
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if "hardware" in alias.name or "nav2_simple_commander" in alias.name:
+                        result["errors"].append(f"DIRECT_BRIDGE_FORBIDDEN_IMPORT:{path.name}:{alias.name}")
+                    if "Twist" in alias.name:
+                        result["errors"].append(f"DIRECT_BRIDGE_FORBIDDEN_IMPORT:{path.name}:{alias.name}")
+            elif isinstance(node, ast.ImportFrom):
+                mod = node.module or ""
+                if "hardware" in mod or "nav2_simple_commander" in mod:
+                    result["errors"].append(f"DIRECT_BRIDGE_FORBIDDEN_IMPORT:{path.name}:{mod}")
+                for alias in node.names:
+                    if alias.name in ("BasicNavigator", "Twist", "nav2_simple_commander"):
+                        result["errors"].append(f"DIRECT_BRIDGE_FORBIDDEN_IMPORT:{path.name}:{alias.name}")
+            elif isinstance(node, ast.Call):
+                func_name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+                if func_name == "create_subscription":
+                    result["errors"].append(f"DIRECT_BRIDGE_FORBIDDEN_CALL:{path.name}:create_subscription")
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                val = node.value
+                for f_topic in ("/cmd_vel", "/cmd_vel_nav", "/offline_nav/cmd_vel_raw", "/offline_nav/cmd_vel_safe"):
+                    if val == f_topic:
+                        result["errors"].append(f"DIRECT_BRIDGE_FORBIDDEN_TOPIC:{path.name}:{val}")
+            elif isinstance(node, ast.Name):
+                if node.id in ("BasicNavigator", "Twist"):
+                    result["errors"].append(f"DIRECT_BRIDGE_FORBIDDEN_NAME:{path.name}:{node.id}")
+
 
 def verify(runtime: bool = False) -> dict:
     result = {
@@ -905,6 +956,7 @@ def verify(runtime: bool = False) -> dict:
     check_bt_navigator_contract(result)
     check_waypoint_follower_contract(result)
     check_architecture_reconciliation_contract(result)
+    check_direct_nav2_action_bridge_contract(result, files_to_scan)
 
     result["checked_files"] = sorted(set(result["checked_files"]) | {str(p) for p in files_to_scan if p.is_file()})
     result["errors"] = sorted(set(result["errors"]))

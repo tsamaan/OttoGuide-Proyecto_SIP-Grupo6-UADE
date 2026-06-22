@@ -316,6 +316,14 @@ class AsyncNav2Bridge:
 
         if not waypoints:
             LOGGER.warning("[Nav2Bridge] navigate_to_waypoints recibio lista vacia.")
+            async with self._status_lock:
+                from src.navigation.models import NavigationResult, NavigationTerminalStatus
+                self._nav_status.last_result = NavigationResult(
+                    action_name="LegacyNav2Bridge",
+                    status=NavigationTerminalStatus.SUCCEEDED,
+                    succeeded=True
+                )
+                self._nav_status.last_result_succeeded = True
             return True
 
         async with self._status_lock:
@@ -405,6 +413,14 @@ class AsyncNav2Bridge:
         async with self._status_lock:
             self._nav_status.task_active = False
             self._nav_status.last_result_succeeded = False
+            from src.navigation.models import NavigationResult, NavigationTerminalStatus
+            self._nav_status.last_result = NavigationResult(
+                action_name="LegacyNav2Bridge",
+                status=NavigationTerminalStatus.CANCELED,
+                succeeded=False,
+                cancel_requested=True,
+                cancel_accepted=None
+            )
 
         if not self._nav_complete_event.is_set():
             self._nav_complete_event.set()
@@ -697,6 +713,13 @@ class AsyncNav2Bridge:
         """
         self._nav_status.task_active = False
         self._nav_status.last_result_succeeded = succeeded
+        from src.navigation.models import NavigationResult, NavigationTerminalStatus
+        status = NavigationTerminalStatus.SUCCEEDED if succeeded else NavigationTerminalStatus.ABORTED
+        self._nav_status.last_result = NavigationResult(
+            action_name="LegacyNav2Bridge",
+            status=status,
+            succeeded=succeeded
+        )
 
     def _cancel_nav_sync(self) -> None:
         """
