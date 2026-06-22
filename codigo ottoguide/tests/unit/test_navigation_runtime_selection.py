@@ -25,7 +25,9 @@ from __future__ import annotations
 import asyncio
 import importlib
 import importlib.util
+import subprocess
 import sys
+import textwrap
 import types
 import unittest
 from pathlib import Path
@@ -98,6 +100,109 @@ def _fresh_import_main():
     return main, installed
 
 
+def _fake_settings(**overrides) -> SimpleNamespace:
+    """Minimal SimpleNamespace replacing config.settings.Settings.
+
+    All field defaults match Settings defaults so this can be swapped in
+    transparently.  validate_navigation_config() is a no-op; Pydantic
+    validation is exercised separately in NavigationConfigValidationTests.
+    """
+    fields: dict = dict(
+        NAVIGATION_BACKEND="auto",
+        ROBOT_MODE="real",
+        NAVIGATION_DIRECT_REAL_ENABLED=False,
+        NAVIGATION_ALLOW_STUB_TOURS=False,
+        NAVIGATION_NODE_NAME="direct_nav2_action_node",
+        NAVIGATION_NAMESPACE="offline_nav",
+        NAVIGATION_NTP_ACTION="/offline_nav/navigate_to_pose",
+        NAVIGATION_FW_ACTION="/offline_nav/follow_waypoints",
+        NAVIGATION_INITIAL_POSE_TOPIC="/initialpose",
+        NAVIGATION_SERVER_TIMEOUT_S=30.0,
+        NAVIGATION_GOAL_RESPONSE_TIMEOUT_S=10.0,
+        NAVIGATION_RESULT_TIMEOUT_S=300.0,
+        NAVIGATION_CANCEL_RESPONSE_TIMEOUT_S=5.0,
+        NAVIGATION_CANCEL_TERMINAL_TIMEOUT_S=10.0,
+        OLLAMA_MODEL="qwen2.5-vl",
+        OLLAMA_HOST="http://localhost:11434",
+        UNITREE_FACTORY_BASE_URL="http://192.168.12.1:9991",
+        UNITREE_FACTORY_TIMEOUT_S=5.0,
+        UNITREE_FACTORY_DIAGNOSTICS_ENABLED=False,
+    )
+    fields.update(overrides)
+    ns = SimpleNamespace(**fields)
+    ns.validate_navigation_config = lambda: None
+    return ns
+
+
+def _install_router_fakes() -> dict:
+    """If fastapi is absent, install minimal fakes to allow api.router import.
+    Returns names actually installed (only what this call added), for symmetric
+    cleanup via _remove_router_fakes.  Current environments have fastapi
+    installed, so this is a no-op in practice."""
+    # If api.router is already cached, no fakes are ever needed.
+    if "api.router" in sys.modules:
+        return {}
+    # find_spec raises ValueError when a module is in sys.modules with
+    # __spec__=None (e.g. after user-site installs on some platforms).
+    # Fall back to a direct sys.modules probe in that case.
+    try:
+        fastapi_found = importlib.util.find_spec("fastapi") is not None
+    except (ValueError, ModuleNotFoundError):
+        fastapi_found = (
+            "fastapi" in sys.modules and sys.modules.get("fastapi") is not None
+        )
+    if fastapi_found:
+        return {}
+
+    installed: dict = {}
+
+    if "fastapi" not in sys.modules:
+        fake_fastapi = types.ModuleType("fastapi")
+
+        class _APIRouter:
+            def post(self, *a, **kw): return lambda f: f
+            def get(self, *a, **kw): return lambda f: f
+            def websocket(self, *a, **kw): return lambda f: f
+
+        fake_fastapi.APIRouter = _APIRouter
+        fake_fastapi.BackgroundTasks = MagicMock
+        fake_fastapi.Depends = lambda f=None: f
+        fake_fastapi.HTTPException = Exception
+        fake_fastapi.Request = MagicMock
+        fake_fastapi.WebSocket = MagicMock
+        fake_fastapi.WebSocketDisconnect = Exception
+        fake_fastapi.status = SimpleNamespace(
+            HTTP_200_OK=200, HTTP_202_ACCEPTED=202, HTTP_404_NOT_FOUND=404,
+            HTTP_409_CONFLICT=409, HTTP_422_UNPROCESSABLE_ENTITY=422,
+            HTTP_500_INTERNAL_SERVER_ERROR=500, HTTP_503_SERVICE_UNAVAILABLE=503,
+        )
+        sys.modules["fastapi"] = fake_fastapi
+        installed["fastapi"] = True
+
+    if "statemachine" not in sys.modules:
+        fake_sm = types.ModuleType("statemachine")
+        sys.modules["statemachine"] = fake_sm
+        installed["statemachine"] = True
+    if "statemachine.exceptions" not in sys.modules:
+        fake_sm_exc = types.ModuleType("statemachine.exceptions")
+        fake_sm_exc.TransitionNotAllowed = Exception
+        sys.modules["statemachine.exceptions"] = fake_sm_exc
+        installed["statemachine.exceptions"] = True
+
+    if "src.api.websocket_manager" not in sys.modules:
+        fake_ws = types.ModuleType("src.api.websocket_manager")
+        fake_ws.TelemetryManager = MagicMock
+        sys.modules["src.api.websocket_manager"] = fake_ws
+        installed["src.api.websocket_manager"] = True
+
+    return installed
+
+
+def _remove_router_fakes(installed: dict) -> None:
+    for name in installed:
+        sys.modules.pop(name, None)
+
+
 class _FakeHardware:
     def __init__(self, *, state: Optional[dict] = None, initialize_exc: Optional[Exception] = None):
         self.initialize = AsyncMock(side_effect=initialize_exc)
@@ -130,6 +235,21 @@ class _FakeNavBridge:
         )
         self.get_status = AsyncMock(return_value=self._status)
         self.get_last_result = AsyncMock(return_value=None)
+
+
+class _FakeNavBridgeNoStatus:
+    """NavigationPort-shaped fake without get_status — exercises the fail-closed
+    absent-method path added in Phase 2H.2.1."""
+    def __init__(self):
+        self.start = AsyncMock()
+        self.close = AsyncMock()
+        self.navigate_to_waypoints = AsyncMock(return_value=True)
+        self.send_goal = AsyncMock(return_value=True)
+        self.cancel_navigation = AsyncMock()
+        self.inject_absolute_pose = AsyncMock()
+        self.is_navigation_active = AsyncMock(return_value=False)
+        self.get_last_result = AsyncMock(return_value=None)
+        # deliberately no get_status attribute
 
 
 class _FakeState:
@@ -235,7 +355,6 @@ class DirectRealInterlockTests(unittest.TestCase):
 # _build_navigation_bridge
 # ---------------------------------------------------------------------------
 
-@unittest.skipUnless(_PYDANTIC_SETTINGS_AVAILABLE, _SKIP_REASON)
 class NavigationBridgeFactoryTests(unittest.TestCase):
     def setUp(self):
         self.main, self._mocks = _fresh_import_main()
@@ -256,7 +375,7 @@ class NavigationBridgeFactoryTests(unittest.TestCase):
         try:
             from src.navigation import AsyncNav2Bridge
 
-            settings = Settings(NAVIGATION_BACKEND="legacy")
+            settings = SimpleNamespace(NAVIGATION_BACKEND="legacy")
             bridge = self.main._build_navigation_bridge(settings, "legacy")
             self.assertIsInstance(bridge, AsyncNav2Bridge)
         finally:
@@ -270,7 +389,7 @@ class NavigationBridgeFactoryTests(unittest.TestCase):
     def test_direct_builds_direct_bridge_with_every_setting(self):
         from src.navigation import DirectNav2ActionBridge
 
-        settings = Settings(
+        settings = SimpleNamespace(
             NAVIGATION_BACKEND="direct",
             NAVIGATION_NODE_NAME="custom_node",
             NAVIGATION_NAMESPACE="custom_ns",
@@ -297,12 +416,12 @@ class NavigationBridgeFactoryTests(unittest.TestCase):
         self.assertEqual(bridge._cancel_terminal_timeout_s, 5.0)
 
     def test_stub_builds_minimal_nav_stub(self):
-        settings = Settings(NAVIGATION_BACKEND="stub")
+        settings = SimpleNamespace(NAVIGATION_BACKEND="stub")
         bridge = self.main._build_navigation_bridge(settings, "stub")
         self.assertIsInstance(bridge, self.main._MinimalNavStub)
 
     def test_unknown_resolved_backend_fails_closed(self):
-        settings = Settings()
+        settings = SimpleNamespace()
         with self.assertRaisesRegex(RuntimeError, "NAVIGATION_BACKEND_BUILD_FAILED:bogus"):
             self.main._build_navigation_bridge(settings, "bogus")
 
@@ -318,7 +437,7 @@ class NavigationBridgeFactoryTests(unittest.TestCase):
 
         navigation_pkg.__getattr__ = failing_getattr
         try:
-            settings = Settings()
+            settings = SimpleNamespace()
             with self.assertRaisesRegex(RuntimeError, "NAVIGATION_BACKEND_BUILD_FAILED:legacy"):
                 self.main._build_navigation_bridge(settings, "legacy")
         finally:
@@ -336,7 +455,7 @@ class NavigationBridgeFactoryTests(unittest.TestCase):
 
         navigation_pkg.__getattr__ = failing_getattr
         try:
-            settings = Settings()
+            settings = SimpleNamespace()
             with self.assertRaisesRegex(RuntimeError, "NAVIGATION_BACKEND_BUILD_FAILED:direct"):
                 self.main._build_navigation_bridge(settings, "direct")
         finally:
@@ -387,7 +506,6 @@ class NavigationConfigValidationTests(unittest.TestCase):
 # Fail-closed ordering: interlock before any hardware/ROS touch
 # ---------------------------------------------------------------------------
 
-@unittest.skipUnless(_PYDANTIC_SETTINGS_AVAILABLE, _SKIP_REASON)
 class FailClosedOrderTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.main, self._mocks = _fresh_import_main()
@@ -408,11 +526,10 @@ class FailClosedOrderTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_direct_real_latch_false_never_calls_hardware_adapter(self):
         app = _FakeApp()
-        settings = Settings(
+        settings = _fake_settings(
             ROBOT_MODE="real",
             NAVIGATION_BACKEND="direct",
             NAVIGATION_DIRECT_REAL_ENABLED=False,
-            ROBOT_NETWORK_INTERFACE="eth0",
         )
         get_hardware_adapter_mock = MagicMock(side_effect=AssertionError("must not be called"))
         self.main.get_settings = lambda: settings
@@ -432,7 +549,6 @@ class FailClosedOrderTests(unittest.IsolatedAsyncioTestCase):
 # Lifespan integration (direct backend, success / start failure / close failure)
 # ---------------------------------------------------------------------------
 
-@unittest.skipUnless(_PYDANTIC_SETTINGS_AVAILABLE, _SKIP_REASON)
 class LifespanDirectBackendTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.main, self._mocks = _fresh_import_main()
@@ -451,10 +567,10 @@ class LifespanDirectBackendTests(unittest.IsolatedAsyncioTestCase):
         _remove_interaction_dependency_mocks(self._mocks)
         _purge_app_modules()
 
-    def _settings(self, **overrides) -> Settings:
+    def _settings(self, **overrides) -> SimpleNamespace:
         base = dict(ROBOT_MODE="mock", NAVIGATION_BACKEND="direct")
         base.update(overrides)
-        return Settings(**base)
+        return _fake_settings(**base)
 
     async def test_success_path_starts_bridge_once_and_wires_same_instance(self):
         app = _FakeApp()
@@ -551,15 +667,18 @@ def _fake_orchestrator(*, state_id="idle", robot_mode="mock", hardware=None):
     return SimpleNamespace(state_id=state_id, _robot_mode=robot_mode, _hardware_api=hardware)
 
 
-@unittest.skipUnless(_FASTAPI_AVAILABLE, _FASTAPI_SKIP_REASON)
 class ReadinessTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self._router_fakes = _install_router_fakes()
         # NOT "import api.router as router": api/__init__.py does
         # "from .router import router", which rebinds the *attribute*
         # api.router on the package object to the APIRouter instance,
         # shadowing the submodule. importlib.import_module reads
         # sys.modules['api.router'] directly, returning the real module.
         self.router = importlib.import_module("api.router")
+
+    def tearDown(self):
+        _remove_router_fakes(self._router_fakes)
 
     def _state(self, **overrides):
         state = _FakeState()
@@ -626,20 +745,46 @@ class ReadinessTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(any("se requiere idle" in e for e in errors))
 
+    async def test_missing_get_status_blocks_readiness(self):
+        bridge = _FakeNavBridgeNoStatus()
+        state = self._state(
+            nav_bridge=bridge,
+            navigation_backend_resolved="direct",
+            navigation_started=True,
+        )
+        request = _FakeRequest(state)
+        errors = await self.router._resolve_readiness_errors(request, _fake_orchestrator())
+        self.assertIn("navigation status unavailable:missing", errors)
+
+    async def test_noncallable_get_status_blocks_readiness(self):
+        bridge = _FakeNavBridge()
+        bridge.get_status = "not_a_callable"
+        state = self._state(
+            nav_bridge=bridge,
+            navigation_backend_resolved="direct",
+            navigation_started=True,
+        )
+        request = _FakeRequest(state)
+        errors = await self.router._resolve_readiness_errors(request, _fake_orchestrator())
+        self.assertIn("navigation status unavailable:missing", errors)
+
 
 # ---------------------------------------------------------------------------
 # StatusResponse navigation observability (api/router.py)
 # ---------------------------------------------------------------------------
 
-@unittest.skipUnless(_FASTAPI_AVAILABLE, _FASTAPI_SKIP_REASON)
 class StatusObservabilityTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self._router_fakes = _install_router_fakes()
         # NOT "import api.router as router": api/__init__.py does
         # "from .router import router", which rebinds the *attribute*
         # api.router on the package object to the APIRouter instance,
         # shadowing the submodule. importlib.import_module reads
         # sys.modules['api.router'] directly, returning the real module.
         self.router = importlib.import_module("api.router")
+
+    def tearDown(self):
+        _remove_router_fakes(self._router_fakes)
 
     async def test_resolves_requested_resolved_started_and_status_fields(self):
         state = _FakeState()
@@ -687,6 +832,61 @@ class StatusObservabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(observability["navigation_backend_requested"], "unknown")
         self.assertEqual(observability["navigation_backend_resolved"], "unknown")
         self.assertFalse(observability["navigation_started"])
+
+    async def test_missing_get_status_marks_remote_state_unknown(self):
+        state = _FakeState()
+        state.navigation_backend_requested = "direct"
+        state.navigation_backend_resolved = "direct"
+        state.navigation_started = True
+        state.nav_bridge = _FakeNavBridgeNoStatus()
+        request = _FakeRequest(state)
+
+        observability = await self.router._resolve_navigation_observability(request)
+
+        self.assertTrue(observability["navigation_remote_state_unknown"])
+        self.assertIsNone(observability["navigation_action_name"])
+        self.assertIsNone(observability["navigation_goal_uuid"])
+
+
+# ---------------------------------------------------------------------------
+# Dependency-blocked import verification
+# ---------------------------------------------------------------------------
+
+class DependencyBlockedImportTests(unittest.TestCase):
+    """main.py must be importable even when uvicorn/fastapi/pydantic_settings/
+    statemachine/httpx are explicitly blocked in sys.modules."""
+
+    def test_main_importable_with_blocked_critical_dependencies(self):
+        script = textwrap.dedent(
+            f"""\
+            import sys
+            sys.path.insert(0, {str(CODE_ROOT)!r})
+            for _n in ('uvicorn', 'fastapi', 'pydantic_settings', 'statemachine', 'httpx'):
+                sys.modules[_n] = None
+            import types as _types
+            for _n in ('pyttsx3', 'speech_recognition', 'aiohttp'):
+                sys.modules[_n] = _types.ModuleType(_n)
+            import main
+            assert callable(getattr(main, '_resolve_navigation_backend', None)), \\
+                '_resolve_navigation_backend not accessible'
+            assert callable(getattr(main, '_check_direct_real_interlock', None)), \\
+                '_check_direct_real_interlock not accessible'
+            print('DEPENDENCY_BLOCKED_IMPORT=PASS')
+            """
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=str(CODE_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(
+            result.returncode, 0,
+            f"subprocess failed (exit {result.returncode}):\n"
+            f"stdout={result.stdout!r}\nstderr={result.stderr!r}",
+        )
+        self.assertIn("DEPENDENCY_BLOCKED_IMPORT=PASS", result.stdout)
 
 
 if __name__ == "__main__":

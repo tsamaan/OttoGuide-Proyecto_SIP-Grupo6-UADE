@@ -322,7 +322,9 @@ async def _resolve_navigation_observability(request: Request) -> dict:
     goal_uuid: Optional[str] = None
 
     get_status_fn = getattr(nav_bridge, "get_status", None)
-    if callable(get_status_fn):
+    if not callable(get_status_fn):
+        remote_state_unknown = True
+    else:
         try:
             nav_status = await asyncio.wait_for(get_status_fn(), timeout=0.25)
             remote_state_unknown = bool(getattr(nav_status, "remote_state_unknown", False))
@@ -381,7 +383,9 @@ async def _resolve_readiness_errors(request: Request, orchestrator) -> list[str]
             errors.append("navigation backend not started")
 
         get_status_fn = getattr(nav_bridge, "get_status", None)
-        if callable(get_status_fn):
+        if not callable(get_status_fn):
+            errors.append("navigation status unavailable:missing")
+        else:
             try:
                 nav_status = await asyncio.wait_for(get_status_fn(), timeout=0.25)
                 if getattr(nav_status, "remote_state_unknown", False):

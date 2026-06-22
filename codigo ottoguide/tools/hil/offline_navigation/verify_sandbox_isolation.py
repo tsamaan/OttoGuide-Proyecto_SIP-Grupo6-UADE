@@ -1123,6 +1123,17 @@ def check_direct_nav2_action_bridge_ownership_contract(result: dict, files: list
 
 
 NAVIGATION_SETTINGS_FILE = CODE_ROOT / "config" / "settings.py"
+ROUTER_FILE = CODE_ROOT / "api" / "router.py"
+NAVIGATION_SELECTION_TEST_FILE = (
+    CODE_ROOT / "tests" / "unit" / "test_navigation_runtime_selection.py"
+)
+CENTRAL_TEST_CLASSES_2H21 = frozenset({
+    "NavigationBridgeFactoryTests",
+    "FailClosedOrderTests",
+    "LifespanDirectBackendTests",
+    "ReadinessTests",
+    "StatusObservabilityTests",
+})
 
 MAIN_NAVIGATION_REQUIRED_FUNCTIONS = (
     "_resolve_navigation_backend",
@@ -1262,6 +1273,62 @@ def check_main_runtime_navigation_selection_contract(result: dict) -> None:
 
     if "/cmd_vel" in text:
         result["errors"].append("MAIN_NAVIGATION_FORBIDDEN_CMD_VEL_LITERAL")
+
+    # Phase 2H.2.1: uvicorn and fastapi must also never be imported at
+    # module scope in main.py (they belong inside create_app / lifespan only).
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in ("uvicorn", "fastapi") or alias.name.startswith("fastapi."):
+                    result["errors"].append(
+                        f"MAIN_NAVIGATION_EAGER_MODULE_IMPORT:{alias.name}"
+                    )
+        elif isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            if mod == "fastapi" or mod.startswith("fastapi."):
+                result["errors"].append("MAIN_NAVIGATION_EAGER_MODULE_IMPORT:fastapi")
+
+
+def check_readiness_fail_closed_missing_status_contract(result: dict) -> None:
+    """Fase 2H.2.1: _resolve_readiness_errors() en api/router.py debe bloquear
+    tours cuando get_status esta ausente o no es callable, emitiendo el error
+    literal 'navigation status unavailable:missing'.
+    """
+    result["checked_files"].append(str(ROUTER_FILE))
+    if not ROUTER_FILE.is_file():
+        result["errors"].append("ROUTER_FILE_MISSING")
+        return
+    text = _read_text(ROUTER_FILE)
+    if "navigation status unavailable:missing" not in text:
+        result["errors"].append("READINESS_MISSING_GET_STATUS_NOT_BLOCKED")
+
+
+def check_test_central_classes_no_broad_skip(result: dict) -> None:
+    """Fase 2H.2.1: las clases de test centrales (que no ejercitan el modelo
+    real de Pydantic Settings) no deben tener @skipUnless ni @skipIf.
+    Solo NavigationConfigValidationTests puede conservar un skip condicional.
+    """
+    result["checked_files"].append(str(NAVIGATION_SELECTION_TEST_FILE))
+    if not NAVIGATION_SELECTION_TEST_FILE.is_file():
+        result["errors"].append("NAVIGATION_SELECTION_TEST_FILE_MISSING")
+        return
+    text = _read_text(NAVIGATION_SELECTION_TEST_FILE)
+    try:
+        tree = ast.parse(text, filename=str(NAVIGATION_SELECTION_TEST_FILE))
+    except SyntaxError:
+        result["errors"].append("NAVIGATION_SELECTION_TEST_SYNTAX_ERROR")
+        return
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if node.name not in CENTRAL_TEST_CLASSES_2H21:
+            continue
+        for deco in node.decorator_list:
+            deco_src = ast.get_source_segment(text, deco) or ""
+            if "skipUnless" in deco_src or "skipIf" in deco_src:
+                result["errors"].append(
+                    f"CENTRAL_TEST_CLASS_HAS_BROAD_SKIP:{node.name}"
+                )
 
 
 def check_direct_nav2_action_bridge_close_degraded_contract(result: dict, files: list[Path]) -> None:
@@ -1434,6 +1501,8 @@ def verify(runtime: bool = False) -> dict:
     check_direct_nav2_action_bridge_smoke_hardening_contract(result, files_to_scan)
     check_navigation_backend_selector_contract(result)
     check_main_runtime_navigation_selection_contract(result)
+    check_readiness_fail_closed_missing_status_contract(result)
+    check_test_central_classes_no_broad_skip(result)
 
     result["checked_files"] = sorted(set(result["checked_files"]) | {str(p) for p in files_to_scan if p.is_file()})
     result["errors"] = sorted(set(result["errors"]))

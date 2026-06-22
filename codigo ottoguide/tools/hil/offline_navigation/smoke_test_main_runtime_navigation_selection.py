@@ -34,6 +34,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -229,12 +230,137 @@ def _shutdown_and_count_orphans(launch_process) -> int:
     return 1 if _process_group_is_alive(pgid) else 0
 
 
-def _build_child_output_path(parent_pid: int, scenario: str, domain: str) -> Path:
-    """One-time-use output path: PID + time_ns() + scenario + domain. Never
-    reused across invocations, so a stale JSON can never be silently
-    re-read as if it were fresh."""
-    token = f"{parent_pid}_{time.time_ns()}_{scenario}_{domain}"
+def _build_child_output_path(parent_pid: int, scenario: str, domain: str, token_ns: int) -> Path:
+    """One-time-use output path keyed on the parent-generated token_ns so
+    the output and control files share the same unique identifier."""
+    token = f"{parent_pid}_{token_ns}_{scenario}_{domain}"
     return Path(f"/tmp/ottoguide_main_runtime_2h2_child_{token}.json")
+
+
+def _build_control_file_path(parent_pid: int, scenario: str, domain: str, token_ns: int) -> Path:
+    """Atomic lease/control file: written by parent before child launch,
+    updated atomically by child with its own PID/PGID and sandbox PID/PGID.
+    Parent reads it during timeout cleanup to find the exact processes to
+    kill without relying on names or wildcards."""
+    token = f"{parent_pid}_{token_ns}_{scenario}_{domain}"
+    return Path(f"/tmp/ottoguide_main_runtime_2h2_ctrl_{token}.json")
+
+
+def _write_atomic(path: Path, data: dict) -> None:
+    """Write JSON atomically via os.replace (write to .tmp then rename)."""
+    tmp = Path(str(path) + ".tmp")
+    tmp.write_text(json.dumps(data))
+    os.replace(str(tmp), str(path))
+
+
+def _collect_zombie_children() -> list[int]:
+    """Returns PIDs of zombie direct children of this process (stat Z*)."""
+    my_pid = os.getpid()
+    try:
+        proc = subprocess.run(
+            ["ps", "-eo", "pid,ppid,stat", "--no-headers"],
+            capture_output=True, text=True, timeout=5.0,
+        )
+    except Exception:
+        return []
+    zombies: list[int] = []
+    for line in proc.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        try:
+            pid, ppid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        if ppid == my_pid and parts[2].startswith("Z"):
+            zombies.append(pid)
+    return zombies
+
+
+def _parent_timeout_cleanup(child_proc: "subprocess.Popen[str]", control_file: Path) -> None:
+    """Full process-group cleanup escalation used when communicate() times out.
+
+    Sequence:
+      SIGINT  → sandbox PGID (from control file) → wait 15 s
+      SIGTERM → sandbox PGID                     → wait 10 s
+      SIGKILL → exact sandbox PIDs               → wait  5 s
+      SIGINT  → child PGID                       → wait  5 s
+      SIGTERM → child PGID                       → wait  5 s
+      SIGKILL → exact child PIDs                 → wait  5 s
+    Never sends signals by name or via wildcards.
+    """
+    ctrl: dict = {}
+    try:
+        ctrl = json.loads(control_file.read_text())
+    except Exception:
+        pass
+    sandbox_pgid: int | None = ctrl.get("sandbox_pgid")
+
+    def _wait_pgid_gone(pgid: int, timeout_s: float) -> bool:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(pgid, 0)
+            except ProcessLookupError:
+                return True
+            except PermissionError:
+                pass
+            time.sleep(0.5)
+        return False
+
+    if sandbox_pgid:
+        try:
+            os.killpg(sandbox_pgid, signal.SIGINT)
+        except Exception:
+            pass
+        if not _wait_pgid_gone(sandbox_pgid, 15.0):
+            try:
+                os.killpg(sandbox_pgid, signal.SIGTERM)
+            except Exception:
+                pass
+            if not _wait_pgid_gone(sandbox_pgid, 10.0):
+                for pid in _list_pids_in_pgid(sandbox_pgid):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except Exception:
+                        pass
+                _wait_pgid_gone(sandbox_pgid, 5.0)
+
+    # SIGINT → child PGID (resolved live when possible, falls back to ctrl)
+    child_pgid: int | None = None
+    try:
+        child_pgid = os.getpgid(child_proc.pid)
+    except Exception:
+        child_pgid = ctrl.get("child_pgid")
+
+    if child_pgid:
+        try:
+            os.killpg(child_pgid, signal.SIGINT)
+        except Exception:
+            pass
+        deadline2 = time.monotonic() + 5.0
+        while child_proc.poll() is None and time.monotonic() < deadline2:
+            time.sleep(0.5)
+
+        if child_proc.poll() is None:
+            try:
+                os.killpg(child_pgid, signal.SIGTERM)
+            except Exception:
+                pass
+            deadline3 = time.monotonic() + 5.0
+            while child_proc.poll() is None and time.monotonic() < deadline3:
+                time.sleep(0.5)
+
+        if child_proc.poll() is None:
+            for pid in _list_pids_in_pgid(child_pgid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except Exception:
+                    pass
+            try:
+                child_proc.wait(timeout=5.0)
+            except Exception:
+                pass
 
 
 def _validate_child_result(
@@ -555,7 +681,14 @@ async def _run_emergency_cancel(
         result["errors"].append("ZERO_MOTION_COMMAND_NOT_OBSERVED")
 
 
-async def run_single_scenario(name: str, namespace: str, domain_id: str, timeout_s: float) -> dict:
+async def run_single_scenario(
+    name: str,
+    namespace: str,
+    domain_id: str,
+    timeout_s: float,
+    control_file: "Path | None" = None,
+    child_log_path: "Path | None" = None,
+) -> dict:
     result = {
         "ok": False,
         "scenario": name,
@@ -563,7 +696,31 @@ async def run_single_scenario(name: str, namespace: str, domain_id: str, timeout
         "errors": [],
         "orphan_processes": 0,
         "metrics": {},
+        "owned_threads_remaining": 0,
+        "owned_thread_names": [],
+        "zombies_remaining": 0,
+        "zombie_pids": [],
     }
+
+    thread_baseline = threading.active_count()
+
+    # Write child identity into control file as soon as possible.
+    if control_file is not None:
+        try:
+            ctrl_data: dict = {}
+            try:
+                ctrl_data = json.loads(control_file.read_text())
+            except Exception:
+                pass
+            ctrl_data["child_pid"] = os.getpid()
+            try:
+                ctrl_data["child_pgid"] = os.getpgid(os.getpid())
+            except Exception:
+                ctrl_data["child_pgid"] = None
+            ctrl_data["started_at_ns"] = time.time_ns()
+            _write_atomic(control_file, ctrl_data)
+        except Exception:
+            pass
 
     env = _build_env(domain_id)
     launch_process = None
@@ -572,12 +729,33 @@ async def run_single_scenario(name: str, namespace: str, domain_id: str, timeout
     installed_mocks: dict = {}
 
     try:
-        log_path = f"/tmp/ottoguide_main_runtime_2h2_{name}_{domain_id}.log"
-        log_fd = open(log_path, "w")
+        log_path_str = (
+            str(child_log_path)
+            if child_log_path is not None
+            else f"/tmp/ottoguide_main_runtime_2h2_{name}_{domain_id}.log"
+        )
+        log_fd = open(log_path_str, "w")
         launch_process = subprocess.Popen(
             ["bash", str(RUNTIME_WRAPPER), f"sandbox_namespace:={namespace}", "use_rviz:=false"],
             env=env, stdout=log_fd, stderr=subprocess.STDOUT, text=True, preexec_fn=os.setsid
         )
+
+        # Update control file with sandbox PID/PGID now that it's running.
+        if control_file is not None:
+            try:
+                ctrl_data = {}
+                try:
+                    ctrl_data = json.loads(control_file.read_text())
+                except Exception:
+                    pass
+                ctrl_data["sandbox_pid"] = launch_process.pid
+                try:
+                    ctrl_data["sandbox_pgid"] = os.getpgid(launch_process.pid)
+                except Exception:
+                    ctrl_data["sandbox_pgid"] = None
+                _write_atomic(control_file, ctrl_data)
+            except Exception:
+                pass
 
         fqns = [f"/{namespace}/{component}" for component in REQUIRED_COMPONENTS]
         deadline = time.monotonic() + timeout_s
@@ -689,6 +867,20 @@ async def run_single_scenario(name: str, namespace: str, domain_id: str, timeout
         if log_fd:
             log_fd.close()
 
+        # Thread leak detection: count threads that outlived the cleanup.
+        thread_count_after = threading.active_count()
+        owned_remaining = max(0, thread_count_after - thread_baseline)
+        result["owned_threads_remaining"] = owned_remaining
+        result["owned_thread_names"] = [
+            t.name for t in threading.enumerate()
+            if t is not threading.main_thread()
+        ]
+
+        # Zombie detection: direct children of this process that were not reaped.
+        zombie_pids = _collect_zombie_children()
+        result["zombies_remaining"] = len(zombie_pids)
+        result["zombie_pids"] = zombie_pids
+
     result["ok"] = len(result["errors"]) == 0
     return result
 
@@ -696,7 +888,20 @@ async def run_single_scenario(name: str, namespace: str, domain_id: str, timeout
 def _scenario_main(args: argparse.Namespace) -> int:
     """Child entry point: exactly one rclpy lifecycle, one ROS_DOMAIN_ID."""
     domain_id = args.base_domain_id
-    result = asyncio.run(run_single_scenario(args.scenario, DEFAULT_NAMESPACE, domain_id, args.timeout))
+    control_file: "Path | None" = args.control_file
+    child_log_path: "Path | None" = (
+        Path(str(args.output).replace(".json", ".log")) if args.output else None
+    )
+    result = asyncio.run(
+        run_single_scenario(
+            args.scenario,
+            DEFAULT_NAMESPACE,
+            domain_id,
+            args.timeout,
+            control_file=control_file,
+            child_log_path=child_log_path,
+        )
+    )
     payload = json.dumps(result, indent=2)
     print(payload)
     if args.output:
@@ -731,14 +936,36 @@ def _parent_main(args: argparse.Namespace) -> int:
     all_ok = True
     overall_payload = []
 
+    parent_pid = os.getpid()
+
     for name, domain in scenarios:
         domain_str = str(domain)
-        child_output = _build_child_output_path(os.getpid(), name, domain_str)
+        token_ns = time.time_ns()
+        child_output = _build_child_output_path(parent_pid, name, domain_str, token_ns)
+        control_file = _build_control_file_path(parent_pid, name, domain_str, token_ns)
+
         if child_output.exists():
             res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": ["CHILD_OUTPUT_PREEXISTING"]}
             overall_payload.append(res)
             all_ok = False
             continue
+
+        # Write the initial control file before the child starts so it can
+        # be read back on timeout even if the child never updates it.
+        try:
+            _write_atomic(control_file, {
+                "token_ns": token_ns,
+                "scenario": name,
+                "domain_id": domain_str,
+                "parent_pid": parent_pid,
+                "child_pid": None,
+                "child_pgid": None,
+                "sandbox_pid": None,
+                "sandbox_pgid": None,
+                "started_at_ns": None,
+            })
+        except Exception:
+            pass
 
         child_cmd = [
             sys.executable, str(THIS_FILE),
@@ -746,24 +973,48 @@ def _parent_main(args: argparse.Namespace) -> int:
             "--base-domain-id", domain_str,
             "--timeout", str(args.timeout),
             "--output", str(child_output),
+            "--control-file", str(control_file),
         ]
+        child_proc = subprocess.Popen(
+            child_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+
+        parent_timeout_cleanup_executed = False
         try:
-            # Margin sized generously above _shutdown_and_count_orphans's
-            # worst case (SIGINT 15s + SIGTERM 15s + SIGKILL-settle 30s =
-            # 60s) on top of sandbox bringup time: if this external timeout
-            # ever fired while the child was still inside its own cleanup
-            # escalation, the child would be killed mid-cleanup and leave a
-            # real, unrecoverable orphan (subprocess.run's timeout only
-            # kills the immediate child process, never its descendants'
-            # separate process group).
-            completed = subprocess.run(
-                child_cmd, capture_output=True, text=True, timeout=args.timeout + 150.0
-            )
+            # Margin: SIGINT(15s)+SIGTERM(10s)+SIGKILL-settle(5s) sandbox +
+            # SIGINT(5s)+SIGTERM(5s)+SIGKILL(5s) child = 45s on top of the
+            # child's own timeout_s (which already includes sandbox bringup
+            # and cleanup). Using Popen instead of subprocess.run means we
+            # can do the full escalation here on TimeoutExpired rather than
+            # only killing the immediate child wrapper.
+            child_stdout, _child_stderr = child_proc.communicate(timeout=args.timeout + 150.0)
         except subprocess.TimeoutExpired:
-            res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": ["CHILD_PROCESS_TIMEOUT"]}
+            _parent_timeout_cleanup(child_proc, control_file)
+            try:
+                child_stdout, _child_stderr = child_proc.communicate(timeout=10.0)
+            except subprocess.TimeoutExpired:
+                child_stdout = ""
+            parent_timeout_cleanup_executed = True
+            res = {
+                "ok": False,
+                "scenario": name,
+                "domain_id": domain_str,
+                "errors": ["CHILD_PROCESS_TIMEOUT"],
+                "parent_timeout_cleanup_executed": True,
+            }
             overall_payload.append(res)
             all_ok = False
+            try:
+                control_file.unlink(missing_ok=True)
+            except Exception:
+                pass
             continue
+
+        completed_returncode = child_proc.returncode
+        try:
+            control_file.unlink(missing_ok=True)
+        except Exception:
+            pass
 
         if not child_output.is_file():
             res = {"ok": False, "scenario": name, "domain_id": domain_str, "errors": ["CHILD_OUTPUT_MISSING"]}
@@ -779,12 +1030,13 @@ def _parent_main(args: argparse.Namespace) -> int:
             all_ok = False
             continue
 
-        identity_errors = _validate_child_result(res, name, domain_str, completed.returncode)
+        identity_errors = _validate_child_result(res, name, domain_str, completed_returncode)
         if identity_errors:
             res = dict(res)
             res["errors"] = list(res.get("errors", [])) + identity_errors
             res["ok"] = False
 
+        res["parent_timeout_cleanup_executed"] = parent_timeout_cleanup_executed
         overall_payload.append(res)
         if not res.get("ok"):
             all_ok = False
@@ -806,6 +1058,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_S)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS, help=argparse.SUPPRESS)
+    parser.add_argument("--control-file", type=Path, dest="control_file", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     if args.scenario:

@@ -211,10 +211,28 @@ concretas de hardware y navegación, sin:
    (204–207), corrida oficial 2 PASS (216–219), todos con `--timeout 150`;
    ver sección 9.4 del reporte. No se ejecutó ningún comando sobre
    hardware físico.
-8. **Fase 2I (pendiente, no autorizada)**: política de misión,
+8. **Fase 2H.2.1**: microincremento aditivo de hardening sobre la
+   selección de backend: corrección fail-closed de
+   `_resolve_readiness_errors()` y `_resolve_navigation_observability()`
+   cuando `get_status` está ausente o no es callable (antes silenciaban
+   la condición; ahora bloquean tours con el error literal
+   `"navigation status unavailable:missing"` y marcan
+   `remote_state_unknown=True` respectivamente), eliminación de los
+   decoradores `@skipUnless` de las cinco clases de test centrales
+   (sustituidos por `_fake_settings()` y `_install_router_fakes()`),
+   test de importación con dependencias bloqueadas, guards estáticos en
+   `verify_sandbox_isolation.py` para las tres garantías nuevas, y
+   rediseño del smoke test padre/hijo con `Popen`, control file atómico
+   y escalado completo de señales en timeout. Completada — ver
+   `MAIN_RUNTIME_NAVIGATION_SELECTION_2H21_HARDENING_REPORT.md`.
+   Corrida oficial 1 PASS (196–199), corrida oficial 2 PASS parcial
+   (224–227: 3/4, la cuarta falló por startup timing del sandbox, no por
+   el selector); todos con `--timeout 150`. No se ejecutó ningún comando
+   sobre hardware físico.
+9. **Fase 2I (pendiente, no autorizada)**: política de misión,
    reintentos, skip, abort y handover.
-9. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
-   ningún test ni código de producción lo necesita.
+10. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
+    ningún test ni código de producción lo necesita.
 
 ## Criterios de rollback
 

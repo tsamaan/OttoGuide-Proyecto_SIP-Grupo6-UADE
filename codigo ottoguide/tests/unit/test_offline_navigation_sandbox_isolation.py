@@ -3495,6 +3495,182 @@ class MainRuntimeNavigationSelectionContractTests(unittest.TestCase):
                 checker.ARCHITECTURE_MAIN_FILE = saved
         self.assertIn("MAIN_NAVIGATION_FORBIDDEN_CMD_VEL_LITERAL", result["errors"])
 
+    def test_rejects_eager_module_level_uvicorn_import(self):
+        source = (
+            "import uvicorn\n"
+            "\n"
+            "def _resolve_navigation_backend(settings):\n"
+            "    return 'legacy'\n"
+            "\n"
+            "def _check_direct_real_interlock(settings, resolved_backend):\n"
+            "    pass\n"
+            "\n"
+            "def _build_navigation_bridge(settings, resolved_backend):\n"
+            "    raise RuntimeError('NAVIGATION_BACKEND_BUILD_FAILED:x:x')\n"
+        )
+        with self._temp_file(source) as tmp_file:
+            saved = checker.ARCHITECTURE_MAIN_FILE
+            checker.ARCHITECTURE_MAIN_FILE = tmp_file
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_main_runtime_navigation_selection_contract(result)
+            finally:
+                checker.ARCHITECTURE_MAIN_FILE = saved
+        self.assertIn("MAIN_NAVIGATION_EAGER_MODULE_IMPORT:uvicorn", result["errors"])
+
+    def test_rejects_eager_module_level_fastapi_import(self):
+        source = (
+            "from fastapi import FastAPI\n"
+            "\n"
+            "def _resolve_navigation_backend(settings):\n"
+            "    return 'legacy'\n"
+            "\n"
+            "def _check_direct_real_interlock(settings, resolved_backend):\n"
+            "    pass\n"
+            "\n"
+            "def _build_navigation_bridge(settings, resolved_backend):\n"
+            "    raise RuntimeError('NAVIGATION_BACKEND_BUILD_FAILED:x:x')\n"
+        )
+        with self._temp_file(source) as tmp_file:
+            saved = checker.ARCHITECTURE_MAIN_FILE
+            checker.ARCHITECTURE_MAIN_FILE = tmp_file
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_main_runtime_navigation_selection_contract(result)
+            finally:
+                checker.ARCHITECTURE_MAIN_FILE = saved
+        self.assertIn("MAIN_NAVIGATION_EAGER_MODULE_IMPORT:fastapi", result["errors"])
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
+class ReadinessFailClosedMissingStatusContractTests(unittest.TestCase):
+    """Fase 2H.2.1: check_readiness_fail_closed_missing_status_contract()
+    verifica que api/router.py bloquee tours cuando get_status esta ausente."""
+
+    def test_real_router_passes_fail_closed_contract(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_readiness_fail_closed_missing_status_contract(result)
+        self.assertNotIn(
+            "READINESS_MISSING_GET_STATUS_NOT_BLOCKED",
+            result["errors"],
+            "Real router.py must contain the fail-closed 'navigation status unavailable:missing' string.",
+        )
+        self.assertNotIn("ROUTER_FILE_MISSING", result["errors"])
+
+    def test_rejects_router_missing_status_string(self):
+        source = (
+            "# synthetic api/router.py — missing the fail-closed error string\n"
+            "async def _resolve_readiness_errors(request, orchestrator):\n"
+            "    errors = []\n"
+            "    return errors\n"
+        )
+        with self._temp_file(source) as tmp_file:
+            saved = checker.ROUTER_FILE
+            checker.ROUTER_FILE = tmp_file
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_readiness_fail_closed_missing_status_contract(result)
+            finally:
+                checker.ROUTER_FILE = saved
+        self.assertIn("READINESS_MISSING_GET_STATUS_NOT_BLOCKED", result["errors"])
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
+class CentralClassesNoBroadSkipContractTests(unittest.TestCase):
+    """Fase 2H.2.1: check_test_central_classes_no_broad_skip()
+    verifica que las clases centrales de test no tengan @skipUnless/@skipIf."""
+
+    def test_real_test_file_passes_no_broad_skip_contract(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_test_central_classes_no_broad_skip(result)
+        broad_skip_errors = [e for e in result["errors"] if "CENTRAL_TEST_CLASS_HAS_BROAD_SKIP" in e]
+        self.assertEqual(
+            broad_skip_errors,
+            [],
+            f"Real test file must have no broad-skip on central classes; got: {broad_skip_errors}",
+        )
+        self.assertNotIn("NAVIGATION_SELECTION_TEST_FILE_MISSING", result["errors"])
+
+    def test_rejects_central_class_with_skip_unless(self):
+        source = (
+            "import unittest\n"
+            "\n"
+            "@unittest.skipUnless(True, 'reason')\n"
+            "class ReadinessTests(unittest.TestCase):\n"
+            "    def test_something(self):\n"
+            "        pass\n"
+        )
+        with self._temp_file(source) as tmp_file:
+            saved = checker.NAVIGATION_SELECTION_TEST_FILE
+            checker.NAVIGATION_SELECTION_TEST_FILE = tmp_file
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_test_central_classes_no_broad_skip(result)
+            finally:
+                checker.NAVIGATION_SELECTION_TEST_FILE = saved
+        self.assertIn("CENTRAL_TEST_CLASS_HAS_BROAD_SKIP:ReadinessTests", result["errors"])
+
+    def test_rejects_central_class_with_skip_if(self):
+        source = (
+            "import unittest\n"
+            "\n"
+            "@unittest.skipIf(True, 'reason')\n"
+            "class StatusObservabilityTests(unittest.TestCase):\n"
+            "    def test_something(self):\n"
+            "        pass\n"
+        )
+        with self._temp_file(source) as tmp_file:
+            saved = checker.NAVIGATION_SELECTION_TEST_FILE
+            checker.NAVIGATION_SELECTION_TEST_FILE = tmp_file
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_test_central_classes_no_broad_skip(result)
+            finally:
+                checker.NAVIGATION_SELECTION_TEST_FILE = saved
+        self.assertIn("CENTRAL_TEST_CLASS_HAS_BROAD_SKIP:StatusObservabilityTests", result["errors"])
+
+    def test_non_central_class_with_skip_unless_is_allowed(self):
+        source = (
+            "import unittest\n"
+            "\n"
+            "@unittest.skipUnless(True, 'reason')\n"
+            "class NavigationConfigValidationTests(unittest.TestCase):\n"
+            "    def test_something(self):\n"
+            "        pass\n"
+        )
+        with self._temp_file(source) as tmp_file:
+            saved = checker.NAVIGATION_SELECTION_TEST_FILE
+            checker.NAVIGATION_SELECTION_TEST_FILE = tmp_file
+            try:
+                result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+                checker.check_test_central_classes_no_broad_skip(result)
+            finally:
+                checker.NAVIGATION_SELECTION_TEST_FILE = saved
+        broad_skip_errors = [e for e in result["errors"] if "CENTRAL_TEST_CLASS_HAS_BROAD_SKIP" in e]
+        self.assertEqual(
+            broad_skip_errors,
+            [],
+            "NavigationConfigValidationTests is not a central class and its skip must not be flagged.",
+        )
+
     @contextmanager
     def _temp_file(self, content: str):
         fd, path = tempfile.mkstemp(suffix=".py")

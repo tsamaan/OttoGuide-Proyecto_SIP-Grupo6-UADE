@@ -36,6 +36,7 @@ main.py / TourOrchestrator    = seleccionable via NAVIGATION_BACKEND=direct (Fas
 MAIN_RUNTIME_MIGRATED         = NO (default ROBOT_MODE=real sigue en legacy)
 LEGACY_NAVIGATION_RUNTIME_ACTIVE = YES (default sin cambio)
 Fase 2H.2                     = completada (selector offline, runtime validation PASS — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H2_REPORT.md)
+Fase 2H.2.1                   = completada (hardening fail-closed, tests, guards estáticos, smoke Popen — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H21_HARDENING_REPORT.md)
 L2_ODOMETRY                   = NOT_READY
 L3_LOCALIZATION_MAP           = NOT_READY
 PHYSICAL_NAVIGATION           = NOT_READY
@@ -54,7 +55,7 @@ ni por analogía con el sandbox offline; cada uno requiere su propia
 evidencia física.
 
 ```text
-NO-GO 1: Fase 2H.2 completada (RESOLVED — runtime validation PASS, 2026-06-22). Pendiente: auditoria de commit y push a main.
+NO-GO 1: RESOLVED_OFFLINE — Fase 2H.2 completada (runtime validation PASS, 2026-06-22) y Fase 2H.2.1 completada (hardening PASS, 2026-06-22). Pendiente: push a main y auditoría de chat principal.
 NO-GO 2: fuente física de odometría no validada (L2_ODOMETRY = NOT_READY)
 NO-GO 3: TF física incompleta o no medida (map->odom, odom->base_link,
          base_link->utlidar_lidar; este último requiere extrínseco medido,
@@ -149,8 +150,9 @@ P1 — Compatibilidad de interfaces y configuracion
      Estado: PENDING_PHYSICAL_VALIDATION.
 
 P2 — Integracion main.py/bridge
-     Exclusivamente despues de que la Fase 2H.2 este completada y
-     auditada (NO-GO 1). No iniciar antes.
+     Exclusivamente despues de que la Fase 2H.2 y 2H.2.1 esten
+     completadas y auditadas (NO-GO 1: RESOLVED_OFFLINE). No iniciar
+     antes de confirmacion via chat principal y push a main.
      Estado: PENDING_PHYSICAL_VALIDATION.
 
 P3 — Prueba fisica acotada
