@@ -1,6 +1,6 @@
 # Offline Navigation Sandbox — Runtime Runbook
 
-**Fase**: Fase 2G — base de runtime ROS aislada + planificación global + control local closed-loop + Collision Monitor + Behavior Server (`Wait`/`Spin`) + BT Navigator (`NavigateToPose`) + Waypoint Follower (`FollowWaypoints`) aislados, todos con evidencia validada. Los smoke tests de planner, controller, collision monitor, behavior server, BT Navigator y Waypoint Follower pasan por completo con éxito. No incluye `NavigateThroughPoses`, Simple Commander, el orquestador de misión de la aplicación paralela, ni los plugins `BackUp`/`DriveOnHeading`/`AssistedTeleop` de behavior_server.
+**Fase**: Fase 2G — base de runtime ROS aislada + planificación global + control local closed-loop + Collision Monitor + Behavior Server (`Wait`/`Spin`) + BT Navigator (`NavigateToPose`) + Waypoint Follower (`FollowWaypoints`) aislados, todos con evidencia validada. Los smoke tests de planner, controller, collision monitor, behavior server, BT Navigator y Waypoint Follower pasan por completo con éxito. No incluye `NavigateThroughPoses`, Simple Commander, el orquestador de misión de la aplicación paralela, ni los plugins `BackUp`/`DriveOnHeading`/`AssistedTeleop` de behavior_server. Las Fases 2H.1/2H.1.2 (ver sección dedicada más abajo) agregan `DirectNav2ActionBridge`, validado aislado y todavía no conectado a `main.py`.
 
 ## Alcance
 
@@ -161,6 +161,25 @@ El CLI deriva tres domain IDs consecutivos desde `--base-domain-id` (uno por esc
 - **Inalcanzable**: ruta de 3 waypoints donde el segundo (índice `1`) está deliberadamente fuera de los límites del mapa fixture (`UNREACHABLE_WAYPOINT_XY = (5.0, 5.0)`; los límites reales son `x ∈ [-1.0, 1.0]`, `y ∈ [-0.75, 0.75]`, confirmados por inspección directa de `offline_sandbox_test_map.pgm`/`.yaml`, no asumidos). Exige acción `ABORTED` (nunca `RESULT_TIMEOUT`, que jamás se reinterpreta como evidencia de fallo), `missed_waypoints == [1]`, `MissedWaypoint.error_code == 204` (`nav2_msgs/action/ComputePathToPose::GOAL_OUTSIDE_MAP`, confirmado localmente vía `ros2 interface show`), y que el feedback nunca progrese al waypoint índice `2` — prueba concreta de que `stop_on_failure=true` detiene la ruta en el punto de fallo.
 
 Validado en dos corridas completas e independientes (domain IDs `200`-`202` y `210`-`212`), sin cambios de código entre ellas, los tres escenarios en `PASS` en ambas corridas, sin tópicos prohibidos, sin nodos de hardware/Simple Commander, y sin procesos huérfanos. Cada escenario escribe su log de `ros2 launch` a un archivo dedicado bajo `/tmp` (`/tmp/ottoguide_waypoint_<escenario>_<domain>.log`) en vez de `stdout=subprocess.PIPE` sin consumidor, evitando que el buffer del pipe se llene y bloquee el proceso lanzado. `NOT_FOR_PHYSICAL_SAFETY_VALIDATION`. Detalle completo en [OFFLINE_NAVIGATION_WAYPOINT_FOLLOWER_REPORT.md](OFFLINE_NAVIGATION_WAYPOINT_FOLLOWER_REPORT.md).
+
+## DirectNav2ActionBridge — validado aislado, no conectado a `main.py`
+
+`DirectNav2ActionBridge` (`src/navigation/direct_nav2_action_bridge.py`) es un cliente `rclpy.action.ActionClient` directo contra `/offline_nav/navigate_to_pose` y `/offline_nav/follow_waypoints`, sin `BasicNavigator`/Simple Commander y sin publicar velocidad (solo `/initialpose`). Implementado y validado de forma aislada en las Fases 2H.1/2H.1.2; **no está conectado** a `main.py`/`TourOrchestrator` (`MAIN_RUNTIME_MIGRATED=NO`). Esa conexión es trabajo exclusivo de la Fase 2H.2, todavía no autorizada.
+
+```bash
+cd "codigo ottoguide"
+python3 tools/hil/offline_navigation/smoke_test_direct_nav2_action_bridge.py --base-domain-id 212 --timeout 120
+```
+
+El CLI público acepta únicamente `--base-domain-id`, `--timeout` y `--output`. Internamente, el proceso padre deriva cuatro `ROS_DOMAIN_ID` (offsets `0`-`3`) y lanza un proceso hijo aislado por escenario (flag interno `--scenario`, no expuesto en uso normal); cada hijo inicializa `rclpy` una sola vez, levanta el sandbox vía el wrapper, crea un `DirectNav2ActionBridge` y un observador de telemetría independiente (contexto/nodo/thread propios), y cierra todo antes de terminar. Prueba:
+- **NavigateToPose éxito** (offset `0`): objetivo dinámico `~0.50m` por delante de la pose inicial real. Exige `goal_accepted`, UUID no vacío, `feedback_count>0`, `>=2` muestras de `distance_remaining` con reducción neta, `SUCCEEDED`, telemetría `raw`/`safe` no-cero, `distance_moved>0.05m`, `final_goal_distance<0.12m`, twists finales en cero, pose estable.
+- **NavigateToPose cancelación** (offset `1`): objetivo `~1.5m`. No cancela hasta observar feedback, reducción de `distance_remaining>=0.02m` y desplazamiento real `>0.02m`. Exige `cancel_requested`/`cancel_accepted`, UUID coincidente con `goals_canceling`, terminal `CANCELED`, twists finales en cero, pose estable.
+- **FollowWaypoints éxito** (offset `2`): tres waypoints relativos `(0.30,0.00)`, `(0.30,0.20)`, `(0.00,0.20)`, interpretados como desplazamientos acumulativos (cada offset relativo al waypoint anterior) — misma resolución que usa, sin cambios, `smoke_test_offline_waypoint_follower.py` para idéntica tupla. Exige progresión de feedback normalizada exactamente `[0,1,2]`, `SUCCEEDED`, `missed_waypoints=[]`, telemetría no-cero, twists finales en cero, pose estable.
+- **FollowWaypoints inalcanzable** (offset `3`): waypoint 0 alcanzable, waypoint 1 absoluto `(5.0, 5.0)` (fuera del mapa), waypoint 2 alcanzable. Exige `ABORTED`, `missed_waypoints=[1]`, `error_code=204`/`GOAL_OUTSIDE_MAP`, feedback que nunca progresa al índice 2.
+
+Inspección real del grafo del nodo del bridge vía `ros2 node info /offline_nav/direct_nav2_action_bridge`: se exige que no tenga publishers/subscribers de ningún tópico de velocidad (`cmd_vel`/`cmd_vel_nav`/`cmd_vel_raw`/`cmd_vel_safe`), y se confirma disponibilidad de ambas acciones vía `ros2 action list`.
+
+Validado en dos corridas completas e independientes (domain IDs `220`-`223` y `224`-`227`), sin cambios de código entre ellas, los cuatro escenarios en `PASS` en ambas corridas, sin procesos huérfanos. Un intento intermedio sufrió una carrera de timing transitoria bajo carga WSL (mismo patrón documentado más abajo para otros componentes), resuelta repitiendo la corrida sin tocar código. `NOT_FOR_PHYSICAL_SAFETY_VALIDATION`. Detalle completo en [DIRECT_NAV2_ACTION_BRIDGE_2H1_REPORT.md](../../Arquitectura/DIRECT_NAV2_ACTION_BRIDGE_2H1_REPORT.md).
 
 ## Troubleshooting
 

@@ -142,9 +142,22 @@ concretas de hardware y navegación, sin:
      `get_last_result()`
    - El `bool` retornado será únicamente: `NavigationResult.succeeded`.
    - La migración de `main.py` al nuevo bridge NO pertenece a 2H.1.
-3. **Fase 2H.2**: seleccionar e inyectar el bridge en main.py.
-4. **Fase 2I**: política de misión, reintentos, skip, abort y handover.
-5. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
+3. **Fase 2H.1.2**: auditoría del commit publicado por 2H.1.1
+   (`49a998c`), corrección de defectos reales de ownership del estado
+   terminal, cancelación, timeouts y estado remoto desconocido en
+   `DirectNav2ActionBridge`, y evidencia runtime estricta de los cuatro
+   contratos (`NavigateToPose` éxito/cancelación,
+   `FollowWaypoints` éxito/inalcanzable) en dos corridas oficiales
+   independientes. Completada — ver
+   `DIRECT_NAV2_ACTION_BRIDGE_2H1_REPORT.md`. Sigue siendo
+   exclusivamente validación aislada: `DirectNav2ActionBridge` continúa
+   desconectado de `main.py`/`TourOrchestrator`.
+   `MAIN_RUNTIME_MIGRATED=NO`, `LEGACY_NAVIGATION_RUNTIME_ACTIVE=YES`.
+4. **Fase 2H.2 (pendiente, no autorizada)**: seleccionar e inyectar el
+   bridge en main.py.
+5. **Fase 2I (pendiente, no autorizada)**: política de misión,
+   reintentos, skip, abort y handover.
+6. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
    ningún test ni código de producción lo necesita.
 
 ## Criterios de rollback
@@ -169,7 +182,7 @@ concretas de hardware y navegación, sin:
 | Orquestador    | `TourOrchestrator`                                 | alternativas históricas                 | conservar FSM         |
 | HAL            | `hardware/`                                        | `src/hardware/`                         | `hardware/` canónico  |
 | MotionCommand  | `hardware.interface.MotionCommand`                 | `src.hardware.interface.MotionCommand`  | canónico único        |
-| Navegación     | futuro ActionClient directo                        | `AsyncNav2Bridge` + `BasicNavigator`    | migrar en 2H.1         |
+| Navegación     | `DirectNav2ActionBridge` (validado aislado, 2H.1.2) | `AsyncNav2Bridge` + `BasicNavigator`    | inyectar en 2H.2       |
 | Velocidad      | `cmd_vel_raw → collision_monitor → cmd_vel_safe`   | `/cmd_vel → /cmd_vel_nav`               | conservar sandbox      |
 | Waypoints      | `NavigateToPose` y `FollowWaypoints` según misión  | selección por `ROBOT_MODE`              | resolver en 2H.1        |
 | Fallo waypoint | política fail-closed pendiente                     | continuar actualmente                   | resolver en 2H.1/2I     |

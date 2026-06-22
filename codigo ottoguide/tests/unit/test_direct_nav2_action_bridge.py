@@ -159,12 +159,20 @@ class TestDirectNav2ActionBridge(unittest.IsolatedAsyncioTestCase):
         await self.bridge.cancel_navigation()
         self.assertFalse(self.bridge._cancel_requested)
 
-    async def test_15_close_idempotent(self):
+    async def test_15_close_reports_degraded_remote_state_and_is_then_idempotent(self):
+        loop = asyncio.get_running_loop()
+        res_future = loop.create_future()  # never resolves: result task never completes
         self.bridge._started = True
+        self.bridge._status.task_active = True
         self.bridge._active_goal_handle = MagicMock()
         self.bridge._active_goal_handle.cancel_goal_async.side_effect = Exception("err")
-        await self.bridge.close()
+        self.bridge._active_result_task = res_future
+
+        with self.assertRaisesRegex(RuntimeError, "DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN"):
+            await self.bridge.close()
         self.assertFalse(self.bridge._started)
+
+        # Second close: nothing left to cancel/wait on, must complete cleanly.
         await self.bridge.close()
 
     def test_16_create_pose_stamped(self):
@@ -413,6 +421,332 @@ class TestDirectNav2ActionBridge(unittest.IsolatedAsyncioTestCase):
         self.bridge._spin_thread.is_alive.return_value = True
         with self.assertRaisesRegex(RuntimeError, "DIRECT_BRIDGE_SPIN_THREAD_STILL_ALIVE"):
             await self.bridge.close()
+
+class TestDirectNav2ActionBridgeOwnershipAndTerminalSafety(unittest.IsolatedAsyncioTestCase):
+    """2H.1.2: ownership of terminal state, cancellation, timeouts and pose injection.
+
+    Reproduces and then verifies the fix for each defect confirmed in the
+    49a998c audit (see section 8 of the 2H.1.2 spec): self-await on timeout,
+    inferred cleanup from the local ERROR/TIMEOUT enum, missing CANCELED
+    enforcement on cancel, unsafe exception-after-acceptance handling,
+    unsafe goal-response timeout, and the silent ImportError on pose
+    injection.
+    """
+
+    def setUp(self):
+        self.bridge = DirectNav2ActionBridge(
+            server_timeout_s=0.1,
+            goal_response_timeout_s=0.1,
+            result_timeout_s=0.1,
+            cancel_response_timeout_s=0.1,
+            cancel_terminal_timeout_s=0.1
+        )
+
+    @staticmethod
+    def _accepted_cancel_response(uuid_str):
+        class MockGoalCancel:
+            goal_id = uuid_str
+        class MockCancelResponse:
+            return_code = 0
+            goals_canceling = [MockGoalCancel()]
+        return MockCancelResponse()
+
+    @staticmethod
+    def _cancel_goal_srv_module():
+        mock_srv = MagicMock()
+        mock_srv.CancelGoal.Response.ERROR_NONE = 0
+        return mock_srv
+
+    async def test_33_monitor_timeout_never_calls_public_cancel_navigation_and_is_bounded(self):
+        """1+2: the monitor's timeout path must not self-await via the
+        public cancel_navigation() (which would wait on this same task);
+        it must use the internal helper and stay bounded in time."""
+        self.bridge._started = True
+        self.bridge._status.task_active = True
+        self.bridge._active_goal_uuid = "uuidm"
+        self.bridge._active_goal_handle = MagicMock()
+
+        loop = asyncio.get_running_loop()
+        never_resolves = loop.create_future()
+        cancel_future = loop.create_future()
+        cancel_future.set_result(self._accepted_cancel_response("uuidm"))
+        self.bridge._ros_future_to_asyncio = lambda f: cancel_future
+        self.bridge.cancel_navigation = AsyncMock()
+
+        with patch.dict('sys.modules', {'action_msgs.srv': self._cancel_goal_srv_module()}):
+            start = loop.time()
+            res = await asyncio.wait_for(
+                self.bridge._result_monitor_task(MagicMock(), never_resolves, "test", "uuidm"),
+                timeout=2.0
+            )
+            elapsed = loop.time() - start
+
+        self.bridge.cancel_navigation.assert_not_called()
+        self.assertLess(elapsed, 2.0)
+        self.assertEqual(res.status, NavigationTerminalStatus.TIMEOUT)
+
+    async def test_34_cancel_terminal_not_canceled_raises(self):
+        """4: a confirmed terminal that is not CANCELED after an accepted
+        cancel must raise, never just warn."""
+        self.bridge._started = True
+        self.bridge._status.task_active = True
+        self.bridge._active_goal_uuid = "uuidx"
+        self.bridge._active_goal_handle = MagicMock()
+
+        loop = asyncio.get_running_loop()
+        cancel_future = loop.create_future()
+        cancel_future.set_result(self._accepted_cancel_response("uuidx"))
+        self.bridge._ros_future_to_asyncio = lambda f: cancel_future
+
+        res_future = loop.create_future()
+        res_future.set_result(NavigationResult("test", NavigationTerminalStatus.ABORTED, False))
+        self.bridge._active_result_task = res_future
+
+        with patch.dict('sys.modules', {'action_msgs.srv': self._cancel_goal_srv_module()}):
+            with self.assertRaisesRegex(RuntimeError, "CANCEL_TERMINAL_NOT_CANCELED"):
+                await self.bridge.cancel_navigation()
+
+    async def test_35_result_timeout_with_confirmed_cancel_yields_timeout_and_cleans_up(self):
+        """6: result timeout + accepted cancel + confirmed CANCELED terminal
+        produces a local TIMEOUT result and fully cleans up state."""
+        self.bridge._started = True
+        self.bridge._status.task_active = True
+        self.bridge._active_goal_uuid = "uuidt"
+        self.bridge._active_goal_handle = MagicMock()
+
+        loop = asyncio.get_running_loop()
+        result_future = loop.create_future()
+        cancel_future = loop.create_future()
+        cancel_future.set_result(self._accepted_cancel_response("uuidt"))
+        self.bridge._ros_future_to_asyncio = lambda f: cancel_future
+        self.bridge._map_goal_status = MagicMock(return_value=NavigationTerminalStatus.CANCELED)
+
+        async def resolve_later():
+            await asyncio.sleep(0.15)
+            if not result_future.done():
+                result_future.set_result(MagicMock())
+        asyncio.create_task(resolve_later())
+
+        with patch.dict('sys.modules', {'action_msgs.srv': self._cancel_goal_srv_module()}):
+            res = await asyncio.wait_for(
+                self.bridge._result_monitor_task(MagicMock(), result_future, "test", "uuidt"),
+                timeout=2.0
+            )
+
+        self.assertEqual(res.status, NavigationTerminalStatus.TIMEOUT)
+        self.assertFalse(self.bridge._status.task_active)
+        self.assertIsNone(self.bridge._active_goal_handle)
+        self.assertFalse(self.bridge._status.remote_state_unknown)
+
+    async def test_36_result_timeout_without_confirmed_cancel_keeps_task_active(self):
+        """7: result timeout with no confirmed terminal must keep the goal
+        marked active and the remote state explicitly unknown."""
+        self.bridge._started = True
+        self.bridge._status.task_active = True
+        self.bridge._active_goal_uuid = "uuidn"
+        self.bridge._active_goal_handle = MagicMock()
+
+        loop = asyncio.get_running_loop()
+        result_future = loop.create_future()  # never resolves, even on the secondary wait
+        cancel_future = loop.create_future()
+        cancel_future.set_result(self._accepted_cancel_response("uuidn"))
+        self.bridge._ros_future_to_asyncio = lambda f: cancel_future
+
+        with patch.dict('sys.modules', {'action_msgs.srv': self._cancel_goal_srv_module()}):
+            res = await asyncio.wait_for(
+                self.bridge._result_monitor_task(MagicMock(), result_future, "test", "uuidn"),
+                timeout=2.0
+            )
+
+        self.assertEqual(res.status, NavigationTerminalStatus.TIMEOUT)
+        self.assertTrue(self.bridge._status.task_active)
+        self.assertTrue(self.bridge._status.remote_state_unknown)
+        self.assertIsNotNone(self.bridge._active_goal_handle)
+
+    async def test_37_exception_after_acceptance_requests_cancel_and_keeps_active_without_terminal(self):
+        """8+9: an exception raised strictly after goal_handle.accepted=True
+        must request cancellation via the internal helper and, absent a
+        confirmed terminal, must keep the goal marked active (never cleaned
+        up by _execute_action's except block as a plain ERROR)."""
+        self.bridge._started = True
+        client = MagicMock()
+        loop = asyncio.get_running_loop()
+
+        accepted_handle = MagicMock()
+        accepted_handle.accepted = True
+        accepted_handle.goal_id = MagicMock(uuid=b'1234567890123456')
+        accepted_handle.get_result_async.side_effect = RuntimeError("get_result_async boom")
+
+        accept_future = loop.create_future()
+        accept_future.set_result(accepted_handle)
+
+        cancel_future = loop.create_future()
+        cancel_future.set_result(self._accepted_cancel_response(self.bridge._normalize_uuid(accepted_handle.goal_id)))
+
+        sentinel_cancel_raw = object()
+        accepted_handle.cancel_goal_async.return_value = sentinel_cancel_raw
+
+        def mock_ros_to_async(f):
+            return cancel_future if f is sentinel_cancel_raw else accept_future
+        self.bridge._ros_future_to_asyncio = mock_ros_to_async
+
+        with patch.dict('sys.modules', {
+            'uuid': MagicMock(), 'unique_identifier_msgs': MagicMock(), 'unique_identifier_msgs.msg': MagicMock(),
+            'action_msgs.srv': self._cancel_goal_srv_module()
+        }):
+            res = await self.bridge._execute_action(client, MagicMock(), "test", None)
+
+        self.assertEqual(res.status, NavigationTerminalStatus.ERROR)
+        accepted_handle.cancel_goal_async.assert_called_once()
+        self.assertTrue(self.bridge._status.task_active)
+        self.assertIsNotNone(self.bridge._active_goal_handle)
+        self.assertTrue(self.bridge._status.remote_state_unknown)
+
+    def test_38_finalize_result_error_without_terminal_confirmed_preserves_active_goal(self):
+        """10: _finalize_result must never infer a confirmed terminal from
+        the local ERROR/TIMEOUT enum value; only the explicit
+        terminal_confirmed flag governs cleanup."""
+        self.bridge._status.task_active = True
+        self.bridge._active_goal_handle = MagicMock()
+        self.bridge._active_goal_uuid = "uuid-keep"
+
+        self.bridge._finalize_result(
+            NavigationResult("test", NavigationTerminalStatus.ERROR, False),
+            terminal_confirmed=False
+        )
+
+        self.assertTrue(self.bridge._status.task_active)
+        self.assertIsNotNone(self.bridge._active_goal_handle)
+        self.assertEqual(self.bridge._active_goal_uuid, "uuid-keep")
+        self.assertTrue(self.bridge._status.remote_state_unknown)
+
+    async def test_39_goal_response_timeout_preserves_uuid_and_blocks_second_goal(self):
+        """11+12: goal-response timeout must preserve the locally generated
+        UUID for diagnostics and must block a second goal until close()."""
+        self.bridge._started = True
+        client = MagicMock()
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        self.bridge._ros_future_to_asyncio = lambda f: future
+        client.send_goal_async.return_value = future
+
+        with patch.dict('sys.modules', {'uuid': MagicMock(), 'unique_identifier_msgs': MagicMock(), 'unique_identifier_msgs.msg': MagicMock()}):
+            res = await self.bridge._execute_action(client, MagicMock(), "test", None)
+
+        self.assertEqual(res.status, NavigationTerminalStatus.TIMEOUT)
+        self.assertTrue(res.goal_uuid)
+        self.assertTrue(self.bridge._status.task_active)
+        self.assertTrue(self.bridge._status.remote_state_unknown)
+
+        with self.assertRaisesRegex(RuntimeError, "NAVIGATION_GOAL_ALREADY_ACTIVE"):
+            await self.bridge._execute_action(client, MagicMock(), "test2", None)
+
+    async def test_40_inject_absolute_pose_propagates_missing_dependency(self):
+        """13: a missing pose dependency must propagate explicitly, never
+        report silent success without publishing /initialpose."""
+        self.bridge._started = True
+        self.bridge._initial_pose_pub = MagicMock()
+        with patch.dict('sys.modules', {'cv2': None}):
+            with self.assertRaisesRegex(RuntimeError, "INITIAL_POSE_DEPENDENCY_UNAVAILABLE"):
+                await self.bridge.inject_absolute_pose(MagicMock())
+        self.bridge._initial_pose_pub.publish.assert_not_called()
+
+    async def test_41_late_callback_on_cancelled_future_does_not_raise(self):
+        """14: a ROS-thread callback firing after the asyncio future was
+        already cancelled must not raise asyncio.InvalidStateError."""
+        class MockRosFuture:
+            def __init__(self):
+                self.callbacks = []
+            def add_done_callback(self, cb):
+                self.callbacks.append(cb)
+            def result(self):
+                return "late result"
+
+        ros_f = MockRosFuture()
+        aio_f = self.bridge._ros_future_to_asyncio(ros_f)
+        aio_f.cancel()
+
+        loop = asyncio.get_running_loop()
+        captured = []
+        loop.set_exception_handler(lambda l, ctx: captured.append(ctx))
+        try:
+            for cb in ros_f.callbacks:
+                cb(ros_f)
+            await asyncio.sleep(0.01)
+        finally:
+            loop.set_exception_handler(None)
+
+        self.assertEqual(captured, [])
+        self.assertTrue(aio_f.cancelled())
+
+    async def test_42_callback_with_closed_loop_does_not_schedule_or_raise(self):
+        """15: a done_callback firing from the ROS spin thread after the
+        asyncio loop reports closed must not attempt to schedule on it."""
+        class MockRosFuture:
+            def __init__(self):
+                self.callbacks = []
+            def add_done_callback(self, cb):
+                self.callbacks.append(cb)
+            def result(self):
+                return "result"
+
+        ros_f = MockRosFuture()
+        aio_f = self.bridge._ros_future_to_asyncio(ros_f)
+
+        loop = asyncio.get_running_loop()
+        with patch.object(loop, 'is_closed', return_value=True):
+            with patch.object(loop, 'call_soon_threadsafe') as mock_schedule:
+                for cb in ros_f.callbacks:
+                    cb(ros_f)
+                mock_schedule.assert_not_called()
+
+        self.assertFalse(aio_f.done())
+
+    async def test_43_get_status_does_not_share_internal_status_instance(self):
+        """19: get_status() must never expose the live internal object;
+        mutating the returned copy must not affect bridge state."""
+        self.bridge._status.task_active = True
+        self.bridge._status.last_result = NavigationResult("test", NavigationTerminalStatus.SUCCEEDED, True)
+
+        st1 = await self.bridge.get_status()
+        st2 = await self.bridge.get_status()
+
+        self.assertIsNot(st1, st2)
+        self.assertIsNot(st1, self.bridge._status)
+        st1.task_active = False
+        st1.feedback_count = 999
+        self.assertTrue(self.bridge._status.task_active)
+        self.assertEqual(self.bridge._status.feedback_count, 0)
+
+    async def test_44_cancel_navigation_actually_awaits_monitor_completion(self):
+        """3: the public cancel_navigation() must genuinely await the
+        monitor task's completion, not return as soon as cancel is
+        accepted."""
+        self.bridge._started = True
+        self.bridge._status.task_active = True
+        self.bridge._active_goal_uuid = "uuidw"
+        self.bridge._active_goal_handle = MagicMock()
+
+        loop = asyncio.get_running_loop()
+        cancel_future = loop.create_future()
+        cancel_future.set_result(self._accepted_cancel_response("uuidw"))
+        self.bridge._ros_future_to_asyncio = lambda f: cancel_future
+
+        res_future = loop.create_future()
+        self.bridge._active_result_task = res_future
+
+        async def resolve_later():
+            await asyncio.sleep(0.05)
+            res_future.set_result(NavigationResult("test", NavigationTerminalStatus.CANCELED, False))
+        asyncio.create_task(resolve_later())
+
+        with patch.dict('sys.modules', {'action_msgs.srv': self._cancel_goal_srv_module()}):
+            start = loop.time()
+            await self.bridge.cancel_navigation()
+            elapsed = loop.time() - start
+
+        self.assertGreaterEqual(elapsed, 0.04)
+
 
 if __name__ == '__main__':
     unittest.main()

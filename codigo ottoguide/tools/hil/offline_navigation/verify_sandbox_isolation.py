@@ -13,6 +13,7 @@ import os
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Optional
 
 TOOLS_DIR = Path(__file__).resolve().parent
 CODE_ROOT = TOOLS_DIR.parents[2]
@@ -929,6 +930,79 @@ def check_direct_nav2_action_bridge_contract(result: dict, files: list[Path]) ->
                     result["errors"].append(f"DIRECT_BRIDGE_FORBIDDEN_NAME:{path.name}:{node.id}")
 
 
+def _find_class_method(tree: ast.Module, class_name: str, method_name: str) -> Optional[ast.AST]:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            for item in node.body:
+                if isinstance(item, (ast.AsyncFunctionDef, ast.FunctionDef)) and item.name == method_name:
+                    return item
+    return None
+
+
+def check_direct_nav2_action_bridge_ownership_contract(result: dict, files: list[Path]) -> None:
+    """Fase 2H.1.2: guards de ownership terminal/cancelacion/timeout.
+
+    Impide regresar a los defectos confirmados en la auditoria de 49a998c:
+    el monitor de resultado nunca debe llamar al metodo publico
+    cancel_navigation() (eso lo haria esperarse a si mismo a traves de
+    _active_result_task); debe existir un helper interno de solicitud de
+    cancelacion separado; cancel_navigation() debe exigir terminal CANCELED
+    (no solo registrar un warning); y no debe existir un
+    'except ImportError: pass' que oculte una dependencia faltante.
+    """
+    if DIRECT_NAV2_ACTION_BRIDGE_FILE not in files or not DIRECT_NAV2_ACTION_BRIDGE_FILE.is_file():
+        return
+
+    text = _read_text(DIRECT_NAV2_ACTION_BRIDGE_FILE)
+    try:
+        tree = ast.parse(text, filename=str(DIRECT_NAV2_ACTION_BRIDGE_FILE))
+    except SyntaxError:
+        result["errors"].append("DIRECT_BRIDGE_OWNERSHIP_SYNTAX_ERROR")
+        return
+
+    class_name = "DirectNav2ActionBridge"
+
+    monitor_method = _find_class_method(tree, class_name, "_result_monitor_task")
+    if monitor_method is None:
+        result["errors"].append("DIRECT_BRIDGE_MONITOR_METHOD_MISSING")
+    else:
+        for node in ast.walk(monitor_method):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr == "cancel_navigation" and isinstance(node.func.value, ast.Name) and node.func.value.id == "self":
+                    result["errors"].append("DIRECT_BRIDGE_MONITOR_CALLS_PUBLIC_CANCEL")
+
+    cancel_helper = _find_class_method(tree, class_name, "_request_cancel_only")
+    if cancel_helper is None:
+        result["errors"].append("DIRECT_BRIDGE_CANCEL_HELPER_MISSING")
+    else:
+        # AST attribute-access check, not a raw text search: the docstring
+        # legitimately documents this invariant by name ("nunca espera
+        # _active_result_task"), which a substring search would misfire on.
+        for node in ast.walk(cancel_helper):
+            if isinstance(node, ast.Attribute) and node.attr == "_active_result_task":
+                result["errors"].append("DIRECT_BRIDGE_CANCEL_HELPER_WAITS_ON_RESULT_TASK")
+                break
+
+    cancel_public = _find_class_method(tree, class_name, "cancel_navigation")
+    if cancel_public is None:
+        result["errors"].append("DIRECT_BRIDGE_PUBLIC_CANCEL_METHOD_MISSING")
+    else:
+        public_source = ast.get_source_segment(text, cancel_public) or ""
+        if "CANCEL_TERMINAL_NOT_CANCELED" not in public_source:
+            result["errors"].append("DIRECT_BRIDGE_CANCEL_DOES_NOT_ENFORCE_CANCELED_TERMINAL")
+        if "raise RuntimeError" not in public_source and "raise TimeoutError" not in public_source:
+            result["errors"].append("DIRECT_BRIDGE_CANCEL_DOES_NOT_RAISE_ON_NON_TERMINAL")
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ExceptHandler):
+            is_import_error = (
+                isinstance(node.type, ast.Name) and node.type.id == "ImportError"
+            )
+            body_is_only_pass = len(node.body) == 1 and isinstance(node.body[0], ast.Pass)
+            if is_import_error and body_is_only_pass:
+                result["errors"].append("DIRECT_BRIDGE_SILENT_IMPORT_ERROR")
+
+
 def verify(runtime: bool = False) -> dict:
     result = {
         "ok": True,
@@ -957,6 +1031,7 @@ def verify(runtime: bool = False) -> dict:
     check_waypoint_follower_contract(result)
     check_architecture_reconciliation_contract(result)
     check_direct_nav2_action_bridge_contract(result, files_to_scan)
+    check_direct_nav2_action_bridge_ownership_contract(result, files_to_scan)
 
     result["checked_files"] = sorted(set(result["checked_files"]) | {str(p) for p in files_to_scan if p.is_file()})
     result["errors"] = sorted(set(result["errors"]))

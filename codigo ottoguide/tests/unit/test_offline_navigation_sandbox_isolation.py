@@ -2648,5 +2648,141 @@ class DirectNav2ActionBridgeIsolationTests(unittest.TestCase):
             os.remove(path)
 
 
+class DirectNav2ActionBridgeOwnershipContractTests(unittest.TestCase):
+    """Fase 2H.1.2: regresion-guard estatico para los defectos de ownership
+    terminal/cancelacion confirmados en la auditoria de 49a998c.
+    """
+
+    REAL_BRIDGE_FILE = (
+        CODE_ROOT / "src" / "navigation" / "direct_nav2_action_bridge.py"
+    )
+
+    def test_real_bridge_file_passes_ownership_contract(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        saved = checker.DIRECT_NAV2_ACTION_BRIDGE_FILE
+        checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = self.REAL_BRIDGE_FILE
+        try:
+            checker.check_direct_nav2_action_bridge_ownership_contract(
+                result, [self.REAL_BRIDGE_FILE]
+            )
+        finally:
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = saved
+        self.assertEqual(result["errors"], [])
+
+    def test_rejects_monitor_calling_public_cancel_navigation(self):
+        source = (
+            "class DirectNav2ActionBridge:\n"
+            "    async def _result_monitor_task(self, *a, **kw):\n"
+            "        await self.cancel_navigation()\n"
+            "    async def _request_cancel_only(self):\n"
+            "        pass\n"
+            "    async def cancel_navigation(self):\n"
+            "        raise RuntimeError('CANCEL_TERMINAL_NOT_CANCELED:' + str(1))\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_ownership_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = saved
+        self.assertIn("DIRECT_BRIDGE_MONITOR_CALLS_PUBLIC_CANCEL", result["errors"])
+
+    def test_rejects_missing_internal_cancel_helper(self):
+        source = (
+            "class DirectNav2ActionBridge:\n"
+            "    async def _result_monitor_task(self, *a, **kw):\n"
+            "        pass\n"
+            "    async def cancel_navigation(self):\n"
+            "        raise RuntimeError('CANCEL_TERMINAL_NOT_CANCELED:' + str(1))\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_ownership_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = saved
+        self.assertIn("DIRECT_BRIDGE_CANCEL_HELPER_MISSING", result["errors"])
+
+    def test_rejects_cancel_helper_that_waits_on_result_task(self):
+        source = (
+            "class DirectNav2ActionBridge:\n"
+            "    async def _result_monitor_task(self, *a, **kw):\n"
+            "        pass\n"
+            "    async def _request_cancel_only(self):\n"
+            "        await self._active_result_task\n"
+            "    async def cancel_navigation(self):\n"
+            "        raise RuntimeError('CANCEL_TERMINAL_NOT_CANCELED:' + str(1))\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_ownership_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = saved
+        self.assertIn("DIRECT_BRIDGE_CANCEL_HELPER_WAITS_ON_RESULT_TASK", result["errors"])
+
+    def test_rejects_public_cancel_not_enforcing_canceled_terminal(self):
+        source = (
+            "class DirectNav2ActionBridge:\n"
+            "    async def _result_monitor_task(self, *a, **kw):\n"
+            "        pass\n"
+            "    async def _request_cancel_only(self):\n"
+            "        pass\n"
+            "    async def cancel_navigation(self):\n"
+            "        pass\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_ownership_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = saved
+        self.assertIn("DIRECT_BRIDGE_CANCEL_DOES_NOT_ENFORCE_CANCELED_TERMINAL", result["errors"])
+        self.assertIn("DIRECT_BRIDGE_CANCEL_DOES_NOT_RAISE_ON_NON_TERMINAL", result["errors"])
+
+    def test_rejects_silent_import_error(self):
+        source = (
+            "class DirectNav2ActionBridge:\n"
+            "    async def _result_monitor_task(self, *a, **kw):\n"
+            "        pass\n"
+            "    async def _request_cancel_only(self):\n"
+            "        pass\n"
+            "    async def cancel_navigation(self):\n"
+            "        raise RuntimeError('CANCEL_TERMINAL_NOT_CANCELED:' + str(1))\n"
+            "    async def inject_absolute_pose(self, pose):\n"
+            "        try:\n"
+            "            import cv2\n"
+            "        except ImportError:\n"
+            "            pass\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_ownership_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = saved
+        self.assertIn("DIRECT_BRIDGE_SILENT_IMPORT_ERROR", result["errors"])
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
 if __name__ == "__main__":
     unittest.main()

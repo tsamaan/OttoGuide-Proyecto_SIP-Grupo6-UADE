@@ -78,6 +78,7 @@ class NavigationStatus:
     goal_uuid: Optional[str] = None
     action_name: Optional[str] = None
     last_result: Optional[NavigationResult] = None
+    remote_state_unknown: bool = False
 
 
 __all__ = [

@@ -144,20 +144,30 @@ class DirectNav2ActionBridge(NavigationPort):
             raise RuntimeError(f"Failed to start bridge: {exc}") from exc
 
     async def _cleanup(self) -> None:
-        """Limpieza interna idempotente."""
+        """Limpieza interna idempotente.
+
+        Siempre completa el teardown local (executor/nodo/contexto/thread)
+        incluso si la cancelacion remota o la espera de su terminal fallan,
+        pero nunca silencia ese fallo: si el estado remoto queda sin
+        confirmar, se levanta DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN
+        despues de liberar los recursos locales.
+        """
         self._started = False
+        degraded = False
 
         if self._active_goal_handle and self._active_result_task and not self._active_result_task.done():
             try:
                 await self.cancel_navigation()
             except Exception as exc:
-                LOGGER.warning("Cleanup cancel failed: %s", exc)
+                LOGGER.error("Cleanup cancel failed, remote state unknown: %s", exc)
+                degraded = True
 
         if self._active_result_task and not self._active_result_task.done():
             try:
                 await asyncio.wait_for(asyncio.shield(self._active_result_task), timeout=self._cancel_terminal_timeout_s)
             except Exception as exc:
-                LOGGER.warning("Cleanup waiting for result task failed: %s", exc)
+                LOGGER.error("Cleanup waiting for result task failed, remote state unknown: %s", exc)
+                degraded = True
 
         if self._executor:
             try:
@@ -194,6 +204,9 @@ class DirectNav2ActionBridge(NavigationPort):
         self._active_result_task = None
         self._active_action_name = None
         self._active_goal_uuid = None
+
+        if degraded:
+            raise RuntimeError("DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN")
 
     async def close(self) -> None:
         """Cierra el bridge y libera recursos."""
@@ -264,7 +277,8 @@ class DirectNav2ActionBridge(NavigationPort):
                 distance_remaining_m=self._status.distance_remaining_m,
                 goal_uuid=self._status.goal_uuid,
                 action_name=self._status.action_name,
-                last_result=self._status.last_result
+                last_result=self._status.last_result,
+                remote_state_unknown=self._status.remote_state_unknown
             )
 
     async def get_last_result(self) -> Optional[NavigationResult]:
@@ -285,15 +299,34 @@ class DirectNav2ActionBridge(NavigationPort):
                 self._status.active_waypoint_index = feedback_msg.feedback.current_waypoint
 
     async def _result_monitor_task(self, goal_handle: Any, aio_result_future: asyncio.Future[Any], action_name: str, uuid_str: str) -> NavigationResult:
-        """Monitor unico de resultado."""
+        """Monitor unico de resultado.
+
+        Unico propietario de la transicion terminal normal. En las ramas de
+        timeout/excepcion nunca llama al metodo publico cancel_navigation()
+        (eso causaria que esta misma tarea se espere a si misma a traves de
+        _active_result_task); usa el helper interno _request_cancel_only()
+        y espera directamente el result future subyacente.
+        """
         try:
             result_msg = await asyncio.wait_for(asyncio.shield(aio_result_future), timeout=self._result_timeout_s)
         except asyncio.TimeoutError:
             LOGGER.warning("Result timeout for goal %s", uuid_str)
-            try:
-                await self.cancel_navigation()
-            except Exception as exc:
-                LOGGER.warning("Failed to cancel after timeout: %s", exc)
+            terminal_confirmed = False
+
+            with self._state_lock:
+                had_active_goal = self._active_goal_handle is not None
+
+            if had_active_goal:
+                try:
+                    await self._request_cancel_only()
+                    try:
+                        result_msg2 = await asyncio.wait_for(asyncio.shield(aio_result_future), timeout=self._cancel_terminal_timeout_s)
+                        if self._map_goal_status(result_msg2.status) == NavigationTerminalStatus.CANCELED:
+                            terminal_confirmed = True
+                    except asyncio.TimeoutError:
+                        terminal_confirmed = False
+                except Exception as exc:
+                    LOGGER.warning("Cancel after result timeout failed: %s", exc)
 
             with self._state_lock:
                 req = self._cancel_requested
@@ -307,12 +340,12 @@ class DirectNav2ActionBridge(NavigationPort):
                 cancel_requested=req,
                 cancel_accepted=acc,
                 error_msg="Result timeout"
-            ), force_inactive=False)
+            ), terminal_confirmed=terminal_confirmed)
 
         except Exception as exc:
             LOGGER.warning("Exception during result monitoring: %s", exc)
             try:
-                await self.cancel_navigation()
+                await self._request_cancel_only()
             except Exception as e:
                 LOGGER.warning("Cancel after exception failed: %s", e)
 
@@ -328,8 +361,11 @@ class DirectNav2ActionBridge(NavigationPort):
                 cancel_requested=req,
                 cancel_accepted=acc,
                 error_msg=str(exc)
-            ), force_inactive=False)
+            ), terminal_confirmed=False)
 
+        # Llegada normal de un GoalStatus terminal real del servidor: es
+        # evidencia comprobada (SUCCEEDED/CANCELED/ABORTED, o ERROR si el
+        # status no esta mapeado), nunca inferida.
         term_status = self._map_goal_status(result_msg.status)
         error_code = getattr(result_msg.result, 'error_code', None)
         error_msg = getattr(result_msg.result, 'error_msg', "")
@@ -358,15 +394,26 @@ class DirectNav2ActionBridge(NavigationPort):
             cancel_requested=req,
             cancel_accepted=acc
         )
-        return self._finalize_result(res, force_inactive=True)
+        return self._finalize_result(res, terminal_confirmed=True)
 
-    def _finalize_result(self, result: NavigationResult, force_inactive: bool) -> NavigationResult:
+    def _finalize_result(self, result: NavigationResult, terminal_confirmed: bool) -> NavigationResult:
+        """Unico punto de limpieza de estado terminal.
+
+        Nunca infiere terminacion remota a partir del enum NavigationTerminalStatus
+        local (p.ej. ERROR/TIMEOUT): solo limpia active_goal_handle/uuid y libera
+        task_active cuando el llamador aporta evidencia terminal comprobada
+        (terminal_confirmed=True). En caso contrario el goal permanece activo y
+        remote_state_unknown queda en True, bloqueando nuevos goals hasta close().
+        """
         with self._state_lock:
-            if force_inactive or result.status in (NavigationTerminalStatus.CANCELED, NavigationTerminalStatus.SUCCEEDED, NavigationTerminalStatus.ABORTED, NavigationTerminalStatus.ERROR):
+            if terminal_confirmed:
                 self._status.task_active = False
                 self._active_goal_handle = None
                 self._active_action_name = None
                 self._active_goal_uuid = None
+                self._status.remote_state_unknown = False
+            else:
+                self._status.remote_state_unknown = True
 
             self._status.last_result = result
             self._status.last_result_succeeded = result.succeeded
@@ -387,9 +434,12 @@ class DirectNav2ActionBridge(NavigationPort):
                 self._cancel_requested = False
                 self._cancel_accepted = None
 
+            goal_accepted = False
+            aio_result_future: Optional[asyncio.Future[Any]] = None
             try:
                 import uuid as uuid_lib
                 generated_uuid = uuid_lib.uuid4()
+                generated_uuid_hex = str(generated_uuid)
                 import unique_identifier_msgs.msg
                 uuid_msg = unique_identifier_msgs.msg.UUID(uuid=list(generated_uuid.bytes))
 
@@ -404,21 +454,30 @@ class DirectNav2ActionBridge(NavigationPort):
                         send_goal_future.cancel()
                     except Exception:
                         pass
+                    # Aceptacion remota desconocida: no podemos afirmar
+                    # rechazo ni exito. Conservamos el UUID generado para
+                    # diagnostico, dejamos el bridge bloqueado
+                    # (task_active permanece True) y exigimos close().
+                    with self._state_lock:
+                        self._status.goal_uuid = generated_uuid_hex
                     return self._finalize_result(NavigationResult(
                         action_name=action_name,
                         status=NavigationTerminalStatus.TIMEOUT,
                         succeeded=False,
-                        error_msg="Goal response timeout"
-                    ), force_inactive=False)
+                        goal_uuid=generated_uuid_hex,
+                        error_msg="Goal response timeout: remote acceptance unknown"
+                    ), terminal_confirmed=False)
 
                 if not goal_handle.accepted:
                     return self._finalize_result(NavigationResult(
                         action_name=action_name,
                         status=NavigationTerminalStatus.REJECTED,
                         succeeded=False,
+                        goal_uuid=generated_uuid_hex,
                         error_msg="Goal rejected by server"
-                    ), force_inactive=True)
+                    ), terminal_confirmed=True)
 
+                goal_accepted = True
                 uuid_str = self._normalize_uuid(goal_handle.goal_id)
 
                 with self._state_lock:
@@ -437,12 +496,51 @@ class DirectNav2ActionBridge(NavigationPort):
 
             except Exception as exc:
                 LOGGER.warning("Exception during action execution start: %s", exc)
+
+                if goal_accepted:
+                    # El goal fue aceptado por el servidor antes de que la
+                    # excepcion ocurriera (p.ej. fallo de get_result_async()
+                    # o de creacion de la tarea monitor, que nunca llego a
+                    # iniciarse). Conservamos handle/UUID, solicitamos
+                    # cancelacion mediante el helper interno (nunca el
+                    # monitor, que no existe en esta rama) y solo limpiamos
+                    # si se confirma terminal CANCELED.
+                    terminal_confirmed = False
+                    try:
+                        await self._request_cancel_only()
+                        if aio_result_future is not None:
+                            try:
+                                result_msg = await asyncio.wait_for(
+                                    asyncio.shield(aio_result_future), timeout=self._cancel_terminal_timeout_s
+                                )
+                                if self._map_goal_status(result_msg.status) == NavigationTerminalStatus.CANCELED:
+                                    terminal_confirmed = True
+                            except asyncio.TimeoutError:
+                                terminal_confirmed = False
+                    except Exception as cancel_exc:
+                        LOGGER.warning("Cancel after post-acceptance exception failed: %s", cancel_exc)
+
+                    with self._state_lock:
+                        req = self._cancel_requested
+                        acc = self._cancel_accepted
+                        uuid_for_result = self._active_goal_uuid
+
+                    return self._finalize_result(NavigationResult(
+                        action_name=action_name,
+                        status=NavigationTerminalStatus.ERROR,
+                        succeeded=False,
+                        goal_uuid=uuid_for_result,
+                        cancel_requested=req,
+                        cancel_accepted=acc,
+                        error_msg=str(exc)
+                    ), terminal_confirmed=terminal_confirmed)
+
                 return self._finalize_result(NavigationResult(
                     action_name=action_name,
                     status=NavigationTerminalStatus.ERROR,
                     succeeded=False,
                     error_msg=str(exc)
-                ), force_inactive=True)
+                ), terminal_confirmed=True)
 
         return await asyncio.shield(self._active_result_task)
 
@@ -483,15 +581,20 @@ class DirectNav2ActionBridge(NavigationPort):
         result = await self._execute_action(self._fw_client, goal_msg, self._fw_action, self._fw_feedback_cb)
         return result.succeeded
 
-    async def cancel_navigation(self) -> None:
-        """Cancela el goal activo y espera su confirmacion terminal."""
+    async def _request_cancel_only(self) -> None:
+        """Solicita CancelGoal y valida su aceptacion remota.
+
+        Helper interno de bajo nivel: nunca espera _active_result_task. Es
+        seguro llamarlo desde el monitor de resultado (en sus ramas de
+        timeout/excepcion) o desde _execute_action (tras una excepcion
+        posterior a la aceptacion), porque nunca se espera a si mismo a
+        traves de la tarea que esos llamadores pueden ser.
+        """
         with self._state_lock:
             goal_handle = self._active_goal_handle
             uuid_str = self._active_goal_uuid
-            res_task = self._active_result_task
-            if not goal_handle or not self._status.task_active:
+            if not goal_handle:
                 return
-
             self._cancel_requested = True
 
         from action_msgs.srv import CancelGoal
@@ -523,13 +626,29 @@ class DirectNav2ActionBridge(NavigationPort):
             LOGGER.warning("Cancel request failed: %s", exc)
             raise RuntimeError(f"Cancel request failed: {exc}") from exc
 
+    async def cancel_navigation(self) -> None:
+        """Cancela el goal activo y exige confirmacion terminal CANCELED.
+
+        Unico metodo publico de cancelacion: solicita la cancelacion via el
+        helper interno y luego espera al monitor de resultado (propietario
+        unico de la transicion terminal normal). Nunca debe ser llamado por
+        el propio monitor (eso causaria que una tarea se espere a si misma).
+        """
+        with self._state_lock:
+            goal_handle = self._active_goal_handle
+            res_task = self._active_result_task
+            if not goal_handle or not self._status.task_active:
+                return
+
+        await self._request_cancel_only()
+
         if res_task:
             try:
                 res = await asyncio.wait_for(asyncio.shield(res_task), timeout=self._cancel_terminal_timeout_s)
-                if res.status != NavigationTerminalStatus.CANCELED:
-                    LOGGER.warning("Terminal status not CANCELED after cancel accepted")
             except asyncio.TimeoutError as exc:
                 raise TimeoutError("CANCEL_TERMINAL_TIMEOUT") from exc
+            if res.status != NavigationTerminalStatus.CANCELED:
+                raise RuntimeError(f"CANCEL_TERMINAL_NOT_CANCELED:{res.status}")
 
     async def inject_absolute_pose(self, pose_estimate: "PoseEstimate") -> None:
         """Inyecta una pose absoluta inicial."""
@@ -541,30 +660,32 @@ class DirectNav2ActionBridge(NavigationPort):
         try:
             import cv2
             from geometry_msgs.msg import PoseWithCovarianceStamped
+        except ImportError as exc:
+            # Una dependencia faltante nunca debe reportarse como exito
+            # silencioso: /initialpose no se publica y el llamador debe
+            # saberlo de forma explicita.
+            raise RuntimeError(f"INITIAL_POSE_DEPENDENCY_UNAVAILABLE:{exc}") from exc
 
-            msg = PoseWithCovarianceStamped()
-            msg.header.frame_id = "map"
-            msg.header.stamp = self._node.get_clock().now().to_msg()
+        msg = PoseWithCovarianceStamped()
+        msg.header.frame_id = "map"
+        msg.header.stamp = self._node.get_clock().now().to_msg()
 
-            msg.pose.pose.position.x = float(pose_estimate.tvec[0][0])
-            msg.pose.pose.position.y = float(pose_estimate.tvec[1][0])
-            msg.pose.pose.position.z = 0.0
+        msg.pose.pose.position.x = float(pose_estimate.tvec[0][0])
+        msg.pose.pose.position.y = float(pose_estimate.tvec[1][0])
+        msg.pose.pose.position.z = 0.0
 
-            rotation_matrix, _ = cv2.Rodrigues(pose_estimate.rvec)
-            yaw = math.atan2(rotation_matrix[1, 0], rotation_matrix[0, 0])
+        rotation_matrix, _ = cv2.Rodrigues(pose_estimate.rvec)
+        yaw = math.atan2(rotation_matrix[1, 0], rotation_matrix[0, 0])
 
-            msg.pose.pose.orientation.x = 0.0
-            msg.pose.pose.orientation.y = 0.0
-            msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
-            msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
+        msg.pose.pose.orientation.x = 0.0
+        msg.pose.pose.orientation.y = 0.0
+        msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
+        msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
 
-            cov = [0.0] * 36
-            cov[0] = 0.15
-            cov[7] = 0.15
-            cov[35] = 0.40
-            msg.pose.covariance = cov
+        cov = [0.0] * 36
+        cov[0] = 0.15
+        cov[7] = 0.15
+        cov[35] = 0.40
+        msg.pose.covariance = cov
 
-            self._initial_pose_pub.publish(msg)
-
-        except ImportError:
-            pass
+        self._initial_pose_pub.publish(msg)
