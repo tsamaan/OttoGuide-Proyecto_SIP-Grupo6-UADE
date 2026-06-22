@@ -1,4 +1,4 @@
-# DirectNav2ActionBridge — Hardening Report (Fases 2H.1, 2H.1.2 y 2H.1.3)
+# DirectNav2ActionBridge — Hardening Report (Fases 2H.1, 2H.1.2, 2H.1.3 y 2H.1.4)
 
 ## 1. Resumen ejecutivo
 
@@ -9,19 +9,16 @@ continúa usando `AsyncNav2Bridge` (legacy, basado en
 `BasicNavigator`/Simple Commander). La selección del bridge directo como
 implementación inyectada en producción corresponde a la **Fase
 2H.2 — Main Runtime Navigation Bridge Selection**, todavía no
-autorizada. Este documento describe el estado tras la **Fase 2H.1.3**,
-microincremento aditivo que cerró brechas puntuales detectadas en la
-auditoría de la propia Fase 2H.1.2: detección de estado remoto
-desconocido preexistente en `close()`, propagación de errores de
-cleanup en el smoke (en vez de silenciarlos), validación estricta del
-escenario `FollowWaypoints` inalcanzable (rechazando `REJECTED` como
-sustituto de `ABORTED`), integridad/frescura de los JSON producidos por
-los procesos hijos del smoke, verificación real del cierre del thread
-del observer, y manejo seguro de un PGID potencialmente sin inicializar
-en la limpieza de procesos. Las Fases 2H.1/2H.1.2 ya habían auditado y
-corregido los defectos de ownership terminal/cancelación/timeout
-descritos más abajo; esta fase no los reaudita, solo agrega tests de
-regresión que los preservan.
+autorizada. Este documento describe el estado tras la **Fase 2H.1.4**,
+microincremento aditivo que corrigió `cancel_navigation()` para el caso
+en que un goal fue aceptado por el servidor pero nunca existió un result
+task observable, y que preparó un handoff operativo para una futura
+validación física (sin ejecutar ningún comando sobre hardware). Las
+Fases 2H.1/2H.1.2/2H.1.3 ya habían auditado y corregido los defectos de
+ownership terminal/cancelación/timeout/cierre degradado descritos más
+abajo; esta fase no los reaudita, solo agrega un caso adicional al mismo
+contrato de ownership y tests de regresión que preservan todo lo
+anterior.
 
 Esta validación es exclusivamente un **offline ROS runtime smoke test**
 sobre `offline_runtime_simulator.py` (odometría/scan sintéticos, sin
@@ -325,7 +322,116 @@ código ni configuración. Las regresiones de BT Navigator (`PASS`) y
 Waypoint Follower también sufrieron, de forma independiente, el mismo
 patrón transitorio una vez cada una, resuelto del mismo modo.
 
-## 9. Limitaciones
+## 9. Fase 2H.1.4 — Guard cancel without result monitor and freeze pre-physical validation handoff
+
+### Defecto
+
+Estado posible: `task_active=True`, `_active_goal_handle != None`,
+`_active_result_task = None`. Surge cuando un goal es aceptado por el
+servidor pero `get_result_async()` o la creación de la tarea monitor
+fallan antes de producir un result task (handle y UUID se conservan;
+`remote_state_unknown=True`, ya cubierto por 2H.1.2/2H.1.3).
+`cancel_navigation()`, en ese estado, llamaba a `_request_cancel_only()`
+(que sí podía aceptar el `CancelGoal` remotamente) y luego, al no
+encontrar un `res_task` que esperar, **retornaba normalmente** —
+afirmando implícitamente una cancelación terminada que nunca fue
+observada.
+
+### Riesgo
+
+Una respuesta `CancelGoal` aceptada es evidencia de que el servidor
+**recibió** la solicitud, nunca de que el goal efectivamente alcanzó el
+`GoalStatus` terminal `CANCELED`. Sin un monitor de resultado que
+observe ese `GoalStatus` real, tratar la aceptación del servicio como
+"cancelación confirmada" es exactamente el mismo tipo de inferencia sin
+evidencia que las Fases 2H.1.2/2H.1.3 ya habían eliminado para otras
+rutas (timeout de resultado, excepción posterior a la aceptación,
+goal-response timeout). Esta ruta había quedado sin cubrir.
+
+### Corrección
+
+`cancel_navigation()` ahora distingue explícitamente la ausencia de
+result task **después** de ejecutar y validar
+`_request_cancel_only()`: si `res_task is None`, marca
+`remote_state_unknown=True` y lanza
+`RuntimeError("CANCEL_TERMINAL_UNOBSERVABLE")`, sin inventar ningún
+terminal, sin limpiar `active_goal_handle`/`active_goal_uuid`, y sin
+crear una tarea monitor falsa. `task_active` permanece `True`, por lo
+que `_execute_action` sigue bloqueando nuevos goals
+(`NAVIGATION_GOAL_ALREADY_ACTIVE`) hasta `close()`. La ruta con result
+task presente (resuelto a `CANCELED` o a cualquier otro terminal) no se
+modificó: sigue exigiendo `CANCELED` exacto vía
+`CANCEL_TERMINAL_NOT_CANCELED`, ya validado en 2H.1.2.
+
+`_cleanup()` no requirió ningún cambio: ya detectaba degradación
+preexistente desde `remote_state_unknown`/`task_active` sin handle
+(fix de 2H.1.3), por lo que un `close()` posterior a
+`CANCEL_TERMINAL_UNOBSERVABLE` completa el teardown local y relanza
+`DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN` sin rediseño adicional.
+
+### Tests
+
+`tests/unit/test_direct_nav2_action_bridge.py` pasó de 47 a 52 tests: 5
+nuevos cubren cancel aceptado sin monitor (`CANCEL_TERMINAL_UNOBSERVABLE`
+con todo el estado preservado), bloqueo del segundo goal, `close()`
+posterior con teardown completo, y dos regresiones explícitas (cancel
+con monitor presente que NO debe disparar el nuevo guard; cancel con
+monitor presente y terminal distinto de `CANCELED` que debe seguir
+disparando `CANCEL_TERMINAL_NOT_CANCELED`, nunca el nuevo error).
+`tests/unit/test_offline_navigation_sandbox_isolation.py` agrega tres
+tests AST nuevos a `DirectNav2ActionBridgeOwnershipContractTests`: el
+patrón prohibido (`if res_task: ... ` sin rama explícita para `None`,
+incluso con menciones sueltas de las cadenas correctas en comentarios)
+debe rechazarse; la forma corregida debe aceptarse limpia.
+
+### Verificador estático
+
+`verify_sandbox_isolation.py` extiende
+`check_direct_nav2_action_bridge_ownership_contract` con cuatro checks
+nuevos sobre `cancel_navigation()`: presencia de
+`CANCEL_TERMINAL_UNOBSERVABLE`, presencia de `remote_state_unknown`,
+existencia de una comprobación explícita `res_task is None`/`not
+res_task` (AST, no texto), y rechazo de un `if res_task:` sin rama
+`else` cuando no existe esa comprobación explícita en otro lugar del
+método. `PASS` en Windows y WSL, modo estático y runtime.
+
+### Regresión offline dirigida
+
+`smoke_test_direct_nav2_action_bridge.py --scenario ntp_cancel
+--base-domain-id 228` (camino normal de cancelación, con result task
+real): `PASS` en el primer intento — `cancel_requested=true`,
+`cancel_accepted=true`, terminal `CANCELED`,
+`navigation_task_result=false`, `orphan_processes=0`. La rama sin
+result monitor no se fabricó contra el servidor ROS real (no tiene
+sentido fabricarla artificialmente ahí); se valida exclusivamente por
+unit tests, como exige el encargo de esta fase. No se repitieron los
+cuatro escenarios completos ni las regresiones de BT Navigator/Waypoint
+Follower: ni el smoke runtime ni el offline runtime simulator ni
+`launch/`/`config/navigation/` cambiaron en esta fase.
+
+### Handoff físico
+
+Se creó
+`documentacion general del proyecto/Operaciones_HIL/PREFLIGHT_DIRECT_NAV2_ACTION_BRIDGE_PHYSICAL_VALIDATION.md`,
+un documento de handoff operativo (no una validación) que reutiliza
+conceptualmente `HIL_TESTING_PROTOCOL.md` y
+`PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md`. Define bloqueos NO-GO
+explícitos, un preflight read-only futuro (sin goals, sin velocidad, sin
+`damp`, sin Nav2 físico), una matriz P0–P3, qué evidencia deberá
+guardarse, y un rollback futuro definido pero no ejecutado. No se
+ejecutó ningún comando sobre el robot físico durante esta fase.
+
+### Limitaciones de esta fase
+
+- Ningún paso de esta fase tocó hardware físico ni cambió
+  `PHYSICAL_NAVIGATION` (permanece `NOT_READY`).
+- El handoff físico es exclusivamente preparatorio: los bloqueos `NO-GO`
+  que documenta no se resuelven con código ni con este informe.
+- La compatibilidad ROS 2 Foxy/Jazzy (sandbox offline en Jazzy, robot
+  físico en Foxy) sigue sin resolverse y queda explícitamente listada
+  como bloqueo en el handoff.
+
+## 10. Limitaciones generales
 
 - Esta validación es exclusivamente offline/sintética
   (`offline_runtime_simulator.py`); no constituye evidencia de
@@ -347,9 +453,11 @@ patrón transitorio una vez cada una, resuelto del mismo modo.
   anteriores; se resuelve repitiendo la corrida, nunca modificando
   `launch/` ni `config/navigation/`.
 
-## 10. Próximo incremento
+## 11. Próximo incremento
 
-El chat principal debe auditar el commit de la Fase 2H.1.3 y decidir si
+El chat principal debe auditar el commit de la Fase 2H.1.4 y decidir si
 se autoriza la **Fase 2H.2 — Main Runtime Navigation Bridge
-Selection**. La política de misión de la Fase 2I no debe iniciarse
+Selection**. La validación física debe continuar bloqueada hasta
+completar y auditar 2H.2, validar L2/L3 y el GO/NO-GO del preflight
+dedicado. La política de misión de la Fase 2I no debe iniciarse
 todavía.

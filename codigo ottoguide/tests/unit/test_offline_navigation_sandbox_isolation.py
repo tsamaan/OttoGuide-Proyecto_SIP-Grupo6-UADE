@@ -2793,6 +2793,97 @@ class DirectNav2ActionBridgeOwnershipContractTests(unittest.TestCase):
                 checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = saved
         self.assertIn("DIRECT_BRIDGE_SILENT_IMPORT_ERROR", result["errors"])
 
+    def test_rejects_cancel_missing_unobservable_guard(self):
+        """2H.1.4: a cancel_navigation() that enforces CANCELED on a present
+        result task but never mentions the unobservable-monitor guard at
+        all must be rejected -- this is the literal pre-2H.1.4 defect."""
+        source = (
+            "class DirectNav2ActionBridge:\n"
+            "    async def _result_monitor_task(self, *a, **kw):\n"
+            "        pass\n"
+            "    async def _request_cancel_only(self):\n"
+            "        pass\n"
+            "    async def cancel_navigation(self):\n"
+            "        await self._request_cancel_only()\n"
+            "        if res_task:\n"
+            "            res = await res_task\n"
+            "            if res.status != 1:\n"
+            "                raise RuntimeError('CANCEL_TERMINAL_NOT_CANCELED:' + str(res.status))\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_ownership_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = saved
+        self.assertIn("DIRECT_BRIDGE_CANCEL_MISSING_UNOBSERVABLE_GUARD", result["errors"])
+        self.assertIn("DIRECT_BRIDGE_CANCEL_DOES_NOT_PRESERVE_REMOTE_STATE_UNKNOWN", result["errors"])
+        self.assertIn("DIRECT_BRIDGE_CANCEL_NO_EXPLICIT_RES_TASK_NONE_CHECK", result["errors"])
+        self.assertIn("DIRECT_BRIDGE_CANCEL_IMPLICIT_RETURN_WHEN_RES_TASK_NONE", result["errors"])
+
+    def test_rejects_implicit_return_when_res_task_none_even_with_mentions(self):
+        """2H.1.4: merely mentioning CANCEL_TERMINAL_UNOBSERVABLE/
+        remote_state_unknown somewhere is not enough -- the bare
+        'if res_task:' with no else and no explicit None-check must still
+        be rejected as the exact forbidden mutation from section 11."""
+        source = (
+            "class DirectNav2ActionBridge:\n"
+            "    async def _result_monitor_task(self, *a, **kw):\n"
+            "        pass\n"
+            "    async def _request_cancel_only(self):\n"
+            "        pass\n"
+            "    async def cancel_navigation(self):\n"
+            "        # CANCEL_TERMINAL_UNOBSERVABLE and remote_state_unknown are handled elsewhere\n"
+            "        await self._request_cancel_only()\n"
+            "        if res_task:\n"
+            "            res = await res_task\n"
+            "            if res.status != 1:\n"
+            "                raise RuntimeError('CANCEL_TERMINAL_NOT_CANCELED:' + str(res.status))\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_ownership_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = saved
+        self.assertIn("DIRECT_BRIDGE_CANCEL_NO_EXPLICIT_RES_TASK_NONE_CHECK", result["errors"])
+        self.assertIn("DIRECT_BRIDGE_CANCEL_IMPLICIT_RETURN_WHEN_RES_TASK_NONE", result["errors"])
+
+    def test_accepts_explicit_none_check_before_canceled_enforcement(self):
+        """2H.1.4: the corrected shape (explicit 'if res_task is None: ...
+        raise' before the CANCELED enforcement) must pass cleanly."""
+        source = (
+            "class DirectNav2ActionBridge:\n"
+            "    async def _result_monitor_task(self, *a, **kw):\n"
+            "        pass\n"
+            "    async def _request_cancel_only(self):\n"
+            "        pass\n"
+            "    async def cancel_navigation(self):\n"
+            "        await self._request_cancel_only()\n"
+            "        if res_task is None:\n"
+            "            self._status.remote_state_unknown = True\n"
+            "            raise RuntimeError('CANCEL_TERMINAL_UNOBSERVABLE')\n"
+            "        res = await res_task\n"
+            "        if res.status != 1:\n"
+            "            raise RuntimeError('CANCEL_TERMINAL_NOT_CANCELED:' + str(res.status))\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.DIRECT_NAV2_ACTION_BRIDGE_FILE
+            checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = tmp_file
+            try:
+                checker.check_direct_nav2_action_bridge_ownership_contract(result, [tmp_file])
+            finally:
+                checker.DIRECT_NAV2_ACTION_BRIDGE_FILE = saved
+        self.assertNotIn("DIRECT_BRIDGE_CANCEL_MISSING_UNOBSERVABLE_GUARD", result["errors"])
+        self.assertNotIn("DIRECT_BRIDGE_CANCEL_DOES_NOT_PRESERVE_REMOTE_STATE_UNKNOWN", result["errors"])
+        self.assertNotIn("DIRECT_BRIDGE_CANCEL_NO_EXPLICIT_RES_TASK_NONE_CHECK", result["errors"])
+        self.assertNotIn("DIRECT_BRIDGE_CANCEL_IMPLICIT_RETURN_WHEN_RES_TASK_NONE", result["errors"])
+
     @contextmanager
     def _temp_file(self, content: str):
         fd, path = tempfile.mkstemp(suffix=".py")

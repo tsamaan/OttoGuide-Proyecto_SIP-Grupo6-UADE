@@ -656,6 +656,15 @@ class DirectNav2ActionBridge(NavigationPort):
         helper interno y luego espera al monitor de resultado (propietario
         unico de la transicion terminal normal). Nunca debe ser llamado por
         el propio monitor (eso causaria que una tarea se espere a si misma).
+
+        Si no existe un result task observable (p.ej. el goal fue aceptado
+        pero get_result_async()/la creacion del monitor fallo antes de
+        producir uno), una respuesta CancelGoal aceptada NUNCA se traduce
+        en CANCELED: aceptacion del servicio de cancelacion es evidencia de
+        que el servidor *recibio* la solicitud, no de que el goal terminara.
+        Sin un monitor que observe el GoalStatus real, ese terminal sigue
+        sin confirmar, por lo que el goal permanece activo y el estado
+        remoto queda explicitamente desconocido hasta close().
         """
         with self._state_lock:
             goal_handle = self._active_goal_handle
@@ -665,13 +674,17 @@ class DirectNav2ActionBridge(NavigationPort):
 
         await self._request_cancel_only()
 
-        if res_task:
-            try:
-                res = await asyncio.wait_for(asyncio.shield(res_task), timeout=self._cancel_terminal_timeout_s)
-            except asyncio.TimeoutError as exc:
-                raise TimeoutError("CANCEL_TERMINAL_TIMEOUT") from exc
-            if res.status != NavigationTerminalStatus.CANCELED:
-                raise RuntimeError(f"CANCEL_TERMINAL_NOT_CANCELED:{res.status}")
+        if res_task is None:
+            with self._state_lock:
+                self._status.remote_state_unknown = True
+            raise RuntimeError("CANCEL_TERMINAL_UNOBSERVABLE")
+
+        try:
+            res = await asyncio.wait_for(asyncio.shield(res_task), timeout=self._cancel_terminal_timeout_s)
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError("CANCEL_TERMINAL_TIMEOUT") from exc
+        if res.status != NavigationTerminalStatus.CANCELED:
+            raise RuntimeError(f"CANCEL_TERMINAL_NOT_CANCELED:{res.status}")
 
     async def inject_absolute_pose(self, pose_estimate: "PoseEstimate") -> None:
         """Inyecta una pose absoluta inicial."""

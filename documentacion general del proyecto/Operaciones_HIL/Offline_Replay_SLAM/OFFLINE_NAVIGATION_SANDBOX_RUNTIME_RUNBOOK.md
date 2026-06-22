@@ -1,6 +1,6 @@
 # Offline Navigation Sandbox — Runtime Runbook
 
-**Fase**: Fase 2G — base de runtime ROS aislada + planificación global + control local closed-loop + Collision Monitor + Behavior Server (`Wait`/`Spin`) + BT Navigator (`NavigateToPose`) + Waypoint Follower (`FollowWaypoints`) aislados, todos con evidencia validada. Los smoke tests de planner, controller, collision monitor, behavior server, BT Navigator y Waypoint Follower pasan por completo con éxito. No incluye `NavigateThroughPoses`, Simple Commander, el orquestador de misión de la aplicación paralela, ni los plugins `BackUp`/`DriveOnHeading`/`AssistedTeleop` de behavior_server. Las Fases 2H.1/2H.1.2/2H.1.3 (ver sección dedicada más abajo) agregan `DirectNav2ActionBridge`, validado aislado y todavía no conectado a `main.py`.
+**Fase**: Fase 2G — base de runtime ROS aislada + planificación global + control local closed-loop + Collision Monitor + Behavior Server (`Wait`/`Spin`) + BT Navigator (`NavigateToPose`) + Waypoint Follower (`FollowWaypoints`) aislados, todos con evidencia validada. Los smoke tests de planner, controller, collision monitor, behavior server, BT Navigator y Waypoint Follower pasan por completo con éxito. No incluye `NavigateThroughPoses`, Simple Commander, el orquestador de misión de la aplicación paralela, ni los plugins `BackUp`/`DriveOnHeading`/`AssistedTeleop` de behavior_server. Las Fases 2H.1/2H.1.2/2H.1.3/2H.1.4 (ver sección dedicada más abajo) agregan `DirectNav2ActionBridge`, validado aislado y todavía no conectado a `main.py`.
 
 ## Alcance
 
@@ -164,9 +164,15 @@ Validado en dos corridas completas e independientes (domain IDs `200`-`202` y `2
 
 ## DirectNav2ActionBridge — validado aislado, no conectado a `main.py`
 
-`DirectNav2ActionBridge` (`src/navigation/direct_nav2_action_bridge.py`) es un cliente `rclpy.action.ActionClient` directo contra `/offline_nav/navigate_to_pose` y `/offline_nav/follow_waypoints`, sin `BasicNavigator`/Simple Commander y sin publicar velocidad (solo `/initialpose`). Implementado y validado de forma aislada en las Fases 2H.1/2H.1.2/2H.1.3; **no está conectado** a `main.py`/`TourOrchestrator` (`MAIN_RUNTIME_MIGRATED=NO`). Esa conexión es trabajo exclusivo de la Fase 2H.2, todavía no autorizada.
+`DirectNav2ActionBridge` (`src/navigation/direct_nav2_action_bridge.py`) es un cliente `rclpy.action.ActionClient` directo contra `/offline_nav/navigate_to_pose` y `/offline_nav/follow_waypoints`, sin `BasicNavigator`/Simple Commander y sin publicar velocidad (solo `/initialpose`). Implementado y validado de forma aislada en las Fases 2H.1/2H.1.2/2H.1.3/2H.1.4; **no está conectado** a `main.py`/`TourOrchestrator` (`MAIN_RUNTIME_MIGRATED=NO`). Esa conexión es trabajo exclusivo de la Fase 2H.2, todavía no autorizada.
 
 La Fase 2H.1.3 cerró brechas puntuales de evidencia: `close()` ahora detecta degradación preexistente (no solo fallos reactivos de cancelación), el smoke ya no silencia errores de cierre del bridge/observer, el escenario `FollowWaypoints` inalcanzable nunca acepta `REJECTED` como sustituto de `ABORTED`, y los JSON de los procesos hijos del smoke usan una ruta única por invocación con validación de identidad y exit code.
+
+La Fase 2H.1.4 corrigió `cancel_navigation()` para el caso en que un goal fue aceptado por el servidor pero nunca existió un result task observable (p.ej. si `get_result_async()`/la creación del monitor fallaron). Antes, una respuesta `CancelGoal` aceptada en ese estado producía un retorno normal — afirmando implícitamente una cancelación nunca observada. Ahora lanza el error `CANCEL_TERMINAL_UNOBSERVABLE`:
+
+- **Significado**: el servidor recibió y aceptó la solicitud de cancelación, pero el bridge no tiene ningún monitor que haya observado el `GoalStatus` terminal real. La aceptación del servicio de cancelación **nunca** es evidencia de que el goal terminó `CANCELED`.
+- **Respuesta operacional**: el goal permanece activo (`task_active=True`), `remote_state_unknown=True`, y el bridge rechaza nuevos goals (`NAVIGATION_GOAL_ALREADY_ACTIVE`) hasta llamar a `close()`, que completa el teardown local y relanza `DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN` para preservar la evidencia de la degradación.
+- **Referencia física**: este mismo principio (aceptación de servicio ≠ confirmación de terminal) es la base del rollback futuro descrito en [PREFLIGHT_DIRECT_NAV2_ACTION_BRIDGE_PHYSICAL_VALIDATION.md](../PREFLIGHT_DIRECT_NAV2_ACTION_BRIDGE_PHYSICAL_VALIDATION.md), que además define el preflight read-only y la matriz GO/NO-GO para una futura sesión física (todavía no autorizada).
 
 ```bash
 cd "codigo ottoguide"

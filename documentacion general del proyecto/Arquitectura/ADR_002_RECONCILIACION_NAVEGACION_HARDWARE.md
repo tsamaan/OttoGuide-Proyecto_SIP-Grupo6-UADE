@@ -75,10 +75,13 @@ concretas de hardware y navegación, sin:
   en cuarentena, sin nuevos consumidores de runtime**, pero no se
   elimina ni se reescribe.
 - Se crea `src.navigation.port.NavigationPort`, un `Protocol`
-  `runtime_checkable` con el contrato mínimo (`start`, `close`,
+  `runtime_checkable` con el contrato mínimo en 2H.0 (`start`, `close`,
   `navigate_to_waypoints`, `send_goal`, `cancel_navigation`,
-  `inject_absolute_pose`, `is_navigation_active`), importable sin
-  `rclpy`/`cv2`/`nav2_simple_commander`.
+  `inject_absolute_pose`, `is_navigation_active`; 7 métodos en esta
+  fase), importable sin `rclpy`/`cv2`/`nav2_simple_commander`. La Fase
+  2H.1 agrega `get_status()` y `get_last_result()`: desde entonces el
+  contrato vigente tiene **9 métodos**, no 7 (ver corrección explícita
+  más abajo).
 - Se extraen `NavWaypoint`/`NavigationStatus` de `nav2_bridge.py` a un
   módulo puro nuevo, `src.navigation.models`, también sin imports de
   ROS, preservando compatibilidad de import desde `src.navigation` y
@@ -90,9 +93,12 @@ concretas de hardware y navegación, sin:
   misma (`AsyncNav2Bridge` legacy vía `main.py`); el comportamiento no
   cambia.
 - `AsyncNav2Bridge`, `MockNav2Bridge` y `_MinimalNavStub` (en `main.py`)
-  ya exponen o se actualizan para exponer los 7 métodos de
-  `NavigationPort`, verificado con `isinstance()` real (no solo por
-  inspección de nombres).
+  ya exponen o se actualizan para exponer los **9 métodos** vigentes de
+  `NavigationPort` (`start`, `close`, `navigate_to_waypoints`,
+  `send_goal`, `cancel_navigation`, `inject_absolute_pose`,
+  `is_navigation_active`, `get_status`, `get_last_result`), verificado
+  con `isinstance()` real (no solo por inspección de nombres).
+  `DirectNav2ActionBridge` (Fase 2H.1) también conforma los 9.
 - La integración real de navegación contra el sandbox offline
   (`/offline_nav/navigate_to_pose`, `/offline_nav/follow_waypoints`) se
   posterga explícitamente a la Fase 2H.1.
@@ -124,8 +130,10 @@ concretas de hardware y navegación, sin:
   estructuralmente hasta que `src/hardware/` se borre.
 - La política de waypoints del orquestador (un `NavigateToPose`/
   `navigate_to_waypoints` por waypoint, continuar si uno falla) no se
-  resolvió en esta fase; queda pendiente para 2H.1/2I, documentada como
-  legacy y sujeta a revisión.
+  resolvió en esta fase. Las Fases 2H.1/2H.1.2/2H.1.3/2H.1.4 validaron
+  `DirectNav2ActionBridge` de forma aislada sin tocar esta política;
+  queda pendiente para 2H.2/2I, documentada como legacy y sujeta a
+  revisión.
 
 ## Plan de migración
 
@@ -164,11 +172,22 @@ concretas de hardware y navegación, sin:
    `DIRECT_NAV2_ACTION_BRIDGE_2H1_REPORT.md`, sección 8. Sigue siendo
    exclusivamente validación aislada; sin cambios en
    `MAIN_RUNTIME_MIGRATED`/`LEGACY_NAVIGATION_RUNTIME_ACTIVE`.
-5. **Fase 2H.2 (pendiente, no autorizada)**: seleccionar e inyectar el
+5. **Fase 2H.1.4**: microincremento aditivo que corrige
+   `cancel_navigation()` cuando existe un goal aceptado pero ningún
+   result task observable (CancelGoal aceptado nunca se traduce en
+   `CANCELED` sin un monitor que confirme el `GoalStatus` real; ahora
+   lanza `CANCEL_TERMINAL_UNOBSERVABLE` y preserva
+   `remote_state_unknown=True`), y prepara el handoff operativo
+   `PREFLIGHT_DIRECT_NAV2_ACTION_BRIDGE_PHYSICAL_VALIDATION.md` para una
+   futura sesión física. Completada — ver
+   `DIRECT_NAV2_ACTION_BRIDGE_2H1_REPORT.md`, sección 9. Sigue siendo
+   exclusivamente validación aislada; no se ejecutó ningún comando sobre
+   hardware físico.
+6. **Fase 2H.2 (pendiente, no autorizada)**: seleccionar e inyectar el
    bridge en main.py.
-6. **Fase 2I (pendiente, no autorizada)**: política de misión,
+7. **Fase 2I (pendiente, no autorizada)**: política de misión,
    reintentos, skip, abort y handover.
-6. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
+8. **Sin fecha fija**: eliminar `src/hardware/` una vez confirmado que
    ningún test ni código de producción lo necesita.
 
 ## Criterios de rollback
@@ -193,10 +212,10 @@ concretas de hardware y navegación, sin:
 | Orquestador    | `TourOrchestrator`                                 | alternativas históricas                 | conservar FSM         |
 | HAL            | `hardware/`                                        | `src/hardware/`                         | `hardware/` canónico  |
 | MotionCommand  | `hardware.interface.MotionCommand`                 | `src.hardware.interface.MotionCommand`  | canónico único        |
-| Navegación     | `DirectNav2ActionBridge` (validado aislado, 2H.1.3) | `AsyncNav2Bridge` + `BasicNavigator`    | inyectar en 2H.2       |
+| Navegación     | `DirectNav2ActionBridge` (validado aislado, 2H.1.4) | `AsyncNav2Bridge` + `BasicNavigator`    | inyectar en 2H.2       |
 | Velocidad      | `cmd_vel_raw → collision_monitor → cmd_vel_safe`   | `/cmd_vel → /cmd_vel_nav`               | conservar sandbox      |
-| Waypoints      | `NavigateToPose` y `FollowWaypoints` según misión  | selección por `ROBOT_MODE`              | resolver en 2H.1        |
-| Fallo waypoint | política fail-closed pendiente                     | continuar actualmente                   | resolver en 2H.1/2I     |
+| Waypoints      | `NavigateToPose` y `FollowWaypoints` según misión  | selección por `ROBOT_MODE`              | resolver en 2H.2        |
+| Fallo waypoint | política fail-closed pendiente                     | continuar actualmente                   | resolver en 2H.2/2I     |
 
 ## Notas adicionales
 

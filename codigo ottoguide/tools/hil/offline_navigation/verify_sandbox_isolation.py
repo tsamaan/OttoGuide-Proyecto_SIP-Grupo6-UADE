@@ -993,6 +993,48 @@ def check_direct_nav2_action_bridge_ownership_contract(result: dict, files: list
         if "raise RuntimeError" not in public_source and "raise TimeoutError" not in public_source:
             result["errors"].append("DIRECT_BRIDGE_CANCEL_DOES_NOT_RAISE_ON_NON_TERMINAL")
 
+        # 2H.1.4: a CancelGoal acceptance is evidence the server *received*
+        # the request, never evidence the goal actually reached CANCELED.
+        # Without a result task to observe the real GoalStatus, the method
+        # must raise CANCEL_TERMINAL_UNOBSERVABLE and preserve
+        # remote_state_unknown -- never fall through to an implicit,
+        # successful return that asserts an unobserved cancellation.
+        if "CANCEL_TERMINAL_UNOBSERVABLE" not in public_source:
+            result["errors"].append("DIRECT_BRIDGE_CANCEL_MISSING_UNOBSERVABLE_GUARD")
+        if "remote_state_unknown" not in public_source:
+            result["errors"].append("DIRECT_BRIDGE_CANCEL_DOES_NOT_PRESERVE_REMOTE_STATE_UNKNOWN")
+
+        has_explicit_none_check = False
+        has_bare_truthy_check_without_else = False
+        for node in ast.walk(cancel_public):
+            if not isinstance(node, ast.If):
+                continue
+            test = node.test
+            if (
+                isinstance(test, ast.Compare)
+                and isinstance(test.left, ast.Name)
+                and test.left.id == "res_task"
+                and any(isinstance(op, (ast.Is, ast.IsNot)) for op in test.ops)
+                and test.comparators
+                and isinstance(test.comparators[0], ast.Constant)
+                and test.comparators[0].value is None
+            ):
+                has_explicit_none_check = True
+            elif (
+                isinstance(test, ast.UnaryOp)
+                and isinstance(test.op, ast.Not)
+                and isinstance(test.operand, ast.Name)
+                and test.operand.id == "res_task"
+            ):
+                has_explicit_none_check = True
+            elif isinstance(test, ast.Name) and test.id == "res_task" and not node.orelse:
+                has_bare_truthy_check_without_else = True
+
+        if not has_explicit_none_check:
+            result["errors"].append("DIRECT_BRIDGE_CANCEL_NO_EXPLICIT_RES_TASK_NONE_CHECK")
+        if has_bare_truthy_check_without_else and not has_explicit_none_check:
+            result["errors"].append("DIRECT_BRIDGE_CANCEL_IMPLICIT_RETURN_WHEN_RES_TASK_NONE")
+
     for node in ast.walk(tree):
         if isinstance(node, ast.ExceptHandler):
             is_import_error = (

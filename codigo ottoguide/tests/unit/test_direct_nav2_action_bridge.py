@@ -807,6 +807,121 @@ class TestDirectNav2ActionBridgeOwnershipAndTerminalSafety(unittest.IsolatedAsyn
         await self.bridge.close()
         self.assertFalse(self.bridge._status.remote_state_unknown)
 
+    def _arm_accepted_cancel_without_result_task(self, uuid_str="uuidz"):
+        """Shared precondition for 2H.1.4 #1-#3: a goal accepted by the
+        server (handle + UUID present) for which get_result_async()/the
+        monitor task creation failed before ever producing a result task --
+        the exact state described in section 7 of the 2H.1.4 spec."""
+        self.bridge._started = True
+        self.bridge._status.task_active = True
+        self.bridge._active_goal_uuid = uuid_str
+        self.bridge._active_goal_handle = MagicMock()
+        self.bridge._active_result_task = None
+
+        loop = asyncio.get_running_loop()
+        cancel_future = loop.create_future()
+        cancel_future.set_result(self._accepted_cancel_response(uuid_str))
+        self.bridge._ros_future_to_asyncio = lambda f: cancel_future
+
+    async def test_48_cancel_accepted_without_result_monitor_raises_unobservable(self):
+        """2H.1.4 #1: CancelGoal acceptance is evidence the server *received*
+        the request, never evidence the goal actually terminated CANCELED.
+        Without a result task to observe the real GoalStatus, the bridge
+        must not return normally (that would assert an unobserved
+        cancellation); it must raise CANCEL_TERMINAL_UNOBSERVABLE and leave
+        every piece of state exactly as the spec requires."""
+        self._arm_accepted_cancel_without_result_task("uuidz")
+
+        with patch.dict('sys.modules', {'action_msgs.srv': self._cancel_goal_srv_module()}):
+            with self.assertRaisesRegex(RuntimeError, "CANCEL_TERMINAL_UNOBSERVABLE"):
+                await self.bridge.cancel_navigation()
+
+        self.assertTrue(self.bridge._cancel_requested)
+        self.assertTrue(self.bridge._cancel_accepted)
+        self.assertTrue(self.bridge._status.task_active)
+        self.assertTrue(self.bridge._status.remote_state_unknown)
+        self.assertIsNotNone(self.bridge._active_goal_handle)
+        self.assertEqual(self.bridge._active_goal_uuid, "uuidz")
+
+    async def test_49_second_goal_blocked_after_unobservable_cancel(self):
+        """2H.1.4 #2: the degraded, unconfirmed-cancel state must keep
+        blocking new goals, exactly like every other unconfirmed-terminal
+        path already covered for 2H.1.2/2H.1.3."""
+        self._arm_accepted_cancel_without_result_task("uuidz")
+
+        with patch.dict('sys.modules', {'action_msgs.srv': self._cancel_goal_srv_module()}):
+            with self.assertRaisesRegex(RuntimeError, "CANCEL_TERMINAL_UNOBSERVABLE"):
+                await self.bridge.cancel_navigation()
+
+        with self.assertRaisesRegex(RuntimeError, "NAVIGATION_GOAL_ALREADY_ACTIVE"):
+            await self.bridge._execute_action(None, None, "test2", None)
+
+    async def test_50_close_after_unobservable_cancel_tears_down_and_raises(self):
+        """2H.1.4 #3: close() must still perform the full local teardown
+        and report the historical degradation, without inventing a
+        terminal for the goal it could never observe."""
+        self._arm_accepted_cancel_without_result_task("uuidz")
+
+        with patch.dict('sys.modules', {'action_msgs.srv': self._cancel_goal_srv_module()}):
+            with self.assertRaisesRegex(RuntimeError, "CANCEL_TERMINAL_UNOBSERVABLE"):
+                await self.bridge.cancel_navigation()
+
+            with self.assertRaisesRegex(RuntimeError, "DIRECT_BRIDGE_CLOSE_REMOTE_STATE_UNKNOWN"):
+                await self.bridge.close()
+
+        self.assertFalse(self.bridge._started)
+        self.assertFalse(self.bridge._status.task_active)
+        self.assertTrue(self.bridge._status.remote_state_unknown)
+        self.assertIsNone(self.bridge._active_goal_handle)
+        self.assertIsNone(self.bridge._active_result_task)
+
+    async def test_51_cancel_with_result_monitor_present_does_not_raise_unobservable(self):
+        """2H.1.4 regression: when a result task IS observable and resolves
+        to CANCELED, cancel_navigation() must keep returning normally --
+        the new guard must trigger only on a missing monitor, never on a
+        present one."""
+        self.bridge._started = True
+        self.bridge._status.task_active = True
+        self.bridge._active_goal_uuid = "uuidp"
+        self.bridge._active_goal_handle = MagicMock()
+
+        loop = asyncio.get_running_loop()
+        cancel_future = loop.create_future()
+        cancel_future.set_result(self._accepted_cancel_response("uuidp"))
+        self.bridge._ros_future_to_asyncio = lambda f: cancel_future
+
+        res_task = loop.create_future()
+        res_task.set_result(NavigationResult("test", NavigationTerminalStatus.CANCELED, False))
+        self.bridge._active_result_task = res_task
+
+        with patch.dict('sys.modules', {'action_msgs.srv': self._cancel_goal_srv_module()}):
+            await self.bridge.cancel_navigation()  # must not raise
+
+        self.assertTrue(self.bridge._cancel_accepted)
+
+    async def test_52_cancel_with_result_monitor_wrong_terminal_raises_not_canceled(self):
+        """2H.1.4 regression: a present, resolved result task that did NOT
+        confirm CANCELED must still raise CANCEL_TERMINAL_NOT_CANCELED
+        (the 2H.1.2 contract), not the new CANCEL_TERMINAL_UNOBSERVABLE --
+        these are deliberately distinct failure modes."""
+        self.bridge._started = True
+        self.bridge._status.task_active = True
+        self.bridge._active_goal_uuid = "uuidq"
+        self.bridge._active_goal_handle = MagicMock()
+
+        loop = asyncio.get_running_loop()
+        cancel_future = loop.create_future()
+        cancel_future.set_result(self._accepted_cancel_response("uuidq"))
+        self.bridge._ros_future_to_asyncio = lambda f: cancel_future
+
+        res_task = loop.create_future()
+        res_task.set_result(NavigationResult("test", NavigationTerminalStatus.SUCCEEDED, True))
+        self.bridge._active_result_task = res_task
+
+        with patch.dict('sys.modules', {'action_msgs.srv': self._cancel_goal_srv_module()}):
+            with self.assertRaisesRegex(RuntimeError, "CANCEL_TERMINAL_NOT_CANCELED"):
+                await self.bridge.cancel_navigation()
+
 
 if __name__ == '__main__':
     unittest.main()
