@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Fase 2H.2.5 -- shared schema, constants and safe I/O helpers for the P0
-PHYSICAL READ-ONLY evidence pipeline (schema version 2).
+"""Fase 2H.2.6 -- shared schema, constants and safe I/O helpers for the P0
+PHYSICAL READ-ONLY evidence pipeline (schema version 3).
 
 Imported by both collect_p0_readonly_evidence.py (producer) and
 validate_p0_readonly_evidence.py (consumer) so the two can never silently
@@ -103,6 +103,18 @@ SENSOR_TOPICS = (
     "/camera/depth/image_rect_raw",
 )
 
+CRITICAL_TOPIC_TYPES = {
+    "/scan": "sensor_msgs/msg/LaserScan",
+    "/odom": "nav_msgs/msg/Odometry",
+    "/tf": "tf2_msgs/msg/TFMessage",
+    "/tf_static": "tf2_msgs/msg/TFMessage",
+    "/map": "nav_msgs/msg/OccupancyGrid",
+    "/map_metadata": "nav_msgs/msg/MapMetaData",
+    "/cmd_vel": "geometry_msgs/msg/Twist",
+    "/cmd_vel_raw": "geometry_msgs/msg/Twist",
+    "/cmd_vel_safe": "geometry_msgs/msg/Twist",
+}
+
 # --- cmd_vel chain (p0_cmd_vel_chain.json) ------------------------------
 CMD_VEL_TOPICS = ("/cmd_vel", "/cmd_vel_raw", "/cmd_vel_safe")
 
@@ -122,6 +134,52 @@ DECISION_NO_GO = "NO_GO"
 DECISION_FIXTURE_ONLY = "FIXTURE_ONLY"
 COLLECTION_MODE_FIXTURE = "fixture"
 COLLECTION_MODE_REAL = "real_read_only"
+
+UNSUPPORTED_SCHEMA_VERSION = "UNSUPPORTED_SCHEMA_VERSION"
+
+
+def _topic_label(topic: str) -> str:
+    return topic.strip("/").replace("/", "_")
+
+
+def expected_command_argv(label: str, repo_root: "str | None" = None) -> "list[str] | None":
+    """Return the exact argv expected for a command label.
+
+    ``repo_root`` is required for git labels because the collector records
+    the concrete ``-C`` path. Non-git labels are path-independent.
+    """
+    git_commands = {
+        "git_branch": ["git", "-C", repo_root, "branch", "--show-current"],
+        "git_head": ["git", "-C", repo_root, "rev-parse", "HEAD"],
+        "git_status": ["git", "-C", repo_root, "status", "--short", "--branch", "--untracked-files=all"],
+        "git_remote_origin": ["git", "-C", repo_root, "remote", "get-url", "origin"],
+    }
+    if label in git_commands:
+        if not repo_root:
+            return None
+        return git_commands[label]
+    fixed = {
+        "ros2_node_list": ["ros2", "node", "list"],
+        "ros2_topic_list": ["ros2", "topic", "list", "-t"],
+        "ros2_service_list": ["ros2", "service", "list", "-t"],
+        "ros2_action_list": ["ros2", "action", "list", "-t"],
+        "tf_echo_once": ["ros2", "topic", "echo", "--once", "/tf"],
+        "tf_static_echo_once": ["ros2", "topic", "echo", "--once", "/tf_static"],
+        "odom_echo_once": ["ros2", "topic", "echo", "--once", "/odom"],
+        "odom_hz": ["ros2", "topic", "hz", "/odom"],
+    }
+    if label in fixed:
+        return fixed[label]
+    for topic in SENSOR_TOPICS:
+        encoded = _topic_label(topic)
+        if label == f"topic_info_{encoded}":
+            return ["ros2", "topic", "info", "-v", topic]
+        if label == f"topic_hz_{encoded}":
+            return ["ros2", "topic", "hz", topic]
+    for topic in CMD_VEL_TOPICS:
+        if label == f"cmd_vel_info_{_topic_label(topic)}":
+            return ["ros2", "topic", "info", "-v", topic]
+    return None
 
 # --- git untracked-file policy (v2: exact regex, not prefix) -----------
 # The only untracked paths a P0 session may carry without forcing NO_GO.
@@ -187,11 +245,6 @@ CLOCK_TRUSTED_YEAR_MIN = 2020
 CLOCK_TRUSTED = "TRUSTED"
 CLOCK_UNTRUSTED = "CLOCK_UNTRUSTED"
 
-# Monotonic base at module import — used only as a stable reference for
-# duration_ms calculations.  Never exposed directly in bundles.
-_MONOTONIC_EPOCH_NS = time.monotonic_ns()
-
-
 def wall_clock_trust() -> "tuple[str, str]":
     """Returns (trust_status, wall_clock_value_iso).
 
@@ -219,9 +272,20 @@ def new_session_id() -> str:
     return uuid.uuid4().hex
 
 
-def base_envelope(session_id: str, monotonic_started_ns: "int | None" = None) -> dict:
+def base_envelope(
+    session_id: str,
+    session_started_monotonic_ns: "int | None" = None,
+    *,
+    document_collected_monotonic_ns: "int | None" = None,
+    session_ended_monotonic_ns: "int | None" = None,
+    monotonic_started_ns: "int | None" = None,
+) -> dict:
     trust, wall_value = wall_clock_trust()
     mono_now = monotonic_now_ns()
+    if session_started_monotonic_ns is None:
+        session_started_monotonic_ns = monotonic_started_ns if monotonic_started_ns is not None else mono_now
+    if document_collected_monotonic_ns is None:
+        document_collected_monotonic_ns = mono_now
     envelope: dict = {
         "schema_version": SCHEMA_VERSION,
         "session_id": session_id,
@@ -230,11 +294,18 @@ def base_envelope(session_id: str, monotonic_started_ns: "int | None" = None) ->
         "wall_clock_value": wall_value,
         "wall_clock_trusted": trust == CLOCK_TRUSTED,
         "wall_clock_source": "time.gmtime()",
-        "monotonic_started_ns": monotonic_started_ns if monotonic_started_ns is not None else mono_now,
-        "monotonic_ended_ns": mono_now,
+        "session_started_monotonic_ns": session_started_monotonic_ns,
+        "document_collected_monotonic_ns": document_collected_monotonic_ns,
     }
-    if monotonic_started_ns is not None:
-        envelope["duration_ms"] = (mono_now - monotonic_started_ns) // 1_000_000
+    # Legacy aliases retained for older in-repo test helpers while schema v3
+    # consumers use the explicit session_* names.
+    envelope["monotonic_started_ns"] = session_started_monotonic_ns
+    envelope["monotonic_ended_ns"] = document_collected_monotonic_ns
+    if session_ended_monotonic_ns is not None:
+        envelope["session_ended_monotonic_ns"] = session_ended_monotonic_ns
+        envelope["session_duration_ms"] = (
+            session_ended_monotonic_ns - session_started_monotonic_ns
+        ) // 1_000_000
     return envelope
 
 

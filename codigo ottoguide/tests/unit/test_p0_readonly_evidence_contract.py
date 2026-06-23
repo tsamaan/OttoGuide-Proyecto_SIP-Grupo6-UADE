@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Fase 2H.2.5 -- offline contract tests for the P0 physical READ-ONLY
-pipeline (collector core + schema + validator, schema v2).
+"""Fase 2H.2.6 -- offline contract tests for the P0 physical READ-ONLY
+pipeline (collector core + schema + validator, schema v3).
 
 Three sections:
 
@@ -340,8 +340,21 @@ class TestAuthorizationContract(unittest.TestCase):
 
 
 def _envelope(session_id="s1"):
-    return {"schema_version": schema.SCHEMA_VERSION, "session_id": session_id,
-            "collected_at_utc": "2026-01-01T00:00:00Z", "collector_version": schema.COLLECTOR_VERSION}
+    return {
+        "schema_version": schema.SCHEMA_VERSION,
+        "session_id": session_id,
+        "collected_at_utc": "2026-01-01T00:00:00Z",
+        "collector_version": schema.COLLECTOR_VERSION,
+        "wall_clock_value": "2026-01-01T00:00:00Z",
+        "wall_clock_trusted": True,
+        "wall_clock_source": "time.gmtime()",
+        "session_started_monotonic_ns": 1000,
+        "document_collected_monotonic_ns": 2000,
+        "session_ended_monotonic_ns": 3000,
+        "session_duration_ms": 0,
+        "monotonic_started_ns": 1000,
+        "monotonic_ended_ns": 2000,
+    }
 
 
 def _write_json_0600(path: Path, data) -> None:
@@ -357,6 +370,7 @@ def _cmd_entry(label, argv, stdout="", exit_code=0, timed_out=False):
         "label": label, "argv": argv,
         "started_utc": "2026-01-01T00:00:00Z", "ended_utc": "2026-01-01T00:00:01Z",
         "duration_ms": 10, "exit_code": exit_code, "timed_out": timed_out,
+        "error_class": "TIMEOUT" if timed_out else ("NONE" if exit_code == 0 else "NONZERO_EXIT"),
         "stdout": stdout, "stderr": "", "stdout_truncated": False, "stderr_truncated": False,
         "read_only_classification": "read_only",
     }
@@ -368,6 +382,7 @@ def _write_good_bundle(d: Path, session_id="s1", fixture_mode=False) -> None:
 
     meta = {
         **env,
+        "actual_repo_root": "/repo",
         "actual_branch": "robot", "expected_branch": "robot",
         "actual_head": "a" * 40, "expected_head": "a" * 40, "head_matches_expected": True,
         "tracked_worktree_clean": True, "tracked_changes": [],
@@ -399,6 +414,7 @@ def _write_good_bundle(d: Path, session_id="s1", fixture_mode=False) -> None:
             {"name": "/tf_static", "type": "tf2_msgs/msg/TFMessage"},
             {"name": "/map", "type": "nav_msgs/msg/OccupancyGrid"},
             {"name": "/map_metadata", "type": "nav_msgs/msg/MapMetaData"},
+            {"name": "/cmd_vel", "type": "geometry_msgs/msg/Twist"},
             {"name": "/cmd_vel_raw", "type": "geometry_msgs/msg/Twist"},
             {"name": "/cmd_vel_safe", "type": "geometry_msgs/msg/Twist"},
         ],
@@ -411,10 +427,32 @@ def _write_good_bundle(d: Path, session_id="s1", fixture_mode=False) -> None:
         "tf_topic_present": True, "tf_static_topic_present": True,
         "odom_topic_present": True, "map_topic_present": True,
         "single_sample_odom": "header:\n  frame_id: odom\nchild_frame_id: base_link\n",
+        "single_sample_tf": "transforms:\n- header:\n    frame_id: odom\n  child_frame_id: base_link\n",
         "single_sample_tf_static": "transforms:\n- header:\n    frame_id: map\n  child_frame_id: odom\n",
         "candidate_odom_frame_id": "odom",
         "candidate_child_frame_id": "base_link",
-        "tf_edges_observed": list(schema.REQUIRED_TF_EDGES),
+        "candidate_odom_frequency": {
+            "measurement_status": "MEASURED",
+            "sample_count": 10,
+            "window_seconds": 1.0,
+            "average_hz": 10.0,
+            "minimum_hz": 9.8,
+            "maximum_hz": 10.2,
+            "command_label": "odom_hz",
+            "observed_at_monotonic_ns": 2500,
+        },
+        "tf_edges_observed": [
+            {
+                "parent": edge.split("->", 1)[0],
+                "child": edge.split("->", 1)[1],
+                "edge": edge,
+                "source_topic": "/tf_static",
+                "command_label": "tf_static_echo_once",
+                "observed_at_monotonic_ns": 2500,
+                "is_static": True,
+            }
+            for edge in schema.REQUIRED_TF_EDGES
+        ],
         "required_tf_edges": list(schema.REQUIRED_TF_EDGES),
         "l2_odometry": "CANDIDATE_OBSERVED_PENDING_ANALYSIS",
         "l3_localization_map": "CANDIDATE_OBSERVED_PENDING_ANALYSIS",
@@ -434,8 +472,36 @@ def _write_good_bundle(d: Path, session_id="s1", fixture_mode=False) -> None:
     cmd_vel = {
         **env,
         "topics": {
-            "/cmd_vel_raw": {"present": True, "publisher_count": 1, "subscription_count": 1, "qos": None},
-            "/cmd_vel_safe": {"present": True, "publisher_count": 1, "subscription_count": 1, "qos": None},
+            "/cmd_vel": {
+                "topic": "/cmd_vel", "present": True, "type": "geometry_msgs/msg/Twist",
+                "message_type": "geometry_msgs/msg/Twist", "publisher_count": 0,
+                "subscriber_count": 0, "subscription_count": 0,
+                "publisher_identities": [], "subscriber_identities": [],
+                "physical_consumer_candidate": None, "unexpected_owners": [],
+                "command_label": "cmd_vel_info_cmd_vel", "observed_at_monotonic_ns": 2500,
+                "qos": None,
+            },
+            "/cmd_vel_raw": {
+                "topic": "/cmd_vel_raw", "present": True, "type": "geometry_msgs/msg/Twist",
+                "message_type": "geometry_msgs/msg/Twist", "publisher_count": 1,
+                "subscriber_count": 1, "subscription_count": 1,
+                "publisher_identities": ["/controller_server"],
+                "subscriber_identities": ["/collision_monitor"],
+                "physical_consumer_candidate": None, "unexpected_owners": [],
+                "command_label": "cmd_vel_info_cmd_vel_raw", "observed_at_monotonic_ns": 2500,
+                "qos": None,
+            },
+            "/cmd_vel_safe": {
+                "topic": "/cmd_vel_safe", "present": True, "type": "geometry_msgs/msg/Twist",
+                "message_type": "geometry_msgs/msg/Twist", "publisher_count": 1,
+                "subscriber_count": 1, "subscription_count": 1,
+                "publisher_identities": ["/collision_monitor"],
+                "subscriber_identities": ["/unitree_locomotion_bridge"],
+                "physical_consumer_candidate": "/unitree_locomotion_bridge",
+                "unexpected_owners": [],
+                "command_label": "cmd_vel_info_cmd_vel_safe", "observed_at_monotonic_ns": 2500,
+                "qos": None,
+            },
         },
         "unexpected_global_cmd_vel": False,
         "collision_monitor_observed": True,
@@ -469,10 +535,22 @@ def _write_good_bundle(d: Path, session_id="s1", fixture_mode=False) -> None:
                        stdout="/odom [nav_msgs/msg/Odometry]\n/scan [sensor_msgs/msg/LaserScan]\n"),
             _cmd_entry("ros2_service_list", ["ros2", "service", "list", "-t"], stdout=""),
             _cmd_entry("ros2_action_list", ["ros2", "action", "list", "-t"], stdout=""),
+            _cmd_entry("tf_echo_once", ["ros2", "topic", "echo", "--once", "/tf"],
+                       stdout="transforms:\n- header:\n    frame_id: odom\n  child_frame_id: base_link\n"),
             _cmd_entry("tf_static_echo_once", ["ros2", "topic", "echo", "--once", "/tf_static"],
                        stdout="transforms:\n- header:\n    frame_id: map\n  child_frame_id: odom\n"),
             _cmd_entry("odom_echo_once", ["ros2", "topic", "echo", "--once", "/odom"],
                        stdout="header:\n  frame_id: odom\nchild_frame_id: base_link\n"),
+            _cmd_entry("odom_hz", ["ros2", "topic", "hz", "/odom"], stdout="average rate: 10.0\n"),
+            _cmd_entry("topic_info_scan", ["ros2", "topic", "info", "-v", "/scan"],
+                       stdout="Type: sensor_msgs/msg/LaserScan\nPublisher count: 1\n"),
+            _cmd_entry("topic_hz_scan", ["ros2", "topic", "hz", "/scan"], stdout="average rate: 10.0\n"),
+            _cmd_entry("cmd_vel_info_cmd_vel", ["ros2", "topic", "info", "-v", "/cmd_vel"],
+                       stdout="Type: geometry_msgs/msg/Twist\nPublisher count: 0\nSubscription count: 0\n"),
+            _cmd_entry("cmd_vel_info_cmd_vel_raw", ["ros2", "topic", "info", "-v", "/cmd_vel_raw"],
+                       stdout="Type: geometry_msgs/msg/Twist\nPublisher count: 1\nSubscription count: 1\n"),
+            _cmd_entry("cmd_vel_info_cmd_vel_safe", ["ros2", "topic", "info", "-v", "/cmd_vel_safe"],
+                       stdout="Type: geometry_msgs/msg/Twist\nPublisher count: 1\nSubscription count: 1\n"),
         ],
     }
 
@@ -865,15 +943,57 @@ class TestV2FieldDecisionContract(unittest.TestCase):
             _rehash(d, schema.COMMAND_LOG)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["read_only_invariants"], "FAIL")
-            self.assertTrue(any("COMMAND_LOG_LABEL_NOT_ALLOWED" in e
+            self.assertTrue(any("COMMAND_LOG_LABEL_ARGV_NOT_EXACT" in e
                                 for e in result["read_only_errors"]))
+
+    def test_command_log_label_argv_swap_fails_read_only_invariants(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            _write_good_bundle(d)
+            cmdlog = json.loads((d / schema.COMMAND_LOG).read_text())
+            cmdlog["commands"][0]["label"] = "git_head"
+            _write_json_0600(d / schema.COMMAND_LOG, cmdlog)
+            _rehash(d, schema.COMMAND_LOG)
+            result = validator.validate_evidence_dir(d, expected_head="a" * 40)
+            self.assertEqual(result["read_only_invariants"], "FAIL")
+            self.assertTrue(any("ARGV_LABEL_MISMATCH:git_head" in e for e in result["read_only_errors"]))
+
+    def test_cmd_vel_none_counts_are_no_go(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            _write_good_bundle(d)
+            cmd_vel = json.loads((d / schema.CMD_VEL_CHAIN).read_text())
+            cmd_vel["topics"]["/cmd_vel_safe"]["publisher_count"] = None
+            _write_json_0600(d / schema.CMD_VEL_CHAIN, cmd_vel)
+            _rehash(d, schema.CMD_VEL_CHAIN)
+            result = validator.validate_evidence_dir(d, expected_head="a" * 40)
+            self.assertEqual(result["p0_field_decision"], "NO_GO")
+            self.assertTrue(any("CMD_VEL_PUBLISHER_COUNT_UNKNOWN:/cmd_vel_safe" in e
+                                for e in result["no_go_findings"]))
+
+    def test_cmd_vel_bool_counts_are_no_go(self):
+        """True/False must not be accepted as valid integer counts (bool is a
+        subclass of int in Python; the validator must reject them explicitly)."""
+        for bool_val in (True, False):
+            with self.subTest(publisher_count=bool_val):
+                with tempfile.TemporaryDirectory() as td:
+                    d = Path(td)
+                    _write_good_bundle(d)
+                    cmd_vel = json.loads((d / schema.CMD_VEL_CHAIN).read_text())
+                    cmd_vel["topics"]["/cmd_vel_raw"]["publisher_count"] = bool_val
+                    _write_json_0600(d / schema.CMD_VEL_CHAIN, cmd_vel)
+                    _rehash(d, schema.CMD_VEL_CHAIN)
+                    result = validator.validate_evidence_dir(d, expected_head="a" * 40)
+                    self.assertEqual(result["p0_field_decision"], "NO_GO")
+                    self.assertTrue(any("CMD_VEL_PUBLISHER_COUNT_UNKNOWN:/cmd_vel_raw" in e
+                                        for e in result["no_go_findings"]))
 
     def test_tf_edge_missing_is_no_go(self):
         with tempfile.TemporaryDirectory() as td:
             d = Path(td)
             _write_good_bundle(d)
             tf_loc = json.loads((d / schema.TF_AND_LOCALIZATION).read_text())
-            tf_loc["tf_edges_observed"] = ["map->odom"]  # only 1 of 4 required edges
+            tf_loc["tf_edges_observed"] = [tf_loc["tf_edges_observed"][0]]
             _write_json_0600(d / schema.TF_AND_LOCALIZATION, tf_loc)
             _rehash(d, schema.TF_AND_LOCALIZATION)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
@@ -938,7 +1058,7 @@ class TestClockTrustSchema(unittest.TestCase):
         session_id = "test-session-clock"
         env = schema.base_envelope(session_id)
         for field in ("wall_clock_value", "wall_clock_trusted", "wall_clock_source",
-                      "monotonic_started_ns", "monotonic_ended_ns"):
+                      "session_started_monotonic_ns", "document_collected_monotonic_ns"):
             self.assertIn(field, env, f"Missing field: {field}")
         self.assertEqual(env["wall_clock_source"], "time.gmtime()")
 
@@ -950,12 +1070,25 @@ class TestClockTrustSchema(unittest.TestCase):
         self.assertFalse(env["wall_clock_trusted"])
         self.assertIn("1970", env["wall_clock_value"])
 
-    def test_base_envelope_duration_ms_computed(self):
-        """When monotonic_started_ns is provided, duration_ms must be present."""
-        started = schema.monotonic_now_ns()
-        env = schema.base_envelope("sid-dur", monotonic_started_ns=started)
-        self.assertIn("duration_ms", env)
-        self.assertGreaterEqual(env["duration_ms"], 0)
+    def test_base_envelope_session_duration_computed_only_with_session_end(self):
+        started = 1_000_000_000
+        collected = 1_000_010_000
+        ended = 1_250_000_000
+        instant = schema.base_envelope(
+            "sid-instant",
+            session_started_monotonic_ns=started,
+            document_collected_monotonic_ns=collected,
+        )
+        self.assertNotIn("session_duration_ms", instant)
+        env = schema.base_envelope(
+            "sid-dur",
+            session_started_monotonic_ns=started,
+            document_collected_monotonic_ns=collected,
+            session_ended_monotonic_ns=ended,
+        )
+        self.assertEqual(env["session_ended_monotonic_ns"], ended)
+        self.assertEqual(env["session_duration_ms"], 250)
+        self.assertNotEqual(env["session_duration_ms"], 0)
 
     def test_clock_untrusted_constant_value(self):
         """CLOCK_UNTRUSTED and CLOCK_TRUSTED must be distinct non-empty strings."""
@@ -964,6 +1097,74 @@ class TestClockTrustSchema(unittest.TestCase):
         self.assertNotEqual(schema.CLOCK_UNTRUSTED, schema.CLOCK_TRUSTED)
         self.assertTrue(schema.CLOCK_UNTRUSTED)
         self.assertTrue(schema.CLOCK_TRUSTED)
+
+
+class TestTimeoutOutputNormalization(unittest.TestCase):
+    def test_timeout_expired_bytes_str_none_are_preserved(self):
+        cases = [
+            (b"partial-out", b"partial-err", "partial-out", "partial-err\nTIMEOUT"),
+            ("partial-out", "partial-err", "partial-out", "partial-err\nTIMEOUT"),
+            (None, None, "", "TIMEOUT"),
+            (b"partial-out", "partial-err", "partial-out", "partial-err\nTIMEOUT"),
+        ]
+        for stdout, stderr, expected_out, expected_err in cases:
+            with self.subTest(stdout=type(stdout).__name__, stderr=type(stderr).__name__):
+                ctx = collector._RealContext()
+                exc = subprocess.TimeoutExpired(["ros2"], timeout=1, output=stdout, stderr=stderr)
+                with unittest.mock.patch("subprocess.run", side_effect=exc):
+                    result = ctx.run("ros2_node_list", ["ros2", "node", "list"], timeout=1)
+                self.assertTrue(result.timed_out)
+                self.assertEqual(result.returncode, 124)
+                self.assertEqual(result.error_class, "TIMEOUT")
+                self.assertEqual(result.stdout, expected_out)
+                self.assertEqual(result.stderr, expected_err)
+                self.assertEqual(ctx.command_log[0]["stdout"], expected_out)
+                self.assertEqual(ctx.command_log[0]["stderr"], expected_err)
+
+
+class TestPhysicalFixturesConsumed(unittest.TestCase):
+    def test_foxy_physical_no_go_fixture_builds_bundle_and_validates_no_go(self):
+        fixture_dir = CODE_ROOT / "tests" / "fixtures" / "p0_readonly" / "foxy_physical_no_go"
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "bundle"
+            old = os.environ.get(collector.FIXTURE_MODE_ENV)
+            os.environ[collector.FIXTURE_MODE_ENV] = "YES"
+            try:
+                code = collector.main([
+                    "--fixture-dir", str(fixture_dir),
+                    "--output-dir", str(out),
+                    "--expected-head", "80417b727c1ac7324447ac8745652b29062a9a2e",
+                ])
+            finally:
+                if old is None:
+                    os.environ.pop(collector.FIXTURE_MODE_ENV, None)
+                else:
+                    os.environ[collector.FIXTURE_MODE_ENV] = old
+            self.assertEqual(code, 0)
+            result = validator.validate_evidence_dir(
+                out,
+                expected_head="80417b727c1ac7324447ac8745652b29062a9a2e",
+            )
+            self.assertEqual(result["p0_field_decision"], schema.DECISION_NO_GO, result)
+            graph = json.loads((out / schema.ROS_GRAPH).read_text())
+            topic_names = {topic["name"] for topic in graph["topics"]}
+            for absent in ("/odom", "/tf", "/tf_static", "/map", "/cmd_vel", "/cmd_vel_raw", "/cmd_vel_safe"):
+                self.assertNotIn(absent, topic_names)
+            self.assertTrue(any("ODOM_TOPIC_MISSING" in e for e in result["no_go_findings"]))
+
+    def test_replay_metadata_hashes_and_external_provenance(self):
+        replay_root = CODE_ROOT / "tests" / "fixtures" / "replay"
+        expectations = {
+            "unitree_route_take01": "duration_authoritative_s",
+            "unitree_route_take02": "duration_approx_s",
+        }
+        for name, duration_field in expectations.items():
+            with self.subTest(name=name):
+                data = json.loads((replay_root / name / "metadata.json").read_text())
+                self.assertRegex(data["package_sha256"], r"^[0-9A-Fa-f]{64}$")
+                self.assertGreater(data["bag_size_gib"], 0)
+                self.assertIn(duration_field, data)
+                self.assertFalse(data["db3_versioned"])
 
 
 if __name__ == "__main__":

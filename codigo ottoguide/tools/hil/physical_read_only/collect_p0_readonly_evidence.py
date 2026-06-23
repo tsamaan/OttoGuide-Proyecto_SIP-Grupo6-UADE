@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fase 2H.2.5 -- P0 PHYSICAL READ-ONLY evidence collector (Python core).
+"""Fase 2H.2.6 -- P0 PHYSICAL READ-ONLY evidence collector (Python core).
 
 STATUS: PREPARED_NOT_AUTHORIZED / NOT_EXECUTED.
 
@@ -61,7 +61,6 @@ import p0_evidence_schema as schema  # noqa: E402
 READ_ONLY_AUTHORIZED_ENV = "OTTOGUIDE_P0_READ_ONLY_AUTHORIZED"
 FIXTURE_MODE_ENV = "OTTOGUIDE_P0_FIXTURE_MODE"
 HEAD_PATTERN = re.compile(r"^[0-9a-f]{40}$")
-COLLECTOR_VERSION = "2H.2.5"
 
 
 class CollectorAuthorizationError(Exception):
@@ -71,13 +70,29 @@ class CollectorAuthorizationError(Exception):
 
 
 class _CommandResult:
-    __slots__ = ("stdout", "stderr", "returncode", "timed_out")
+    __slots__ = ("stdout", "stderr", "returncode", "timed_out", "error_class")
 
-    def __init__(self, stdout: str = "", stderr: str = "", returncode: int = 0, timed_out: bool = False):
+    def __init__(
+        self,
+        stdout: str = "",
+        stderr: str = "",
+        returncode: int = 0,
+        timed_out: bool = False,
+        error_class: str = "NONE",
+    ):
         self.stdout = stdout
         self.stderr = stderr
         self.returncode = returncode
         self.timed_out = timed_out
+        self.error_class = error_class
+
+
+def normalize_command_output(value: "bytes | str | None") -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
 
 
 class _BaseContext:
@@ -104,6 +119,7 @@ class _BaseContext:
             "duration_ms": duration_ms,
             "exit_code": result.returncode,
             "timed_out": result.timed_out,
+            "error_class": result.error_class,
             "stdout": stdout,
             "stderr": stderr,
             "stdout_truncated": stdout_truncated,
@@ -131,11 +147,18 @@ class _RealContext(_BaseContext):
             proc = subprocess.run(
                 argv, capture_output=True, text=True, timeout=timeout,
             )
-            return _CommandResult(proc.stdout, proc.stderr, proc.returncode, False)
+            error_class = "NONE" if proc.returncode == 0 else "NONZERO_EXIT"
+            return _CommandResult(proc.stdout, proc.stderr, proc.returncode, False, error_class)
         except subprocess.TimeoutExpired as exc:
-            return _CommandResult(exc.stdout or "", (exc.stderr or "") + "\nTIMEOUT", 124, True)
+            stdout = normalize_command_output(exc.stdout)
+            stderr = normalize_command_output(exc.stderr)
+            if stderr:
+                stderr = f"{stderr}\nTIMEOUT"
+            else:
+                stderr = "TIMEOUT"
+            return _CommandResult(stdout, stderr, 124, True, "TIMEOUT")
         except OSError as exc:
-            return _CommandResult("", f"OSERROR:{exc}", 127, False)
+            return _CommandResult("", f"OSERROR:{exc}", 127, False, "PROCESS_ERROR")
 
     def environment_info(self) -> dict:
         return {
@@ -164,12 +187,13 @@ class _FixtureContext(_BaseContext):
     def _run_impl(self, label: str, argv: "list[str]", timeout: float) -> _CommandResult:
         canned = self.commands.get(label)
         if canned is None:
-            return _CommandResult("", f"FIXTURE_LABEL_MISSING:{label}", 1, False)
+            return _CommandResult("", f"FIXTURE_LABEL_MISSING:{label}", 1, False, "NONZERO_EXIT")
         return _CommandResult(
-            canned.get("stdout", ""),
-            canned.get("stderr", ""),
+            normalize_command_output(canned.get("stdout", "")),
+            normalize_command_output(canned.get("stderr", "")),
             int(canned.get("exit_code", 0)),
             bool(canned.get("timed_out", False)),
+            str(canned.get("error_class", "NONE")),
         )
 
     def environment_info(self) -> dict:
@@ -269,28 +293,81 @@ def gather_tf_and_localization(ctx: _BaseContext, topic_names: "list[str]") -> d
     map_present = "/map" in topic_names
     map_metadata_present = "/map_metadata" in topic_names
 
+    tf_sample = None
     tf_static_sample = None
-    tf_edges_observed: "list[str]" = []
+    tf_edges_observed: "list[dict]" = []
+
+    def _extract_tf_edges(sample: str, source_topic: str, command_label: str, is_static: bool) -> "list[dict]":
+        parent_frames = re.findall(r"(?<!child_)frame_id:\s*(\S+)", sample)
+        child_frames = re.findall(r"child_frame_id:\s*(\S+)", sample)
+        observed_at = schema.monotonic_now_ns()
+        return [
+            {
+                "parent": parent,
+                "child": child,
+                "edge": f"{parent}->{child}",
+                "source_topic": source_topic,
+                "command_label": command_label,
+                "observed_at_monotonic_ns": observed_at,
+                "is_static": is_static,
+            }
+            for parent, child in zip(parent_frames, child_frames)
+        ]
+
+    if tf_present:
+        tf_sample = ctx.run(
+            "tf_echo_once", ["ros2", "topic", "echo", "--once", "/tf"], timeout=8.0
+        ).stdout or None
+        if tf_sample:
+            tf_edges_observed.extend(_extract_tf_edges(tf_sample, "/tf", "tf_echo_once", False))
     if tf_static_present:
         tf_static_sample = ctx.run(
             "tf_static_echo_once", ["ros2", "topic", "echo", "--once", "/tf_static"], timeout=8.0
         ).stdout or None
         if tf_static_sample:
-            # Extract parent->child edges from the YAML tf_static echo output.
-            # Use negative lookbehind to avoid matching frame_id inside child_frame_id.
-            parent_frames = re.findall(r"(?<!child_)frame_id:\s*(\S+)", tf_static_sample)
-            child_frames = re.findall(r"child_frame_id:\s*(\S+)", tf_static_sample)
-            tf_edges_observed = [
-                f"{p}->{c}" for p, c in zip(parent_frames, child_frames)
-            ]
+            tf_edges_observed.extend(_extract_tf_edges(tf_static_sample, "/tf_static", "tf_static_echo_once", True))
 
     odom_sample = None
+    odom_frequency = {
+        "measurement_status": "NOT_ATTEMPTED",
+        "sample_count": None,
+        "window_seconds": None,
+        "average_hz": None,
+        "minimum_hz": None,
+        "maximum_hz": None,
+        "command_label": "odom_hz",
+        "observed_at_monotonic_ns": None,
+    }
     candidate_frame_id = None
     candidate_child_frame_id = None
     if odom_present:
         odom_sample = ctx.run(
             "odom_echo_once", ["ros2", "topic", "echo", "--once", "/odom"], timeout=8.0
         ).stdout or None
+        hz_result = ctx.run("odom_hz", ["ros2", "topic", "hz", "/odom"], timeout=8.0)
+        hz_text = hz_result.stdout or ""
+        avg_m = re.search(r"average rate:\s*([\d.]+)", hz_text)
+        min_m = re.search(r"min:\s*([\d.]+)", hz_text)
+        max_m = re.search(r"max:\s*([\d.]+)", hz_text)
+        window_m = re.search(r"window:\s*(\d+)", hz_text)
+        if hz_result.timed_out:
+            status = "TIMEOUT"
+        elif hz_result.returncode != 0:
+            status = "COMMAND_ERROR"
+        elif avg_m:
+            status = "MEASURED"
+        else:
+            status = "UNKNOWN"
+        odom_frequency = {
+            "measurement_status": status,
+            "sample_count": int(window_m.group(1)) if window_m else None,
+            "window_seconds": None,
+            "average_hz": float(avg_m.group(1)) if avg_m else None,
+            "minimum_hz": float(min_m.group(1)) if min_m else None,
+            "maximum_hz": float(max_m.group(1)) if max_m else None,
+            "command_label": "odom_hz",
+            "observed_at_monotonic_ns": schema.monotonic_now_ns(),
+        }
         frame_m = re.search(r"frame_id:\s*(\S+)", odom_sample or "")
         child_m = re.search(r"child_frame_id:\s*(\S+)", odom_sample or "")
         candidate_frame_id = frame_m.group(1) if frame_m else None
@@ -302,11 +379,12 @@ def gather_tf_and_localization(ctx: _BaseContext, topic_names: "list[str]") -> d
         "odom_topic_present": odom_present,
         "map_topic_present": map_present,
         "map_metadata_topic_present": map_metadata_present,
+        "single_sample_tf": tf_sample,
         "single_sample_tf_static": tf_static_sample,
         "single_sample_odom": odom_sample,
         "candidate_odom_source": "/odom" if odom_present else None,
         "candidate_odom_type": "nav_msgs/msg/Odometry" if odom_present else None,
-        "candidate_odom_frequency": None,
+        "candidate_odom_frequency": odom_frequency,
         "candidate_odom_frame_id": candidate_frame_id,
         "candidate_child_frame_id": candidate_child_frame_id,
         "map_source": "/map" if map_present else None,
@@ -360,23 +438,72 @@ def gather_cmd_vel_chain(ctx: _BaseContext, topic_names: "list[str]", nodes: "li
     for topic in schema.CMD_VEL_TOPICS:
         label = topic.strip("/").replace("/", "_")
         if topic not in topic_names:
-            topics[topic] = {"present": False, "type": None, "publishers": [], "subscribers": [], "qos": None}
+            topics[topic] = {
+                "topic": topic,
+                "present": False,
+                "message_type": None,
+                "type": None,
+                "publisher_count": None,
+                "subscriber_count": None,
+                "publisher_identities": [],
+                "subscriber_identities": [],
+                "publishers": [],
+                "subscribers": [],
+                "physical_consumer_candidate": None,
+                "unexpected_owners": [],
+                "command_label": f"cmd_vel_info_{label}",
+                "observed_at_monotonic_ns": None,
+                "qos": None,
+            }
             continue
         info_text = ctx.run(f"cmd_vel_info_{label}", ["ros2", "topic", "info", "-v", topic], timeout=8.0).stdout
         type_m = re.search(r"Type:\s*(\S+)", info_text or "")
         pub_m = re.search(r"Publisher count:\s*(\d+)", info_text or "")
         sub_m = re.search(r"Subscription count:\s*(\d+)", info_text or "")
+        publisher_ids = re.findall(r"Node name:\s*(\S+)", info_text or "")
+        subscriber_ids = re.findall(r"Subscription node name:\s*(\S+)", info_text or "")
+        # physical_consumer_candidate: derived from observed subscriber identities.
+        # Only set when exactly one subscriber is observed (evidence-based, never invented).
+        # Multiple subscribers: first is candidate, rest are unexpected_owners.
+        if len(subscriber_ids) == 1:
+            physical_consumer_candidate: "str | None" = subscriber_ids[0]
+            unexpected_owners: "list[str]" = []
+        elif len(subscriber_ids) > 1:
+            physical_consumer_candidate = subscriber_ids[0]
+            unexpected_owners = subscriber_ids[1:]
+        else:
+            physical_consumer_candidate = None
+            unexpected_owners = []
         topics[topic] = {
+            "topic": topic,
             "present": True,
+            "message_type": type_m.group(1) if type_m else None,
             "type": type_m.group(1) if type_m else None,
             "publisher_count": int(pub_m.group(1)) if pub_m else None,
             "subscription_count": int(sub_m.group(1)) if sub_m else None,
-            "publishers": [], "subscribers": [],
+            "subscriber_count": int(sub_m.group(1)) if sub_m else None,
+            "publisher_identities": publisher_ids,
+            "subscriber_identities": subscriber_ids,
+            "physical_consumer_candidate": physical_consumer_candidate,
+            "unexpected_owners": unexpected_owners,
+            "command_label": f"cmd_vel_info_{label}",
+            "observed_at_monotonic_ns": schema.monotonic_now_ns(),
+            "publishers": publisher_ids, "subscribers": subscriber_ids,
             "qos": info_text or None,
         }
+    # unexpected_global_cmd_vel: True only when /cmd_vel has at least one active
+    # publisher (someone bypassing the safety chain). A topic declared with 0
+    # publishers is normal topology bookkeeping, not an active bypass.
+    cmd_vel_info = topics.get("/cmd_vel", {})
+    cmd_vel_pub_count = cmd_vel_info.get("publisher_count")
+    unexpected_global_cmd_vel = (
+        isinstance(cmd_vel_pub_count, int)
+        and not isinstance(cmd_vel_pub_count, bool)
+        and cmd_vel_pub_count > 0
+    )
     return {
         "topics": topics,
-        "unexpected_global_cmd_vel": "/cmd_vel" in topic_names,
+        "unexpected_global_cmd_vel": unexpected_global_cmd_vel,
         "collision_monitor_observed": any("collision_monitor" in n for n in nodes),
         "controller_server_observed": any("controller_server" in n for n in nodes),
         "consumer_observed": None,
@@ -525,6 +652,7 @@ def resolve_mode(args: argparse.Namespace) -> str:
 
 
 def build_bundle(ctx: _BaseContext, args: argparse.Namespace, session_id: str) -> dict:
+    session_started_ns = schema.monotonic_now_ns()
     env_info = ctx.environment_info()
     git_info = gather_git_info(ctx, REPO_ROOT)
     topic_override = ctx.topic_list_override() if isinstance(ctx, _FixtureContext) else None
@@ -544,9 +672,17 @@ def build_bundle(ctx: _BaseContext, args: argparse.Namespace, session_id: str) -
     )
 
     collection_mode = schema.COLLECTION_MODE_FIXTURE if ctx.fixture_mode else schema.COLLECTION_MODE_REAL
+    session_ended_ns = schema.monotonic_now_ns()
+
+    def envelope() -> dict:
+        return schema.base_envelope(
+            session_id,
+            session_started_monotonic_ns=session_started_ns,
+            session_ended_monotonic_ns=session_ended_ns,
+        )
 
     session_meta = {
-        **schema.base_envelope(session_id),
+        **envelope(),
         "actual_repo_root": str(REPO_ROOT),
         "actual_branch": git_info["actual_branch"],
         "expected_branch": schema.EXPECTED_BRANCH,
@@ -585,12 +721,12 @@ def build_bundle(ctx: _BaseContext, args: argparse.Namespace, session_id: str) -
         "physical_control_execution_performed": False,
     }
 
-    ros_graph = {**schema.base_envelope(session_id), **graph}
-    tf_and_localization = {**schema.base_envelope(session_id), **tf_loc}
-    sensors_doc = {**schema.base_envelope(session_id), "sensors": sensors}
-    cmd_vel_chain = {**schema.base_envelope(session_id), **cmd_vel}
-    safety_checklist = {**schema.base_envelope(session_id), **safety}
-    command_log_doc = {**schema.base_envelope(session_id), "commands": ctx.command_log}
+    ros_graph = {**envelope(), **graph}
+    tf_and_localization = {**envelope(), **tf_loc}
+    sensors_doc = {**envelope(), "sensors": sensors}
+    cmd_vel_chain = {**envelope(), **cmd_vel}
+    safety_checklist = {**envelope(), **safety}
+    command_log_doc = {**envelope(), "commands": ctx.command_log}
 
     return {
         schema.SESSION_META: session_meta,
@@ -636,7 +772,14 @@ def write_bundle(output_dir: Path, bundle: "dict[str, dict]") -> dict:
         entry = _file_metadata_entry(path, filename)
         manifest_files.append(entry)
     session_id = bundle[schema.SESSION_META]["session_id"]
-    manifest = {**schema.base_envelope(session_id), "files": manifest_files}
+    manifest = {
+        **schema.base_envelope(
+            session_id,
+            session_started_monotonic_ns=bundle[schema.SESSION_META]["session_started_monotonic_ns"],
+            session_ended_monotonic_ns=bundle[schema.SESSION_META]["session_ended_monotonic_ns"],
+        ),
+        "files": manifest_files,
+    }
     manifest_path = output_dir / schema.HASH_MANIFEST
     schema.atomic_write_json(manifest_path, manifest)
     # Sidecar: atomic write of the manifest hash
@@ -661,7 +804,7 @@ def describe_dry_run(args: argparse.Namespace) -> dict:
         "command_labels": [
             "git_branch", "git_head", "git_status", "git_remote_origin",
             "ros2_node_list", "ros2_topic_list", "ros2_service_list", "ros2_action_list",
-            "tf_static_echo_once", "odom_echo_once",
+            "tf_echo_once", "tf_static_echo_once", "odom_echo_once", "odom_hz",
             *[f"topic_info_{t.strip('/').replace('/', '_')}" for t in schema.SENSOR_TOPICS],
             *[f"topic_hz_{t.strip('/').replace('/', '_')}" for t in schema.SENSOR_TOPICS if t != "/utlidar/cloud"],
             *[f"cmd_vel_info_{t.strip('/').replace('/', '_')}" for t in schema.CMD_VEL_TOPICS],

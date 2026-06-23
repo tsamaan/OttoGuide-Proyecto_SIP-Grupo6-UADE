@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fase 2H.2.5 -- end-to-end tests for the P0 PHYSICAL READ-ONLY pipeline (schema v2):
+"""Fase 2H.2.6 -- end-to-end tests for the P0 PHYSICAL READ-ONLY pipeline (schema v3):
 collector (fixture mode) -> bundle (7 JSON + command log) -> hash manifest
 -> validator. Runs the real CLI entrypoints as subprocesses (never
 imports internals directly) so the test proves the actual wiring, not

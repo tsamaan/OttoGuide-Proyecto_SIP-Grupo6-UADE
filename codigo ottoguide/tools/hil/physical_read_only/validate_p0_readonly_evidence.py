@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Fase 2H.2.5 -- offline contract validator for a P0 *physical read-only*
-evidence bundle (schema version 2).
+"""Fase 2H.2.6 -- offline contract validator for a P0 *physical read-only*
+evidence bundle (schema version 3).
 
 P0_PHYSICAL_READ_ONLY = PREPARED_NOT_AUTHORIZED. This validator NEVER
 touches a robot, a network, or ROS; it only inspects a directory of JSON
@@ -93,19 +93,13 @@ _ALLOWED_ROS2_SUBCOMMANDS = frozenset({
 # Topics allowed for echo --once (no arbitrary topic)
 _ALLOWED_ECHO_TOPICS = frozenset({"/tf_static", "/odom"})
 
-# v2: explicit label-based allowlist
-_ALLOWED_LABEL_PATTERNS = (
-    re.compile(r"^git_(branch|head|status|remote_origin)$"),
-    re.compile(r"^ros2_(node|topic|service|action)_list$"),
-    re.compile(r"^(tf_static|odom)_echo_once$"),
-    re.compile(r"^topic_info_[a-z0-9_]+$"),
-    re.compile(r"^topic_hz_[a-z0-9_]+$"),
-    re.compile(r"^cmd_vel_info_[a-z0-9_]+$"),
-)
-
-
-def _label_allowed(label: str) -> bool:
-    return any(p.match(label) for p in _ALLOWED_LABEL_PATTERNS)
+def _argv_matches_label(label: str, argv: "list", repo_root: "str | None") -> "str | None":
+    expected = schema.expected_command_argv(label, repo_root=repo_root)
+    if expected is None:
+        return f"LABEL_NOT_REGISTERED:{label}"
+    if argv != expected:
+        return f"ARGV_LABEL_MISMATCH:{label}:expected={expected!r}:got={argv!r}"
+    return None
 
 
 def _argv_safe(argv: "list") -> "str | None":
@@ -124,7 +118,7 @@ def _argv_safe(argv: "list") -> "str | None":
     return None
 
 
-def check_command_log(command_log_doc: "dict | None") -> "list[str]":
+def check_command_log(command_log_doc: "dict | None", repo_root: "str | None" = None) -> "list[str]":
     """Audits every entry in the command log for structure and allowlist
     compliance. Returns a list of violation codes."""
     violations: "list[str]" = []
@@ -152,11 +146,13 @@ def check_command_log(command_log_doc: "dict | None") -> "list[str]":
             violations.append(f"COMMAND_LOG_TIMED_OUT_NOT_BOOL:label={label}")
         if ro_class != "read_only":
             violations.append(f"COMMAND_LOG_NOT_READ_ONLY:label={label}")
-        if not _label_allowed(label):
-            violations.append(f"COMMAND_LOG_LABEL_NOT_ALLOWED:{label}")
         argv_error = _argv_safe(argv)
         if argv_error is not None:
             violations.append(f"COMMAND_LOG_ARGV_UNSAFE:{label}:{argv_error}")
+        elif isinstance(argv, list):
+            binding_error = _argv_matches_label(label, argv, repo_root)
+            if binding_error is not None:
+                violations.append(f"COMMAND_LOG_LABEL_ARGV_NOT_EXACT:{binding_error}")
     return violations
 
 
@@ -219,10 +215,29 @@ def _load(evidence_dir: Path, filename: str, errors: list) -> "dict | None":
 
 
 def _check_schema_envelope(name: str, data: dict, errors: list) -> None:
-    if data.get("schema_version") != schema.SCHEMA_VERSION:
-        errors.append(f"SCHEMA_VERSION_MISMATCH:{name}:got={data.get('schema_version')!r}")
+    got = data.get("schema_version")
+    if got != schema.SCHEMA_VERSION:
+        if got == 2:
+            errors.append(f"{schema.UNSUPPORTED_SCHEMA_VERSION}:{name}:got=2:expected=3")
+        else:
+            errors.append(f"SCHEMA_VERSION_MISMATCH:{name}:got={got!r}")
     if not data.get("session_id"):
         errors.append(f"SESSION_ID_MISSING:{name}")
+    if data.get("collector_version") != schema.COLLECTOR_VERSION:
+        errors.append(f"COLLECTOR_VERSION_MISMATCH:{name}:got={data.get('collector_version')!r}")
+    for field in ("session_started_monotonic_ns", "document_collected_monotonic_ns"):
+        if not isinstance(data.get(field), int):
+            errors.append(f"ENVELOPE_FIELD_NOT_INT:{name}:{field}")
+    if schema.SESSION_META == name:
+        start = data.get("session_started_monotonic_ns")
+        end = data.get("session_ended_monotonic_ns")
+        duration = data.get("session_duration_ms")
+        if not isinstance(end, int):
+            errors.append(f"ENVELOPE_FIELD_NOT_INT:{name}:session_ended_monotonic_ns")
+        elif isinstance(start, int) and end < start:
+            errors.append(f"SESSION_MONOTONIC_ORDER_INVALID:{name}")
+        if not isinstance(duration, int):
+            errors.append(f"ENVELOPE_FIELD_NOT_INT:{name}:session_duration_ms")
 
 
 def _check_session_id_consistency(docs: "dict[str, dict]", errors: list) -> None:
@@ -399,7 +414,7 @@ def check_read_only_invariants(
         if field in meta and meta[field] is not False:
             errors.append(f"READONLY_FIELD_NOT_FALSE:{field}={meta[field]!r}")
     # Command log audit
-    command_violations = check_command_log(command_log_doc)
+    command_violations = check_command_log(command_log_doc, repo_root=meta.get("actual_repo_root"))
     errors.extend(command_violations)
     return errors
 
@@ -418,6 +433,15 @@ def check_field_decision(
     graph = docs.get(schema.ROS_GRAPH) or {}
     tf_loc = docs.get(schema.TF_AND_LOCALIZATION) or {}
     sensors_doc = docs.get(schema.SENSORS) or {}
+
+    def _valid_type(value: object, expected: str) -> bool:
+        return isinstance(value, str) and value.strip() == expected
+
+    def _positive_int(value: object) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+    def _known_nonnegative_int(value: object) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
     # --- Git gates ---
     actual_branch = meta.get("actual_branch")
@@ -472,6 +496,14 @@ def check_field_decision(
     collection_mode = meta.get("collection_mode")
     if collection_mode not in (schema.COLLECTION_MODE_FIXTURE, schema.COLLECTION_MODE_REAL):
         no_go.append(f"COLLECTION_MODE_UNKNOWN:{collection_mode!r}")
+    fixture_mode = bool(meta.get("fixture_mode"))
+    if fixture_mode and collection_mode != schema.COLLECTION_MODE_FIXTURE:
+        no_go.append("FIXTURE_MODE_COLLECTION_MODE_MISMATCH")
+    if not fixture_mode and collection_mode == schema.COLLECTION_MODE_REAL:
+        if meta.get("field_collection_executed") is not True:
+            no_go.append("REAL_COLLECTION_NOT_EXECUTED")
+    if fixture_mode and meta.get("field_collection_executed") is not False:
+        no_go.append("FIXTURE_FIELD_COLLECTION_EXECUTED_NOT_FALSE")
 
     # --- Critical topic presence with type and publisher validation ---
     topics = graph.get("topics")
@@ -480,22 +512,13 @@ def check_field_decision(
         for t in topics:
             if isinstance(t, dict) and isinstance(t.get("name"), str):
                 topic_map[t["name"]] = t
-    # Required topics with types (from spec section 10.11)
-    required_topic_types = {
-        "/odom": "nav_msgs/msg/Odometry",
-        "/scan": "sensor_msgs/msg/LaserScan",
-        "/tf": "tf2_msgs/msg/TFMessage",
-        "/tf_static": "tf2_msgs/msg/TFMessage",
-        "/map": "nav_msgs/msg/OccupancyGrid",
-        "/map_metadata": "nav_msgs/msg/MapMetaData",
-    }
-    for topic_name, expected_type in required_topic_types.items():
+    for topic_name, expected_type in schema.CRITICAL_TOPIC_TYPES.items():
         if topic_name not in topic_map:
             no_go.append(f"CRITICAL_TOPIC_MISSING:{topic_name}")
         else:
             t_entry = topic_map[topic_name]
-            if t_entry.get("type") and t_entry["type"] != expected_type:
-                no_go.append(f"CRITICAL_TOPIC_WRONG_TYPE:{topic_name}:got={t_entry['type']!r}")
+            if not _valid_type(t_entry.get("type"), expected_type):
+                no_go.append(f"CRITICAL_TOPIC_WRONG_TYPE:{topic_name}:got={t_entry.get('type')!r}")
 
     # --- TF / odom gates ---
     odom_present = "/odom" in topic_map
@@ -509,12 +532,36 @@ def check_field_decision(
             no_go.append("ODOM_FRAME_ID_MISSING")
         if not tf_doc.get("candidate_child_frame_id"):
             no_go.append("ODOM_CHILD_FRAME_ID_MISSING")
+        freq = tf_doc.get("candidate_odom_frequency")
+        if not isinstance(freq, dict):
+            no_go.append("ODOM_FREQUENCY_MISSING")
+        elif freq.get("measurement_status") != "MEASURED" or not isinstance(freq.get("average_hz"), (int, float)):
+            no_go.append(f"ODOM_FREQUENCY_NOT_MEASURED:status={freq.get('measurement_status')!r}")
 
-    # TF edges: any required edge not in tf_edges_observed → NO_GO
+    # TF edges: any required edge not linked to a concrete observation → NO_GO
     tf_edges_observed = tf_loc.get("tf_edges_observed", [])
     required_edges = tf_loc.get("required_tf_edges", list(schema.REQUIRED_TF_EDGES))
+    observed_edge_names = set()
+    if isinstance(tf_edges_observed, list):
+        for edge in tf_edges_observed:
+            if not isinstance(edge, dict):
+                no_go.append(f"TF_EDGE_MALFORMED:{edge!r}")
+                continue
+            for field in ("parent", "child", "source_topic", "command_label", "observed_at_monotonic_ns", "is_static"):
+                if field not in edge:
+                    no_go.append(f"TF_EDGE_FIELD_MISSING:{field}")
+            if edge.get("source_topic") not in ("/tf", "/tf_static"):
+                no_go.append(f"TF_EDGE_SOURCE_INVALID:{edge.get('source_topic')!r}")
+            if not isinstance(edge.get("observed_at_monotonic_ns"), int):
+                no_go.append("TF_EDGE_OBSERVED_AT_INVALID")
+            parent = edge.get("parent")
+            child = edge.get("child")
+            if isinstance(parent, str) and isinstance(child, str):
+                observed_edge_names.add(edge.get("edge") or f"{parent}->{child}")
+    else:
+        no_go.append("TF_EDGES_NOT_LIST")
     for edge in required_edges:
-        if edge not in tf_edges_observed:
+        if edge not in observed_edge_names:
             no_go.append(f"TF_EDGE_NOT_OBSERVED:{edge}")
 
     # --- Scan gates ---
@@ -524,8 +571,10 @@ def check_field_decision(
         no_go.append("SCAN_NOT_PRESENT")
     else:
         pub_count = scan_info.get("publisher_count")
-        if pub_count is not None and pub_count < 1:
-            no_go.append("SCAN_NO_PUBLISHER")
+        if not _positive_int(pub_count):
+            no_go.append(f"SCAN_NO_PUBLISHER:got={pub_count!r}")
+        if not _valid_type(scan_info.get("type"), schema.CRITICAL_TOPIC_TYPES["/scan"]):
+            no_go.append(f"SCAN_WRONG_OR_UNKNOWN_TYPE:got={scan_info.get('type')!r}")
         hz = scan_info.get("frequency_result")
         if hz is not None and hz <= 0:
             no_go.append("SCAN_FREQUENCY_ZERO_OR_NEGATIVE")
@@ -547,18 +596,32 @@ def check_field_decision(
     # Unexpected global /cmd_vel → NO_GO
     if cmd_doc.get("unexpected_global_cmd_vel"):
         no_go.append("UNEXPECTED_GLOBAL_CMD_VEL")
-    # /cmd_vel_raw and /cmd_vel_safe must be present with publishers and subscribers
-    for cv_topic in ("/cmd_vel_raw", "/cmd_vel_safe"):
+    # cmd_vel topics must be typed and have known counts. The safe output
+    # must have a known physical consumer candidate for GO_CANDIDATE.
+    for cv_topic in schema.CMD_VEL_TOPICS:
         info = topics_cv.get(cv_topic) or {}
         if not info.get("present"):
             no_go.append(f"CMD_VEL_TOPIC_MISSING:{cv_topic}")
         else:
+            msg_type = info.get("message_type", info.get("type"))
+            if not _valid_type(msg_type, schema.CRITICAL_TOPIC_TYPES[cv_topic]):
+                no_go.append(f"CMD_VEL_TYPE_UNKNOWN_OR_WRONG:{cv_topic}:got={msg_type!r}")
             pub_c = info.get("publisher_count")
-            sub_c = info.get("subscription_count")
-            if pub_c is not None and pub_c < 1:
+            sub_c = info.get("subscriber_count", info.get("subscription_count"))
+            if not _known_nonnegative_int(pub_c):
+                no_go.append(f"CMD_VEL_PUBLISHER_COUNT_UNKNOWN:{cv_topic}:got={pub_c!r}")
+            elif cv_topic in ("/cmd_vel_raw", "/cmd_vel_safe") and pub_c < 1:
                 no_go.append(f"CMD_VEL_NO_PUBLISHER:{cv_topic}")
-            if sub_c is not None and sub_c < 1:
+            if not _known_nonnegative_int(sub_c):
+                no_go.append(f"CMD_VEL_SUBSCRIBER_COUNT_UNKNOWN:{cv_topic}:got={sub_c!r}")
+            elif cv_topic in ("/cmd_vel_raw", "/cmd_vel_safe") and sub_c < 1:
                 no_go.append(f"CMD_VEL_NO_SUBSCRIBER:{cv_topic}")
+            if not isinstance(info.get("publisher_identities"), list):
+                no_go.append(f"CMD_VEL_PUBLISHER_IDENTITIES_UNKNOWN:{cv_topic}")
+            if not isinstance(info.get("subscriber_identities"), list):
+                no_go.append(f"CMD_VEL_SUBSCRIBER_IDENTITIES_UNKNOWN:{cv_topic}")
+            if cv_topic == "/cmd_vel_safe" and not info.get("physical_consumer_candidate"):
+                no_go.append("CMD_VEL_SAFE_PHYSICAL_CONSUMER_UNKNOWN")
     if not cmd_doc.get("controller_server_observed"):
         no_go.append("CONTROLLER_SERVER_NOT_OBSERVED")
     if not cmd_doc.get("collision_monitor_observed"):
