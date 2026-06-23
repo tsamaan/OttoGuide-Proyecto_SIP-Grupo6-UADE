@@ -1,0 +1,48 @@
+{
+  "audit_date": "2026-06-23",
+  "wall_clock_trusted": false,
+  "wall_clock_note": "Robot RTC invalid (~May 1970). RUN_ID values are technical identifiers only.",
+  "reliable_fields": ["monotonic_duration_s", "message_counts", "topic_types", "bag_hashes"],
+  "unreliable_fields": ["bag_wall_clock_start", "bag_wall_clock_end", "collected_at_utc_from_robot"],
+  "captures": [
+    {
+      "run_id": "19700526_082014",
+      "label": "office_route_manual_control_raw_take01",
+      "bag_size_gib": 4.7,
+      "duration_authoritative_s": 362.464,
+      "duration_note": "362.464s is authoritative from ros2 bag info; 453.76s must not be used",
+      "total_messages": 1430030,
+      "copy_status": "PASS",
+      "topic_counts": {
+        "/utlidar/cloud": 651527,
+        "/scan": 630915,
+        "/livox/imu": 90753,
+        "/unitree/fsm_state": 4289,
+        "/unitree/secondary_imu": 43364,
+        "/unitree/lowstate_imu": 22040,
+        "/unitree/lowstate_summary": 22040,
+        "/unitree/remote_joy": 22040,
+        "/unitree/sdk_health": 454
+      }
+    },
+    {
+      "run_id": "19700526_083505",
+      "label": "office_route_manual_control_raw_take02",
+      "bag_size_gib": 2.2,
+      "duration_approx_s": 203.10,
+      "copy_status": "PASS",
+      "note": "2.2 GiB bag found after session corresponds to this take; already stopped, finalized, packaged and copied. Not an orphan capture."
+    }
+  ],
+  "topics_present_l0": ["/utlidar/cloud", "/livox/imu", "/scan"],
+  "topics_present_l1": [
+    "/unitree/remote_joy", "/unitree/lowstate_imu", "/unitree/secondary_imu",
+    "/unitree/fsm_state", "/unitree/lowstate_summary", "/unitree/sdk_health"
+  ],
+  "topics_absent": [
+    "/odom", "/tf", "/tf_static", "/map", "/map_metadata",
+    "/cmd_vel", "/cmd_vel_raw", "/cmd_vel_safe"
+  ],
+  "sensor_validation_summary": "partial physical PASS (L0+L1 observed and recorded)",
+  "navigation_validation_summary": "NOT_READY (odom/TF/map/Nav2 absent)"
+}

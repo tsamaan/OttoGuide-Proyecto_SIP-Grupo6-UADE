@@ -1,0 +1,9 @@
+# SHA256 hashes of physical capture packages — audit 2026-06-23
+# Format: <hash>  <run_id>/<filename>
+# These hashes cover the TAR packages; the .db3 bags are NOT versioned in this repo.
+#
+# Take 01 — office_route_manual_control_raw_take01
+0DDB1845683FFEE68F9B7653A21CCEA17C5F0C5E051565B9277556A27F493528  19700526_082014/package.tar
+
+# Take 02 — office_route_manual_control_raw_take02
+5D6AEFD780795C2273E7AFF8EFF03FA2C603A7B69D6461EE1792121E767E6750  19700526_083505/package.tar

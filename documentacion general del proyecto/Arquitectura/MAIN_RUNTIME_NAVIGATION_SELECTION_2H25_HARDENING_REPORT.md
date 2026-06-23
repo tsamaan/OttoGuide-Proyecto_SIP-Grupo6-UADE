@@ -8,20 +8,40 @@
 **Baseline previo (parent de `ba8de8a`)**: `cd3177b74948fa9d49ea87d8297430eccbad2712`
 
 ```text
-FASE_2H_2_5 = IMPLEMENTED_LOCALLY_PENDING_PUSH_AND_INDEPENDENT_AUDIT
-LEASE_TIMEBASE = MONOTONIC_VALIDATED
-P0_DECISION_ENGINE = HARDENED_OFFLINE_PENDING_FIELD_AUDIT
-P0_PHYSICAL_READ_ONLY = NOT_EXECUTED
-RUNTIME_INSTABILITY = CHARACTERIZED_ROOT_CAUSE_NOT_PROVEN
-RUNTIME_STABILITY = PARTIAL_CHARACTERIZED
-PHYSICAL_NAVIGATION = NOT_READY
-PHYSICAL_MOVEMENT = NOT_AUTHORIZED
-INDEPENDENT_AUDIT_REQUIRED = YES
+FASE_2H_2_5                    = IMPLEMENTED_LOCALLY_PENDING_PUSH_AND_INDEPENDENT_AUDIT
+PUSH_STATUS                    = PUBLISHED_ON_ROBOT_BRANCH
+INDEPENDENT_AUDIT              = COMPLETED_WITH_BLOCKING_FINDINGS
+PHYSICAL_BASELINE              = CAPTURED_ON_OLDER_DEPLOYED_HEAD (23d9d9c, 38 commits behind)
+LEASE_TIMEBASE                 = MONOTONIC_VALIDATED
+P0_DECISION_ENGINE             = HARDENED_OFFLINE_PENDING_FIELD_AUDIT
+P0_PHYSICAL_READ_ONLY          = NOT_EXECUTED
+FORMAL_P0_V2_COLLECTOR         = NOT_EXECUTED
+RUNTIME_INSTABILITY            = CHARACTERIZED_ROOT_CAUSE_NOT_PROVEN
+RUNTIME_STABILITY              = PARTIAL_CHARACTERIZED
+PHYSICAL_NAVIGATION            = NOT_READY
+PHYSICAL_MOVEMENT              = NOT_AUTHORIZED
+INDEPENDENT_AUDIT_REQUIRED     = YES
 ```
 
 Este reporte **no** declara `COMPLETE`, `CLOSED`, `PHYSICAL_READY`,
 `P0_AUTHORIZED` ni `PHYSICAL_NAVIGATION_READY`. La aceptación
 independiente ocurre en otro chat.
+
+### Auditoría física 2026-06-23 — hallazgos bloqueantes
+
+La auditoría física realizada el 2026-06-23 sobre el HEAD `23d9d9c` encontró:
+
+- **HEAD mismatch**: el robot estaba 38 commits detrás de `80417b7`. El código publicado
+  no ha sido ejecutado físicamente.
+- **Reloj de pared inválido**: el robot opera con RTC ~Mayo 1970. Cualquier timestamp
+  `collected_at_utc` generado por el robot es ficticio.
+- **Python 3.8 observado**: el path de site-packages del robot es `python3.8`, mientras el
+  proyecto requiere `>=3.10`. Clasificado `PYTHON_RUNTIME_COMPATIBILITY=UNRESOLVED_HIGH_RISK`.
+- **Sensores L0/L1 validados** (con sensor stack iniciado manualmente):
+  `/utlidar/cloud`, `/livox/imu`, `/scan`, telemetría Unitree: PASS físico parcial.
+- **Odometría, TF, mapa, Nav2**: ausentes. No hay movimiento por software.
+- El `FORMAL_P0_V2_COLLECTOR` nunca se ejecutó; los resultados de `find_spec()` del R0
+  se obtuvieron sin sourcear ROS y no deben usarse para modificar dependencias.
 
 ## 1. Contexto de esta sesión: recuperación, no implementación desde cero
 

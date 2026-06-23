@@ -3,7 +3,7 @@
 - `Estado: RC1_LOCKED`
 - `Modo: Air-gapped / HIL-ready`
 - `Hardware: Unitree G1 EDU 8`
-- `Validación física: pendiente`
+- `Validación física: baseline L0/L1 capturado (2026-06-23); mapa/odom/TF/Nav2 pendientes`
 
 ## Resumen Ejecutivo
 
@@ -105,14 +105,21 @@ Hecho:
 - `TODO.md` convertido en backlog post-`RC1`.
 - `codigo ottoguide/libs/` documentado como vendorización air-gapped intencional.
 
+Validación física (baseline 2026-06-23, HEAD físico `23d9d9c`):
+
+- `/utlidar/cloud`, `/livox/imu`, `/scan`: **PASS físico parcial** — observados y grabados en toma de ruta.
+- Telemetría Unitree (`/unitree/*`): **PASS físico** — bridge nativo construido, iniciado y validado.
+- `/odom`, `/tf`, `/tf_static`: **pendiente** — no presentes en sesión de auditoría.
+- `/map`, `Nav2`, `SLAM`, `controller_server`: **pendiente** — no presentes.
+- Movimiento por software: **ninguno ejecutado**.
+- Código `80417b7` (actual publicado): **no desplegado físicamente**.
+
 Pendiente:
 
-- Validación HIL real sobre el robot físico.
-- Confirmar IP efectiva del `Livox MID360`.
-- Confirmar disponibilidad de `/utlidar/cloud`.
-- Confirmar disponibilidad de `/livox/imu`.
-- Confirmar disponibilidad de `/scan`.
-- Confirmar generación de `/map`.
+- Desplegar `80417b7` en el robot y ejecutar P0 v2 formal.
+- Confirmar IP efectiva del `Livox MID360` (`.120` vs `.20`).
+- Habilitar odometría y TF en siguiente sesión física.
+- Confirmar generación de `/map` con SLAM.
 - Validación de `Audio SDK2`.
 - Pruebas físicas de seguridad.
 
