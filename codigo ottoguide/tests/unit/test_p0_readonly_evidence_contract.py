@@ -34,7 +34,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -898,6 +900,70 @@ class TestV2FieldDecisionContract(unittest.TestCase):
             self.assertEqual(result["p0_field_decision"], "NO_GO")
             self.assertTrue(any("dual_control_prohibited_acknowledged" in e
                                 for e in result["no_go_findings"]))
+
+
+# ---------------------------------------------------------------------------
+# v3 clock trust contract tests (Fase 2H.2.6)
+# ---------------------------------------------------------------------------
+
+
+class TestClockTrustSchema(unittest.TestCase):
+    """wall_clock_trust() and base_envelope() behave correctly for invalid clocks."""
+
+    def test_trusted_clock_returns_trusted(self):
+        """A year >= 2020 must yield CLOCK_TRUSTED."""
+        with unittest.mock.patch("time.gmtime") as mock_gmtime:
+            mock_gmtime.return_value = time.struct_time((2026, 6, 23, 0, 0, 0, 0, 0, 0))
+            trust, iso = schema.wall_clock_trust()
+        self.assertEqual(trust, schema.CLOCK_TRUSTED)
+        self.assertIn("2026", iso)
+
+    def test_epoch_1970_returns_untrusted(self):
+        """Year 1970 (robot RTC epoch) must yield CLOCK_UNTRUSTED."""
+        with unittest.mock.patch("time.gmtime") as mock_gmtime:
+            mock_gmtime.return_value = time.struct_time((1970, 5, 26, 8, 20, 14, 0, 0, 0))
+            trust, iso = schema.wall_clock_trust()
+        self.assertEqual(trust, schema.CLOCK_UNTRUSTED)
+        self.assertIn("1970", iso)
+
+    def test_year_2019_returns_untrusted(self):
+        """Year 2019 is below the minimum threshold and must be CLOCK_UNTRUSTED."""
+        with unittest.mock.patch("time.gmtime") as mock_gmtime:
+            mock_gmtime.return_value = time.struct_time((2019, 1, 1, 0, 0, 0, 0, 0, 0))
+            trust, iso = schema.wall_clock_trust()
+        self.assertEqual(trust, schema.CLOCK_UNTRUSTED)
+
+    def test_base_envelope_includes_clock_fields(self):
+        """base_envelope() must include all v3 clock fields."""
+        session_id = "test-session-clock"
+        env = schema.base_envelope(session_id)
+        for field in ("wall_clock_value", "wall_clock_trusted", "wall_clock_source",
+                      "monotonic_started_ns", "monotonic_ended_ns"):
+            self.assertIn(field, env, f"Missing field: {field}")
+        self.assertEqual(env["wall_clock_source"], "time.gmtime()")
+
+    def test_base_envelope_with_untrusted_clock(self):
+        """base_envelope() with 1970 clock must set wall_clock_trusted=False."""
+        with unittest.mock.patch("time.gmtime") as mock_gmtime:
+            mock_gmtime.return_value = time.struct_time((1970, 5, 26, 8, 20, 14, 0, 0, 0))
+            env = schema.base_envelope("sid-1970")
+        self.assertFalse(env["wall_clock_trusted"])
+        self.assertIn("1970", env["wall_clock_value"])
+
+    def test_base_envelope_duration_ms_computed(self):
+        """When monotonic_started_ns is provided, duration_ms must be present."""
+        started = schema.monotonic_now_ns()
+        env = schema.base_envelope("sid-dur", monotonic_started_ns=started)
+        self.assertIn("duration_ms", env)
+        self.assertGreaterEqual(env["duration_ms"], 0)
+
+    def test_clock_untrusted_constant_value(self):
+        """CLOCK_UNTRUSTED and CLOCK_TRUSTED must be distinct non-empty strings."""
+        self.assertIsInstance(schema.CLOCK_UNTRUSTED, str)
+        self.assertIsInstance(schema.CLOCK_TRUSTED, str)
+        self.assertNotEqual(schema.CLOCK_UNTRUSTED, schema.CLOCK_TRUSTED)
+        self.assertTrue(schema.CLOCK_UNTRUSTED)
+        self.assertTrue(schema.CLOCK_TRUSTED)
 
 
 if __name__ == "__main__":

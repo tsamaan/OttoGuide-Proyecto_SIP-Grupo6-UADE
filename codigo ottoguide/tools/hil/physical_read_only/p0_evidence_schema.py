@@ -24,8 +24,8 @@ import time
 import uuid
 from pathlib import Path
 
-SCHEMA_VERSION = 2
-COLLECTOR_VERSION = "2H.2.5"
+SCHEMA_VERSION = 3
+COLLECTOR_VERSION = "2H.2.6"
 
 EXPECTED_BRANCH = "robot"
 EXPECTED_ROS_DISTRO = "foxy"
@@ -180,6 +180,37 @@ class UnsafePathError(Exception):
     directory or regular file fails that check."""
 
 
+# --- clock trust (v3) --------------------------------------------------
+# Year threshold below which the wall clock is considered invalid
+# (covers epoch 0 / 1970 and similarly invalid timestamps).
+CLOCK_TRUSTED_YEAR_MIN = 2020
+CLOCK_TRUSTED = "TRUSTED"
+CLOCK_UNTRUSTED = "CLOCK_UNTRUSTED"
+
+# Monotonic base at module import — used only as a stable reference for
+# duration_ms calculations.  Never exposed directly in bundles.
+_MONOTONIC_EPOCH_NS = time.monotonic_ns()
+
+
+def wall_clock_trust() -> "tuple[str, str]":
+    """Returns (trust_status, wall_clock_value_iso).
+
+    trust_status is CLOCK_TRUSTED or CLOCK_UNTRUSTED.
+    CLOCK_UNTRUSTED does not invalidate structural evidence but prohibits
+    using the wall-clock timestamp for freshness, ordering, or lease gates.
+    No gate uses wall clock for authorization.
+    """
+    t = time.gmtime()
+    iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", t)
+    if t.tm_year < CLOCK_TRUSTED_YEAR_MIN:
+        return CLOCK_UNTRUSTED, iso
+    return CLOCK_TRUSTED, iso
+
+
+def monotonic_now_ns() -> int:
+    return time.monotonic_ns()
+
+
 def utc_now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -188,13 +219,23 @@ def new_session_id() -> str:
     return uuid.uuid4().hex
 
 
-def base_envelope(session_id: str) -> dict:
-    return {
+def base_envelope(session_id: str, monotonic_started_ns: "int | None" = None) -> dict:
+    trust, wall_value = wall_clock_trust()
+    mono_now = monotonic_now_ns()
+    envelope: dict = {
         "schema_version": SCHEMA_VERSION,
         "session_id": session_id,
-        "collected_at_utc": utc_now_iso(),
+        "collected_at_utc": wall_value,
         "collector_version": COLLECTOR_VERSION,
+        "wall_clock_value": wall_value,
+        "wall_clock_trusted": trust == CLOCK_TRUSTED,
+        "wall_clock_source": "time.gmtime()",
+        "monotonic_started_ns": monotonic_started_ns if monotonic_started_ns is not None else mono_now,
+        "monotonic_ended_ns": mono_now,
     }
+    if monotonic_started_ns is not None:
+        envelope["duration_ms"] = (mono_now - monotonic_started_ns) // 1_000_000
+    return envelope
 
 
 def sha256_bytes(data: bytes) -> str:

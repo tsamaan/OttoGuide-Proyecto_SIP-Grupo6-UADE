@@ -1,0 +1,24 @@
+{
+  "run_id": "19700526_083505",
+  "label": "office_route_manual_control_raw_take02",
+  "audit_date": "2026-06-23",
+  "physical_deployed_head": "23d9d9cd1aee2f4507dadfaee17e188d0d37135b",
+  "wall_clock_trusted": false,
+  "wall_clock_note": "Robot RTC invalid (~May 1970). run_id is a technical identifier only.",
+  "bag_size_gib": 2.2,
+  "duration_approx_s": 203.10,
+  "copy_status": "PASS",
+  "package_sha256": "5D6AEFD780795C2273E7AFF8EFF03FA2C603A7B69D6461EE1792121E767E6750",
+  "capture_state_note": "2.2 GiB bag found after session corresponds to this take already stopped, finalized, packaged and copied. Not an orphan capture.",
+  "topics_present": [
+    "/utlidar/cloud", "/scan", "/livox/imu",
+    "/unitree/fsm_state", "/unitree/secondary_imu",
+    "/unitree/lowstate_imu", "/unitree/lowstate_summary",
+    "/unitree/remote_joy", "/unitree/sdk_health"
+  ],
+  "topics_absent": ["/odom", "/tf", "/tf_static", "/map", "/cmd_vel", "/cmd_vel_raw", "/cmd_vel_safe"],
+  "movement_source": "manual_remote_control",
+  "autonomous_navigation": false,
+  "db3_versioned": false,
+  "db3_note": "Raw bag not versioned in repository. Only metadata and package hash are stored here."
+}
