@@ -45,17 +45,53 @@ def _load_smoke():
 
 
 _smoke = _load_smoke()
+_run = _smoke._run
 _node_list = _smoke._node_list
 _lifecycle_get = _smoke._lifecycle_get
 wait_for_components = _smoke.wait_for_components_deterministic
-_STDERR_TIMEOUT = _smoke._STDERR_TIMEOUT
-_STDERR_CMD_NOT_FOUND = _smoke._STDERR_CMD_NOT_FOUND
 
 
 def _cp(stdout="", stderr="", returncode=0):
     return subprocess.CompletedProcess(
         args=[], returncode=returncode, stdout=stdout, stderr=stderr
     )
+
+
+class TestRunCommandResult(unittest.TestCase):
+    """_run() must return _CommandResult with correct structured fields for every outcome."""
+
+    def test_success_sets_error_class_none_and_is_not_timed_out(self):
+        with patch("subprocess.run", return_value=_cp(stdout="hello\n", returncode=0)):
+            result = _run(["ros2", "node", "list"], {}, timeout=1.0)
+        self.assertEqual(result.error_class, "NONE")
+        self.assertFalse(result.timed_out)
+        self.assertEqual(result.stdout, "hello\n")
+        self.assertEqual(result.returncode, 0)
+
+    def test_timeout_sets_timed_out_true_and_preserves_partial_bytes_output(self):
+        exc = subprocess.TimeoutExpired(
+            ["ros2", "node", "list"], 1.0, output=b"partial\noutput", stderr=None
+        )
+        with patch("subprocess.run", side_effect=exc):
+            result = _run(["ros2", "node", "list"], {}, timeout=1.0)
+        self.assertTrue(result.timed_out)
+        self.assertEqual(result.error_class, "TIMEOUT")
+        self.assertEqual(result.returncode, 124)
+        self.assertEqual(result.stdout, "partial\noutput")
+        self.assertEqual(result.stderr, "")
+
+    def test_file_not_found_sets_command_not_found_class_not_timed_out(self):
+        with patch("subprocess.run", side_effect=FileNotFoundError("no ros2")):
+            result = _run(["ros2", "node", "list"], {}, timeout=1.0)
+        self.assertFalse(result.timed_out)
+        self.assertEqual(result.error_class, "COMMAND_NOT_FOUND")
+        self.assertEqual(result.returncode, 127)
+
+    def test_nonzero_exit_sets_nonzero_exit_class(self):
+        with patch("subprocess.run", return_value=_cp(returncode=2, stderr="err")):
+            result = _run(["ros2", "node", "list"], {}, timeout=1.0)
+        self.assertEqual(result.error_class, "NONZERO_EXIT")
+        self.assertFalse(result.timed_out)
 
 
 class TestNodeListErrorDifferentiation(unittest.TestCase):
@@ -74,14 +110,14 @@ class TestNodeListErrorDifferentiation(unittest.TestCase):
         self.assertIsNone(err)
 
     def test_timeout_is_differentiated_from_empty_success(self):
-        with patch("subprocess.run", return_value=_cp(returncode=1, stderr=_STDERR_TIMEOUT)):
+        with patch("subprocess.run",
+                   side_effect=subprocess.TimeoutExpired(["ros2", "node", "list"], 1.0)):
             nodes, err = _node_list({}, timeout=1.0)
         self.assertEqual(nodes, [])
         self.assertEqual(err, "TIMEOUT")
 
     def test_command_not_found_is_differentiated(self):
-        with patch("subprocess.run",
-                   return_value=_cp(returncode=127, stderr=_STDERR_CMD_NOT_FOUND)):
+        with patch("subprocess.run", side_effect=FileNotFoundError("ros2 not found")):
             nodes, err = _node_list({}, timeout=1.0)
         self.assertEqual(nodes, [])
         self.assertEqual(err, "COMMAND_NOT_FOUND")
@@ -115,15 +151,16 @@ class TestLifecycleGetErrorDifferentiation(unittest.TestCase):
         self.assertIsNone(err)
 
     def test_timeout_is_differentiated(self):
-        with patch("subprocess.run",
-                   return_value=_cp(returncode=1, stderr=_STDERR_TIMEOUT)):
+        exc = subprocess.TimeoutExpired(
+            ["ros2", "lifecycle", "get", "/nav/node"], 1.0
+        )
+        with patch("subprocess.run", side_effect=exc):
             state, err = _lifecycle_get("/nav/node", {}, timeout=1.0)
         self.assertIsNone(state)
         self.assertEqual(err, "TIMEOUT")
 
     def test_command_not_found_is_differentiated(self):
-        with patch("subprocess.run",
-                   return_value=_cp(returncode=127, stderr=_STDERR_CMD_NOT_FOUND)):
+        with patch("subprocess.run", side_effect=FileNotFoundError("ros2 not found")):
             state, err = _lifecycle_get("/nav/node", {}, timeout=1.0)
         self.assertIsNone(state)
         self.assertEqual(err, "COMMAND_NOT_FOUND")
@@ -203,7 +240,7 @@ class TestWaitForComponentsAntiStarvation(unittest.TestCase):
             if len(cmd) >= 3 and cmd[1] == "lifecycle" and cmd[2] == "get":
                 call_n["lc"] += 1
                 if call_n["lc"] == 1:
-                    return _cp(returncode=1, stderr=_STDERR_TIMEOUT)
+                    raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout", 1.0))
                 return _cp(stdout="active\n")
             return _cp(returncode=1)
 
@@ -224,10 +261,19 @@ class TestWaitForComponentsAntiStarvation(unittest.TestCase):
             if len(cmd) >= 3 and cmd[1] == "node" and cmd[2] == "list":
                 return _cp(stdout="/comp\n")
             if len(cmd) >= 3 and cmd[1] == "lifecycle" and cmd[2] == "get":
-                return _cp(returncode=1, stderr=_STDERR_TIMEOUT)
+                raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout", 1.0))
             return _cp(returncode=1)
 
-        mono_seq = [10.0, 10.0, 100.0]
+        # _run() now records duration via two time.monotonic() calls (t0 + end).
+        # Sequence covers exactly the 7 calls made before the deadline expires:
+        #   1. outer remaining check     (< 15.0 → keep looping)
+        #   2. _run() t0 for node_list
+        #   3. _run() duration for node_list
+        #   4. remaining2 check          (< 15.0 → proceed to lifecycle_get)
+        #   5. _run() t0 for lifecycle_get
+        #   6. _run() duration for lifecycle_get (TimeoutExpired also measures)
+        #   7. end-of-loop deadline check (>= 15.0 → break)
+        mono_seq = [10.0, 10.0, 10.001, 10.002, 10.003, 10.004, 100.0]
         mono_idx = {"i": 0}
 
         def fake_mono():

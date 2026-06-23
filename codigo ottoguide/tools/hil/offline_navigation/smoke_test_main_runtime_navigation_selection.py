@@ -907,30 +907,68 @@ def _build_env(domain_id: str) -> dict:
     return env
 
 
-# Sentinel strings written into CompletedProcess.stderr by _run() to carry
-# the failure kind to callers without raising exceptions, so _node_list() and
-# _lifecycle_get() can differentiate timeout from command-not-found from other
-# nonzero exits (diagnostics must not be collapsed into a generic failure).
-_STDERR_TIMEOUT = "TIMEOUT"
-_STDERR_CMD_NOT_FOUND = "CMD_NOT_FOUND"
+@dataclass
+class _CommandResult:
+    """Structured result from _run(). Never collapses failure kind into stderr text."""
+    argv: list
+    returncode: int
+    stdout: str
+    stderr: str
+    timed_out: bool
+    duration_ms: float
+    error_class: str
+    # error_class values: NONE, TIMEOUT, COMMAND_NOT_FOUND, NONZERO_EXIT,
+    #                     PARSE_ERROR, PROCESS_ERROR
 
 
-def _run(cmd: list, env: dict, timeout: float) -> subprocess.CompletedProcess:
+def _normalize_partial_output(value: "bytes | str | None") -> str:
+    """Decode bytes, pass through str, map None to empty string.
+    Called on TimeoutExpired.stdout/.stderr to preserve any partial output."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _run(cmd: list, env: dict, timeout: float) -> _CommandResult:
+    """Run a subprocess and return a structured result. Never uses stderr text
+    as the sole mechanism for classifying errors; preserves partial output
+    from TimeoutExpired for bytes, str, None, and mixed combinations."""
+    t0 = time.monotonic()
     try:
-        return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr=_STDERR_TIMEOUT)
-    except FileNotFoundError:
-        return subprocess.CompletedProcess(cmd, returncode=127, stdout="", stderr=_STDERR_CMD_NOT_FOUND)
+        r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
+        duration_ms = (time.monotonic() - t0) * 1000.0
+        error_class = "NONE" if r.returncode == 0 else "NONZERO_EXIT"
+        return _CommandResult(
+            argv=list(cmd), returncode=r.returncode,
+            stdout=r.stdout or "", stderr=r.stderr or "",
+            timed_out=False, duration_ms=duration_ms, error_class=error_class,
+        )
+    except subprocess.TimeoutExpired as exc:
+        duration_ms = (time.monotonic() - t0) * 1000.0
+        return _CommandResult(
+            argv=list(cmd), returncode=124,
+            stdout=_normalize_partial_output(exc.stdout),
+            stderr=_normalize_partial_output(exc.stderr),
+            timed_out=True, duration_ms=duration_ms, error_class="TIMEOUT",
+        )
+    except FileNotFoundError as exc:
+        duration_ms = (time.monotonic() - t0) * 1000.0
+        return _CommandResult(
+            argv=list(cmd), returncode=127,
+            stdout="", stderr=str(exc),
+            timed_out=False, duration_ms=duration_ms, error_class="COMMAND_NOT_FOUND",
+        )
 
 
 def _node_list(env: dict, timeout: float) -> "tuple[list, str | None]":
     """Return (nodes, error_kind). error_kind is None on success.
     Differentiates: success (possibly empty list), TIMEOUT, COMMAND_NOT_FOUND, NONZERO_EXIT."""
     proc = _run(["ros2", "node", "list"], env, timeout)
-    if proc.stderr == _STDERR_TIMEOUT:
+    if proc.timed_out:
         return [], "TIMEOUT"
-    if proc.stderr == _STDERR_CMD_NOT_FOUND:
+    if proc.error_class == "COMMAND_NOT_FOUND":
         return [], "COMMAND_NOT_FOUND"
     if proc.returncode != 0:
         return [], "NONZERO_EXIT"
@@ -942,9 +980,9 @@ def _lifecycle_get(node_fqn: str, env: dict, timeout: float) -> "tuple[str | Non
     Differentiates: valid lifecycle state, TIMEOUT, COMMAND_NOT_FOUND, NONZERO_EXIT,
     PARSE_ERROR, LIFECYCLE_UNAVAILABLE."""
     proc = _run(["ros2", "lifecycle", "get", node_fqn], env, timeout)
-    if proc.stderr == _STDERR_TIMEOUT:
+    if proc.timed_out:
         return None, "TIMEOUT"
-    if proc.stderr == _STDERR_CMD_NOT_FOUND:
+    if proc.error_class == "COMMAND_NOT_FOUND":
         return None, "COMMAND_NOT_FOUND"
     if proc.returncode != 0:
         stderr_lower = (proc.stderr or "").lower()
