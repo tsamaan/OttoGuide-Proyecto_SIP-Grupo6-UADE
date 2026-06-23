@@ -907,25 +907,54 @@ def _build_env(domain_id: str) -> dict:
     return env
 
 
+# Sentinel strings written into CompletedProcess.stderr by _run() to carry
+# the failure kind to callers without raising exceptions, so _node_list() and
+# _lifecycle_get() can differentiate timeout from command-not-found from other
+# nonzero exits (diagnostics must not be collapsed into a generic failure).
+_STDERR_TIMEOUT = "TIMEOUT"
+_STDERR_CMD_NOT_FOUND = "CMD_NOT_FOUND"
+
+
 def _run(cmd: list, env: dict, timeout: float) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="TIMEOUT")
+        return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr=_STDERR_TIMEOUT)
+    except FileNotFoundError:
+        return subprocess.CompletedProcess(cmd, returncode=127, stdout="", stderr=_STDERR_CMD_NOT_FOUND)
 
 
-def _node_list(env: dict, timeout: float) -> list:
+def _node_list(env: dict, timeout: float) -> "tuple[list, str | None]":
+    """Return (nodes, error_kind). error_kind is None on success.
+    Differentiates: success (possibly empty list), TIMEOUT, COMMAND_NOT_FOUND, NONZERO_EXIT."""
     proc = _run(["ros2", "node", "list"], env, timeout)
+    if proc.stderr == _STDERR_TIMEOUT:
+        return [], "TIMEOUT"
+    if proc.stderr == _STDERR_CMD_NOT_FOUND:
+        return [], "COMMAND_NOT_FOUND"
     if proc.returncode != 0:
-        return []
-    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+        return [], "NONZERO_EXIT"
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()], None
 
 
-def _lifecycle_get(node_fqn: str, env: dict, timeout: float) -> "str | None":
+def _lifecycle_get(node_fqn: str, env: dict, timeout: float) -> "tuple[str | None, str | None]":
+    """Return (state, error_kind). error_kind is None on success.
+    Differentiates: valid lifecycle state, TIMEOUT, COMMAND_NOT_FOUND, NONZERO_EXIT,
+    PARSE_ERROR, LIFECYCLE_UNAVAILABLE."""
     proc = _run(["ros2", "lifecycle", "get", node_fqn], env, timeout)
-    if proc.returncode != 0 or not proc.stdout.strip():
-        return None
-    return proc.stdout.strip().split()[0].lower()
+    if proc.stderr == _STDERR_TIMEOUT:
+        return None, "TIMEOUT"
+    if proc.stderr == _STDERR_CMD_NOT_FOUND:
+        return None, "COMMAND_NOT_FOUND"
+    if proc.returncode != 0:
+        stderr_lower = (proc.stderr or "").lower()
+        if "not a lifecycle node" in stderr_lower or "unavailable" in stderr_lower:
+            return None, "LIFECYCLE_UNAVAILABLE"
+        return None, "NONZERO_EXIT"
+    raw = proc.stdout.strip()
+    if not raw:
+        return None, "PARSE_ERROR"
+    return raw.split()[0].lower(), None
 
 
 def wait_for_components_deterministic(
@@ -938,16 +967,19 @@ def wait_for_components_deterministic(
     time even while they were coming up correctly). Returns
     (all_active, status_by_fqn) where status_by_fqn values are one of
     'active', 'NOT_DISCOVERED', 'NOT_ACTIVE:<state>', or
-    'LIFECYCLE_QUERY_FAILED'.
+    'LIFECYCLE_QUERY_FAILED:<error_kind>'.
 
     If _telemetry is provided (a mutable dict), it is populated with:
-      lifecycle_query_attempts, lifecycle_query_errors,
+      node_list_attempts: number of `ros2 node list` calls issued,
+      lifecycle_query_count: number of `ros2 lifecycle get` calls issued,
+      lifecycle_query_errors: number of lifecycle_get calls that returned an error,
       first_discovery_monotonic_ns, first_lifecycle_state,
       deadline_remaining_ms (set only on successful return).
     """
     last_status: dict = {fqn: "NOT_DISCOVERED" for fqn in fqns}
-    attempt_count = 0
-    error_count = 0
+    node_list_attempts = 0
+    lifecycle_query_count = 0
+    lifecycle_query_errors = 0
     first_discovery_ns: "int | None" = None
     first_lifecycle_state: "str | None" = None
 
@@ -956,8 +988,8 @@ def wait_for_components_deterministic(
         if remaining <= 0:
             break
         list_timeout = min(5.0, max(0.5, remaining))
-        discovered = set(_node_list(env, timeout=list_timeout))
-        attempt_count += 1
+        discovered, _ = _node_list(env, timeout=list_timeout)
+        node_list_attempts += 1
 
         all_active = True
         for fqn in fqns:
@@ -972,10 +1004,11 @@ def wait_for_components_deterministic(
                 all_active = False
                 continue
             lifecycle_timeout = min(5.0, max(0.5, remaining2))
-            state = _lifecycle_get(fqn, env, timeout=lifecycle_timeout)
-            if state is None:
-                last_status[fqn] = "LIFECYCLE_QUERY_FAILED"
-                error_count += 1
+            state, lc_error = _lifecycle_get(fqn, env, timeout=lifecycle_timeout)
+            lifecycle_query_count += 1
+            if lc_error is not None:
+                last_status[fqn] = f"LIFECYCLE_QUERY_FAILED:{lc_error}"
+                lifecycle_query_errors += 1
                 all_active = False
             elif state == "active":
                 last_status[fqn] = "active"
@@ -987,8 +1020,9 @@ def wait_for_components_deterministic(
 
         if all_active:
             if _telemetry is not None:
-                _telemetry["lifecycle_query_attempts"] = attempt_count
-                _telemetry["lifecycle_query_errors"] = error_count
+                _telemetry["node_list_attempts"] = node_list_attempts
+                _telemetry["lifecycle_query_count"] = lifecycle_query_count
+                _telemetry["lifecycle_query_errors"] = lifecycle_query_errors
                 _telemetry["first_discovery_monotonic_ns"] = first_discovery_ns
                 _telemetry["first_lifecycle_state"] = first_lifecycle_state
                 _telemetry["deadline_remaining_ms"] = max(0.0, deadline - time.monotonic()) * 1000.0
@@ -998,8 +1032,9 @@ def wait_for_components_deterministic(
         time.sleep(1.0)
 
     if _telemetry is not None:
-        _telemetry["lifecycle_query_attempts"] = attempt_count
-        _telemetry["lifecycle_query_errors"] = error_count
+        _telemetry["node_list_attempts"] = node_list_attempts
+        _telemetry["lifecycle_query_count"] = lifecycle_query_count
+        _telemetry["lifecycle_query_errors"] = lifecycle_query_errors
         _telemetry["first_discovery_monotonic_ns"] = first_discovery_ns
         _telemetry["first_lifecycle_state"] = first_lifecycle_state
         _telemetry["deadline_remaining_ms"] = 0.0
@@ -1457,7 +1492,8 @@ async def _run_scenario_body(
                 if spawn_monotonic_ns and _wfc_telemetry.get("first_discovery_monotonic_ns")
                 else None
             ),
-            "lifecycle_query_attempts": _wfc_telemetry.get("lifecycle_query_attempts"),
+            "node_list_attempts": _wfc_telemetry.get("node_list_attempts"),
+            "lifecycle_query_count": _wfc_telemetry.get("lifecycle_query_count"),
             "lifecycle_query_errors": _wfc_telemetry.get("lifecycle_query_errors"),
             "first_lifecycle_state": _wfc_telemetry.get("first_lifecycle_state"),
             "active_monotonic_ns": active_monotonic_ns if all_active else None,
