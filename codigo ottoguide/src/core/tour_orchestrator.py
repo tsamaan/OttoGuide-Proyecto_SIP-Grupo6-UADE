@@ -631,14 +631,15 @@ class TourOrchestrator(StateMachine):
                   (python-statemachine final=True; no hay transicion de salida automatica).
                   Todos los errores en STEPs posteriores a Damp() se absorben para garantizar
                   la ejecucion completa de la secuencia de cierre.
-        @SECURITY: Damp() es el PRIMER comando de hardware ejecutado (STEP 3); ninguna otra operacion
-                   de hardware precede a Damp() para garantizar la caida segura ante cualquier estado.
+        @SECURITY: Damp() es el ULTIMO comando de locomocion (STEP 5); ninguna operacion de
+                   movimiento o velocidad ocurre despues de Damp() para garantizar el estado terminal
+                   seguro. Secuencia: cancel_navigation → zero velocity → damp → sin locomocion.
 
         STEP 1: Persistir evento EMERGENCY_TRIGGERED en MissionAuditLogger con await directo
         STEP 2: Cancelar _nav_task y _odometry_task via _cancel_*_safe() sin propagar excepciones
         STEP 3: Enviar cancel_navigation() al Nav2Bridge con timeout de 1.0 s
-        STEP 4: Invocar Damp() en hardware con timeout _damp_timeout_s (primera accion de hardware)
-        STEP 5: Enviar MotionCommand de velocidad cero como redundancia cinematica tras Damp()
+        STEP 4: Enviar MotionCommand de velocidad cero antes de Damp() como reduccion cinematica
+        STEP 5: Invocar Damp() en hardware con timeout _damp_timeout_s (comando terminal de locomocion)
         STEP 6: Invocar VisionProcessor.close() para liberar el bus USB y el thread de captura
         STEP 7: Registrar estado final del sistema via LOGGER.critical para diagnostico post-mortem
         """
@@ -681,6 +682,14 @@ class TourOrchestrator(StateMachine):
         except Exception as exc:
             LOGGER.error("[Orchestrator] Fallo al cancelar Nav2 en emergencia: %s", exc)
 
+        try:
+            await asyncio.wait_for(
+                self._hardware_api.move(MotionCommand(linear_x=0.0, angular_z=0.0, duration_ms=0)),
+                timeout=0.5,
+            )
+        except Exception:
+            pass
+
         LOGGER.critical(
             "[Orchestrator] Emitiendo Damp() al hardware (timeout=%.1f s).",
             self._damp_timeout_s,
@@ -702,14 +711,6 @@ class TourOrchestrator(StateMachine):
                 type(exc).__name__,
                 exc,
             )
-
-        try:
-            await asyncio.wait_for(
-                self._hardware_api.move(MotionCommand(linear_x=0.0, angular_z=0.0, duration_ms=0)),
-                timeout=0.5,
-            )
-        except Exception:
-            pass
 
         try:
             self._vision_processor.close()
