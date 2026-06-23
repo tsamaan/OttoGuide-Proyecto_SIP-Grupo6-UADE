@@ -1,14 +1,16 @@
 {
   "schema_version": 1,
   "phase": "2H.2.5",
-  "generated_at_utc": "2026-06-23T11:50:56Z",
+  "generated_at_utc": "2026-06-23T17:45:00Z",
+  "head_sha": "d59376e6d1bebee0b211367b4ebca6c69477ef28",
+  "correction_note": "Version generated in recovery session; replaces incorrect WSL claims in commit 7dbc4d9 (wrong distro, wrong domain IDs, wrong ROS2 availability). Ubuntu-24.04 HAS pytest 7.4.4 and HAS ROS2 Jazzy at /opt/ros/jazzy.",
   "windows": {
     "syntax_py_compile": "PASS",
     "targeted_2H25": {
       "files": [
         "tests/unit/test_main_runtime_timeout_cleanup.py",
-        "tests/unit/test_p0_readonly_pipeline_e2e.py",
         "tests/unit/test_p0_readonly_evidence_contract.py",
+        "tests/unit/test_p0_readonly_pipeline_e2e.py",
         "tests/unit/test_2h23_evidence_matrix.py"
       ],
       "result": "PASS",
@@ -60,18 +62,52 @@
   },
   "wsl": {
     "distro": "Ubuntu 24.04.4 LTS (WSL2)",
+    "python": "python3 (system, Ubuntu-24.04)",
+    "pytest_version": "7.4.4",
     "syntax_py_compile": "PASS",
     "static_verifier": {
       "result": "PASS",
       "errors": [],
       "exit_code": 0
     },
+    "pytest_suites": {
+      "result": "PASS_WITH_PREEXISTING_ENVIRONMENT_GAP",
+      "pre_commit_counts": {
+        "passed": 662,
+        "skipped": 38,
+        "failed": 0,
+        "errors": 9,
+        "exit_code": 1
+      },
+      "post_commit_counts": {
+        "sha": "d59376e6d1bebee0b211367b4ebca6c69477ef28",
+        "passed": 662,
+        "skipped": 38,
+        "failed": 0,
+        "errors": 9,
+        "exit_code": 1
+      },
+      "targeted_2H25": {
+        "files": [
+          "tests/unit/test_main_runtime_timeout_cleanup.py",
+          "tests/unit/test_p0_readonly_evidence_contract.py"
+        ],
+        "passed": 139,
+        "failed": 0,
+        "exit_code": 0,
+        "note": "All POSIX permission tests and monotonic lease fix verified PASS on Ubuntu-24.04"
+      },
+      "errors_source": "tests/unit/test_content_interface.py (9 collection errors: import pytest_asyncio fails, pytest_asyncio not installed in Ubuntu-24.04 system python3)",
+      "classification": "PREEXISTING_ENVIRONMENT_GAP_CONSISTENT_WITH_2H24_SIGNATURE",
+      "note": "pytest 7.4.4 is present. 662 tests pass. The 9 collection errors from test_content_interface.py are a pre-existing gap identical to 2H.2.4. No regressions introduced by this phase."
+    },
     "parent_cli_timeout_x3": {
       "driver": "tools/hil/offline_navigation/run_2h24_parent_cli_timeout.py",
       "env": "OTTOGUIDE_2H24_FAULT_INJECTION=1",
       "runs": [
         {
-          "domain_id": "221",
+          "domain_id": "20",
+          "scenarios_span": "20-23",
           "cleanup_decision": "PASS",
           "scenario_decision": "EXPECTED_TIMEOUT",
           "parent_cli_exit_code": 1,
@@ -85,28 +121,32 @@
           "temporal_anomalies": "NONE"
         },
         {
-          "domain_id": "225",
+          "domain_id": "24",
+          "scenarios_span": "24-27",
           "cleanup_decision": "PASS",
           "scenario_decision": "EXPECTED_TIMEOUT",
           "parent_cli_exit_code": 1,
           "lease_validation_all_scenarios": "PASS",
           "child_reaped": true,
+          "child_group_alive_after": false,
           "sandbox_group_alive_after": false,
           "sentinel_signalled": false,
-          "sentinel_alive_after": true,
+          "sentinel_reaped": true,
           "zombies_remaining": 0,
           "temporal_anomalies": "NONE"
         },
         {
-          "domain_id": "229",
+          "domain_id": "28",
+          "scenarios_span": "28-31",
           "cleanup_decision": "PASS",
           "scenario_decision": "EXPECTED_TIMEOUT",
           "parent_cli_exit_code": 1,
           "lease_validation_all_scenarios": "PASS",
           "child_reaped": true,
+          "child_group_alive_after": false,
           "sandbox_group_alive_after": false,
           "sentinel_signalled": false,
-          "sentinel_alive_after": true,
+          "sentinel_reaped": true,
           "zombies_remaining": 0,
           "temporal_anomalies": "NONE"
         }
@@ -114,16 +154,41 @@
       "result": "PASS_3_CONSECUTIVE",
       "process_residue_check": "ps aux post-run: no smoke_test/sandbox/ros2 processes, no zombies, in all 3 runs"
     },
-    "pytest_suites": {
-      "result": "BLOCKED_ENVIRONMENT_GAP",
-      "reason": "pytest and pytest_asyncio are not installed in this WSL distro's system python3 (ModuleNotFoundError). No project-local WSL venv exists (codigo ottoguide/.venv is a Windows-only venv; its Scripts/python.exe cannot run under WSL/ELF). Installing dependencies (pip install) is explicitly prohibited by the task's security constraints.",
-      "verified_absence": "python3 -c 'import pytest' -> ModuleNotFoundError; python3 -c 'import pytest_asyncio' -> ModuleNotFoundError",
-      "classification": "PREEXISTING_ENVIRONMENT_GAP_CONSISTENT_WITH_2H24_SIGNATURE",
-      "note": "2H.2.4's own evidence (Evidencia/2H24/runtime_summary.json) shows the WSL environment used for that phase had `source /opt/ros/jazzy/setup.bash` available and pytest_asyncio errors were already present as a known gap (`PREEXISTING_ENVIRONMENT_GAP_PROVEN`, 9 ModuleNotFoundError in test_content_interface.py). The /opt/ros/jazzy installation itself is no longer present in this WSL instance (verified: /opt/ros does not exist, find for jazzy/foxy returns nothing). This is a wider/different environment gap than 2H.2.4's, not a regression introduced by this phase -- no code in ba8de8a or the completion commit touches the WSL environment or its dependencies."
-    },
     "runtime_characterization": {
-      "result": "NOT_EXECUTED_ENVIRONMENT_UNAVAILABLE",
-      "reason": "ros2 CLI and any ROS distro (foxy/jazzy) are absent from the only WSL instance available in this session (verified: /opt/ros absent, `which ros2` empty, no docker available either). Real Nav2/ROS2 bring-up is required by the task spec and cannot be substituted by the static verifier per explicit instruction. Installing ROS2/Nav2 is prohibited (apt/rosdep prohibited by security constraints)."
+      "result": "CHARACTERIZED_ROOT_CAUSE_NOT_PROVEN",
+      "distro": "Ubuntu 24.04.4 LTS (WSL2)",
+      "ros_distro": "jazzy",
+      "ros_install_path": "/opt/ros/jazzy",
+      "diagnostic": {
+        "domains": "32-35",
+        "passed": 4,
+        "total": 4,
+        "decision": "PASS"
+      },
+      "char_run_1": {
+        "domains": "36-39",
+        "passed": 3,
+        "total": 4,
+        "decision": "FAIL",
+        "failure": "emergency_cancel (domain 39): /offline_nav/controller_server_NOT_ACTIVE:inactive, /offline_nav/waypoint_follower_LIFECYCLE_QUERY_FAILED",
+        "lifecycle_query_attempts": 10,
+        "lifecycle_query_errors": 2
+      },
+      "char_run_2": {
+        "domains": "40-43",
+        "passed": 3,
+        "total": 4,
+        "decision": "FAIL",
+        "failure": "interaction_cancel (domain 42): all 7 components NOT_DISCOVERED after 12 lifecycle_query_attempts",
+        "lifecycle_query_attempts": 12,
+        "lifecycle_query_errors": 0
+      },
+      "total_scenarios": 12,
+      "total_passed": 10,
+      "total_failed": 2,
+      "cleanup": "clean (no orphans, no zombies across all 12 scenarios)",
+      "root_cause_classification": "OBSERVED_ROOT_CAUSE_NOT_PROVEN",
+      "tested_commit_sha": "d59376e6d1bebee0b211367b4ebca6c69477ef28"
     }
   },
   "new_regressions": "NONE"

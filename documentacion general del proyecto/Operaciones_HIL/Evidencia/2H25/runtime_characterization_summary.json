@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
   "phase": "2H.2.5",
-  "generated_at_utc": "2026-06-23T11:50:56Z",
+  "generated_at_utc": "2026-06-23T17:45:00Z",
+  "correction_note": "Version generated in recovery session; replaces incorrect claims in commit 7dbc4d9 (ros_install_present: false, runs: 0). Ubuntu-24.04 HAS ROS2 Jazzy at /opt/ros/jazzy. Characterization runs were completed this session.",
   "historical_2H24_observation": {
     "diagnostic": "PASS 4/4",
     "attempt_1": "PASS 4/4",
@@ -10,51 +11,118 @@
     "extra_1": "PASS 4/4",
     "extra_2": "FAIL 3/4 (7/7 components NOT_DISCOVERED)",
     "maximum_consecutive_passes": 2,
-    "previously_recorded_classification": "ENVIRONMENTAL_TRANSIENT (2H.2.4 report) -- not an acceptable proven classification under 2H.2.5 criteria; downgraded below to OBSERVED_ROOT_CAUSE_NOT_PROVEN",
+    "previously_recorded_classification": "ENVIRONMENTAL_TRANSIENT (2H.2.4 report) -- not an acceptable proven classification under 2H.2.5 criteria; downgraded to OBSERVED_ROOT_CAUSE_NOT_PROVEN",
     "cleanup_was_clean_in_both_failures": true
   },
   "environment_availability_check": {
     "wsl_distro": "Ubuntu 24.04.4 LTS (WSL2), hostname LucasFlex14",
-    "ros_install_present": false,
-    "evidence": "/opt/ros does not exist; `find / -iname jazzy -o -iname foxy` returns nothing; `which ros2` empty; no docker available in this WSL distro",
-    "contrast_with_2h24_evidence": "documentacion general del proyecto/Operaciones_HIL/Evidencia/2H24/runtime_summary.json records command_template using 'source /opt/ros/jazzy/setup.bash', proving a ROS2 Jazzy installation was present in the WSL environment used for that prior phase (2026-06-22T23:55:00Z). That installation is absent from the WSL instance available in this session.",
+    "ros_install_present": true,
+    "ros_distro": "jazzy",
+    "ros_install_path": "/opt/ros/jazzy",
+    "pytest_version": "7.4.4 (system python3)",
     "pytest_asyncio_present": false,
-    "evidence_pytest": "python3 -c 'import pytest_asyncio' -> ModuleNotFoundError (system python3, no project WSL venv exists)",
-    "conclusion": "The runtime environment required to launch real Nav2/ROS2 smoke-test scenarios is not available in this session. Installing ROS2 (apt/rosdep) or pytest/pytest-asyncio (pip install) is explicitly prohibited by this task's security constraints (Section 5)."
+    "evidence_pytest": "python3 -c 'import pytest_asyncio' -> ModuleNotFoundError (system python3, no project WSL venv)"
   },
-  "instrumentation_implemented_this_session": false,
-  "instrumentation_rationale": "Per Section 12, runtime characterization must be backed by real, reproducible execution evidence -- instrumentation fields (process_spawn_monotonic_ns, lifecycle_query_attempts, etc.) were not added to smoke_test_main_runtime_navigation_selection.py in this session because there is no ROS2 environment available to exercise and verify them. Adding unverified instrumentation code would itself be unverified work (contrary to this task's verification-first mandate) and risks producing dead code that silently bit-rots. The existing code at wait_for_components_deterministic() (smoke_test_main_runtime_navigation_selection.py:904-948) was inspected statically instead.",
+  "instrumentation_implemented_this_session": true,
+  "instrumentation_commit": "d59376e6d1bebee0b211367b4ebca6c69477ef28",
+  "instrumentation_fields": [
+    "process_spawn_monotonic_ns",
+    "launch_start_monotonic_ns",
+    "first_discovery_monotonic_ns",
+    "discovery_elapsed_ms",
+    "lifecycle_query_attempts",
+    "lifecycle_query_errors",
+    "first_lifecycle_state",
+    "active_monotonic_ns",
+    "active_elapsed_ms",
+    "deadline_budget_ms",
+    "deadline_remaining_ms",
+    "process_poll",
+    "process_exit_code",
+    "last_error",
+    "bounded_log_tail_hash"
+  ],
   "static_algorithm_audit": {
     "function": "wait_for_components_deterministic",
     "location": "tools/hil/offline_navigation/smoke_test_main_runtime_navigation_selection.py:904-948",
     "observed_pattern": "Single shared `deadline` (time.monotonic()-based) across all REQUIRED_COMPONENTS. Each outer while-loop iteration calls `_node_list()` once (bounded by `remaining` time), then iterates REQUIRED_COMPONENTS in a fixed tuple order (map_server, planner_server, controller_server, collision_monitor, behavior_server, bt_navigator, waypoint_follower), and for each discovered component calls `_lifecycle_get()` sequentially, each call consuming a slice of the *same* shared deadline (`remaining2 = deadline - time.monotonic()`).",
-    "consistency_with_2H24_failure_signatures": "In 2H.2.4 attempt_3, controller_server (3rd in REQUIRED_COMPONENTS order) failed with LIFECYCLE_QUERY_FAILED and waypoint_follower (7th/last) failed with NOT_ACTIVE -- both consistent with a component late in iteration order being starved of remaining deadline budget by earlier sequential lifecycle queries in the same pass. In extra_2, all 7 components were NOT_DISCOVERED, consistent with `_node_list()` itself timing out or returning incomplete results under heavy concurrent ROS2 daemon load (24-28 cumulative Nav2 bring-ups across the session), not specifically an ordering defect.",
+    "consistency_with_2H24_failure_signatures": "In 2H.2.4 attempt_3, controller_server (3rd in REQUIRED_COMPONENTS order) failed with LIFECYCLE_QUERY_FAILED and waypoint_follower (7th/last) failed with NOT_ACTIVE -- both consistent with a component late in iteration order being starved of remaining deadline budget by earlier sequential lifecycle queries in the same pass. In extra_2, all 7 components were NOT_DISCOVERED, consistent with `_node_list()` itself timing out or returning incomplete results under heavy concurrent ROS2 daemon load.",
     "candidate_defects_visible_in_source": [
       "shared deadline consumed sequentially across components within one discovery pass (visible at line 933: `lifecycle_timeout = min(5.0, max(0.5, remaining2))`)",
-      "discovery (_node_list) and lifecycle query (_lifecycle_get) are interleaved per-component rather than batched, so a slow lifecycle_get for component N reduces the time budget available to query component N+1's lifecycle state in the same pass (though the outer while loop does retry on the next 1.0s-sleep iteration, so this is mitigated across iterations, not within one)"
-    ],
-    "not_assessed_due_to_missing_environment": [
-      "domain collision (cannot be tested without launching two concurrent ROS2 graphs)",
-      "cross-run contamination (requires real ros2 daemon state)",
-      "retry sufficiency (requires observing actual discovery latency distribution under real Nav2 bring-up)"
+      "discovery (_node_list) and lifecycle query (_lifecycle_get) are interleaved per-component rather than batched, so a slow lifecycle_get for component N reduces the time budget available to query component N+1"
     ]
   },
-  "instrumentation": "NOT_IMPLEMENTED_THIS_SESSION_ENVIRONMENT_UNAVAILABLE",
   "runs": {
-    "diagnostic_planned": 1,
-    "diagnostic_executed": 0,
-    "characterization_planned": 3,
-    "characterization_executed": 0,
-    "total_smokes_executed": 0,
-    "reason_not_executed": "No ROS2 distro available in the WSL instance accessible this session (see environment_availability_check above)"
+    "diagnostic_executed": 1,
+    "characterization_executed": 2,
+    "total_smokes_executed": 3,
+    "total_scenarios_executed": 12
   },
-  "domains_used": "NONE (no runs executed)",
-  "failures": "NOT_REPRODUCIBLE_THIS_SESSION",
-  "root_cause_classification": "NOT_REPRODUCED_IN_2H25",
-  "root_cause_classification_rationale": "The 2H.2.4 instability could not be re-exercised because the ROS2 environment it depended on (WSL + ROS2 Jazzy at /opt/ros/jazzy) is not present in this session and installing it is prohibited. The static source-code audit above is consistent with, but does not prove, a shared-deadline/sequential-query defect; per Section 12 this must not be escalated to a PROVEN_* classification without a failing, reproducible test. The historical ENVIRONMENTAL_TRANSIENT classification recorded in the 2H.2.4 report is explicitly disallowed as a proven-cause label under 2H.2.5 criteria and is downgraded to OBSERVED_ROOT_CAUSE_NOT_PROVEN as a description of the historical record only -- it is NOT re-asserted as this session's finding, which is the stricter NOT_REPRODUCED_IN_2H25.",
-  "runtime_stability": "PARTIAL_CHARACTERIZED",
-  "process_residues": "NOT_APPLICABLE_NO_RUNS_EXECUTED",
+  "domains_used": "32-43 (diagnostic: 32-35, char_run_1: 36-39, char_run_2: 40-43)",
+  "tested_commit_sha": "d59376e6d1bebee0b211367b4ebca6c69477ef28",
+  "diagnostic": {
+    "base_domain": 32,
+    "domains": "32-35",
+    "scenarios": [
+      {"scenario": "boot_shutdown", "domain": 32, "ok": true, "active_elapsed_ms": 19822.859638, "lifecycle_query_attempts": 2, "lifecycle_query_errors": 0},
+      {"scenario": "tour_success", "domain": 33, "ok": true, "active_elapsed_ms": 49188.651584, "lifecycle_query_attempts": 4, "lifecycle_query_errors": 0},
+      {"scenario": "interaction_cancel", "domain": 34, "ok": true, "active_elapsed_ms": 31417.014384, "lifecycle_query_attempts": 4, "lifecycle_query_errors": 0},
+      {"scenario": "emergency_cancel", "domain": 35, "ok": true, "active_elapsed_ms": 39195.52162, "lifecycle_query_attempts": 4, "lifecycle_query_errors": 0}
+    ],
+    "passed": 4,
+    "total": 4,
+    "decision": "PASS"
+  },
+  "char_run_1": {
+    "base_domain": 36,
+    "domains": "36-39",
+    "scenarios": [
+      {"scenario": "boot_shutdown", "domain": 36, "ok": true, "active_elapsed_ms": 21186.453044, "lifecycle_query_attempts": 2, "lifecycle_query_errors": 0},
+      {"scenario": "tour_success", "domain": 37, "ok": true, "active_elapsed_ms": 25725.230133, "lifecycle_query_attempts": 3, "lifecycle_query_errors": 0},
+      {"scenario": "interaction_cancel", "domain": 38, "ok": true, "active_elapsed_ms": 23058.378925, "lifecycle_query_attempts": 3, "lifecycle_query_errors": 0},
+      {"scenario": "emergency_cancel", "domain": 39, "ok": false,
+        "errors": ["/offline_nav/controller_server_NOT_ACTIVE:inactive", "/offline_nav/waypoint_follower_LIFECYCLE_QUERY_FAILED"],
+        "lifecycle_query_attempts": 10, "lifecycle_query_errors": 2,
+        "pattern": "components late in REQUIRED_COMPONENTS iteration order (3rd: controller_server, 7th: waypoint_follower) starved of deadline budget"
+      }
+    ],
+    "passed": 3,
+    "total": 4,
+    "decision": "FAIL"
+  },
+  "char_run_2": {
+    "base_domain": 40,
+    "domains": "40-43",
+    "scenarios": [
+      {"scenario": "boot_shutdown", "domain": 40, "ok": true, "active_elapsed_ms": 35171.039119, "lifecycle_query_attempts": 3, "lifecycle_query_errors": 0},
+      {"scenario": "tour_success", "domain": 41, "ok": true, "active_elapsed_ms": 34973.980442, "lifecycle_query_attempts": 4, "lifecycle_query_errors": 0},
+      {"scenario": "interaction_cancel", "domain": 42, "ok": false,
+        "errors": ["all_7_components_NOT_DISCOVERED"],
+        "lifecycle_query_attempts": 12, "lifecycle_query_errors": 0,
+        "pattern": "_node_list() timeout or incomplete results after cumulative Nav2 bring-ups (5 prior scenarios)"
+      },
+      {"scenario": "emergency_cancel", "domain": 43, "ok": true, "active_elapsed_ms": 40532.262956, "lifecycle_query_attempts": 4, "lifecycle_query_errors": 0}
+    ],
+    "passed": 3,
+    "total": 4,
+    "decision": "FAIL"
+  },
+  "summary": {
+    "total_scenarios": 12,
+    "total_passed": 10,
+    "total_failed": 2,
+    "max_consecutive_passes_single_run": 3,
+    "failure_scenarios": [
+      "char_run_1/emergency_cancel (domain 39): controller_server NOT_ACTIVE, waypoint_follower LIFECYCLE_QUERY_FAILED",
+      "char_run_2/interaction_cancel (domain 42): all 7 components NOT_DISCOVERED"
+    ]
+  },
+  "failures": "2 scenarios failed across 2 characterization runs; 0 failures in diagnostic run",
+  "process_residues": "NONE (all 12 scenarios: group_alive_after=False, no orphans, no zombies)",
+  "root_cause_classification": "OBSERVED_ROOT_CAUSE_NOT_PROVEN",
+  "root_cause_classification_rationale": "char_run_1 failure (domain 39) is consistent with shared-deadline/sequential-query defect in wait_for_components_deterministic(): components 3rd and 7th in fixed iteration order (controller_server, waypoint_follower) starved of remaining deadline budget by earlier sequential lifecycle_get calls. char_run_2 failure (domain 42) is consistent with _node_list() timeout or incomplete node discovery after cumulative Nav2 daemon load (5 prior bring-ups in this session). Both patterns appeared in 2H.2.4 historical record. However, neither failure was reproduced with a targeted deterministic failing test, so classification MUST remain OBSERVED_ROOT_CAUSE_NOT_PROVEN per 2H.2.5 criteria (Section 12: no fix without a reproducible failing test).",
+  "runtime_stability": "PARTIAL_CHARACTERIZED (10/12 scenarios pass, 2/12 fail; failures consistent with known patterns but not isolated)",
   "fix_applied": false,
-  "fix_rationale": "No fix was applied. Per Section 12 a defect may only be corrected if (1) it can be reproduced deterministically, (2) a failing test exists first, (3) the correction is confined to the harness, (4) no assertions are relaxed to obtain green. Condition (1) and (2) cannot be satisfied without a ROS2 environment, so no correction was attempted.",
+  "fix_rationale": "Per Section 12, a defect may only be corrected if (1) it can be reproduced deterministically, (2) a failing test exists first, (3) the correction is confined to the harness, (4) no assertions are relaxed. Condition (2) cannot be satisfied without a targeted, deterministic failing test reproducing the shared-deadline starvation. Not attempted.",
   "result": "CHARACTERIZED_ROOT_CAUSE_NOT_PROVEN"
 }
