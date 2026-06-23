@@ -33,11 +33,124 @@ from tests.mocks.mock_vision_processor import MockVisionProcessor
 install_mocks(sys.modules)
 
 from hardware.interface import RobotHardwareInterface
+from hardware.interface import MotionCommand
 from hardware.mock_adapter import MockHardwareAPI
 from src.core import TourOrchestrator
 from src.core import TourPlan
 from src.interaction import ConversationManager, ConversationResponse
 from src.navigation import NavWaypoint
+
+
+class EmergencySpyHardware(RobotHardwareInterface):
+    def __init__(self, calls: list[object], mode: str = "normal") -> None:
+        self.calls = calls
+        self.mode = mode
+
+    async def initialize(self) -> None:
+        self.calls.append("hardware.initialize")
+
+    async def stand(self) -> None:
+        self.calls.append("hardware.stand")
+
+    async def damp(self) -> None:
+        self.calls.append("hardware.damp.start")
+        if self.mode == "damp_raises":
+            self.calls.append("hardware.damp.raise")
+            raise RuntimeError("damp failed")
+        if self.mode == "damp_times_out":
+            self.calls.append("hardware.damp.sleep")
+            await asyncio.sleep(10)
+        self.calls.append("hardware.damp.end")
+
+    async def move(self, command: MotionCommand) -> None:
+        self.calls.append(
+            {
+                "hardware.move.start": {
+                    "linear_x": command.linear_x,
+                    "angular_z": command.angular_z,
+                    "duration_ms": command.duration_ms,
+                }
+            }
+        )
+        if self.mode == "move_raises":
+            self.calls.append("hardware.move.raise")
+            raise RuntimeError("move failed")
+        if self.mode == "move_times_out":
+            self.calls.append("hardware.move.sleep")
+            await asyncio.sleep(10)
+        self.calls.append("hardware.move.end")
+
+    async def emergency_stop(self) -> None:
+        self.calls.append("hardware.emergency_stop")
+        await self.damp()
+
+    async def get_state(self) -> dict:
+        return {"calls": self.calls}
+
+
+class EmergencySpyNavBridge(MockNav2Bridge):
+    def __init__(self, calls: list[object]) -> None:
+        super().__init__(navigation_delay_s=0.0)
+        self.calls = calls
+
+    async def cancel_navigation(self) -> None:
+        self.calls.append("nav.cancel.start")
+        await super().cancel_navigation()
+        self.calls.append("nav.cancel.end")
+
+
+def _make_conversation_manager() -> ConversationManager:
+    local_strategy = MagicMock()
+    local_strategy.generate = AsyncMock(
+        return_value=ConversationResponse(
+            answer_text="respuesta local",
+            source_pipeline="local",
+            audio_stream_ready=False,
+        )
+    )
+    local_strategy.close = MagicMock()
+    cloud_strategy = MagicMock()
+    cloud_strategy.generate = AsyncMock(
+        return_value=ConversationResponse(
+            answer_text="respuesta cloud",
+            source_pipeline="cloud",
+            audio_stream_ready=False,
+        )
+    )
+    cloud_strategy.close = MagicMock()
+    return ConversationManager(local_strategy=local_strategy, cloud_strategy=cloud_strategy)
+
+
+async def _make_emergency_spy_orchestrator(mode: str) -> tuple[TourOrchestrator, list[object]]:
+    calls: list[object] = []
+    hardware = EmergencySpyHardware(calls, mode=mode)
+    orchestrator = TourOrchestrator(
+        hardware_api=hardware,
+        nav_bridge=EmergencySpyNavBridge(calls),
+        conversation_manager=_make_conversation_manager(),
+        vision_processor=MockVisionProcessor(),
+        damp_timeout_s=0.05,
+    )
+    await orchestrator.activate_initial_state()
+    return orchestrator, calls
+
+
+def _index_of_call(calls: list[object], key: str) -> int:
+    for index, call in enumerate(calls):
+        if call == key:
+            return index
+        if isinstance(call, dict) and key in call:
+            return index
+    raise AssertionError(f"{key!r} not found in calls: {calls!r}")
+
+
+def _assert_no_locomotion_after_damp(calls: list[object]) -> None:
+    damp_index = _index_of_call(calls, "hardware.damp.start")
+    trailing = calls[damp_index + 1 :]
+    forbidden = ("hardware.move", "nav.cancel", "hardware.stand", "hardware.emergency_stop")
+    for call in trailing:
+        text = next(iter(call)) if isinstance(call, dict) else str(call)
+        assert not text.startswith(forbidden), calls
 
 
 @dataclass(slots=True)
@@ -152,6 +265,44 @@ async def test_emergency_stop_triggers_damp(orchestrator_bundle: OrchestratorBun
     assert orchestrator.state_id == "emergency"
     state = await hardware_api.get_state()
     assert state["state"] == "damped"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode",
+    ["normal", "move_raises", "move_times_out", "damp_raises", "damp_times_out"],
+)
+async def test_emergency_stop_terminal_damp_contract(mode: str) -> None:
+    orchestrator, calls = await _make_emergency_spy_orchestrator(mode)
+
+    await orchestrator.emergency_stop(f"forced-{mode}")
+
+    assert orchestrator.state_id == "emergency"
+    nav_index = _index_of_call(calls, "nav.cancel.start")
+    move_index = _index_of_call(calls, "hardware.move.start")
+    damp_index = _index_of_call(calls, "hardware.damp.start")
+    assert nav_index < move_index < damp_index
+    _assert_no_locomotion_after_damp(calls)
+
+
+@pytest.mark.asyncio
+async def test_emergency_stop_attempts_damp_after_move_exception() -> None:
+    orchestrator, calls = await _make_emergency_spy_orchestrator("move_raises")
+
+    await orchestrator.emergency_stop("move-exception")
+
+    assert "hardware.move.raise" in calls
+    assert "hardware.damp.start" in calls
+
+
+@pytest.mark.asyncio
+async def test_emergency_stop_attempts_damp_after_move_timeout() -> None:
+    orchestrator, calls = await _make_emergency_spy_orchestrator("move_times_out")
+
+    await orchestrator.emergency_stop("move-timeout")
+
+    assert "hardware.move.sleep" in calls
+    assert "hardware.damp.start" in calls
 
 
 @pytest.mark.asyncio

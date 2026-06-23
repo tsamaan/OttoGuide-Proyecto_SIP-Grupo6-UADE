@@ -12,7 +12,7 @@
           hardware.interface.RobotHardwareInterface y src.navigation.port.NavigationPort,
           no de implementaciones concretas. La implementacion de navegacion inyectada en
           main.py sigue siendo la del bridge Nav2 legacy hasta Fase 2H.1.
-@SECURITY: EMERGENCY es la unica transicion con prioridad absoluta; Damp() se invoca primero.
+@SECURITY: EMERGENCY es la unica transicion con prioridad absoluta; Damp() es terminal.
 
 STEP 1: Definir grafo de estados (IDLE, NAVIGATING, INTERACTING, EMERGENCY) en TourOrchestrator
 STEP 2: Implementar callbacks on_enter/on_exit con logica de integracion real de subsistemas
@@ -629,11 +629,11 @@ class TourOrchestrator(StateMachine):
                  VisionProcessor cerrado; eventos de auditoria y telemetria registrados
         @CONTEXT: Callback del estado final EMERGENCY invocado por AsyncEngine. Irreversible desde esta clase
                   (python-statemachine final=True; no hay transicion de salida automatica).
-                  Todos los errores en STEPs posteriores a Damp() se absorben para garantizar
-                  la ejecucion completa de la secuencia de cierre.
+                  Todos los errores se absorben para garantizar la ejecucion completa de la
+                  secuencia de cierre.
         @SECURITY: Damp() es el ULTIMO comando de locomocion (STEP 5); ninguna operacion de
                    movimiento o velocidad ocurre despues de Damp() para garantizar el estado terminal
-                   seguro. Secuencia: cancel_navigation → zero velocity → damp → sin locomocion.
+                   seguro. Secuencia: cancel_navigation -> zero velocity -> damp -> sin locomocion.
 
         STEP 1: Persistir evento EMERGENCY_TRIGGERED en MissionAuditLogger con await directo
         STEP 2: Cancelar _nav_task y _odometry_task via _cancel_*_safe() sin propagar excepciones
