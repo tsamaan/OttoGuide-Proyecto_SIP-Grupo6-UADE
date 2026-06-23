@@ -1166,5 +1166,107 @@ class PortablePureLogicTests(unittest.TestCase):
         self.assertEqual(identity, roundtrip)
 
 
+class MonotonicLeaseTests(unittest.TestCase):
+    """Fase 2H.2.5 -- validate_lease_immutable_fields monotonic-timebase checks.
+
+    Calls the function directly with hand-crafted dicts (no filesystem).
+    Runs on all platforms (Windows and POSIX).
+    """
+
+    _VALID_PARENT = {
+        "pid": 1234, "ppid": 567, "pgid": 1234,
+        "sid": 567, "start_ticks": 999, "uid": 1000,
+    }
+    _RUN_ID = "MONO_TEST_RUN"
+    _SCENARIO = "boot_shutdown"
+    _DOMAIN_ID = "200"
+
+    def _good_lease(self, now_mono: "int | None" = None) -> dict:
+        if now_mono is None:
+            now_mono = time.monotonic_ns()
+        return {
+            "schema_version": smoke.LEASE_SCHEMA_VERSION,
+            "lease_token": "a" * 32,
+            "run_id": self._RUN_ID,
+            "scenario": self._SCENARIO,
+            "domain_id": 200,
+            "parent": dict(self._VALID_PARENT),
+            "created_monotonic_ns": now_mono,
+            "updated_monotonic_ns": now_mono + 1_000_000,
+        }
+
+    def _validate(self, data: dict) -> "list[str]":
+        return smoke.validate_lease_immutable_fields(
+            data, self._RUN_ID, self._SCENARIO, self._DOMAIN_ID
+        )
+
+    def test_valid_monotonic_lease_produces_no_monotonic_errors(self):
+        errors = self._validate(self._good_lease())
+        mono_errors = [e for e in errors if "MONOTONIC" in e or e == "LEASE_EXPIRED"]
+        self.assertEqual(mono_errors, [], errors)
+
+    def test_missing_monotonic_fields_yield_malformed(self):
+        data = self._good_lease()
+        del data["created_monotonic_ns"]
+        del data["updated_monotonic_ns"]
+        errors = self._validate(data)
+        self.assertIn("LEASE_MONOTONIC_TIMESTAMPS_MALFORMED", errors)
+
+    def test_non_int_monotonic_fields_yield_malformed(self):
+        data = self._good_lease()
+        data["created_monotonic_ns"] = "not-an-int"
+        errors = self._validate(data)
+        self.assertIn("LEASE_MONOTONIC_TIMESTAMPS_MALFORMED", errors)
+
+    def test_monotonic_updated_before_created_rejected(self):
+        now_mono = time.monotonic_ns()
+        data = self._good_lease(now_mono)
+        data["updated_monotonic_ns"] = now_mono - 1
+        errors = self._validate(data)
+        self.assertIn("LEASE_MONOTONIC_UPDATED_BEFORE_CREATED", errors)
+
+    def test_monotonic_created_in_future_rejected(self):
+        # Patch _lease_monotonic_ns to a fixed past value so the
+        # created_monotonic_ns we inject is definitively "in the future".
+        past_mono = time.monotonic_ns()
+        future_created = past_mono + 10_000_000_000  # 10 s ahead
+        data = self._good_lease(future_created)
+        data["updated_monotonic_ns"] = future_created + 1_000_000
+        with mock.patch.object(smoke, "_lease_monotonic_ns", return_value=past_mono):
+            errors = self._validate(data)
+        self.assertIn("LEASE_MONOTONIC_CREATED_IN_FUTURE", errors)
+
+    def test_expired_lease_detected_via_monotonic(self):
+        # Place creation 601 s in the past (> DEFAULT_LEASE_MAX_AGE_S = 600).
+        past_created = time.monotonic_ns() - int(
+            (smoke.DEFAULT_LEASE_MAX_AGE_S + 1) * 1_000_000_000
+        )
+        data = self._good_lease(past_created)
+        data["updated_monotonic_ns"] = past_created + 1_000_000
+        errors = self._validate(data)
+        self.assertIn("LEASE_EXPIRED", errors)
+
+    def test_wallclock_rollback_with_valid_monotonic_does_not_trigger_monotonic_error(self):
+        # v2: created_at_ns / updated_at_ns are audit-only and never consulted
+        # for authorization. A wall-clock rollback (created_at_ns far ahead of
+        # real now) must not produce any LEASE_MONOTONIC_* error.
+        data = self._good_lease()
+        data["created_at_ns"] = time.time_ns() + 3_600_000_000_000   # 1 h "ahead"
+        data["updated_at_ns"] = time.time_ns() + 3_601_000_000_000
+        errors = self._validate(data)
+        monotonic_errors = [e for e in errors if "MONOTONIC" in e]
+        self.assertEqual(monotonic_errors, [], errors)
+
+    def test_wallclock_future_jump_does_not_falsely_expire_lease(self):
+        # A stale created_at_ns (far in the past wallclock) must not trigger
+        # LEASE_EXPIRED — only monotonic age matters in v2.
+        data = self._good_lease()
+        data["created_at_ns"] = time.time_ns() - int(
+            smoke.DEFAULT_LEASE_MAX_AGE_S * 2 * 1_000_000_000
+        )
+        errors = self._validate(data)
+        self.assertNotIn("LEASE_EXPIRED", errors, errors)
+
+
 if __name__ == "__main__":
     unittest.main()

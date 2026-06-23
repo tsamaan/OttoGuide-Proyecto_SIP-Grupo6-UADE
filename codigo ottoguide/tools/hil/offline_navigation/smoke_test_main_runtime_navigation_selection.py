@@ -100,7 +100,7 @@ FORBIDDEN_MISSION_NODE_SUBSTRINGS = ("simple_commander", "basic_navigator")
 _INTERACTION_DEPENDENCY_MOCKS = ("pyttsx3", "speech_recognition", "aiohttp")
 _APP_MODULE_PREFIXES = ("main", "src", "src.", "config", "config.")
 
-LEASE_SCHEMA_VERSION = 1
+LEASE_SCHEMA_VERSION = 2
 LEASE_DIR_MODE = 0o700
 LEASE_FILE_MODE = 0o600
 
@@ -158,6 +158,12 @@ def _communicate_timeout_margin_s() -> float:
 # (sandbox startup + full nav exercise + cleanup escalation) so a slow but
 # legitimate run is never rejected as expired.
 DEFAULT_LEASE_MAX_AGE_S = 600.0
+
+
+def _lease_monotonic_ns() -> int:
+    """Centralised monotonic clock for lease timestamps. Tests can monkeypatch
+    this module-level function to inject deterministic sequences."""
+    return time.monotonic_ns()
 
 
 # ---------------------------------------------------------------------------
@@ -424,7 +430,8 @@ class CleanupLease:
             raise LeaseError("LEASE_DIR_WRONG_OWNER")
 
         lease = cls(lease_dir)
-        now_ns = time.time_ns()
+        now_wallclock_ns = time.time_ns()
+        mono_ns = _lease_monotonic_ns()
         token = secrets.token_hex(32)
         payload = {
             "schema_version": LEASE_SCHEMA_VERSION,
@@ -433,9 +440,14 @@ class CleanupLease:
             "scenario": scenario,
             "domain_id": domain_id,
             "max_age_s": max_age_s,
-            "created_at_ns": now_ns,
-            "updated_at_ns": now_ns,
-            "created_monotonic_ns": time.monotonic_ns(),
+            # Wall-clock fields are human-readable audit only; never used for
+            # ordering, expiry or regression detection.
+            "created_at_ns": now_wallclock_ns,
+            "updated_at_ns": now_wallclock_ns,
+            # Monotonic fields are the sole authority for ordering, vigency,
+            # age and expiry. They survive NTP jumps and wall-clock rollbacks.
+            "created_monotonic_ns": mono_ns,
+            "updated_monotonic_ns": mono_ns,
             "parent": parent_identity.to_dict(),
             "child": _EMPTY_IDENTITY_DICT,
             "sandbox": _EMPTY_IDENTITY_DICT,
@@ -498,15 +510,29 @@ class CleanupLease:
 
     def update_child_identity(self, child_identity: ProcessIdentity) -> dict:
         data = self.read()
+        new_mono_ns = _lease_monotonic_ns()
+        prev_mono_ns = data.get("updated_monotonic_ns")
+        created_mono_ns = data.get("created_monotonic_ns")
+        if isinstance(prev_mono_ns, int) and isinstance(created_mono_ns, int):
+            if new_mono_ns < created_mono_ns or new_mono_ns < prev_mono_ns:
+                raise LeaseError("LEASE_MONOTONIC_REGRESSION")
         data["child"] = child_identity.to_dict()
         data["updated_at_ns"] = time.time_ns()
+        data["updated_monotonic_ns"] = new_mono_ns
         self._write(data)
         return data
 
     def update_sandbox_identity(self, sandbox_identity: ProcessIdentity) -> dict:
         data = self.read()
+        new_mono_ns = _lease_monotonic_ns()
+        prev_mono_ns = data.get("updated_monotonic_ns")
+        created_mono_ns = data.get("created_monotonic_ns")
+        if isinstance(prev_mono_ns, int) and isinstance(created_mono_ns, int):
+            if new_mono_ns < created_mono_ns or new_mono_ns < prev_mono_ns:
+                raise LeaseError("LEASE_MONOTONIC_REGRESSION")
         data["sandbox"] = sandbox_identity.to_dict()
         data["updated_at_ns"] = time.time_ns()
+        data["updated_monotonic_ns"] = new_mono_ns
         self._write(data)
         return data
 
@@ -585,18 +611,20 @@ def validate_lease_immutable_fields(
         ):
             errors.append("LEASE_PARENT_IDENTITY_MISMATCH")
 
-    created_at_ns = data.get("created_at_ns")
-    updated_at_ns = data.get("updated_at_ns")
-    if not isinstance(created_at_ns, int) or not isinstance(updated_at_ns, int):
-        errors.append("LEASE_TIMESTAMPS_MALFORMED")
+    # --- Monotonic timestamps: sole authority for ordering, vigency, age ---
+    # Wall-clock fields (created_at_ns / updated_at_ns) are retained for
+    # human audit only; they are never consulted for authorization decisions.
+    created_mono = data.get("created_monotonic_ns")
+    updated_mono = data.get("updated_monotonic_ns")
+    if not isinstance(created_mono, int) or not isinstance(updated_mono, int):
+        errors.append("LEASE_MONOTONIC_TIMESTAMPS_MALFORMED")
     else:
-        now_ns = time.time_ns()
-        one_minute_ns = 60_000_000_000
-        if created_at_ns > now_ns + one_minute_ns:
-            errors.append("LEASE_CREATED_AT_IN_FUTURE")
-        if updated_at_ns < created_at_ns:
-            errors.append("LEASE_UPDATED_BEFORE_CREATED")
-        age_s = (now_ns - created_at_ns) / 1_000_000_000
+        now_mono = _lease_monotonic_ns()
+        if now_mono < created_mono:
+            errors.append("LEASE_MONOTONIC_CREATED_IN_FUTURE")
+        if updated_mono < created_mono:
+            errors.append("LEASE_MONOTONIC_UPDATED_BEFORE_CREATED")
+        age_s = (now_mono - created_mono) / 1_000_000_000
         if age_s > max_age_s:
             errors.append("LEASE_EXPIRED")
 

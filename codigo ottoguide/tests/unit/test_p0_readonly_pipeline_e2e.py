@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fase 2H.2.4 -- end-to-end tests for the P0 PHYSICAL READ-ONLY pipeline:
+"""Fase 2H.2.5 -- end-to-end tests for the P0 PHYSICAL READ-ONLY pipeline (schema v2):
 collector (fixture mode) -> bundle (7 JSON + command log) -> hash manifest
 -> validator. Runs the real CLI entrypoints as subprocesses (never
 imports internals directly) so the test proves the actual wiring, not
@@ -31,7 +31,8 @@ WRAPPER_SH = P0_DIR / "collect_p0_readonly_evidence.sh"
 SCHEMA_PY = P0_DIR / "p0_evidence_schema.py"
 FIXTURES_DIR = CODE_ROOT / "tests" / "fixtures" / "p0_readonly"
 
-GOOD_HEAD = "476bb3fe9fca20031a055a49e72e871d1114c437"
+# Synthetic constant SHA used in all fixtures so tests don't need updating each phase.
+GOOD_HEAD = "0000000000000000000000000000000000000042"
 FIXTURE_ENV = "OTTOGUIDE_P0_FIXTURE_MODE"
 
 
@@ -96,6 +97,7 @@ class TestNominalFixtureEndToEnd(unittest.TestCase):
             self.assertIsNotNone(result, proc.stdout)
             self.assertEqual(result["bundle_integrity"], "PASS", result)
             self.assertEqual(result["read_only_invariants"], "PASS", result)
+            self.assertEqual(result.get("collection_completeness"), "PASS", result)
             self.assertEqual(result["p0_field_decision"], "FIXTURE_ONLY", result)
             self.assertEqual(proc.returncode, 3)
 
@@ -107,7 +109,9 @@ class TestNominalFixtureEndToEnd(unittest.TestCase):
             for field in schema.MUST_BE_FALSE_FIELDS:
                 self.assertIs(meta[field], False, field)
             self.assertTrue(meta["fixture_mode"])
-            self.assertFalse(meta["physical_execution_performed"])
+            self.assertFalse(meta["physical_control_execution_performed"])
+            self.assertFalse(meta["field_collection_executed"])
+            self.assertEqual(meta["collection_mode"], "fixture")
 
     def test_command_log_populated_and_well_formed(self):
         with tempfile.TemporaryDirectory() as td:
@@ -233,7 +237,12 @@ class TestCommandTimeoutFixture(unittest.TestCase):
             self.assertTrue(odom_entries[0]["timed_out"])
             self.assertNotEqual(odom_entries[0]["exit_code"], 0)
             validator_proc, result = _run_validator(out)
-            self.assertEqual(result["bundle_integrity"], "PASS")
+            self.assertEqual(result["bundle_integrity"], "PASS", result)
+            # odom_echo_once is a bounded command: timed_out=True with empty stdout
+            # → BOUNDED_COMMAND_TIMEOUT_NO_EVIDENCE → collection_completeness FAIL
+            self.assertEqual(result.get("collection_completeness"), "FAIL", result)
+            self.assertEqual(result["p0_field_decision"], "NO_GO", result)
+            self.assertEqual(validator_proc.returncode, 2)
 
 
 class TestLargeOutputFixture(unittest.TestCase):

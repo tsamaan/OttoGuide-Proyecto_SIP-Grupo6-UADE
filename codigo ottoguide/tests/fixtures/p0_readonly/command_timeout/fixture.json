@@ -15,8 +15,8 @@
   ],
   "commands": {
     "git_branch": {"stdout": "robot\n", "exit_code": 0},
-    "git_head": {"stdout": "476bb3fe9fca20031a055a49e72e871d1114c437\n", "exit_code": 0},
-    "git_status": {"stdout": "## robot\n?? \"codigo ottoguide/logs/mission_fixture.json\"\n", "exit_code": 0},
+    "git_head": {"stdout": "0000000000000000000000000000000000000042\n", "exit_code": 0},
+    "git_status": {"stdout": "## robot\n?? \"codigo ottoguide/logs/mission_fixture_20260622T000000000000Z.json\"\n", "exit_code": 0},
     "git_remote_origin": {"stdout": "https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git\n", "exit_code": 0},
     "ros2_node_list": {"stdout": "/map_server\n/planner_server\n/controller_server\n/collision_monitor\n/behavior_server\n/bt_navigator\n/waypoint_follower\n", "exit_code": 0},
     "ros2_topic_list": {"stdout": "/tf [tf2_msgs/msg/TFMessage]\n/tf_static [tf2_msgs/msg/TFMessage]\n/odom [nav_msgs/msg/Odometry]\n/map [nav_msgs/msg/OccupancyGrid]\n/map_metadata [nav_msgs/msg/MapMetaData]\n/scan [sensor_msgs/msg/LaserScan]\n/utlidar/cloud [sensor_msgs/msg/PointCloud2]\n/livox/imu [sensor_msgs/msg/Imu]\n/camera/color/image_raw [sensor_msgs/msg/Image]\n/camera/depth/image_rect_raw [sensor_msgs/msg/Image]\n/cmd_vel_raw [geometry_msgs/msg/Twist]\n/cmd_vel_safe [geometry_msgs/msg/Twist]\n", "exit_code": 0},
@@ -38,11 +38,14 @@
   },
   "safety_human_checklist": {
     "operator_present": true,
+    "operator_identity_or_role": "fixture-operator",
     "hardstop_present": true,
+    "hardstop_type": "physical-estop",
     "hardstop_tested_before_session": true,
     "area_cleared": true,
     "robot_physically_supervised": true,
+    "dual_control_prohibited_acknowledged": true,
     "movement_not_authorized_acknowledged": true,
-    "notes": "command_timeout fixture: odom_echo_once simulated as timed out"
+    "notes": "command_timeout fixture: odom_echo_once simulated as timed out with no evidence"
   }
 }

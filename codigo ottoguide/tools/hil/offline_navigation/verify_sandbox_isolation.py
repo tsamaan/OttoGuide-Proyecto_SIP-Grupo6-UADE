@@ -1735,6 +1735,63 @@ def check_p0_pipeline_functional_contract(result: dict) -> None:
             result["errors"].append("P0_WRAPPER_BRANCHES_ON_FLAGS")
 
 
+def check_2h25_monotonic_lease_contract(result: dict) -> None:
+    """Fase 2H.2.5: verify that the cleanup-lease v2 monotonic-timebase
+    migration is present in the smoke test and covered by MonotonicLeaseTests.
+    """
+    target = MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+    if not target.is_file():
+        return
+    text = _read_text(target)
+    for symbol, code in (
+        ("created_monotonic_ns", "LEASE_V2_NO_CREATED_MONOTONIC_NS"),
+        ("updated_monotonic_ns", "LEASE_V2_NO_UPDATED_MONOTONIC_NS"),
+        ("_lease_monotonic_ns", "LEASE_V2_NO_MONOTONIC_CLOCK_HELPER"),
+        ("LEASE_MONOTONIC_TIMESTAMPS_MALFORMED", "LEASE_V2_NO_MALFORMED_ERROR_CODE"),
+        ("LEASE_MONOTONIC_CREATED_IN_FUTURE", "LEASE_V2_NO_FUTURE_ERROR_CODE"),
+        ("LEASE_MONOTONIC_UPDATED_BEFORE_CREATED", "LEASE_V2_NO_REGRESSION_ERROR_CODE"),
+    ):
+        if symbol not in text:
+            result["errors"].append(code)
+
+    if not MAIN_RUNTIME_TIMEOUT_CLEANUP_TEST_FILE.is_file():
+        result["errors"].append("LEASE_V2_CLEANUP_TEST_FILE_MISSING")
+    else:
+        test_text = _read_text(MAIN_RUNTIME_TIMEOUT_CLEANUP_TEST_FILE)
+        if "MonotonicLeaseTests" not in test_text:
+            result["errors"].append("LEASE_V2_MONOTONIC_TEST_CLASS_MISSING")
+
+
+def check_2h25_p0_decision_v2_contract(result: dict) -> None:
+    """Fase 2H.2.5: verify that the P0 decision engine v2 additions are
+    present: collection_completeness layer, physical_control_execution_performed
+    in MUST_BE_FALSE_FIELDS, COLLECTOR_VERSION, and v2 contract test classes.
+    """
+    if P0_COLLECTOR_CORE_FILE.is_file():
+        collector_text = _read_text(P0_COLLECTOR_CORE_FILE)
+        if "COLLECTOR_VERSION" not in collector_text:
+            result["errors"].append("P0_V2_NO_COLLECTOR_VERSION")
+
+    if P0_SCHEMA_FILE.is_file():
+        schema_text = _read_text(P0_SCHEMA_FILE)
+        if "physical_control_execution_performed" not in schema_text:
+            result["errors"].append("P0_V2_MUST_BE_FALSE_MISSING_PHYSICAL_CONTROL_FIELD")
+        if "SCHEMA_VERSION" not in schema_text:
+            result["errors"].append("P0_V2_NO_SCHEMA_VERSION")
+
+    if P0_VALIDATOR_FILE.is_file():
+        validator_text = _read_text(P0_VALIDATOR_FILE)
+        if "collection_completeness" not in validator_text:
+            result["errors"].append("P0_V2_VALIDATOR_NO_COLLECTION_COMPLETENESS_LAYER")
+
+    if P0_CONTRACT_TEST_FILE.is_file():
+        contract_text = _read_text(P0_CONTRACT_TEST_FILE)
+        if "TestV2BundleIntegrityContract" not in contract_text:
+            result["errors"].append("P0_V2_CONTRACT_TEST_MISSING_V2_INTEGRITY_CLASS")
+        if "TestV2FieldDecisionContract" not in contract_text:
+            result["errors"].append("P0_V2_CONTRACT_TEST_MISSING_V2_FIELD_DECISION_CLASS")
+
+
 def verify(runtime: bool = False) -> dict:
     result = {
         "ok": True,
@@ -1773,6 +1830,8 @@ def verify(runtime: bool = False) -> dict:
     check_test_central_classes_no_broad_skip(result)
     check_2h24_toctou_fix_contract(result, files_to_scan)
     check_p0_pipeline_functional_contract(result)
+    check_2h25_monotonic_lease_contract(result)
+    check_2h25_p0_decision_v2_contract(result)
 
     result["checked_files"] = sorted(set(result["checked_files"]) | {str(p) for p in files_to_scan if p.is_file()})
     result["errors"] = sorted(set(result["errors"]))

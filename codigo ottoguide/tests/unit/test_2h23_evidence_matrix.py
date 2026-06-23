@@ -129,11 +129,14 @@ class TestLeaseAuthorization(unittest.TestCase):
 
     def _valid_lease_data(self, token: str):
         pid_dict = self._parent_identity().to_dict()
-        now = time.time_ns()
+        now_wall = time.time_ns()
+        now_mono = time.monotonic_ns()
         return {
             "schema_version": smoke.LEASE_SCHEMA_VERSION,
             "run_id": "run1", "lease_token": token, "scenario": "fault_injection_timeout",
-            "domain_id": "104", "max_age_s": 600.0, "created_at_ns": now, "updated_at_ns": now,
+            "domain_id": "104", "max_age_s": 600.0,
+            "created_at_ns": now_wall, "updated_at_ns": now_wall,
+            "created_monotonic_ns": now_mono, "updated_monotonic_ns": now_mono + 1_000_000,
             "parent": pid_dict, "child": smoke._EMPTY_IDENTITY_DICT, "sandbox": smoke._EMPTY_IDENTITY_DICT,
         }
 

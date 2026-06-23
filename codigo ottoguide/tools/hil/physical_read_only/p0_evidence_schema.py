@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Fase 2H.2.4 -- shared schema, constants and safe I/O helpers for the P0
-PHYSICAL READ-ONLY evidence pipeline.
+"""Fase 2H.2.5 -- shared schema, constants and safe I/O helpers for the P0
+PHYSICAL READ-ONLY evidence pipeline (schema version 2).
 
 Imported by both collect_p0_readonly_evidence.py (producer) and
 validate_p0_readonly_evidence.py (consumer) so the two can never silently
@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 import stat
 import tempfile
@@ -23,8 +24,8 @@ import time
 import uuid
 from pathlib import Path
 
-SCHEMA_VERSION = 1
-COLLECTOR_VERSION = "2H.2.4"
+SCHEMA_VERSION = 2
+COLLECTOR_VERSION = "2H.2.5"
 
 EXPECTED_BRANCH = "robot"
 EXPECTED_ROS_DISTRO = "foxy"
@@ -61,6 +62,8 @@ MUST_BE_FALSE_FIELDS = (
     "control_service_called",
     "lifecycle_changed",
     "parameter_changed",
+    # v2: replaces ambiguous physical_execution_performed
+    "physical_control_execution_performed",
 )
 
 # --- human safety checklist (p0_safety_human_checklist.json) -----------
@@ -85,6 +88,7 @@ SAFETY_REQUIRED_TRUE_FOR_GO = (
     "area_cleared",
     "robot_physically_supervised",
     "movement_not_authorized_acknowledged",
+    "dual_control_prohibited_acknowledged",
 )
 
 # --- ROS graph (p0_ros_graph.json) --------------------------------------
@@ -116,21 +120,52 @@ READINESS_CANDIDATE_OBSERVED = "CANDIDATE_OBSERVED_PENDING_ANALYSIS"
 DECISION_GO_CANDIDATE = "GO_CANDIDATE"
 DECISION_NO_GO = "NO_GO"
 DECISION_FIXTURE_ONLY = "FIXTURE_ONLY"
+COLLECTION_MODE_FIXTURE = "fixture"
+COLLECTION_MODE_REAL = "real_read_only"
 
-# --- git untracked-file policy ------------------------------------------
-# The only untracked paths a P0 session may carry without forcing NO_GO:
-# the offline-navigation mission logs this same phase's own tooling
-# produces. Shared by collector (records untracked_paths) and validator
-# (independently re-derives untracked_allowlist_only -- never trusts the
-# collector's own classification of itself).
-UNTRACKED_ALLOWLIST_PREFIXES = ("codigo ottoguide/logs/",)
+# --- git untracked-file policy (v2: exact regex, not prefix) -----------
+# The only untracked paths a P0 session may carry without forcing NO_GO.
+# Must be normalized to forward-slash before matching.
+UNTRACKED_EXACT_PATTERN = re.compile(
+    r'^codigo ottoguide/logs/mission_[A-Za-z0-9_.-]+\.json$'
+)
+
+# Legacy prefix list (v1) retained only so v1-era bundles are detected and
+# rejected, never trusted.
+UNTRACKED_ALLOWLIST_PREFIXES_V1 = ("codigo ottoguide/logs/",)
+
+
+def _normalize_untracked_path(path: str) -> str:
+    """Normalize path separators to forward-slash and strip leading/trailing
+    whitespace. Does NOT strip quotes (the caller must have done that)."""
+    return path.replace("\\", "/").strip()
+
+
+def _is_safe_untracked_path(path: str) -> bool:
+    """Returns True only if the path is safe to normalise and match: not
+    absolute, no '..' segments, not empty, not a symlink label."""
+    if not path:
+        return False
+    normalized = _normalize_untracked_path(path)
+    if normalized.startswith("/"):
+        return False
+    if ".." in normalized.split("/"):
+        return False
+    return True
 
 
 def untracked_allowlist_only(untracked_paths: "list[str]") -> bool:
-    return all(
-        any(path.startswith(prefix) for prefix in UNTRACKED_ALLOWLIST_PREFIXES)
-        for path in untracked_paths
-    )
+    """v2 policy: each path must match UNTRACKED_EXACT_PATTERN exactly.
+    Paths that are unsafe (absolute, path-traversal, empty) are rejected
+    before the regex is applied."""
+    for path in untracked_paths:
+        if not _is_safe_untracked_path(path):
+            return False
+        normalized = _normalize_untracked_path(path)
+        if not UNTRACKED_EXACT_PATTERN.match(normalized):
+            return False
+    return True
+
 
 # --- safe local I/O ------------------------------------------------------
 SAFE_DIR_MODE = 0o700
@@ -184,11 +219,24 @@ def truncate_output(text: "str | None") -> "tuple[str, bool]":
     return text[:COMMAND_OUTPUT_TRUNCATE_CHARS], True
 
 
+def create_new_output_dir(path: Path) -> None:
+    """Creates `path` with mode 0700. Fails closed (raises UnsafePathError)
+    if the path already exists, is a symlink, or is the wrong owner.
+    This is the v2 policy: output directories must be brand-new.
+    """
+    if path.exists() or path.is_symlink():
+        raise UnsafePathError(f"OUTPUT_DIR_ALREADY_EXISTS:{path}")
+    path.mkdir(mode=SAFE_DIR_MODE, parents=False, exist_ok=False)
+    os.chmod(path, SAFE_DIR_MODE)
+    final_stat = path.stat()
+    if hasattr(os, "getuid") and final_stat.st_uid != os.getuid():
+        raise UnsafePathError(f"OUTPUT_DIR_WRONG_OWNER:{path}")
+
+
 def ensure_safe_output_dir(path: Path) -> None:
-    """Creates `path` (and parents) if absent, mode 0700, and verifies the
-    final component is a real directory owned by the current user, never a
-    symlink. Fails closed (raises UnsafePathError) rather than silently
-    following/adopting an attacker-influenced path.
+    """Legacy v1 helper retained for callers that explicitly re-use dirs
+    (e.g. test helpers that write multiple files to a pre-created tmpdir).
+    New production bundles must use create_new_output_dir() instead.
     """
     if path.exists() or path.is_symlink():
         lst = os.lstat(path)
@@ -204,21 +252,17 @@ def ensure_safe_output_dir(path: Path) -> None:
         raise UnsafePathError(f"OUTPUT_DIR_WRONG_OWNER:{path}")
 
 
-def atomic_write_json(path: Path, data: dict) -> None:
-    """Writes `data` as JSON to `path` via a unique temp file in the same
-    directory, flush + fsync, then os.replace -- never a partial or
-    half-written bundle file, and never following a pre-existing symlink
-    at the destination name (os.replace() on POSIX replaces the directory
-    entry itself, it does not follow a symlink at `path` into some other
-    location).
-    """
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Writes `data` (raw bytes) to `path` via a unique temp file in the
+    same directory, flush + fsync, then os.replace. Used for the sidecar
+    and any other non-JSON payload. Never follows a pre-existing symlink at
+    the destination name."""
     directory = path.parent
-    payload = json.dumps(data, indent=2, sort_keys=True).encode("utf-8") + b"\n"
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(directory))
     try:
         os.chmod(tmp_name, SAFE_FILE_MODE)
         with os.fdopen(fd, "wb") as fh:
-            fh.write(payload)
+            fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(tmp_name, str(path))
@@ -229,13 +273,22 @@ def atomic_write_json(path: Path, data: dict) -> None:
             finally:
                 os.close(dir_fd)
         except OSError:
-            pass  # Best-effort directory-entry durability; never fatal.
+            pass
     except Exception:
         try:
             os.unlink(tmp_name)
         except OSError:
             pass
         raise
+
+
+def atomic_write_json(path: Path, data: dict) -> None:
+    """Writes `data` as JSON to `path` via a unique temp file in the same
+    directory, flush + fsync, then os.replace -- never a partial or
+    half-written bundle file, and never following a pre-existing symlink
+    at the destination name."""
+    payload = json.dumps(data, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    atomic_write_bytes(path, payload)
 
 
 def load_json_file(path: Path) -> "tuple[dict | list | None, str | None]":
@@ -253,3 +306,9 @@ def load_json_file(path: Path) -> "tuple[dict | list | None, str | None]":
 
 def random_session_token() -> str:
     return secrets.token_hex(16)
+
+
+def redact_git_url(url: str) -> str:
+    """Redact credentials from a Git remote URL before persisting.
+    Handles https://user:token@host/path patterns."""
+    return re.sub(r"(https?://)([^@]*@)", r"\1<redacted>@", url)

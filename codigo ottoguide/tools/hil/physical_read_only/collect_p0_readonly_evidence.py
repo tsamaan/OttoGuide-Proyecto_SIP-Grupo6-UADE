@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fase 2H.2.4 -- P0 PHYSICAL READ-ONLY evidence collector (Python core).
+"""Fase 2H.2.5 -- P0 PHYSICAL READ-ONLY evidence collector (Python core).
 
 STATUS: PREPARED_NOT_AUTHORIZED / NOT_EXECUTED.
 
@@ -15,7 +15,9 @@ bounded timeout. Three mutually exclusive modes:
   and triple-gated -- requires the environment variable
   OTTOGUIDE_P0_READ_ONLY_AUTHORIZED=YES *and* every one of
   --expected-head/--operator-present/--hardstop-present/--area-cleared/
-  --movement-not-authorized-acknowledged/--output-dir. This mode is
+  --movement-not-authorized-acknowledged/--operator-role/--hardstop-type/
+  --hardstop-tested-before-session yes/--robot-physically-supervised yes/
+  --dual-control-prohibited-acknowledged yes/--output-dir. This mode is
   prepared here but is NEVER invoked by this repository's own tests or
   tooling -- only a future, explicitly authorized field session may run
   it, on the robot's own host.
@@ -25,7 +27,7 @@ bounded timeout. Three mutually exclusive modes:
   or any other external command; consumes a single canned JSON file and
   produces the exact same bundle shape real execution would, marked
   fixture_mode=true. A fixture can never produce a GO_CANDIDATE bundle
-  (the validator enforces this independently), and the seven read-only
+  (the validator enforces this independently), and the read-only
   invariant fields are hardcoded False by this collector regardless of
   what a fixture claims -- a fixture cannot talk this tool into reporting
   a movement it never performed in any mode.
@@ -42,6 +44,7 @@ import json
 import os
 import re
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -58,6 +61,7 @@ import p0_evidence_schema as schema  # noqa: E402
 READ_ONLY_AUTHORIZED_ENV = "OTTOGUIDE_P0_READ_ONLY_AUTHORIZED"
 FIXTURE_MODE_ENV = "OTTOGUIDE_P0_FIXTURE_MODE"
 HEAD_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+COLLECTOR_VERSION = "2H.2.5"
 
 
 class CollectorAuthorizationError(Exception):
@@ -78,7 +82,8 @@ class _CommandResult:
 
 class _BaseContext:
     fixture_mode = False
-    physical_execution_performed = False
+    field_collection_executed = False
+    physical_control_execution_performed = False
 
     def __init__(self):
         self.command_log: "list[dict]" = []
@@ -118,7 +123,8 @@ class _RealContext(_BaseContext):
     """--execute-read-only mode. Never invoked by this repository's own
     tests; prepared for a future, separately authorized field session."""
 
-    physical_execution_performed = True
+    field_collection_executed = True
+    physical_control_execution_performed = False
 
     def _run_impl(self, label: str, argv: "list[str]", timeout: float) -> _CommandResult:
         try:
@@ -147,7 +153,8 @@ class _FixtureContext(_BaseContext):
     never reads the real environment or spawns any real command."""
 
     fixture_mode = True
-    physical_execution_performed = False
+    field_collection_executed = False
+    physical_control_execution_performed = False
 
     def __init__(self, fixture_data: dict):
         super().__init__()
@@ -209,9 +216,10 @@ def gather_git_info(ctx: _BaseContext, repo_root: Path) -> dict:
             untracked_paths.append(path)
         elif line.strip():
             tracked_changes.append(line.rstrip())
-    remote = ctx.run(
+    raw_remote = ctx.run(
         "git_remote_origin", ["git", "-C", str(repo_root), "remote", "get-url", "origin"]
     ).stdout.strip()
+    remote = schema.redact_git_url(raw_remote)
     # Fixture mode never touches the real filesystem for this (untracked
     # paths are synthetic), so the symlink check is real-mode only; a
     # fixture's untracked_symlinks is always [] by construction.
@@ -262,10 +270,19 @@ def gather_tf_and_localization(ctx: _BaseContext, topic_names: "list[str]") -> d
     map_metadata_present = "/map_metadata" in topic_names
 
     tf_static_sample = None
+    tf_edges_observed: "list[str]" = []
     if tf_static_present:
         tf_static_sample = ctx.run(
             "tf_static_echo_once", ["ros2", "topic", "echo", "--once", "/tf_static"], timeout=8.0
         ).stdout or None
+        if tf_static_sample:
+            # Extract parent->child edges from the YAML tf_static echo output.
+            # Use negative lookbehind to avoid matching frame_id inside child_frame_id.
+            parent_frames = re.findall(r"(?<!child_)frame_id:\s*(\S+)", tf_static_sample)
+            child_frames = re.findall(r"child_frame_id:\s*(\S+)", tf_static_sample)
+            tf_edges_observed = [
+                f"{p}->{c}" for p, c in zip(parent_frames, child_frames)
+            ]
 
     odom_sample = None
     candidate_frame_id = None
@@ -294,7 +311,7 @@ def gather_tf_and_localization(ctx: _BaseContext, topic_names: "list[str]") -> d
         "candidate_child_frame_id": candidate_child_frame_id,
         "map_source": "/map" if map_present else None,
         "map_frame": "map" if map_present else None,
-        "tf_edges_observed": [],
+        "tf_edges_observed": tf_edges_observed,
         "required_tf_edges": list(schema.REQUIRED_TF_EDGES),
         "l2_odometry": schema.READINESS_CANDIDATE_OBSERVED if odom_present else schema.READINESS_NOT_READY,
         "l3_localization_map": (
@@ -347,9 +364,13 @@ def gather_cmd_vel_chain(ctx: _BaseContext, topic_names: "list[str]", nodes: "li
             continue
         info_text = ctx.run(f"cmd_vel_info_{label}", ["ros2", "topic", "info", "-v", topic], timeout=8.0).stdout
         type_m = re.search(r"Type:\s*(\S+)", info_text or "")
+        pub_m = re.search(r"Publisher count:\s*(\d+)", info_text or "")
+        sub_m = re.search(r"Subscription count:\s*(\d+)", info_text or "")
         topics[topic] = {
             "present": True,
             "type": type_m.group(1) if type_m else None,
+            "publisher_count": int(pub_m.group(1)) if pub_m else None,
+            "subscription_count": int(sub_m.group(1)) if sub_m else None,
             "publishers": [], "subscribers": [],
             "qos": info_text or None,
         }
@@ -371,27 +392,42 @@ def gather_safety_checklist(args: argparse.Namespace, ctx: _BaseContext) -> dict
             return bool(overrides[name])
         return bool(cli_value)
 
+    def _text(name: str, cli_value: "str | None") -> "str | None":
+        if name in overrides:
+            v = overrides[name]
+            return str(v) if v is not None else None
+        return cli_value
+
     operator_present = _flag("operator_present", args.operator_present == "yes")
     hardstop_present = _flag("hardstop_present", args.hardstop_present == "yes")
     area_cleared = _flag("area_cleared", args.area_cleared == "yes")
     movement_ack = _flag(
         "movement_not_authorized_acknowledged", args.movement_not_authorized_acknowledged == "yes"
     )
-    # Conservative inference (no dedicated CLI flag exists for this field):
-    # "physically supervised" requires both a present operator and a
-    # cleared area; never assumed true from either alone.
-    robot_physically_supervised = overrides.get(
-        "robot_physically_supervised", operator_present and area_cleared
+    # v2: explicit CLI flags; never inferred or defaulted.
+    operator_identity_or_role = _text("operator_identity_or_role", getattr(args, "operator_role", None))
+    hardstop_type = _text("hardstop_type", getattr(args, "hardstop_type", None))
+    hardstop_tested = _flag(
+        "hardstop_tested_before_session",
+        getattr(args, "hardstop_tested_before_session", None) == "yes",
+    )
+    robot_physically_supervised = _flag(
+        "robot_physically_supervised",
+        getattr(args, "robot_physically_supervised", None) == "yes",
+    )
+    dual_control_ack = _flag(
+        "dual_control_prohibited_acknowledged",
+        getattr(args, "dual_control_prohibited_acknowledged", None) == "yes",
     )
     return {
         "operator_present": operator_present,
-        "operator_identity_or_role": overrides.get("operator_identity_or_role"),
+        "operator_identity_or_role": operator_identity_or_role,
         "hardstop_present": hardstop_present,
-        "hardstop_type": overrides.get("hardstop_type"),
-        "hardstop_tested_before_session": overrides.get("hardstop_tested_before_session", "unknown"),
+        "hardstop_type": hardstop_type,
+        "hardstop_tested_before_session": hardstop_tested,
         "area_cleared": area_cleared,
-        "robot_physically_supervised": bool(robot_physically_supervised),
-        "dual_control_prohibited_acknowledged": overrides.get("dual_control_prohibited_acknowledged", True),
+        "robot_physically_supervised": robot_physically_supervised,
+        "dual_control_prohibited_acknowledged": dual_control_ack,
         "movement_not_authorized_acknowledged": movement_ack,
         "notes": overrides.get("notes"),
     }
@@ -412,6 +448,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fixture-dir", dest="fixture_dir", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--output-dir", dest="output_dir", type=Path, default=Path("./p0_readonly_evidence"))
     parser.add_argument("--expected-head", dest="expected_head")
+    # Original four gates
     parser.add_argument("--operator-present", dest="operator_present", choices=("yes", "no"))
     parser.add_argument("--hardstop-present", dest="hardstop_present", choices=("yes", "no"))
     parser.add_argument("--area-cleared", dest="area_cleared", choices=("yes", "no"))
@@ -419,6 +456,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--movement-not-authorized-acknowledged", dest="movement_not_authorized_acknowledged",
         choices=("yes", "no"),
     )
+    # v2 explicit gates -- required for real mode, optional for fixture/dry-run
+    parser.add_argument("--operator-role", dest="operator_role",
+                        help="Operator role or identity (non-empty text, required for real mode).")
+    parser.add_argument("--hardstop-type", dest="hardstop_type",
+                        help="Hardstop type description (non-empty text, required for real mode).")
+    parser.add_argument("--hardstop-tested-before-session", dest="hardstop_tested_before_session",
+                        choices=("yes", "no"),
+                        help="Hardstop was tested before this session (required for real mode).")
+    parser.add_argument("--robot-physically-supervised", dest="robot_physically_supervised",
+                        choices=("yes", "no"),
+                        help="Robot is physically supervised during collection (required for real mode).")
+    parser.add_argument("--dual-control-prohibited-acknowledged", dest="dual_control_prohibited_acknowledged",
+                        choices=("yes", "no"),
+                        help="Dual control prohibition acknowledged (required for real mode).")
     return parser
 
 
@@ -438,7 +489,7 @@ def resolve_mode(args: argparse.Namespace) -> str:
         if os.environ.get(READ_ONLY_AUTHORIZED_ENV) != "YES":
             raise CollectorAuthorizationError("P0_NOT_AUTHORIZED")
         missing = []
-        if not args.expected_head or not HEAD_PATTERN.match(args.expected_head):
+        if not args.expected_head or not HEAD_PATTERN.match(args.expected_head.lower()):
             missing.append("--expected-head")
         if args.operator_present != "yes":
             missing.append("--operator-present yes")
@@ -450,6 +501,17 @@ def resolve_mode(args: argparse.Namespace) -> str:
             missing.append("--movement-not-authorized-acknowledged yes")
         if not args.output_dir:
             missing.append("--output-dir")
+        # v2 gates
+        if not args.operator_role or not args.operator_role.strip():
+            missing.append("--operator-role <non-empty>")
+        if not args.hardstop_type or not args.hardstop_type.strip():
+            missing.append("--hardstop-type <non-empty>")
+        if args.hardstop_tested_before_session != "yes":
+            missing.append("--hardstop-tested-before-session yes")
+        if args.robot_physically_supervised != "yes":
+            missing.append("--robot-physically-supervised yes")
+        if args.dual_control_prohibited_acknowledged != "yes":
+            missing.append("--dual-control-prohibited-acknowledged yes")
         if missing:
             raise CollectorAuthorizationError("P0_NOT_AUTHORIZED:" + ",".join(missing))
         return "real"
@@ -474,7 +536,14 @@ def build_bundle(ctx: _BaseContext, args: argparse.Namespace, session_id: str) -
 
     expected_head = args.expected_head
     actual_head = git_info["actual_head"]
-    head_matches_expected = bool(expected_head) and (actual_head == expected_head)
+    # Normalize to lowercase for case-insensitive comparison
+    head_matches_expected = (
+        bool(expected_head)
+        and bool(actual_head)
+        and actual_head.lower() == expected_head.lower()
+    )
+
+    collection_mode = schema.COLLECTION_MODE_FIXTURE if ctx.fixture_mode else schema.COLLECTION_MODE_REAL
 
     session_meta = {
         **schema.base_envelope(session_id),
@@ -498,7 +567,9 @@ def build_bundle(ctx: _BaseContext, args: argparse.Namespace, session_id: str) -
         "username": env_info.get("username"),
         "collector_dry_run": False,
         "fixture_mode": ctx.fixture_mode,
-        "physical_execution_performed": ctx.physical_execution_performed,
+        # v2: explicit collection mode fields
+        "collection_mode": collection_mode,
+        "field_collection_executed": ctx.field_collection_executed,
         "operator_present": safety["operator_present"],
         "hardstop_present": safety["hardstop_present"],
         # Hardcoded by construction, never derived from any command output
@@ -511,6 +582,7 @@ def build_bundle(ctx: _BaseContext, args: argparse.Namespace, session_id: str) -
         "control_service_called": False,
         "lifecycle_changed": False,
         "parameter_changed": False,
+        "physical_control_execution_performed": False,
     }
 
     ros_graph = {**schema.base_envelope(session_id), **graph}
@@ -531,24 +603,46 @@ def build_bundle(ctx: _BaseContext, args: argparse.Namespace, session_id: str) -
     }
 
 
+def _file_metadata_entry(path: Path, filename: str) -> dict:
+    """Builds a manifest entry for a bundle file including filesystem
+    metadata fields required by v2."""
+    file_stat = path.stat()
+    lst = path.lstat()
+    entry = {
+        "filename": filename,
+        "sha256": schema.sha256_file(path),
+        "size_bytes": file_stat.st_size,
+        "file_type": "regular",
+        "nlink": lst.st_nlink,
+    }
+    if hasattr(lst, "st_mode"):
+        entry["mode"] = oct(stat.S_IMODE(lst.st_mode))
+    if hasattr(lst, "st_uid"):
+        entry["uid"] = lst.st_uid
+    return entry
+
+
 def write_bundle(output_dir: Path, bundle: "dict[str, dict]") -> dict:
-    schema.ensure_safe_output_dir(output_dir)
+    """Writes all bundle files and the manifest+sidecar.
+    For production: output_dir must NOT exist (use create_new_output_dir).
+    For tests/fixture that pre-create a dir: callers may use ensure_safe_output_dir.
+    This function accepts any pre-validated directory.
+    """
+    import stat as _stat
     manifest_files = []
     for filename, data in bundle.items():
         path = output_dir / filename
         schema.atomic_write_json(path, data)
-        manifest_files.append({
-            "filename": filename,
-            "sha256": schema.sha256_file(path),
-            "size_bytes": path.stat().st_size,
-        })
+        entry = _file_metadata_entry(path, filename)
+        manifest_files.append(entry)
     session_id = bundle[schema.SESSION_META]["session_id"]
     manifest = {**schema.base_envelope(session_id), "files": manifest_files}
     manifest_path = output_dir / schema.HASH_MANIFEST
     schema.atomic_write_json(manifest_path, manifest)
-    sidecar = schema.sha256_file(manifest_path)
-    (output_dir / schema.HASH_MANIFEST_SIDECAR).write_text(sidecar + "\n", encoding="utf-8")
-    os.chmod(output_dir / schema.HASH_MANIFEST_SIDECAR, schema.SAFE_FILE_MODE)
+    # Sidecar: atomic write of the manifest hash
+    manifest_hash = schema.sha256_file(manifest_path)
+    sidecar_payload = (manifest_hash + "\n").encode("utf-8")
+    schema.atomic_write_bytes(output_dir / schema.HASH_MANIFEST_SIDECAR, sidecar_payload)
     return manifest
 
 
@@ -580,6 +674,10 @@ def describe_dry_run(args: argparse.Namespace) -> dict:
             "argv_only_no_shell_no_eval",
             "topic_hz_skipped_if_topic_not_discovered",
             "movement_invariants_hardcoded_false",
+            "output_dir_must_not_exist",
+            "sidecar_written_atomically",
+            "expected_head_required_for_real_mode",
+            "all_human_inputs_explicit_not_inferred",
         ],
         "expected_branch": schema.EXPECTED_BRANCH,
         "expected_ros_distro": schema.EXPECTED_ROS_DISTRO,
@@ -609,6 +707,11 @@ def main(argv: "list[str] | None" = None) -> int:
     session_id = schema.new_session_id()
     if mode == "real":
         ctx: _BaseContext = _RealContext()
+        try:
+            schema.create_new_output_dir(args.output_dir)
+        except schema.UnsafePathError as exc:
+            print(json.dumps({"ok": False, "status": f"UNSAFE_OUTPUT_DIR:{exc}"}), file=sys.stderr)
+            return 3
     else:
         fixture_path = args.fixture_dir / "fixture.json"
         try:
@@ -617,12 +720,17 @@ def main(argv: "list[str] | None" = None) -> int:
             print(json.dumps({"ok": False, "status": f"FIXTURE_LOAD_FAILED:{exc}"}), file=sys.stderr)
             return 3
         ctx = _FixtureContext(fixture_data)
+        try:
+            schema.create_new_output_dir(args.output_dir)
+        except schema.UnsafePathError as exc:
+            print(json.dumps({"ok": False, "status": f"UNSAFE_OUTPUT_DIR:{exc}"}), file=sys.stderr)
+            return 3
 
     bundle = build_bundle(ctx, args, session_id)
     try:
         manifest = write_bundle(args.output_dir, bundle)
-    except schema.UnsafePathError as exc:
-        print(json.dumps({"ok": False, "status": f"UNSAFE_OUTPUT_DIR:{exc}"}), file=sys.stderr)
+    except (schema.UnsafePathError, OSError) as exc:
+        print(json.dumps({"ok": False, "status": f"BUNDLE_WRITE_FAILED:{exc}"}), file=sys.stderr)
         return 3
 
     print(json.dumps({
