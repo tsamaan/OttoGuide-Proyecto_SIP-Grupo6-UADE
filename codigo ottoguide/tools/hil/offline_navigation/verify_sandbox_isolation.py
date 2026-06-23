@@ -1767,13 +1767,16 @@ def check_2h25_p0_decision_v2_contract(result: dict) -> None:
     present: collection_completeness layer, physical_control_execution_performed
     in MUST_BE_FALSE_FIELDS, COLLECTOR_VERSION, and v2 contract test classes.
     """
+    schema_text = _read_text(P0_SCHEMA_FILE) if P0_SCHEMA_FILE.is_file() else ""
+
     if P0_COLLECTOR_CORE_FILE.is_file():
         collector_text = _read_text(P0_COLLECTOR_CORE_FILE)
-        if "COLLECTOR_VERSION" not in collector_text:
+        # COLLECTOR_VERSION may be defined in p0_evidence_schema as a single
+        # source of truth (Fase 2H.2.6); accept it in either file.
+        if "COLLECTOR_VERSION" not in collector_text and "COLLECTOR_VERSION" not in schema_text:
             result["errors"].append("P0_V2_NO_COLLECTOR_VERSION")
 
     if P0_SCHEMA_FILE.is_file():
-        schema_text = _read_text(P0_SCHEMA_FILE)
         if "physical_control_execution_performed" not in schema_text:
             result["errors"].append("P0_V2_MUST_BE_FALSE_MISSING_PHYSICAL_CONTROL_FIELD")
         if "SCHEMA_VERSION" not in schema_text:
