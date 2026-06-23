@@ -1,22 +1,27 @@
-# P0 Physical Read-Only — Evidence Schema (Fase 2H.2.4, schema v2 en 2H.2.5)
+# P0 Physical Read-Only — Evidence Schema (Fase 2H.2.6, schema v3)
 
 Fuente de verdad en código: `tools/hil/physical_read_only/p0_evidence_schema.py`.
 Este documento describe el contenido, no redefine el contrato; ante
 cualquier discrepancia, el código manda.
 
-**Actualización 2H.2.5**: `SCHEMA_VERSION = 2`, `COLLECTOR_VERSION =
-"2H.2.5"`. El bundle ahora incluye también `p0_hash_manifest.sha256`
-escrito atómicamente (antes se escribía con `Path.write_text` directo).
+**Actualización 2H.2.6**: `SCHEMA_VERSION = 3`, `COLLECTOR_VERSION =
+"2H.2.6"`. Nuevo campo `message_window_size` en `candidate_odom_frequency`
+(ver sección `p0_tf_and_localization.json`). El validador rechaza con NO_GO
+los bundles donde `unexpected_owners` no está vacío para `/cmd_vel_safe`.
 Todos los archivos comparten el mismo sobre (`schema.base_envelope`):
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "session_id": "<uuid4 hex, igual en los 7 archivos de una misma sesión>",
   "collected_at_utc": "<ISO8601 Z>",
-  "collector_version": "2H.2.5"
+  "collector_version": "2H.2.6"
 }
 ```
+
+**Actualización 2H.2.5** (histórico): `SCHEMA_VERSION = 2`, `COLLECTOR_VERSION =
+"2H.2.5"`. El bundle ahora incluye también `p0_hash_manifest.sha256`
+escrito atómicamente.
 
 ## p0_session_meta.json
 
@@ -192,8 +197,8 @@ ni de invariantes read-only.
 
 ```json
 {
-  "schema_version": 2, "session_id": "...", "collected_at_utc": "...",
-  "collector_version": "2H.2.5",
+  "schema_version": 3, "session_id": "...", "collected_at_utc": "...",
+  "collector_version": "2H.2.6",
   "files": [
     {
       "filename": "p0_session_meta.json", "sha256": "<64 hex>",

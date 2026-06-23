@@ -1,8 +1,15 @@
-# P0 Physical Read-Only — Runbook (Fase 2H.2.4, actualizado en 2H.2.5)
+# P0 Physical Read-Only — Runbook (Fase 2H.2.6)
 
 **Estado**: `P0_PHYSICAL_READ_ONLY = PREPARED_NOT_AUTHORIZED / NOT_EXECUTED`.
 
-**Actualización 2H.2.5**: schema version 2 (`SCHEMA_VERSION = 2`,
+**Actualización 2H.2.6**: schema version 3 (`SCHEMA_VERSION = 3`,
+`COLLECTOR_VERSION = "2H.2.6"`). Nuevo campo `message_window_size` en
+`candidate_odom_frequency` (alias semántico de `sample_count` que clarifica
+que el valor `window:` de `ros2 topic hz` es un conteo de mensajes, no una
+duración en segundos). El validador ahora emite `CMD_VEL_SAFE_UNEXPECTED_OWNERS`
+(NO_GO) cuando `unexpected_owners` no está vacío en `/cmd_vel_safe`.
+
+**Actualización 2H.2.5** (histórico): schema version 2 (`SCHEMA_VERSION = 2`,
 `COLLECTOR_VERSION = "2H.2.5"`). Los gates humanos pasan de inferencia
 conservadora a explícitos sin default (ver §1 y §2); la política de
 untracked pasa de prefijo a regex exacto; el directorio de salida debe
@@ -71,7 +78,7 @@ ruta que todavía no exista: `create_new_output_dir()` falla cerrado
 el propietario esperado — ya no se reutiliza un directorio preexistente
 en modo real ni fixture de producción.
 
-Adicionalmente, esta fase (2H.2.4/2H.2.5) exige:
+Adicionalmente, esta fase (2H.2.6) exige:
 
 1. auditoría independiente completada;
 2. autorización explícita posterior a esa auditoría.
