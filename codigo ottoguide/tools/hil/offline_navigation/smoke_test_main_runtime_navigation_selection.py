@@ -52,6 +52,7 @@ scenario is marked failed.
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import secrets
@@ -71,6 +72,32 @@ RUNTIME_WRAPPER = CODE_ROOT / "scripts" / "run_offline_navigation_runtime.sh"
 THIS_FILE = Path(__file__).resolve()
 
 sys.path.insert(0, str(CODE_ROOT))
+
+
+def _get_tested_commit_sha() -> "str | None":
+    """Return the current HEAD SHA via git, or None on failure."""
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5.0,
+            cwd=str(CODE_ROOT.parent),
+        )
+        sha = r.stdout.strip()
+        return sha if len(sha) == 40 else None
+    except Exception:
+        return None
+
+
+def _bounded_log_tail_hash(log_path: "Path | None", tail_lines: int = 200) -> "str | None":
+    """Return SHA-256 hex of the last `tail_lines` lines of log_path, or None."""
+    if log_path is None or not log_path.is_file():
+        return None
+    try:
+        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        tail = "\n".join(lines[-tail_lines:])
+        return hashlib.sha256(tail.encode("utf-8")).hexdigest()
+    except Exception:
+        return None
 
 DEFAULT_NAMESPACE = "offline_nav"
 DEFAULT_BASE_DOMAIN_ID = "204"
@@ -902,7 +929,8 @@ def _lifecycle_get(node_fqn: str, env: dict, timeout: float) -> "str | None":
 
 
 def wait_for_components_deterministic(
-    fqns: list, env: dict, deadline: float
+    fqns: list, env: dict, deadline: float,
+    _telemetry: "dict | None" = None,
 ) -> "tuple[bool, dict]":
     """Fase 2H.2.2: single shared deadline, single `ros2 node list` call per
     iteration (instead of looping sequentially per-component with its own
@@ -911,14 +939,25 @@ def wait_for_components_deterministic(
     (all_active, status_by_fqn) where status_by_fqn values are one of
     'active', 'NOT_DISCOVERED', 'NOT_ACTIVE:<state>', or
     'LIFECYCLE_QUERY_FAILED'.
+
+    If _telemetry is provided (a mutable dict), it is populated with:
+      lifecycle_query_attempts, lifecycle_query_errors,
+      first_discovery_monotonic_ns, first_lifecycle_state,
+      deadline_remaining_ms (set only on successful return).
     """
     last_status: dict = {fqn: "NOT_DISCOVERED" for fqn in fqns}
+    attempt_count = 0
+    error_count = 0
+    first_discovery_ns: "int | None" = None
+    first_lifecycle_state: "str | None" = None
+
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         list_timeout = min(5.0, max(0.5, remaining))
         discovered = set(_node_list(env, timeout=list_timeout))
+        attempt_count += 1
 
         all_active = True
         for fqn in fqns:
@@ -926,6 +965,8 @@ def wait_for_components_deterministic(
                 last_status[fqn] = "NOT_DISCOVERED"
                 all_active = False
                 continue
+            if first_discovery_ns is None:
+                first_discovery_ns = time.monotonic_ns()
             remaining2 = deadline - time.monotonic()
             if remaining2 <= 0:
                 all_active = False
@@ -934,19 +975,34 @@ def wait_for_components_deterministic(
             state = _lifecycle_get(fqn, env, timeout=lifecycle_timeout)
             if state is None:
                 last_status[fqn] = "LIFECYCLE_QUERY_FAILED"
+                error_count += 1
                 all_active = False
             elif state == "active":
                 last_status[fqn] = "active"
             else:
                 last_status[fqn] = f"NOT_ACTIVE:{state}"
                 all_active = False
+            if first_lifecycle_state is None:
+                first_lifecycle_state = last_status[fqn]
 
         if all_active:
+            if _telemetry is not None:
+                _telemetry["lifecycle_query_attempts"] = attempt_count
+                _telemetry["lifecycle_query_errors"] = error_count
+                _telemetry["first_discovery_monotonic_ns"] = first_discovery_ns
+                _telemetry["first_lifecycle_state"] = first_lifecycle_state
+                _telemetry["deadline_remaining_ms"] = max(0.0, deadline - time.monotonic()) * 1000.0
             return True, last_status
         if time.monotonic() >= deadline:
             break
         time.sleep(1.0)
 
+    if _telemetry is not None:
+        _telemetry["lifecycle_query_attempts"] = attempt_count
+        _telemetry["lifecycle_query_errors"] = error_count
+        _telemetry["first_discovery_monotonic_ns"] = first_discovery_ns
+        _telemetry["first_lifecycle_state"] = first_lifecycle_state
+        _telemetry["deadline_remaining_ms"] = 0.0
     return False, last_status
 
 
@@ -1376,6 +1432,7 @@ async def _run_scenario_body(
     timeout_s: float,
     sandbox_proc: "subprocess.Popen | None",
     result: dict,
+    spawn_monotonic_ns: int = 0,
 ) -> None:
     env = _build_env(domain_id)
     log_fd = None
@@ -1385,8 +1442,35 @@ async def _run_scenario_body(
     try:
         fqns = [f"/{namespace}/{component}" for component in REQUIRED_COMPONENTS]
         deadline = time.monotonic() + timeout_s
-        all_active, status_by_fqn = wait_for_components_deterministic(fqns, env, deadline)
+        _wfc_telemetry: dict = {}
+        all_active, status_by_fqn = wait_for_components_deterministic(
+            fqns, env, deadline, _telemetry=_wfc_telemetry,
+        )
+        active_monotonic_ns = time.monotonic_ns()
         result["metrics"]["component_status"] = status_by_fqn
+        result["metrics"]["instrumentation_2h25"] = {
+            "process_spawn_monotonic_ns": spawn_monotonic_ns or None,
+            "launch_start_monotonic_ns": spawn_monotonic_ns or None,
+            "first_discovery_monotonic_ns": _wfc_telemetry.get("first_discovery_monotonic_ns"),
+            "discovery_elapsed_ms": (
+                ((_wfc_telemetry.get("first_discovery_monotonic_ns") or 0) - spawn_monotonic_ns) / 1e6
+                if spawn_monotonic_ns and _wfc_telemetry.get("first_discovery_monotonic_ns")
+                else None
+            ),
+            "lifecycle_query_attempts": _wfc_telemetry.get("lifecycle_query_attempts"),
+            "lifecycle_query_errors": _wfc_telemetry.get("lifecycle_query_errors"),
+            "first_lifecycle_state": _wfc_telemetry.get("first_lifecycle_state"),
+            "active_monotonic_ns": active_monotonic_ns if all_active else None,
+            "active_elapsed_ms": (
+                (active_monotonic_ns - spawn_monotonic_ns) / 1e6
+                if all_active and spawn_monotonic_ns else None
+            ),
+            "deadline_budget_ms": timeout_s * 1000.0,
+            "deadline_remaining_ms": _wfc_telemetry.get("deadline_remaining_ms"),
+            "process_poll": None,
+            "process_exit_code": None,
+            "last_error": None,
+        }
         if not all_active:
             for fqn, status in status_by_fqn.items():
                 if status != "active":
@@ -1640,6 +1724,7 @@ def _scenario_main(args: argparse.Namespace) -> int:
 
     sandbox_proc: "subprocess.Popen | None" = None
     sandbox_identity: "ProcessIdentity | None" = None
+    log_path: "Path | None" = None
     thread_baseline_objects = set(threading.enumerate())
 
     try:
@@ -1650,6 +1735,7 @@ def _scenario_main(args: argparse.Namespace) -> int:
         )
         log_fd = open(log_path, "w")
         fault_inject = getattr(args, "fault_inject_hang_sandbox", False)
+        launch_start_monotonic_ns = time.monotonic_ns()
         try:
             if fault_inject:
                 # Fase 2H.2.4 fault injection, already authorization-gated
@@ -1674,6 +1760,9 @@ def _scenario_main(args: argparse.Namespace) -> int:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(payload)
             return 1
+        process_spawn_monotonic_ns = time.monotonic_ns()
+        result["metrics"]["launch_start_monotonic_ns"] = launch_start_monotonic_ns
+        result["metrics"]["process_spawn_monotonic_ns"] = process_spawn_monotonic_ns
 
         result["sandbox_identity"] = sandbox_identity.to_dict()
         if own_identity is not None and (
@@ -1708,10 +1797,14 @@ def _scenario_main(args: argparse.Namespace) -> int:
             else:
                 asyncio.run(
                     _run_scenario_body(
-                        args.scenario, namespace, domain_id, args.timeout, sandbox_proc, result
+                        args.scenario, namespace, domain_id, args.timeout, sandbox_proc, result,
+                        spawn_monotonic_ns=process_spawn_monotonic_ns,
                     )
                 )
     finally:
+        instr = result["metrics"].get("instrumentation_2h25")
+        if instr is not None:
+            instr["process_poll"] = sandbox_proc.poll() if sandbox_proc else None
         cleanup_evidence = _shutdown_sandbox_and_reap(sandbox_proc, sandbox_identity, CleanupTimeouts())
         result["cleanup_evidence"] = cleanup_evidence
         if cleanup_evidence["group_alive_after"]:
@@ -1795,6 +1888,25 @@ def _scenario_main(args: argparse.Namespace) -> int:
         result["zombie_pids"] = zombie_pids
         if zombie_pids:
             result["errors"].append("ZOMBIES_REMAINING")
+
+    # Finalize instrumentation fields available only after cleanup.
+    instr = result["metrics"].get("instrumentation_2h25")
+    if instr is not None:
+        ce = result.get("cleanup_evidence") or {}
+        instr["process_exit_code"] = ce.get("returncode")
+        instr["last_error"] = result["errors"][-1] if result["errors"] else None
+        instr["bounded_log_tail_hash"] = _bounded_log_tail_hash(log_path)
+
+    # Metadata for audit traceability (Fase 2H.2.5 Section 11.4).
+    result["runtime_metadata_2h25"] = {
+        "run_id": run_id,
+        "scenario": args.scenario,
+        "ROS_DOMAIN_ID": domain_id,
+        "ROS_LOCALHOST_ONLY": os.environ.get("ROS_LOCALHOST_ONLY", "1"),
+        "ROS_DISTRO": os.environ.get("ROS_DISTRO", "jazzy"),
+        "RMW_IMPLEMENTATION": os.environ.get("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp"),
+        "tested_commit_sha": _get_tested_commit_sha(),
+    }
 
     result["ok"] = len(result["errors"]) == 0
     payload = json.dumps(result, indent=2)

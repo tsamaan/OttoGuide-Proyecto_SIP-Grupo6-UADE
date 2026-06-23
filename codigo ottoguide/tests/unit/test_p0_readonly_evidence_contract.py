@@ -342,6 +342,14 @@ def _envelope(session_id="s1"):
             "collected_at_utc": "2026-01-01T00:00:00Z", "collector_version": schema.COLLECTOR_VERSION}
 
 
+def _write_json_0600(path: Path, data) -> None:
+    """Writes JSON and sets mode 0600, mirroring the production collector's
+    SAFE_FILE_MODE so synthetic test bundles satisfy the same POSIX
+    permission check the validator enforces on real bundles."""
+    path.write_text(json.dumps(data), encoding="utf-8")
+    os.chmod(path, 0o600)
+
+
 def _cmd_entry(label, argv, stdout="", exit_code=0, timed_out=False):
     return {
         "label": label, "argv": argv,
@@ -471,10 +479,12 @@ def _write_good_bundle(d: Path, session_id="s1", fixture_mode=False) -> None:
         schema.SENSORS: sensors, schema.CMD_VEL_CHAIN: cmd_vel, schema.SAFETY_HUMAN_CHECKLIST: safety,
         schema.COMMAND_LOG: cmdlog,
     }
+    os.chmod(d, 0o700)
     manifest_files = []
     for name, data in docs.items():
         path = d / name
         path.write_text(json.dumps(data), encoding="utf-8")
+        os.chmod(path, 0o600)
         manifest_files.append({
             "filename": name, "sha256": schema.sha256_file(path),
             "size_bytes": path.stat().st_size,
@@ -483,24 +493,30 @@ def _write_good_bundle(d: Path, session_id="s1", fixture_mode=False) -> None:
     manifest = {**env, "files": manifest_files}
     manifest_path = d / schema.HASH_MANIFEST
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    os.chmod(manifest_path, 0o600)
     # Sidecar: 64-hex SHA-256 of the manifest file
-    (d / schema.HASH_MANIFEST_SIDECAR).write_bytes(
+    sidecar_path = d / schema.HASH_MANIFEST_SIDECAR
+    sidecar_path.write_bytes(
         (schema.sha256_file(manifest_path) + "\n").encode("ascii")
     )
+    os.chmod(sidecar_path, 0o600)
 
 
 def _rehash(d: Path, filename: str) -> None:
     """Update the manifest entry for filename, then re-write the sidecar."""
+    os.chmod(d / filename, 0o600)
     manifest = json.loads((d / schema.HASH_MANIFEST).read_text())
     for entry in manifest["files"]:
         if entry["filename"] == filename:
             entry["sha256"] = schema.sha256_file(d / filename)
             entry["size_bytes"] = (d / filename).stat().st_size
     manifest_path = d / schema.HASH_MANIFEST
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    (d / schema.HASH_MANIFEST_SIDECAR).write_bytes(
+    _write_json_0600(manifest_path, manifest)
+    sidecar_path = d / schema.HASH_MANIFEST_SIDECAR
+    sidecar_path.write_bytes(
         (schema.sha256_file(manifest_path) + "\n").encode("ascii")
     )
+    os.chmod(sidecar_path, 0o600)
 
 
 class TestValidatorThreeLayerDecision(unittest.TestCase):
@@ -541,7 +557,7 @@ class TestValidatorThreeLayerDecision(unittest.TestCase):
             _write_good_bundle(d)
             data = json.loads((d / schema.ROS_GRAPH).read_text())
             data["nodes"] = ["tampered"]
-            (d / schema.ROS_GRAPH).write_text(json.dumps(data), encoding="utf-8")
+            _write_json_0600(d / schema.ROS_GRAPH, data)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["bundle_integrity"], "FAIL")
             self.assertTrue(any("HASH_MISMATCH" in e for e in result["integrity_errors"]))
@@ -553,7 +569,7 @@ class TestValidatorThreeLayerDecision(unittest.TestCase):
             _write_good_bundle(d)
             meta = json.loads((d / schema.SESSION_META).read_text())
             meta["cmd_vel_published"] = True
-            (d / schema.SESSION_META).write_text(json.dumps(meta), encoding="utf-8")
+            _write_json_0600(d / schema.SESSION_META, meta)
             _rehash(d, schema.SESSION_META)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["bundle_integrity"], "PASS")
@@ -567,7 +583,7 @@ class TestValidatorThreeLayerDecision(unittest.TestCase):
             _write_good_bundle(d)
             meta = json.loads((d / schema.SESSION_META).read_text())
             meta["actual_branch"] = "main"
-            (d / schema.SESSION_META).write_text(json.dumps(meta), encoding="utf-8")
+            _write_json_0600(d / schema.SESSION_META, meta)
             _rehash(d, schema.SESSION_META)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["bundle_integrity"], "PASS")
@@ -582,10 +598,10 @@ class TestValidatorThreeLayerDecision(unittest.TestCase):
             _write_good_bundle(d)
             safety = json.loads((d / schema.SAFETY_HUMAN_CHECKLIST).read_text())
             safety["operator_present"] = False
-            (d / schema.SAFETY_HUMAN_CHECKLIST).write_text(json.dumps(safety), encoding="utf-8")
+            _write_json_0600(d / schema.SAFETY_HUMAN_CHECKLIST, safety)
             meta = json.loads((d / schema.SESSION_META).read_text())
             meta["operator_present"] = False
-            (d / schema.SESSION_META).write_text(json.dumps(meta), encoding="utf-8")
+            _write_json_0600(d / schema.SESSION_META, meta)
             _rehash(d, schema.SAFETY_HUMAN_CHECKLIST)
             _rehash(d, schema.SESSION_META)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
@@ -599,7 +615,7 @@ class TestValidatorThreeLayerDecision(unittest.TestCase):
             _write_good_bundle(d)
             meta = json.loads((d / schema.SESSION_META).read_text())
             meta["untracked_paths"] = ["some/other/path.txt"]
-            (d / schema.SESSION_META).write_text(json.dumps(meta), encoding="utf-8")
+            _write_json_0600(d / schema.SESSION_META, meta)
             _rehash(d, schema.SESSION_META)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["p0_field_decision"], "NO_GO")
@@ -611,7 +627,7 @@ class TestValidatorThreeLayerDecision(unittest.TestCase):
             _write_good_bundle(d)
             meta = json.loads((d / schema.SESSION_META).read_text())
             meta["ros_distro"] = "jazzy"
-            (d / schema.SESSION_META).write_text(json.dumps(meta), encoding="utf-8")
+            _write_json_0600(d / schema.SESSION_META, meta)
             _rehash(d, schema.SESSION_META)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["p0_field_decision"], "NO_GO")
@@ -623,7 +639,7 @@ class TestValidatorThreeLayerDecision(unittest.TestCase):
             _write_good_bundle(d)
             graph = json.loads((d / schema.ROS_GRAPH).read_text())
             graph["topics"] = [t for t in graph["topics"] if t["name"] != "/odom"]
-            (d / schema.ROS_GRAPH).write_text(json.dumps(graph), encoding="utf-8")
+            _write_json_0600(d / schema.ROS_GRAPH, graph)
             _rehash(d, schema.ROS_GRAPH)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["bundle_integrity"], "PASS")
@@ -636,7 +652,7 @@ class TestValidatorThreeLayerDecision(unittest.TestCase):
             _write_good_bundle(d)
             graph = json.loads((d / schema.ROS_GRAPH).read_text())
             graph["nodes"] = "not-a-list"
-            (d / schema.ROS_GRAPH).write_text(json.dumps(graph), encoding="utf-8")
+            _write_json_0600(d / schema.ROS_GRAPH, graph)
             _rehash(d, schema.ROS_GRAPH)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["bundle_integrity"], "FAIL")
@@ -658,7 +674,7 @@ class TestV2BundleIntegrityContract(unittest.TestCase):
             # Downgrade schema_version to 1 in session_meta
             meta = json.loads((d / schema.SESSION_META).read_text())
             meta["schema_version"] = 1
-            (d / schema.SESSION_META).write_text(json.dumps(meta), encoding="utf-8")
+            _write_json_0600(d / schema.SESSION_META, meta)
             _rehash(d, schema.SESSION_META)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["bundle_integrity"], "FAIL")
@@ -700,11 +716,13 @@ class TestV2BundleIntegrityContract(unittest.TestCase):
             # Duplicate the first entry
             manifest["files"].append(manifest["files"][0])
             manifest_path = d / schema.HASH_MANIFEST
-            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            _write_json_0600(manifest_path, manifest)
             # Update sidecar to match the (now broken) manifest
-            (d / schema.HASH_MANIFEST_SIDECAR).write_bytes(
+            sidecar_path = d / schema.HASH_MANIFEST_SIDECAR
+            sidecar_path.write_bytes(
                 (schema.sha256_file(manifest_path) + "\n").encode("ascii")
             )
+            os.chmod(sidecar_path, 0o600)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["bundle_integrity"], "FAIL")
             self.assertTrue(any("MANIFEST_DUPLICATE_FILENAME" in e for e in result["integrity_errors"]))
@@ -716,10 +734,12 @@ class TestV2BundleIntegrityContract(unittest.TestCase):
             manifest = json.loads((d / schema.HASH_MANIFEST).read_text())
             manifest["files"][0]["filename"] = "../outside.json"
             manifest_path = d / schema.HASH_MANIFEST
-            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-            (d / schema.HASH_MANIFEST_SIDECAR).write_bytes(
+            _write_json_0600(manifest_path, manifest)
+            sidecar_path = d / schema.HASH_MANIFEST_SIDECAR
+            sidecar_path.write_bytes(
                 (schema.sha256_file(manifest_path) + "\n").encode("ascii")
             )
+            os.chmod(sidecar_path, 0o600)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["bundle_integrity"], "FAIL")
             self.assertTrue(any("MANIFEST_FILENAME_PATH_TRAVERSAL" in e or
@@ -735,7 +755,7 @@ class TestV2BundleIntegrityContract(unittest.TestCase):
             _write_good_bundle(d)
             meta = json.loads((d / schema.SESSION_META).read_text())
             meta["physical_control_execution_performed"] = True
-            (d / schema.SESSION_META).write_text(json.dumps(meta), encoding="utf-8")
+            _write_json_0600(d / schema.SESSION_META, meta)
             _rehash(d, schema.SESSION_META)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["bundle_integrity"], "PASS")
@@ -753,7 +773,7 @@ class TestV2FieldDecisionContract(unittest.TestCase):
             _write_good_bundle(d)
             meta = json.loads((d / schema.SESSION_META).read_text())
             meta["untracked_paths"] = ["codigo ottoguide/logs/mission_x.py"]  # .py not allowed
-            (d / schema.SESSION_META).write_text(json.dumps(meta), encoding="utf-8")
+            _write_json_0600(d / schema.SESSION_META, meta)
             _rehash(d, schema.SESSION_META)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["p0_field_decision"], "NO_GO")
@@ -767,7 +787,7 @@ class TestV2FieldDecisionContract(unittest.TestCase):
             meta["untracked_paths"] = [
                 "codigo ottoguide/logs/mission_20260622T091904695910Z.json"
             ]
-            (d / schema.SESSION_META).write_text(json.dumps(meta), encoding="utf-8")
+            _write_json_0600(d / schema.SESSION_META, meta)
             _rehash(d, schema.SESSION_META)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertNotIn("UNTRACKED_OUTSIDE_ALLOWLIST", result.get("no_go_findings", []))
@@ -778,7 +798,7 @@ class TestV2FieldDecisionContract(unittest.TestCase):
             _write_good_bundle(d)
             safety = json.loads((d / schema.SAFETY_HUMAN_CHECKLIST).read_text())
             safety["operator_identity_or_role"] = ""
-            (d / schema.SAFETY_HUMAN_CHECKLIST).write_text(json.dumps(safety), encoding="utf-8")
+            _write_json_0600(d / schema.SAFETY_HUMAN_CHECKLIST, safety)
             _rehash(d, schema.SAFETY_HUMAN_CHECKLIST)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["p0_field_decision"], "NO_GO")
@@ -790,7 +810,7 @@ class TestV2FieldDecisionContract(unittest.TestCase):
             _write_good_bundle(d)
             safety = json.loads((d / schema.SAFETY_HUMAN_CHECKLIST).read_text())
             safety["hardstop_type"] = ""
-            (d / schema.SAFETY_HUMAN_CHECKLIST).write_text(json.dumps(safety), encoding="utf-8")
+            _write_json_0600(d / schema.SAFETY_HUMAN_CHECKLIST, safety)
             _rehash(d, schema.SAFETY_HUMAN_CHECKLIST)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["p0_field_decision"], "NO_GO")
@@ -802,7 +822,7 @@ class TestV2FieldDecisionContract(unittest.TestCase):
             _write_good_bundle(d)
             meta = json.loads((d / schema.SESSION_META).read_text())
             meta["collection_mode"] = "unknown_mode"
-            (d / schema.SESSION_META).write_text(json.dumps(meta), encoding="utf-8")
+            _write_json_0600(d / schema.SESSION_META, meta)
             _rehash(d, schema.SESSION_META)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["p0_field_decision"], "NO_GO")
@@ -823,7 +843,7 @@ class TestV2FieldDecisionContract(unittest.TestCase):
             # Remove strict commands from command log — forces STRICT_COMMAND_MISSING
             cmdlog = json.loads((d / schema.COMMAND_LOG).read_text())
             cmdlog["commands"] = []
-            (d / schema.COMMAND_LOG).write_text(json.dumps(cmdlog), encoding="utf-8")
+            _write_json_0600(d / schema.COMMAND_LOG, cmdlog)
             _rehash(d, schema.COMMAND_LOG)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result.get("collection_completeness"), "FAIL")
@@ -839,7 +859,7 @@ class TestV2FieldDecisionContract(unittest.TestCase):
                 ["some", "cmd"],
                 stdout="",
             ))
-            (d / schema.COMMAND_LOG).write_text(json.dumps(cmdlog), encoding="utf-8")
+            _write_json_0600(d / schema.COMMAND_LOG, cmdlog)
             _rehash(d, schema.COMMAND_LOG)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["read_only_invariants"], "FAIL")
@@ -852,7 +872,7 @@ class TestV2FieldDecisionContract(unittest.TestCase):
             _write_good_bundle(d)
             tf_loc = json.loads((d / schema.TF_AND_LOCALIZATION).read_text())
             tf_loc["tf_edges_observed"] = ["map->odom"]  # only 1 of 4 required edges
-            (d / schema.TF_AND_LOCALIZATION).write_text(json.dumps(tf_loc), encoding="utf-8")
+            _write_json_0600(d / schema.TF_AND_LOCALIZATION, tf_loc)
             _rehash(d, schema.TF_AND_LOCALIZATION)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["p0_field_decision"], "NO_GO")
@@ -872,7 +892,7 @@ class TestV2FieldDecisionContract(unittest.TestCase):
             _write_good_bundle(d)
             safety = json.loads((d / schema.SAFETY_HUMAN_CHECKLIST).read_text())
             safety["dual_control_prohibited_acknowledged"] = False
-            (d / schema.SAFETY_HUMAN_CHECKLIST).write_text(json.dumps(safety), encoding="utf-8")
+            _write_json_0600(d / schema.SAFETY_HUMAN_CHECKLIST, safety)
             _rehash(d, schema.SAFETY_HUMAN_CHECKLIST)
             result = validator.validate_evidence_dir(d, expected_head="a" * 40)
             self.assertEqual(result["p0_field_decision"], "NO_GO")

@@ -480,11 +480,24 @@ class InvalidLeaseTests(LeaseTestBase):
         self.assertIn("LEASE_CHILD_IDENTITY_MISSING", errors_missing)
 
     def test_updated_before_created_rejected(self):
+        """OBSOLETE_AFTER_MONOTONIC_MIGRATION: prior to Fase 2H.2.5,
+        validate_lease_immutable_fields() compared wall-clock
+        created_at_ns/updated_at_ns and raised LEASE_UPDATED_BEFORE_CREATED.
+        The v2 monotonic migration (LEASE_SCHEMA_VERSION=2) makes wall-clock
+        fields audit-only -- they are never consulted for this decision, so
+        moving updated_at_ns before created_at_ns alone produces no error.
+        The equivalent v2 contract (updated_monotonic_ns < created_monotonic_ns
+        -> LEASE_MONOTONIC_UPDATED_BEFORE_CREATED) is exercised by
+        MonotonicLeaseTests.test_monotonic_updated_before_created_rejected,
+        below. This test is retained only to document and lock in the v2
+        behavior: a wall-clock-only rollback must never, by itself, produce
+        any LEASE_UPDATED_BEFORE_CREATED or LEASE_MONOTONIC_* error."""
         lease = self._create_lease()
         data = lease.read()
         data["updated_at_ns"] = data["created_at_ns"] - 1_000_000_000
         errors = smoke.validate_lease_immutable_fields(data, self.run_id, self.scenario, self.domain_id)
-        self.assertIn("LEASE_UPDATED_BEFORE_CREATED", errors)
+        self.assertNotIn("LEASE_UPDATED_BEFORE_CREATED", errors)
+        self.assertFalse(any("MONOTONIC" in e for e in errors), errors)
 
 
 # ---------------------------------------------------------------------------
