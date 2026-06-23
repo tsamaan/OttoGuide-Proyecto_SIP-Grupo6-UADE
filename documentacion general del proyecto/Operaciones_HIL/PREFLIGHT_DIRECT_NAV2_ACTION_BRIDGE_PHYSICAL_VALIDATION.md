@@ -38,7 +38,8 @@ LEGACY_NAVIGATION_RUNTIME_ACTIVE = YES (default sin cambio)
 Fase 2H.2                     = completada (selector offline, runtime validation PASS — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H2_REPORT.md)
 Fase 2H.2.1                   = completada (hardening fail-closed, tests, guards estáticos, smoke Popen — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H21_HARDENING_REPORT.md)
 Fase 2H.2.2                   = implementada; evidencia incompleta, corregida por 2H.2.3 (ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H22_HARDENING_REPORT.md)
-Fase 2H.2.3                   = IMPLEMENTED_PENDING_INDEPENDENT_AUDIT (corrección de evidencia, timeout E2E ejercitado, 3 corridas consecutivas 4/4 — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H23_EVIDENCE_CORRECTION_REPORT.md)
+Fase 2H.2.3                   = PARTIAL_SUPERSEDED_BY_2H24 (timeout hardening válido; pipeline P0 era skeleton no funcional end-to-end — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H23_EVIDENCE_CORRECTION_REPORT.md)
+Fase 2H.2.4                   = IMPLEMENTED_PENDING_INDEPENDENT_AUDIT (TOCTOU de cleanup corregido, pipeline P0 funcional offline end-to-end, runtime declarado PARTIAL — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H24_P0_PIPELINE_REPORT.md)
 P0_PHYSICAL_READ_ONLY         = PREPARED_NOT_AUTHORIZED / NOT_EXECUTED (tools/hil/physical_read_only/)
 P1_P2_P3                      = NOT_AUTHORIZED
 L2_ODOMETRY                   = NOT_READY
@@ -53,6 +54,15 @@ RAMA_OPERATIVA_VALIDADA       = robot
 > registra como `CANDIDATE_RESOLVED_OFFLINE_PENDING_INDEPENDENT_AUDIT`. P0 es un
 > paquete read-only preparado pero **no autorizado** y **no ejecutado**; P1/P2/P3
 > permanecen `NOT_AUTHORIZED`. No se inspeccionó el robot en esta fase.
+>
+> **Nota 2H.2.4 (2026-06-22)**: el pipeline P0 (collector + bundle +
+> manifest + validator) es ahora funcional offline de extremo a extremo
+> (fixture mode probado, dry-run seguro); sigue **no autorizado** y **no
+> ejecutado** contra el robot. La carrera TOCTOU del cleanup de grupos de
+> proceso fue corregida y probada. La estabilidad runtime quedó
+> `PARTIAL` (2 de 5 corridas con fallos de discovery/lifecycle-query no
+> atribuibles a cambios de código, cleanup limpio en ambas). Ver el
+> reporte 2H.2.4 para el detalle completo.
 
 Toda la evidencia de `DirectNav2ActionBridge` recolectada hasta la Fase
 2H.1.5 es exclusivamente contra `offline_runtime_simulator.py` (odometría
@@ -150,10 +160,19 @@ mover el robot de cualquier forma
 
 ```text
 P0 — Inspeccion read-only
-     Puede prepararse y ejecutarse ahora (sin mover el robot), siempre
-     bajo las condiciones de seguridad de HIL_TESTING_PROTOCOL.md y con
-     operador/hardstop presentes. Es la sección C de este documento.
-     Estado: PENDING_PHYSICAL_VALIDATION (preparado, no ejecutado).
+     Está preparado técnicamente (pipeline funcional offline desde
+     Fase 2H.2.4: collector + bundle + manifest + validator, fixture
+     mode probado end-to-end), pero NO está autorizado. Su ejecución
+     real requiere TODO lo siguiente:
+       1. auditoría independiente de Fase 2H.2.4;
+       2. autorización explícita posterior;
+       3. operador presente;
+       4. hardstop presente;
+       5. HEAD autorizado (--expected-head validado contra el commit
+          publicado);
+       6. sesión presencial controlada.
+     Es la sección C de este documento.
+     Estado: P0_PHYSICAL_READ_ONLY = PREPARED_NOT_AUTHORIZED / NOT_EXECUTED.
 
 P1 — Compatibilidad de interfaces y configuracion
      Confirmar namespace real, ROS_DISTRO/RMW reales, tipos de accion

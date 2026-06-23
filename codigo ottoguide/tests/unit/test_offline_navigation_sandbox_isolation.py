@@ -3845,5 +3845,180 @@ class MainRuntimeCleanupLeaseContractTests(unittest.TestCase):
             os.remove(path)
 
 
+# ---------------------------------------------------------------------------
+# Fase 2H.2.4 -- TOCTOU fix + P0 pipeline static contract checks
+# ---------------------------------------------------------------------------
+
+
+class TOCTOUFixContractTests(unittest.TestCase):
+    """check_2h24_toctou_fix_contract() guards against the double-read
+    member re-validation regression reappearing, and against the hidden
+    fault-injection flag becoming visible/unauthorized."""
+
+    def test_real_smoke_file_passes_toctou_contract(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_2h24_toctou_fix_contract(
+            result, [checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE]
+        )
+        self.assertEqual(result["errors"], [])
+
+    def test_real_parent_cli_timeout_driver_and_test_files_exist(self):
+        self.assertTrue(checker.PARENT_CLI_TIMEOUT_TEST_FILE.is_file())
+        self.assertTrue(checker.PARENT_CLI_TIMEOUT_DRIVER_FILE.is_file())
+
+    def test_rejects_double_read_pattern(self):
+        source = (
+            "def _authorized_targets():\n"
+            "    if identity_still_valid(member) and read_process_identity(pid).pgid == pgid:\n"
+            "        pass\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+            checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_2h24_toctou_fix_contract(result, [tmp_file])
+            finally:
+                checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = saved
+        self.assertIn("TOCTOU_DOUBLE_READ_PATTERN_PRESENT", result["errors"])
+        self.assertIn("TOCTOU_FIX_AUTHORIZED_TARGETS_STILL_USES_STALE_PATTERN", result["errors"])
+
+    def test_rejects_missing_single_snapshot_helper(self):
+        source = "def _authorized_targets():\n    return []\n"
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+            checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_2h24_toctou_fix_contract(result, [tmp_file])
+            finally:
+                checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = saved
+        self.assertIn("TOCTOU_FIX_HELPER_MISSING", result["errors"])
+        self.assertIn("TOCTOU_FIX_AUTHORIZED_TARGETS_NOT_USING_HELPER", result["errors"])
+
+    def test_accepts_single_snapshot_helper_used_correctly(self):
+        source = (
+            "import argparse\n"
+            "def _revalidate_identity_for_group_signal(expected, target_pgid):\n"
+            "    return expected\n"
+            "def _authorized_targets():\n"
+            "    return [_revalidate_identity_for_group_signal(None, 1)]\n"
+            "OTTOGUIDE_2H24_FAULT_INJECTION = 1\n"
+            "fault_inject_hang_sandbox = 1\n"
+            "x = argparse.SUPPRESS  # help=argparse.SUPPRESS\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+            checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = tmp_file
+            try:
+                checker.check_2h24_toctou_fix_contract(result, [tmp_file])
+            finally:
+                checker.MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE = saved
+        self.assertNotIn("TOCTOU_FIX_HELPER_MISSING", result["errors"])
+        self.assertNotIn("TOCTOU_FIX_AUTHORIZED_TARGETS_NOT_USING_HELPER", result["errors"])
+        self.assertNotIn("TOCTOU_DOUBLE_READ_PATTERN_PRESENT", result["errors"])
+        self.assertNotIn("TOCTOU_FIX_AUTHORIZED_TARGETS_STILL_USES_STALE_PATTERN", result["errors"])
+
+    @contextmanager
+    def _temp_file(self, content: str):
+        fd, path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
+class P0PipelineFunctionalContractTests(unittest.TestCase):
+    """check_p0_pipeline_functional_contract() guards against the P0
+    pipeline regressing into the Fase 2H.2.3 skeleton (collector that
+    never wrote a bundle, validator that required only three files)."""
+
+    def test_real_p0_pipeline_passes_contract(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        checker.check_p0_pipeline_functional_contract(result)
+        self.assertEqual(result["errors"], [])
+
+    def test_rejects_missing_collector_core(self):
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        saved = checker.P0_COLLECTOR_CORE_FILE
+        checker.P0_COLLECTOR_CORE_FILE = Path(tempfile.gettempdir()) / "does_not_exist_2h24.py"
+        try:
+            checker.check_p0_pipeline_functional_contract(result)
+        finally:
+            checker.P0_COLLECTOR_CORE_FILE = saved
+        self.assertIn("P0_COLLECTOR_CORE_MISSING", result["errors"])
+
+    def test_rejects_collector_using_eval(self):
+        source = "def f(x):\n    return eval(x)\n"
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.P0_COLLECTOR_CORE_FILE
+            checker.P0_COLLECTOR_CORE_FILE = tmp_file
+            try:
+                checker.check_p0_pipeline_functional_contract(result)
+            finally:
+                checker.P0_COLLECTOR_CORE_FILE = saved
+        self.assertIn("P0_COLLECTOR_USES_EVAL", result["errors"])
+
+    def test_rejects_collector_using_shell_true(self):
+        source = "import subprocess\ndef f():\n    return subprocess.run('ls', shell=True)\n"
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.P0_COLLECTOR_CORE_FILE
+            checker.P0_COLLECTOR_CORE_FILE = tmp_file
+            try:
+                checker.check_p0_pipeline_functional_contract(result)
+            finally:
+                checker.P0_COLLECTOR_CORE_FILE = saved
+        self.assertIn("P0_COLLECTOR_USES_SHELL", result["errors"])
+
+    def test_rejects_validator_missing_decision_layers(self):
+        source = "def validate_evidence_dir(d):\n    return {}\n"
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source) as tmp_file:
+            saved = checker.P0_VALIDATOR_FILE
+            checker.P0_VALIDATOR_FILE = tmp_file
+            try:
+                checker.check_p0_pipeline_functional_contract(result)
+            finally:
+                checker.P0_VALIDATOR_FILE = saved
+        self.assertIn("P0_VALIDATOR_NO_INTEGRITY_LAYER", result["errors"])
+        self.assertIn("P0_VALIDATOR_NO_READONLY_LAYER", result["errors"])
+        self.assertIn("P0_VALIDATOR_NO_FIELD_DECISION_LAYER", result["errors"])
+        self.assertIn("P0_VALIDATOR_NO_FIXTURE_ONLY_DECISION", result["errors"])
+
+    def test_rejects_wrapper_branching_on_flags(self):
+        source = (
+            "#!/usr/bin/env bash\n"
+            "case \"$1\" in\n"
+            "  --dry-run) echo dry ;;\n"
+            "  --execute-read-only) echo real ;;\n"
+            "esac\n"
+            "exec python3 core.py \"$@\"\n"
+        )
+        result = {"errors": [], "warnings": [], "forbidden_matches": [], "checked_files": []}
+        with self._temp_file(source, suffix=".sh") as tmp_file:
+            saved = checker.P0_WRAPPER_FILE
+            checker.P0_WRAPPER_FILE = tmp_file
+            try:
+                checker.check_p0_pipeline_functional_contract(result)
+            finally:
+                checker.P0_WRAPPER_FILE = saved
+        self.assertIn("P0_WRAPPER_BRANCHES_ON_FLAGS", result["errors"])
+
+    @contextmanager
+    def _temp_file(self, content: str, suffix: str = ".py"):
+        fd, path = tempfile.mkstemp(suffix=suffix)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            yield Path(path)
+        finally:
+            os.remove(path)
+
+
 if __name__ == "__main__":
     unittest.main()

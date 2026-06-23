@@ -118,6 +118,42 @@ DEFAULT_CHILD_SIGINT_WAIT_S = 5.0
 DEFAULT_CHILD_SIGTERM_WAIT_S = 5.0
 DEFAULT_CHILD_SIGKILL_WAIT_S = 5.0
 
+# Fase 2H.2.4 -- hidden, offline-only fault injection so the *real* parent
+# CLI timeout path (main() -> _parent_main() -> communicate(timeout=...) ->
+# TimeoutExpired -> _parent_timeout_cleanup) can be exercised end-to-end by
+# a driver, without ever touching ROS or ros2 launch. Without this exact
+# env var present, the hidden --fault-inject-hang-sandbox flag is refused;
+# it never appears in --help (argparse.SUPPRESS) and never changes any
+# behavior unless explicitly requested via the flag.
+FAULT_INJECTION_ENV_2H24 = "OTTOGUIDE_2H24_FAULT_INJECTION"
+# Authorized-only override for _parent_main's communicate() timeout margin
+# (normally a fixed 150.0s on top of --timeout), so a fault-injection
+# driver does not have to wait out the full production margin to observe
+# a TimeoutExpired. Never consulted unless fault injection is authorized.
+FAULT_TIMEOUT_MARGIN_ENV_2H24 = "OTTOGUIDE_2H24_FAULT_TIMEOUT_MARGIN_S"
+DEFAULT_COMMUNICATE_TIMEOUT_MARGIN_S = 150.0
+# How long the fault-injected stand-in sandbox sleeps. Default signal
+# disposition (no custom handler): it dies promptly on the first SIGINT
+# the real cleanup path sends it, exactly like the inert sandboxes used by
+# the Fase 2H.2.3 evidence driver -- this proves the parent acts, not that
+# the stand-in resists.
+FAULT_SANDBOX_SLEEP_S = 99999
+
+
+def _fault_injection_2h24_authorized() -> bool:
+    return os.environ.get(FAULT_INJECTION_ENV_2H24) == "1"
+
+
+def _communicate_timeout_margin_s() -> float:
+    if _fault_injection_2h24_authorized():
+        override = os.environ.get(FAULT_TIMEOUT_MARGIN_ENV_2H24)
+        if override is not None:
+            try:
+                return float(override)
+            except ValueError:
+                pass
+    return DEFAULT_COMMUNICATE_TIMEOUT_MARGIN_S
+
 # Lease vigencia: must comfortably exceed the longest single scenario
 # (sandbox startup + full nav exercise + cleanup escalation) so a slow but
 # legitimate run is never rejected as expired.
@@ -625,6 +661,53 @@ def _pgid_alive(pgid: int) -> bool:
         return True
 
 
+def _revalidate_identity_for_group_signal(
+    expected: "ProcessIdentity", target_pgid: int
+) -> "ProcessIdentity | None":
+    """Fase 2H.2.4 -- the sole authority for "is it still safe to signal
+    this PID as a member of `target_pgid`". Takes exactly one fresh kernel
+    read of `expected.pid` and returns that *same* snapshot only if every
+    invariant holds against it; returns None otherwise (process gone,
+    reused, reparented out of the group, or never safe to begin with).
+
+    This replaces the previous two-read pattern
+    (``identity_still_valid(member) and read_process_identity(pid).pgid``)
+    which read the kernel twice: once inside identity_still_valid() and
+    once more directly. Between those two independent reads the PID could
+    disappear (the second read returning None, and ``.pgid`` on None
+    raising AttributeError) or -- far more dangerous -- exit and have its
+    number reused by an unrelated process that the first read's
+    start_ticks/uid check never re-confirmed. Callers must signal using
+    the ProcessIdentity returned here, not `expected`, and must never
+    issue a second, independent ``read_process_identity`` call to
+    double-check this result.
+    """
+    current = read_process_identity(expected.pid)
+    if current is None:
+        return None
+    if (
+        current.pid != expected.pid
+        or current.start_ticks != expected.start_ticks
+        or current.uid != expected.uid
+    ):
+        return None
+    if current.pgid != expected.pgid or current.pgid != target_pgid:
+        return None
+    # Session-contract invariant: every member of a group this module
+    # spawned shares that group's session id (the leader created its own
+    # session via start_new_session=True, so sid == pgid for the whole
+    # tree) -- a candidate whose sid has drifted is never authorized.
+    if current.sid != target_pgid:
+        return None
+    if (
+        is_protected_id(current.pid)
+        or is_protected_id(current.pgid)
+        or is_protected_id(current.sid)
+    ):
+        return None
+    return current
+
+
 def escalate_signal_to_group(
     pgid: int,
     expected_leader: "ProcessIdentity | None",
@@ -665,20 +748,20 @@ def escalate_signal_to_group(
         known_members.setdefault(member.pid, member)
 
     def _authorized_targets() -> "list[ProcessIdentity]":
-        leader_current = read_process_identity(pgid)
-        if leader_current is not None and leader_current.pgid == pgid:
-            if expected_leader is None or (
-                leader_current.pid == expected_leader.pid
-                and leader_current.start_ticks == expected_leader.start_ticks
-            ):
+        if expected_leader is not None:
+            leader_current = _revalidate_identity_for_group_signal(expected_leader, pgid)
+            if leader_current is not None:
                 return [leader_current]
-        # Leader gone or mismatched: fall back to previously-captured
-        # member identities, re-validated individually. Never trust a
-        # newly-discovered member that was not previously authorized.
+        # Leader gone, mismatched, or never known: fall back to the
+        # member identities captured once above (never re-discovered),
+        # each re-validated individually against a single fresh snapshot.
+        # Never trust a newly-discovered member that was not part of that
+        # original capture.
         valid: "list[ProcessIdentity]" = []
-        for pid, member in known_members.items():
-            if identity_still_valid(member) and read_process_identity(pid).pgid == pgid:
-                valid.append(member)
+        for member in known_members.values():
+            current = _revalidate_identity_for_group_signal(member, pgid)
+            if current is not None:
+                valid.append(current)
         return valid
 
     def _wait_gone(deadline: float) -> bool:
@@ -1486,6 +1569,15 @@ def _scenario_main(args: argparse.Namespace) -> int:
         "orphan_processes": 0,
     }
 
+    if getattr(args, "fault_inject_hang_sandbox", False) and not _fault_injection_2h24_authorized():
+        result["errors"].append("FAULT_INJECTION_NOT_AUTHORIZED")
+        payload = json.dumps(result, indent=2)
+        print(payload)
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(payload)
+        return 1
+
     own_identity = read_process_identity(os.getpid())
     result["child_identity"] = own_identity.to_dict() if own_identity else None
 
@@ -1529,10 +1621,21 @@ def _scenario_main(args: argparse.Namespace) -> int:
             else Path(tempfile.gettempdir()) / f"ottoguide_main_runtime_2h22_{args.scenario}_{domain_id}.log"
         )
         log_fd = open(log_path, "w")
+        fault_inject = getattr(args, "fault_inject_hang_sandbox", False)
         try:
+            if fault_inject:
+                # Fase 2H.2.4 fault injection, already authorization-gated
+                # above: an inert, isolated stand-in -- never the real ROS
+                # sandbox wrapper -- whose only job is to be a real,
+                # distinct, isolated process group for the parent's
+                # lease-based escalation to target during a forced timeout.
+                sandbox_cmd = [sys.executable, "-c", f"import time; time.sleep({FAULT_SANDBOX_SLEEP_S})"]
+                sandbox_env = {}
+            else:
+                sandbox_cmd = ["bash", str(RUNTIME_WRAPPER), f"sandbox_namespace:={namespace}", "use_rviz:=false"]
+                sandbox_env = _build_env(domain_id)
             sandbox_proc, sandbox_identity = spawn_isolated(
-                ["bash", str(RUNTIME_WRAPPER), f"sandbox_namespace:={namespace}", "use_rviz:=false"],
-                env=_build_env(domain_id), stdout=log_fd, stderr=subprocess.STDOUT, text=True,
+                sandbox_cmd, env=sandbox_env, stdout=log_fd, stderr=subprocess.STDOUT, text=True,
             )
         except RuntimeError as exc:
             result["errors"].append(f"SANDBOX_SPAWN_NOT_ISOLATED:{exc}")
@@ -1566,11 +1669,20 @@ def _scenario_main(args: argparse.Namespace) -> int:
                 result["errors"].append(f"LEASE_VALIDATION_FAILED:{exc}")
 
         if not result["errors"]:
-            asyncio.run(
-                _run_scenario_body(
-                    args.scenario, namespace, domain_id, args.timeout, sandbox_proc, result
+            if fault_inject:
+                # Deliberately stall (no ROS, no asyncio) until the parent's
+                # own timeout/cleanup logic signals this child's group or
+                # the stand-in sandbox's group -- proving the *real* CLI
+                # timeout transition, not a direct call to the cleanup
+                # function. Default SIGINT disposition: this process exits
+                # promptly once signalled, running the `finally` below.
+                sandbox_proc.wait()
+            else:
+                asyncio.run(
+                    _run_scenario_body(
+                        args.scenario, namespace, domain_id, args.timeout, sandbox_proc, result
+                    )
                 )
-            )
     finally:
         cleanup_evidence = _shutdown_sandbox_and_reap(sandbox_proc, sandbox_identity, CleanupTimeouts())
         result["cleanup_evidence"] = cleanup_evidence
@@ -1815,6 +1927,9 @@ def _parent_main(args: argparse.Namespace) -> int:
             args.output.write_text(output_str)
         return 2
 
+    if getattr(args, "fault_inject_hang_sandbox", False) and not _fault_injection_2h24_authorized():
+        return _fail(["FAULT_INJECTION_NOT_AUTHORIZED"])
+
     base, parse_error = parse_base_domain_id(args.base_domain_id)
     if parse_error is not None:
         return _fail([parse_error])
@@ -1881,6 +1996,8 @@ def _parent_main(args: argparse.Namespace) -> int:
             "--expected-parent-start-ticks", str(parent_identity.start_ticks),
             "--expected-parent-uid", str(parent_identity.uid),
         ]
+        if getattr(args, "fault_inject_hang_sandbox", False):
+            child_cmd.append("--fault-inject-hang-sandbox")
         try:
             child_proc, child_identity = spawn_isolated(
                 child_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -1897,7 +2014,12 @@ def _parent_main(args: argparse.Namespace) -> int:
             # Margin on top of the child's own timeout_s (which already
             # includes sandbox bringup and cleanup), covering the full
             # sandbox+child escalation performed by _parent_timeout_cleanup.
-            child_stdout, _child_stderr = child_proc.communicate(timeout=args.timeout + 150.0)
+            # Only a fault-injection-authorized run may shrink this margin
+            # (see _communicate_timeout_margin_s); production behavior is
+            # the literal 150.0 it always was.
+            child_stdout, _child_stderr = child_proc.communicate(
+                timeout=args.timeout + _communicate_timeout_margin_s()
+            )
         except subprocess.TimeoutExpired:
             cleanup_evidence = _parent_timeout_cleanup(
                 child_proc, child_identity, run_id, name, domain_str, lease_dir,
@@ -1995,6 +2117,10 @@ def main() -> int:
         "--expected-parent-start-ticks", dest="expected_parent_start_ticks", type=int, help=argparse.SUPPRESS
     )
     parser.add_argument("--expected-parent-uid", dest="expected_parent_uid", type=int, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--fault-inject-hang-sandbox", dest="fault_inject_hang_sandbox",
+        action="store_true", help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
 
     if args.scenario:

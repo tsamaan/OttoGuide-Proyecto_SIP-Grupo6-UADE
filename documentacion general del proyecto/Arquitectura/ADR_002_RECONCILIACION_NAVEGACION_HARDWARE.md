@@ -16,6 +16,16 @@
 > `NOT_EXECUTED`. `PHYSICAL_MOVEMENT = NOT_AUTHORIZED`. Ver
 > `MAIN_RUNTIME_NAVIGATION_SELECTION_2H23_EVIDENCE_CORRECTION_REPORT.md`.
 
+> ## ➕ ADDENDUM 2H.2.4 (2026-06-22) — confirmación, no cambio de decisión
+>
+> La Fase 2H.2.4 (pipeline P0 funcional + corrección TOCTOU) **no altera**
+> esta ADR; la confirma. El paquete P0 read-only ahora es funcional
+> offline de extremo a extremo (collector + 7 JSON + manifest + validador
+> de tres capas, fixture mode probado), pero sigue
+> `PREPARED_NOT_AUTHORIZED` / `NOT_EXECUTED`. Unitree/SDK2 sigue **no
+> integrado**. `PHYSICAL_MOVEMENT = NOT_AUTHORIZED`. Ver
+> `MAIN_RUNTIME_NAVIGATION_SELECTION_2H24_P0_PIPELINE_REPORT.md`.
+
 ## Contexto
 
 El sandbox offline Nav2 (Fases 2A–2G) validó, sobre ROS 2 Jazzy en WSL,

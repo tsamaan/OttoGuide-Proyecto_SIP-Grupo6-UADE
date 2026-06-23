@@ -23,6 +23,27 @@ INDEPENDENT_AUDIT_REQUIRED = YES
 Este reporte **no** declara `COMPLETE`, `CLOSED`, `PHYSICAL_READY` ni
 `P0_AUTHORIZED`. La aceptación independiente ocurre en otro chat.
 
+> **STATUS = PARTIAL_SUPERSEDED_BY_2H24 (2026-06-22)**
+>
+> El hardening de timeout/cleanup descrito en este reporte (carrera de
+> señalización, lease, escalado SIGINT→SIGTERM→SIGKILL, sentinel no
+> relacionado) sigue siendo válido y la evidencia runtime aquí reportada
+> (diagnostic + 3 corridas consecutivas 4/4) se mantiene como reportada.
+>
+> Lo que **no** era cierto: el "paquete P0 físico read-only" descrito en
+> la §11 era un **skeleton no funcional de extremo a extremo** —
+> `collect_p0_readonly_evidence.sh` imprimía o ejecutaba cada comando y
+> lo descartaba sin escribir jamás un bundle, y el validador exigía solo
+> 3 de los 7 archivos documentados. Ese defecto fue corregido en Fase
+> 2H.2.4 (`MAIN_RUNTIME_NAVIGATION_SELECTION_2H24_P0_PIPELINE_REPORT.md`):
+> el pipeline P0 es ahora funcional offline de extremo a extremo
+> (collector real + 7 JSON + manifest + validator de tres capas + fixture
+> mode probado). Además, 2H.2.4 corrigió una carrera TOCTOU en la
+> revalidación de identidad de procesos durante el cleanup (no
+> mencionada aquí porque no había sido detectada todavía).
+>
+> Este documento se conserva íntegro como historial; no se reescribe.
+
 ---
 
 ## 1. Objetivo y alcance

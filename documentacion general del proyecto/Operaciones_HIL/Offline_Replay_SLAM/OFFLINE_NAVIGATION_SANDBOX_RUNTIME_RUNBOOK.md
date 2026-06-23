@@ -359,3 +359,94 @@ Raíz Windows: `C:\Users\lucas\OttoGuide_2H23_Evidence_<timestamp>`. La evidenci
 WSL se persiste bajo `…\OttoGuide_2H23_Evidence_<timestamp>\wsl_evidence` (el
 `/tmp` de WSL es volátil entre invocaciones del distro). `evidence_manifest.json`
 + `evidence_manifest.sha256` listan cada artefacto con su SHA-256.
+
+## Apéndice 2H.2.4 — Carrera TOCTOU, CLI timeout real y pipeline P0 (2026-06-22)
+
+### Ejercicio del camino CLI real del timeout del padre
+
+A diferencia de 2H.2.3 (que llamaba `_parent_timeout_cleanup` directamente),
+2H.2.4 dirige la **CLI real** (`main()` -> `_parent_main()` ->
+`communicate(timeout=...)` -> `except TimeoutExpired` -> `_parent_timeout_cleanup`
+-> JSON -> exit code) vía un driver dedicado, con fault injection oculta y
+gateada en el propio smoke test (nunca en producción sin la variable):
+
+```bash
+source /opt/ros/jazzy/setup.bash
+export OTTOGUIDE_2H24_FAULT_INJECTION=1
+python3 tools/hil/offline_navigation/run_2h24_parent_cli_timeout.py \
+  --domain-id 220 --output <out.json>
+```
+
+Evidencia esperada: `cleanup_decision=PASS` y `scenario_decision=EXPECTED_TIMEOUT`
+mantenidos como ejes **independientes** (un timeout controlado nunca se
+reporta como un PASS funcional de navegación); cada escenario con
+`parent_timeout_cleanup_executed=true`, `child_reaped=true`,
+`child_group_alive_after=false`, `sandbox_group_alive_after=false`,
+`owned_members_remaining=[]`; sentinel no relacionado vivo, sin señal
+recibida; `zombies_remaining=0`.
+
+### Estabilidad runtime 2H.2.4 — hasta 5 intentos para 3 consecutivas
+
+Bandas de dominio distintas de toda banda ya usada por 2H.2.3
+(104-107, 112-115, 120-123, 128-131, 136-139):
+
+```bash
+for d in 184 192 200 208 220 228; do
+  python3 tools/hil/offline_navigation/smoke_test_main_runtime_navigation_selection.py \
+    --base-domain-id $d --output <out_$d.json>
+done   # 184 = diagnostic; 192/200/208 = intentos 1-3; 220/228 = reservas
+```
+
+Resultado real obtenido en esta fase (un único intérprete WSL, corridas
+consecutivas sin cambios de archivos):
+
+```text
+diagnostic   (domain 184) = PASS 4/4
+attempt_1 (domain 192)    = PASS 4/4
+attempt_2 (domain 200)    = PASS 4/4
+attempt_3 (domain 208)    = FAIL 3/4 (emergency_cancel: controller_server
+                            LIFECYCLE_QUERY_FAILED, waypoint_follower
+                            NOT_ACTIVE; cleanup_evidence limpio, 0
+                            zombies/huérfanos)
+extra_1   (domain 220)    = PASS 4/4
+extra_2   (domain 228)    = FAIL 3/4 (interaction_cancel: los 7
+                            componentes NOT_DISCOVERED; cleanup_evidence
+                            limpio, 0 zombies/huérfanos)
+consecutive_passes_max = 2
+RUNTIME_STABILITY = PARTIAL
+failure_cause_classification = ENVIRONMENTAL_TRANSIENT (discovery/
+  lifecycle-query de ROS 2 bajo WSL2 tras múltiples bringups Nav2
+  consecutivos en la misma sesión; ningún cambio de 2H.2.4 toca lifecycle,
+  discovery o bringup -- solo señalización/validación de identidad de
+  cleanup, que permaneció limpia incluso en ambos fallos)
+```
+
+No se reintentó más allá de los 5 intentos oficiales. Esto habilita un
+commit con `RUNTIME_STABILITY = PARTIAL` declarado honestamente (la
+fase no requiere runtime PASS_3_CONSECUTIVE para admitir un commit
+parcial, siempre que cleanup, pipeline P0 y fixture E2E estén en PASS).
+
+### Carrera TOCTOU corregida
+
+Defecto: `_authorized_targets()` ejecutaba `identity_still_valid(member)`
+(una lectura de kernel) y luego, en el mismo `and`, `read_process_identity(pid).pgid`
+(una **segunda** lectura independiente, sin guarda ante `None`). Entre
+ambas lecturas el PID podía desaparecer (`AttributeError` sobre `None`) o,
+peor, ser reutilizado por un proceso no relacionado sin que el `start_ticks`
+de la primera lectura lo detectara. Corrección:
+`_revalidate_identity_for_group_signal()` toma una única lectura y valida
+`pid`/`start_ticks`/`uid`/`pgid`/`sid`/no-protegido contra esa misma
+instantánea; nunca se vuelve a leer para confirmar. Probado con tests
+deterministas (mock de `read_process_identity`/`os.kill`/`os.killpg`) y un
+E2E real (líder que termina dejando un nieto vivo en el mismo PGID).
+
+### Pipeline P0 funcional
+
+`collect_p0_readonly_evidence.py` (núcleo Python, stdlib únicamente, argv
+únicamente, nunca `shell=True`/`eval`) reemplaza el skeleton de 2H.2.3;
+`collect_p0_readonly_evidence.sh` queda como wrapper mínimo que resuelve
+su propio directorio y hace `exec` al núcleo. Tres modos mutuamente
+excluyentes (`--dry-run` por defecto, `--execute-read-only` triple-gateado,
+`--fixture-dir` gateado por `OTTOGUIDE_P0_FIXTURE_MODE=YES`, nunca
+ejecutado contra el robot en esta fase). Ver
+`P0_READ_ONLY_RUNBOOK.md` y `P0_READ_ONLY_EVIDENCE_SCHEMA.md`.

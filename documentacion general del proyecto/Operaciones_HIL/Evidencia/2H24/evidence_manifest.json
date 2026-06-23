@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "phase": "2H.2.4",
+  "generated_at_utc": "2026-06-22T23:55:00Z",
+  "baseline_head": "476bb3fe9fca20031a055a49e72e871d1114c437",
+  "files": [
+    {
+      "filename": "test_summary.json",
+      "sha256": "4c3120525c57221ecdcab3e324bf5f1037878f39669cb33ebb35e27e83c36bbc",
+      "size_bytes": 3041
+    },
+    {
+      "filename": "cleanup_timeout_summary.json",
+      "sha256": "c3406be01310283c14c9ca9f54e23f75e22190b33e95f984cd377789ad48df9d",
+      "size_bytes": 2826
+    },
+    {
+      "filename": "p0_fixture_summary.json",
+      "sha256": "a5c350fa2f73005f47f1b45d8746fd1c7ab5bb77015933b80a00dec1434dbfec",
+      "size_bytes": 4195
+    },
+    {
+      "filename": "runtime_summary.json",
+      "sha256": "b10c704e2de5262b4be597c5dd967a05f02d703df4b0090b03e5d4b98b4f7e9f",
+      "size_bytes": 3108
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "environment": {
+    "ros_distro": "foxy",
+    "rmw_implementation": "rmw_cyclonedds_cpp",
+    "cyclonedds_uri": "",
+    "hostname": "fixture-host",
+    "uid": 1000,
+    "username": "fixture-user"
+  },
+  "topic_list": [
+    "/tf", "/tf_static", "/odom", "/map", "/map_metadata",
+    "/utlidar/cloud", "/livox/imu",
+    "/camera/color/image_raw", "/camera/depth/image_rect_raw",
+    "/cmd_vel_raw", "/cmd_vel_safe"
+  ],
+  "commands": {
+    "git_branch": {"stdout": "robot\n", "exit_code": 0},
+    "git_head": {"stdout": "476bb3fe9fca20031a055a49e72e871d1114c437\n", "exit_code": 0},
+    "git_status": {"stdout": "## robot\n?? \"codigo ottoguide/logs/mission_fixture.json\"\n", "exit_code": 0},
+    "git_remote_origin": {"stdout": "https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git\n", "exit_code": 0},
+    "ros2_node_list": {"stdout": "/map_server\n/planner_server\n/controller_server\n/collision_monitor\n/behavior_server\n/bt_navigator\n/waypoint_follower\n", "exit_code": 0},
+    "ros2_topic_list": {"stdout": "/tf [tf2_msgs/msg/TFMessage]\n/tf_static [tf2_msgs/msg/TFMessage]\n/odom [nav_msgs/msg/Odometry]\n/map [nav_msgs/msg/OccupancyGrid]\n/map_metadata [nav_msgs/msg/MapMetaData]\n/utlidar/cloud [sensor_msgs/msg/PointCloud2]\n/livox/imu [sensor_msgs/msg/Imu]\n/camera/color/image_raw [sensor_msgs/msg/Image]\n/camera/depth/image_rect_raw [sensor_msgs/msg/Image]\n/cmd_vel_raw [geometry_msgs/msg/Twist]\n/cmd_vel_safe [geometry_msgs/msg/Twist]\n", "exit_code": 0},
+    "ros2_service_list": {"stdout": "/map_server/describe_parameters [rcl_interfaces/srv/DescribeParameters]\n", "exit_code": 0},
+    "ros2_action_list": {"stdout": "/navigate_to_pose [nav2_msgs/action/NavigateToPose]\n", "exit_code": 0},
+    "tf_static_echo_once": {"stdout": "transforms:\n- header:\n    frame_id: map\n  child_frame_id: odom\n", "exit_code": 0},
+    "odom_echo_once": {"stdout": "header:\n  frame_id: odom\nchild_frame_id: base_link\n", "exit_code": 0},
+    "topic_info_utlidar_cloud": {"stdout": "Type: sensor_msgs/msg/PointCloud2\nPublisher count: 1\nSubscription count: 1\n", "exit_code": 0},
+    "topic_info_livox_imu": {"stdout": "Type: sensor_msgs/msg/Imu\nPublisher count: 1\n", "exit_code": 0},
+    "topic_hz_livox_imu": {"stdout": "average rate: 199.5\n", "exit_code": 0},
+    "topic_info_camera_color_image_raw": {"stdout": "Type: sensor_msgs/msg/Image\nPublisher count: 1\n", "exit_code": 0},
+    "topic_hz_camera_color_image_raw": {"stdout": "average rate: 29.9\n", "exit_code": 0},
+    "topic_info_camera_depth_image_rect_raw": {"stdout": "Type: sensor_msgs/msg/Image\nPublisher count: 1\n", "exit_code": 0},
+    "topic_hz_camera_depth_image_rect_raw": {"stdout": "average rate: 29.8\n", "exit_code": 0},
+    "cmd_vel_info_cmd_vel_raw": {"stdout": "Type: geometry_msgs/msg/Twist\nPublisher count: 1\n", "exit_code": 0},
+    "cmd_vel_info_cmd_vel_safe": {"stdout": "Type: geometry_msgs/msg/Twist\nPublisher count: 1\nSubscription count: 1\n", "exit_code": 0}
+  },
+  "safety_human_checklist": {
+    "operator_present": true,
+    "hardstop_present": true,
+    "hardstop_tested_before_session": true,
+    "area_cleared": true,
+    "robot_physically_supervised": true,
+    "movement_not_authorized_acknowledged": true,
+    "notes": "missing_topic fixture: /scan deliberately absent from topic_list"
+  }
+}

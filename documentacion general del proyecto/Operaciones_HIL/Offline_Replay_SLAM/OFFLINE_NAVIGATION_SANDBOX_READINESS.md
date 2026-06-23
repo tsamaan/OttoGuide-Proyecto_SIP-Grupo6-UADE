@@ -23,6 +23,34 @@
 > `NOT_EXECUTED`). Ver
 > `../../Arquitectura/MAIN_RUNTIME_NAVIGATION_SELECTION_2H23_EVIDENCE_CORRECTION_REPORT.md`.
 
+> ## 🔄 ACTUALIZACIÓN 2H.2.4 (2026-06-22)
+>
+> Estado vigente tras Fase 2H.2.4 (corrección TOCTOU de cleanup + pipeline
+> P0 funcional):
+>
+> ```text
+> MAIN_RUNTIME_BRIDGE_SELECTION =
+>   READY_OFFLINE_EVIDENCE_CORRECTED_PENDING_INDEPENDENT_AUDIT
+> P0_PIPELINE = FUNCTIONAL_OFFLINE_PENDING_INDEPENDENT_AUDIT
+> P0_PHYSICAL_READ_ONLY = PREPARED_NOT_AUTHORIZED / NOT_EXECUTED
+> PHYSICAL_NAVIGATION = NOT_READY   (sin cambios)
+> PHYSICAL_MOVEMENT   = NOT_AUTHORIZED
+> ```
+>
+> Evidencia 2H.2.4: carrera TOCTOU en `_authorized_targets()` corregida
+> (lectura única de identidad, nunca dos lecturas independientes) y
+> probada con tests deterministas + un E2E real de proceso; camino CLI
+> real del timeout del padre ejercitado por primera vez (no solo la
+> función `_parent_timeout_cleanup`, vía fault injection oculta y
+> autorizada por variable de entorno); pipeline P0 funcionalizado
+> (collector real, 7 JSON + manifest + comando log, validador de tres
+> capas, fixture mode end-to-end con 8 casos); estabilidad runtime
+> declarada `PARTIAL` (diagnostic 4/4; 2 de 5 corridas con fallos de
+> discovery/lifecycle-query de ROS no atribuibles a cambios de código,
+> cleanup limpio en ambas, cero zombies/huérfanos en todas las corridas).
+> Ver
+> `../../Arquitectura/MAIN_RUNTIME_NAVIGATION_SELECTION_2H24_P0_PIPELINE_REPORT.md`.
+
 Este documento separa el estado de readiness del sandbox en niveles independientes. Ningún nivel implica automáticamente el siguiente.
 
 ## Niveles de readiness

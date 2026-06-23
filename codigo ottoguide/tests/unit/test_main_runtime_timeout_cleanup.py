@@ -28,6 +28,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CODE_ROOT = REPO_ROOT / "codigo ottoguide"
@@ -542,6 +543,320 @@ class SignalSafetyTests(unittest.TestCase):
             attempts, "sandbox",
         )
         self.assertTrue(result)
+
+
+# ---------------------------------------------------------------------------
+# Fase 2H.2.4 -- TOCTOU race fix in member re-validation
+#
+# Pre-2H.2.4, _authorized_targets()'s member fallback path read kernel
+# identity twice -- once inside identity_still_valid(), once more directly
+# via read_process_identity(pid).pgid -- with no guard on the second read
+# returning None. _revalidate_identity_for_group_signal() replaces both
+# with a single snapshot; these tests prove the single-read contract
+# itself, that every invariant it must enforce is enforced, and that the
+# function is robust to exactly the disappearance/reuse window the old
+# code was not.
+# ---------------------------------------------------------------------------
+
+
+class TOCTOURaceFixTests(unittest.TestCase):
+    def test_old_double_read_pattern_would_raise_attributeerror(self):
+        """Documents the defect being fixed: reproduces the exact pre-2H.2.4
+        expression with a process that vanishes between the two independent
+        reads it performs, and shows it raises AttributeError."""
+        identity = smoke.ProcessIdentity(
+            pid=999999, ppid=1, pgid=999999, sid=999999, start_ticks=12345, uid=1000,
+        )
+        call_count = {"n": 0}
+
+        def flaky_read(pid):
+            call_count["n"] += 1
+            return identity if call_count["n"] == 1 else None
+
+        with mock.patch.object(smoke, "read_process_identity", side_effect=flaky_read):
+            with self.assertRaises(AttributeError):
+                # identity_still_valid() performs the first read internally;
+                # this second, independent read is the TOCTOU window.
+                _ = (
+                    smoke.identity_still_valid(identity)
+                    and smoke.read_process_identity(identity.pid).pgid == identity.pgid
+                )
+        self.assertEqual(call_count["n"], 2)
+
+    def test_single_read_no_toctou_double_read(self):
+        identity = smoke.ProcessIdentity(
+            pid=999999, ppid=1, pgid=999999, sid=999999, start_ticks=12345, uid=1000,
+        )
+        call_count = {"n": 0}
+
+        def flaky_read(pid):
+            call_count["n"] += 1
+            return identity if call_count["n"] == 1 else None
+
+        with mock.patch.object(smoke, "read_process_identity", side_effect=flaky_read):
+            result = smoke._revalidate_identity_for_group_signal(identity, identity.pgid)
+        self.assertEqual(call_count["n"], 1, "must read kernel identity exactly once")
+        self.assertEqual(result, identity)
+
+    def test_process_disappeared_returns_none_not_attributeerror(self):
+        identity = smoke.ProcessIdentity(
+            pid=999999, ppid=1, pgid=999999, sid=999999, start_ticks=12345, uid=1000,
+        )
+        with mock.patch.object(smoke, "read_process_identity", return_value=None):
+            result = smoke._revalidate_identity_for_group_signal(identity, identity.pgid)
+        self.assertIsNone(result)
+
+    def test_pid_reused_with_different_start_ticks_rejected(self):
+        current = smoke.ProcessIdentity(
+            pid=4242, ppid=1, pgid=4242, sid=4242, start_ticks=500, uid=1000,
+        )
+        # `expected` claims the same PID/PGID but an older start_ticks --
+        # the kernel-reused-this-PID-for-a-different-process signature.
+        stale_expected = smoke.ProcessIdentity(
+            pid=4242, ppid=1, pgid=4242, sid=4242, start_ticks=1, uid=1000,
+        )
+        with mock.patch.object(smoke, "read_process_identity", return_value=current):
+            result = smoke._revalidate_identity_for_group_signal(stale_expected, 4242)
+        self.assertIsNone(result)
+
+    def test_uid_mismatch_rejected(self):
+        current = smoke.ProcessIdentity(pid=4242, ppid=1, pgid=4242, sid=4242, start_ticks=500, uid=1000)
+        expected = smoke.ProcessIdentity(pid=4242, ppid=1, pgid=4242, sid=4242, start_ticks=500, uid=1001)
+        with mock.patch.object(smoke, "read_process_identity", return_value=current):
+            result = smoke._revalidate_identity_for_group_signal(expected, 4242)
+        self.assertIsNone(result)
+
+    def test_pgid_drifted_from_expected_rejected(self):
+        # The candidate left the group it was captured in (e.g. called
+        # setpgid itself) -- expected.pgid no longer matches current.pgid.
+        current = smoke.ProcessIdentity(pid=4242, ppid=1, pgid=5555, sid=5555, start_ticks=500, uid=1000)
+        expected = smoke.ProcessIdentity(pid=4242, ppid=1, pgid=4242, sid=4242, start_ticks=500, uid=1000)
+        with mock.patch.object(smoke, "read_process_identity", return_value=current):
+            result = smoke._revalidate_identity_for_group_signal(expected, 4242)
+        self.assertIsNone(result)
+
+    def test_pgid_matches_expected_but_not_target_rejected(self):
+        # expected.pgid == current.pgid, but the caller is authorizing a
+        # signal against a *different* target_pgid -- must still reject.
+        current = smoke.ProcessIdentity(pid=4242, ppid=1, pgid=4242, sid=4242, start_ticks=500, uid=1000)
+        expected = smoke.ProcessIdentity(pid=4242, ppid=1, pgid=4242, sid=4242, start_ticks=500, uid=1000)
+        with mock.patch.object(smoke, "read_process_identity", return_value=current):
+            result = smoke._revalidate_identity_for_group_signal(expected, 9999)
+        self.assertIsNone(result)
+
+    def test_sid_drifted_from_group_contract_rejected(self):
+        # A member whose session id no longer matches the group's session
+        # (target_pgid) -- e.g. it called setsid() itself -- is never
+        # authorized even if pid/start_ticks/uid/pgid all still match.
+        current = smoke.ProcessIdentity(pid=4242, ppid=1, pgid=4242, sid=7777, start_ticks=500, uid=1000)
+        expected = smoke.ProcessIdentity(pid=4242, ppid=1, pgid=4242, sid=4242, start_ticks=500, uid=1000)
+        with mock.patch.object(smoke, "read_process_identity", return_value=current):
+            result = smoke._revalidate_identity_for_group_signal(expected, 4242)
+        self.assertIsNone(result)
+
+    def test_protected_current_pgid_rejected(self):
+        current = smoke.ProcessIdentity(pid=4242, ppid=1, pgid=1, sid=1, start_ticks=500, uid=1000)
+        expected = smoke.ProcessIdentity(pid=4242, ppid=1, pgid=1, sid=1, start_ticks=500, uid=1000)
+        with mock.patch.object(smoke, "read_process_identity", return_value=current):
+            result = smoke._revalidate_identity_for_group_signal(expected, 1)
+        self.assertIsNone(result)
+
+    def test_valid_candidate_returns_current_snapshot_ignoring_ppid_reparenting(self):
+        # ppid is deliberately excluded from the invariant set (reparenting
+        # to init is normal); the function must still return the *current*
+        # snapshot (proving it isn't just echoing back `expected`).
+        current = smoke.ProcessIdentity(pid=4242, ppid=1, pgid=4242, sid=4242, start_ticks=500, uid=1000)
+        expected = smoke.ProcessIdentity(pid=4242, ppid=777, pgid=4242, sid=4242, start_ticks=500, uid=1000)
+        with mock.patch.object(smoke, "read_process_identity", return_value=current):
+            result = smoke._revalidate_identity_for_group_signal(expected, 4242)
+        self.assertEqual(result, current)
+        self.assertNotEqual(result.ppid, expected.ppid)
+
+    @unittest.skipUnless(_IS_POSIX, _POSIX_SKIP_REASON)
+    def test_member_discovery_happens_exactly_once_new_members_never_considered(self):
+        """Discovery (list_pgid_members) must run once, before any signal,
+        never again mid-escalation -- otherwise a process that joins the
+        PGID later could be discovered and signalled despite never having
+        been authorized at capture time."""
+        proc, identity = _spawn_inert_isolated()
+        try:
+            call_count = {"n": 0}
+            real_list = smoke.list_pgid_members
+
+            def counting_wrapper(pgid):
+                call_count["n"] += 1
+                return real_list(pgid)
+
+            attempts: list = []
+            with mock.patch.object(smoke, "list_pgid_members", side_effect=counting_wrapper):
+                smoke.escalate_signal_to_group(
+                    identity.pgid, identity,
+                    smoke.CleanupTimeouts(sigint_wait_s=0.1, sigterm_wait_s=0.1, sigkill_wait_s=0.5),
+                    attempts, "sandbox", reap_callback=proc.poll,
+                )
+            self.assertEqual(call_count["n"], 1)
+        finally:
+            _force_kill_group(identity.pgid)
+            _force_kill(proc)
+
+    @unittest.skipUnless(_IS_POSIX, _POSIX_SKIP_REASON)
+    def test_leader_gone_known_member_revalidated_and_signalled(self):
+        """A leader that exits leaving a still-running, pgid-inheriting
+        grandchild behind: the fast leader-path must fail closed (leader
+        truly gone, not a zombie misread as alive), and the fallback path
+        must re-validate and signal exactly the previously-known member."""
+        leader_script = (
+            "import subprocess, sys\n"
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], "
+            "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+            "print(child.pid, flush=True)\n"
+        )
+        leader_proc, leader_identity = smoke.spawn_isolated(
+            [sys.executable, "-c", leader_script], stdout=subprocess.PIPE, text=True,
+        )
+        grandchild_pid = None
+        try:
+            line = leader_proc.stdout.readline()
+            grandchild_pid = int(line.strip())
+            # Reap the leader so it is genuinely gone from /proc (not a
+            # not-yet-reaped zombie, which would still look "alive" and let
+            # the fast leader-path short-circuit without exercising the
+            # fallback this test means to cover).
+            leader_proc.wait(timeout=5.0)
+            self.assertIsNone(smoke.read_process_identity(leader_identity.pid))
+
+            attempts: list = []
+            result = smoke.escalate_signal_to_group(
+                leader_identity.pgid, leader_identity,
+                smoke.CleanupTimeouts(sigint_wait_s=2.0, sigterm_wait_s=2.0, sigkill_wait_s=2.0),
+                attempts, "sandbox",
+            )
+            self.assertTrue(result)
+            self.assertFalse(smoke._pgid_alive(leader_identity.pgid))
+            signalled_pids = {a.get("pid") for a in attempts if a.get("delivered")}
+            self.assertIn(grandchild_pid, signalled_pids)
+        finally:
+            _force_kill_group(leader_identity.pgid)
+            _force_kill(leader_proc)
+            if grandchild_pid is not None:
+                try:
+                    os.kill(grandchild_pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+
+    @unittest.skipUnless(_IS_POSIX, _POSIX_SKIP_REASON)
+    def test_signal_delivery_process_lookup_error_recorded_not_raised(self):
+        proc, identity = _spawn_inert_isolated()
+        real_kill, real_killpg = os.kill, os.killpg
+
+        def flaky_kill(pid, sig):
+            if sig == 0:
+                return real_kill(pid, sig)  # liveness probe must stay real
+            raise ProcessLookupError()
+
+        def flaky_killpg(pgid, sig):
+            if sig == 0:
+                return real_killpg(pgid, sig)  # liveness probe must stay real
+            raise ProcessLookupError()
+
+        try:
+            attempts: list = []
+            with mock.patch("os.kill", side_effect=flaky_kill), \
+                 mock.patch("os.killpg", side_effect=flaky_killpg):
+                smoke.escalate_signal_to_group(
+                    identity.pgid, identity,
+                    smoke.CleanupTimeouts(sigint_wait_s=0.1, sigterm_wait_s=0.1, sigkill_wait_s=0.1),
+                    attempts, "sandbox",
+                )
+            matches = [
+                a for a in attempts
+                if a.get("authorized") and a.get("error_type") == "ProcessLookupError"
+            ]
+            self.assertTrue(matches, attempts)
+            self.assertTrue(all(a.get("process_already_gone") is True for a in matches))
+        finally:
+            _force_kill_group(identity.pgid)
+            _force_kill(proc)
+
+    @unittest.skipUnless(_IS_POSIX, _POSIX_SKIP_REASON)
+    def test_signal_delivery_permission_error_recorded_not_raised(self):
+        proc, identity = _spawn_inert_isolated()
+        real_kill, real_killpg = os.kill, os.killpg
+
+        def flaky_kill(pid, sig):
+            if sig == 0:
+                return real_kill(pid, sig)
+            raise PermissionError()
+
+        def flaky_killpg(pgid, sig):
+            if sig == 0:
+                return real_killpg(pgid, sig)
+            raise PermissionError()
+
+        try:
+            attempts: list = []
+            with mock.patch("os.kill", side_effect=flaky_kill), \
+                 mock.patch("os.killpg", side_effect=flaky_killpg):
+                smoke.escalate_signal_to_group(
+                    identity.pgid, identity,
+                    smoke.CleanupTimeouts(sigint_wait_s=0.1, sigterm_wait_s=0.1, sigkill_wait_s=0.1),
+                    attempts, "sandbox",
+                )
+            matches = [
+                a for a in attempts
+                if a.get("authorized") and a.get("error_type") == "PermissionError"
+            ]
+            self.assertTrue(matches, attempts)
+            self.assertTrue(all(a.get("process_already_gone") is False for a in matches))
+        finally:
+            _force_kill_group(identity.pgid)
+            _force_kill(proc)
+
+    @unittest.skipUnless(_IS_POSIX, _POSIX_SKIP_REASON)
+    def test_escalation_never_raises_attributeerror_when_identity_flaps(self):
+        """Adversarial: read_process_identity reports the target gone on
+        every other call, simulating a process that may disappear between
+        any two reads. The fixed escalation path must never raise."""
+        proc, identity = _spawn_inert_isolated()
+        try:
+            attempts: list = []
+            call_n = {"n": 0}
+            real_read = smoke.read_process_identity
+
+            def flaky_read(pid):
+                call_n["n"] += 1
+                if call_n["n"] % 2 == 0:
+                    return None
+                return real_read(pid)
+
+            with mock.patch.object(smoke, "read_process_identity", side_effect=flaky_read):
+                try:
+                    smoke.escalate_signal_to_group(
+                        identity.pgid, identity,
+                        smoke.CleanupTimeouts(sigint_wait_s=0.2, sigterm_wait_s=0.2, sigkill_wait_s=0.5),
+                        attempts, "sandbox", reap_callback=proc.poll,
+                    )
+                except AttributeError:
+                    self.fail("escalate_signal_to_group raised AttributeError")
+        finally:
+            _force_kill_group(identity.pgid)
+            _force_kill(proc)
+
+    @unittest.skipUnless(_IS_POSIX, _POSIX_SKIP_REASON)
+    def test_unrelated_sentinel_never_authorized_for_foreign_pgid(self):
+        sentinel = _spawn_inert()
+        other_proc, other_identity = _spawn_inert_isolated()
+        try:
+            sentinel_identity = smoke.read_process_identity(sentinel.pid)
+            self.assertIsNotNone(sentinel_identity)
+            result = smoke._revalidate_identity_for_group_signal(
+                sentinel_identity, other_identity.pgid,
+            )
+            self.assertIsNone(result)
+        finally:
+            _force_kill(sentinel)
+            _force_kill_group(other_identity.pgid)
+            _force_kill(other_proc)
 
 
 # ---------------------------------------------------------------------------

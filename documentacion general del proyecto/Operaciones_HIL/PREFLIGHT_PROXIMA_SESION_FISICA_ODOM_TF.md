@@ -137,4 +137,18 @@ NO-GO:
 - No ejecutar Nav2 fisico ni bringup con control.
 - No ejecutar `stand`, `sit`, `walk`, `damp` ni comandos de locomocion desde este preflight.
 - No publicar `/cmd_vel`.
+
+## Nota 2H.2.4 (2026-06-22)
+
+Desde Fase 2H.2.4 existe un collector offline funcional
+(`tools/hil/physical_read_only/collect_p0_readonly_evidence.py`) que
+automatiza exactamente esta disciplina (lista de topics antes de `hz`,
+nunca `hz`/`echo` sobre un topic no descubierto, comandos read-only con
+timeout, sin shell/eval). Sigue **no autorizado** y **no ejecutado**: su
+ejecución real (`--execute-read-only`) requiere
+`OTTOGUIDE_P0_READ_ONLY_AUTHORIZED=YES`, `--expected-head`, operador,
+hardstop, área despejada y reconocimiento explícito de que no se
+autoriza movimiento -- ver `P0_READ_ONLY_RUNBOOK.md`. Este preflight
+sigue vigente como referencia manual; el collector no lo reemplaza, lo
+automatiza bajo el mismo conjunto de restricciones.
 - No cambiar configuracion persistente de red.

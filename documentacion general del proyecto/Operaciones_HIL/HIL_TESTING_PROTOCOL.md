@@ -4,6 +4,18 @@ Guía de ejecución operacional para despliegue y validación en hardware físic
 
 ---
 
+> **AVISO (Fase 2H.2.4, 2026-06-22): NINGÚN COMANDO FÍSICO DE ESTE DOCUMENTO
+> ES AUTORIZADO POR 2H.2.4.** Este protocolo se conserva íntegro como
+> referencia histórica y futura; 2H.2.4 lo consulta únicamente para
+> restricciones y coherencia documental, y no ejecuta, ni autoriza la
+> ejecución de, ninguno de sus pasos físicos. `P0_PHYSICAL_READ_ONLY`
+> sigue `PREPARED_NOT_AUTHORIZED / NOT_EXECUTED`. `P1`/`P2`/`P3` siguen
+> `NOT_AUTHORIZED`. Ver `MAIN_RUNTIME_NAVIGATION_SELECTION_2H24_P0_PIPELINE_REPORT.md`
+> y `P0_READ_ONLY_RUNBOOK.md` para el estado vigente y la cadena de
+> autorización real.
+
+---
+
 ## Fase -1: Verificacion de Hardware Periferico y Red
 
 ### Objetivo

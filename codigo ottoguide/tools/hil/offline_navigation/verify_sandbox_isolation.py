@@ -1471,6 +1471,18 @@ def check_direct_nav2_action_bridge_smoke_hardening_contract(result: dict, files
 MAIN_RUNTIME_TIMEOUT_CLEANUP_TEST_FILE = (
     CODE_ROOT / "tests" / "unit" / "test_main_runtime_timeout_cleanup.py"
 )
+PARENT_CLI_TIMEOUT_TEST_FILE = CODE_ROOT / "tests" / "unit" / "test_2h24_parent_cli_timeout.py"
+PARENT_CLI_TIMEOUT_DRIVER_FILE = (
+    CODE_ROOT / "tools" / "hil" / "offline_navigation" / "run_2h24_parent_cli_timeout.py"
+)
+
+P0_DIR = CODE_ROOT / "tools" / "hil" / "physical_read_only"
+P0_COLLECTOR_CORE_FILE = P0_DIR / "collect_p0_readonly_evidence.py"
+P0_SCHEMA_FILE = P0_DIR / "p0_evidence_schema.py"
+P0_VALIDATOR_FILE = P0_DIR / "validate_p0_readonly_evidence.py"
+P0_WRAPPER_FILE = P0_DIR / "collect_p0_readonly_evidence.sh"
+P0_CONTRACT_TEST_FILE = CODE_ROOT / "tests" / "unit" / "test_p0_readonly_evidence_contract.py"
+P0_E2E_TEST_FILE = CODE_ROOT / "tests" / "unit" / "test_p0_readonly_pipeline_e2e.py"
 
 
 def check_main_runtime_cleanup_lease_contract(result: dict, files: list[Path]) -> None:
@@ -1544,6 +1556,185 @@ def check_main_runtime_cleanup_lease_contract(result: dict, files: list[Path]) -
         result["errors"].append("MAIN_RUNTIME_CLEANUP_TEST_FILE_MISSING")
 
 
+def check_2h24_toctou_fix_contract(result: dict, files: list[Path]) -> None:
+    """Fase 2H.2.4: the pre-2H.2.4 member re-validation defect was a
+    two-read pattern -- identity_still_valid(member) (one kernel read)
+    *and* read_process_identity(pid).pgid (a second, independent read,
+    unguarded against None) -- in _authorized_targets()'s member fallback
+    path. Detects both that the literal buggy expression never
+    reappears, and that the single-snapshot replacement helper exists and
+    is what _authorized_targets() actually calls.
+    """
+    target = MAIN_RUNTIME_NAVIGATION_SELECTION_SMOKE_TEST_FILE
+    if target not in files or not target.is_file():
+        return
+    text = _read_text(target)
+    try:
+        tree = ast.parse(text, filename=str(target))
+    except SyntaxError:
+        result["errors"].append("TOCTOU_FIX_SYNTAX_ERROR")
+        return
+
+    # AST-level, not substring/regex: the fix's own docstring quotes the old
+    # buggy expression in prose (documenting what it replaced), which a raw
+    # text search would misfire on. Real code matches an ast.Attribute
+    # (attr="pgid") whose value is a Call to read_process_identity(...);
+    # text inside a docstring/string literal never produces such nodes.
+    has_double_read_pattern = any(
+        isinstance(node, ast.Attribute)
+        and node.attr == "pgid"
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "read_process_identity"
+        for node in ast.walk(tree)
+    )
+    if has_double_read_pattern:
+        result["errors"].append("TOCTOU_DOUBLE_READ_PATTERN_PRESENT")
+
+    func_by_name = {
+        node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+    }
+    if "_revalidate_identity_for_group_signal" not in func_by_name:
+        result["errors"].append("TOCTOU_FIX_HELPER_MISSING")
+
+    authorized_targets = func_by_name.get("_authorized_targets")
+    if authorized_targets is None:
+        result["errors"].append("TOCTOU_FIX_AUTHORIZED_TARGETS_MISSING")
+    else:
+        calls_helper = any(
+            isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            and n.func.id == "_revalidate_identity_for_group_signal"
+            for n in ast.walk(authorized_targets)
+        )
+        if not calls_helper:
+            result["errors"].append("TOCTOU_FIX_AUTHORIZED_TARGETS_NOT_USING_HELPER")
+        uses_stale_validator = any(
+            isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            and n.func.id == "identity_still_valid"
+            for n in ast.walk(authorized_targets)
+        )
+        if uses_stale_validator:
+            result["errors"].append("TOCTOU_FIX_AUTHORIZED_TARGETS_STILL_USES_STALE_PATTERN")
+
+    if "OTTOGUIDE_2H24_FAULT_INJECTION" not in text:
+        result["errors"].append("TOCTOU_FIX_NO_FAULT_INJECTION_ENV_GUARD")
+    if "fault_inject_hang_sandbox" not in text:
+        result["errors"].append("TOCTOU_FIX_NO_HIDDEN_FAULT_FLAG")
+    if "help=argparse.SUPPRESS" not in text:
+        result["errors"].append("TOCTOU_FIX_FAULT_FLAG_NOT_HIDDEN")
+
+    if not PARENT_CLI_TIMEOUT_TEST_FILE.is_file():
+        result["errors"].append("PARENT_CLI_TIMEOUT_TEST_FILE_MISSING")
+    if not PARENT_CLI_TIMEOUT_DRIVER_FILE.is_file():
+        result["errors"].append("PARENT_CLI_TIMEOUT_DRIVER_FILE_MISSING")
+
+
+def check_p0_pipeline_functional_contract(result: dict) -> None:
+    """Fase 2H.2.4: the P0 read-only evidence pipeline must be a real,
+    functional collector -> bundle -> manifest -> validator chain, not
+    the 2H.2.3 skeleton (a shell script that only printed/discarded
+    commands, validated against a validator that required only three of
+    the seven files). Static, source-level guards only -- never executes
+    the collector or validator.
+    """
+    if not P0_COLLECTOR_CORE_FILE.is_file():
+        result["errors"].append("P0_COLLECTOR_CORE_MISSING")
+        return
+    if not P0_SCHEMA_FILE.is_file():
+        result["errors"].append("P0_SCHEMA_MODULE_MISSING")
+    if not P0_E2E_TEST_FILE.is_file():
+        result["errors"].append("P0_E2E_TEST_FILE_MISSING")
+    if not P0_CONTRACT_TEST_FILE.is_file():
+        result["errors"].append("P0_CONTRACT_TEST_FILE_MISSING")
+
+    collector_text = _read_text(P0_COLLECTOR_CORE_FILE)
+    try:
+        collector_tree = ast.parse(collector_text, filename=str(P0_COLLECTOR_CORE_FILE))
+    except SyntaxError:
+        result["errors"].append("P0_COLLECTOR_SYNTAX_ERROR")
+        return
+
+    # AST-level, not substring: the collector's own docstring legitimately
+    # discusses "shell=True" as something it does NOT do.
+    for node in ast.walk(collector_tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "system":
+                result["errors"].append("P0_COLLECTOR_USES_SHELL")
+            if isinstance(node.func, ast.Name) and node.func.id == "eval":
+                result["errors"].append("P0_COLLECTOR_USES_EVAL")
+            for kw in node.keywords:
+                if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
+                    result["errors"].append("P0_COLLECTOR_USES_SHELL")
+
+    required_symbols = (
+        ("def build_bundle", "P0_COLLECTOR_NO_BUILD_BUNDLE"),
+        ("def write_bundle", "P0_COLLECTOR_NO_WRITE_BUNDLE"),
+        ("def resolve_mode", "P0_COLLECTOR_NO_MODE_RESOLUTION"),
+        ("MODE_CONFLICT", "P0_COLLECTOR_NO_MODE_CONFLICT_GUARD"),
+        ("FIXTURE_MODE_NOT_AUTHORIZED", "P0_COLLECTOR_NO_FIXTURE_GUARD"),
+        ("P0_NOT_AUTHORIZED", "P0_COLLECTOR_NO_REAL_MODE_GUARD"),
+        ("dry_run", "P0_COLLECTOR_NO_DRY_RUN_MODE"),
+    )
+    for symbol, code in required_symbols:
+        if symbol not in collector_text:
+            result["errors"].append(code)
+
+    forbidden_movement_literals = (
+        "send_goal", "topic\", \"pub", "service\", \"call", "lifecycle\", \"set", "ros2\", \"launch",
+    )
+    for needle in forbidden_movement_literals:
+        if needle in collector_text:
+            result["errors"].append(f"P0_COLLECTOR_FORBIDDEN_MOVEMENT_PRIMITIVE:{needle}")
+
+    if P0_SCHEMA_FILE.is_file():
+        schema_text = _read_text(P0_SCHEMA_FILE)
+        for fname in (
+            "p0_session_meta.json", "p0_ros_graph.json", "p0_tf_and_localization.json",
+            "p0_sensors.json", "p0_cmd_vel_chain.json", "p0_safety_human_checklist.json",
+            "p0_command_log.json", "p0_hash_manifest.json",
+        ):
+            if fname not in schema_text:
+                result["errors"].append(f"P0_SCHEMA_MISSING_FILENAME:{fname}")
+        for symbol, code in (
+            ("MUST_BE_FALSE_FIELDS", "P0_SCHEMA_NO_READONLY_INVARIANTS"),
+            ("SAFETY_REQUIRED_TRUE_FOR_GO", "P0_SCHEMA_NO_HUMAN_SAFETY_GATES"),
+            ("atomic_write_json", "P0_SCHEMA_NO_ATOMIC_WRITE"),
+            ("ensure_safe_output_dir", "P0_SCHEMA_NO_SAFE_DIR_GUARD"),
+        ):
+            if symbol not in schema_text:
+                result["errors"].append(code)
+
+    if not P0_VALIDATOR_FILE.is_file():
+        result["errors"].append("P0_VALIDATOR_MISSING")
+    else:
+        validator_text = _read_text(P0_VALIDATOR_FILE)
+        for symbol, code in (
+            ("expected_head", "P0_VALIDATOR_NO_EXPECTED_HEAD_PARAM"),
+            ("SAFETY_REQUIRED_TRUE_FOR_GO", "P0_VALIDATOR_NO_HUMAN_SAFETY_GATE"),
+            ("DECISION_FIXTURE_ONLY", "P0_VALIDATOR_NO_FIXTURE_ONLY_DECISION"),
+            ("DECISION_GO_CANDIDATE", "P0_VALIDATOR_NO_GO_CANDIDATE_DECISION"),
+            ("bundle_integrity", "P0_VALIDATOR_NO_INTEGRITY_LAYER"),
+            ("read_only_invariants", "P0_VALIDATOR_NO_READONLY_LAYER"),
+            ("p0_field_decision", "P0_VALIDATOR_NO_FIELD_DECISION_LAYER"),
+        ):
+            if symbol not in validator_text:
+                result["errors"].append(code)
+        # A fixture bundle must never be able to reach GO_CANDIDATE: the
+        # decision computation must gate DECISION_GO_CANDIDATE behind a
+        # check that fixture_mode is falsy.
+        if "fixture_mode" not in validator_text:
+            result["errors"].append("P0_VALIDATOR_NO_FIXTURE_MODE_CHECK")
+
+    if not P0_WRAPPER_FILE.is_file():
+        result["errors"].append("P0_WRAPPER_MISSING")
+    else:
+        wrapper_text = _read_text(P0_WRAPPER_FILE)
+        if "exec " not in wrapper_text:
+            result["errors"].append("P0_WRAPPER_NOT_EXEC_BASED")
+        if "--execute-read-only)" in wrapper_text or "--dry-run)" in wrapper_text:
+            result["errors"].append("P0_WRAPPER_BRANCHES_ON_FLAGS")
+
+
 def verify(runtime: bool = False) -> dict:
     result = {
         "ok": True,
@@ -1580,6 +1771,8 @@ def verify(runtime: bool = False) -> dict:
     check_main_runtime_navigation_selection_contract(result)
     check_readiness_fail_closed_missing_status_contract(result)
     check_test_central_classes_no_broad_skip(result)
+    check_2h24_toctou_fix_contract(result, files_to_scan)
+    check_p0_pipeline_functional_contract(result)
 
     result["checked_files"] = sorted(set(result["checked_files"]) | {str(p) for p in files_to_scan if p.is_file()})
     result["errors"] = sorted(set(result["errors"]))

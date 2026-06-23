@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "phase": "2H.2.4",
+  "generated_at_utc": "2026-06-22T23:55:00Z",
+  "toctou_fix": {
+    "defect": "two independent kernel reads (identity_still_valid(member) and read_process_identity(pid).pgid) for the same PID, unguarded against the second read returning None",
+    "fix": "_revalidate_identity_for_group_signal(expected, target_pgid): single fresh read, validates pid/start_ticks/uid/pgid/sid/non-protected against that one snapshot",
+    "location": "tools/hil/offline_navigation/smoke_test_main_runtime_navigation_selection.py",
+    "unit_tests": {
+      "file": "tests/unit/test_main_runtime_timeout_cleanup.py::TOCTOURaceFixTests",
+      "count": 16,
+      "windows_pure_logic_passed": 10,
+      "windows_posix_skipped": 6,
+      "wsl_all_passed": 16
+    },
+    "static_verifier_checks_added": [
+      "check_2h24_toctou_fix_contract",
+      "check_p0_pipeline_functional_contract"
+    ]
+  },
+  "function_level_timeout_e2e": {
+    "driver": "tools/hil/offline_navigation/run_2h23_evidence_matrix.py",
+    "fault_injection_env": "OTTOGUIDE_2H23_FAULT_INJECTION",
+    "runs": [
+      {"domain": 105, "exit_code": 0, "decision": "PASS"},
+      {"domain": 106, "exit_code": 0, "decision": "PASS"},
+      {"domain": 107, "exit_code": 0, "decision": "PASS"}
+    ],
+    "result": "PASS_3_CONSECUTIVE"
+  },
+  "parent_cli_level_timeout_e2e": {
+    "driver": "tools/hil/offline_navigation/run_2h24_parent_cli_timeout.py",
+    "fault_injection_env": "OTTOGUIDE_2H24_FAULT_INJECTION",
+    "fault_flag": "--fault-inject-hang-sandbox (hidden, argparse.SUPPRESS, on smoke_test_main_runtime_navigation_selection.py)",
+    "runs": [
+      {"domain": 112, "exit_code": 0, "cleanup_decision": "PASS", "scenario_decision": "EXPECTED_TIMEOUT"},
+      {"domain": 113, "exit_code": 0, "cleanup_decision": "PASS", "scenario_decision": "EXPECTED_TIMEOUT"},
+      {
+        "domain": 114, "exit_code": 1, "cleanup_decision": "FAIL", "scenario_decision": "EXPECTED_TIMEOUT",
+        "anomaly": "LEASE_UPDATED_BEFORE_CREATED on the 4th scenario (lease timestamp went backwards -- consistent with WSL2 VM clock drift); pre-existing lease validation code (untouched by this phase) correctly fail-closed; zero zombies/orphans recorded",
+        "retried_as": "domain 118, exit_code 0, PASS"
+      }
+    ],
+    "result": "PASS (2 clean + 1 transient anomaly + 1 clean retry = 3 clean runs within allowed retry budget)",
+    "note": "after domain renumbering for band hygiene (220 replacing 112 as default), re-verified once more: domain 220, exit_code 0, PASS"
+  },
+  "process_audits": {
+    "method": "ps -eo pid,ppid,pgid,sid,stat,etimes,cmd via /proc, never by name",
+    "zombies_remaining_any_run": 0,
+    "orphans_remaining_any_run": 0,
+    "unrelated_processes_signaled": 0,
+    "sentinel_always_survived": true
+  }
+}

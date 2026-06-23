@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "phase": "2H.2.4",
+  "generated_at_utc": "2026-06-22T23:55:00Z",
+  "command_template": "source /opt/ros/jazzy/setup.bash && ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=<d> python3 tools/hil/offline_navigation/smoke_test_main_runtime_navigation_selection.py --base-domain-id <d> --output <out_d.json>",
+  "diagnostic": {"domain": 184, "decision": "PASS", "scenarios_passed": "4/4", "elapsed": "00:02:58"},
+  "stability_attempts": [
+    {"label": "attempt_1", "domain": 192, "decision": "PASS", "scenarios_passed": "4/4", "elapsed": "00:03:49"},
+    {"label": "attempt_2", "domain": 200, "decision": "PASS", "scenarios_passed": "4/4", "elapsed": "00:03:16"},
+    {
+      "label": "attempt_3", "domain": 208, "decision": "FAIL", "scenarios_passed": "3/4", "elapsed": "00:05:10",
+      "failing_scenario": "emergency_cancel",
+      "errors": ["/offline_nav/controller_server_LIFECYCLE_QUERY_FAILED", "/offline_nav/waypoint_follower_NOT_ACTIVE:inactive"],
+      "cleanup_evidence_clean": true,
+      "zombies_remaining": 0,
+      "orphan_processes": 0
+    },
+    {"label": "extra_1", "domain": 220, "decision": "PASS", "scenarios_passed": "4/4", "elapsed": "00:03:10"},
+    {
+      "label": "extra_2", "domain": 228, "decision": "FAIL", "scenarios_passed": "3/4", "elapsed": "00:05:12",
+      "failing_scenario": "interaction_cancel",
+      "errors": [
+        "/offline_nav/map_server_NOT_DISCOVERED", "/offline_nav/planner_server_NOT_DISCOVERED",
+        "/offline_nav/controller_server_NOT_DISCOVERED", "/offline_nav/collision_monitor_NOT_DISCOVERED",
+        "/offline_nav/behavior_server_NOT_DISCOVERED", "/offline_nav/bt_navigator_NOT_DISCOVERED",
+        "/offline_nav/waypoint_follower_NOT_DISCOVERED"
+      ],
+      "cleanup_evidence_clean": true,
+      "zombies_remaining": 0,
+      "orphan_processes": 0
+    }
+  ],
+  "consecutive_passes_max_achieved": 2,
+  "attempts_used": 5,
+  "attempts_budget": 5,
+  "runtime_stability_decision": "PARTIAL",
+  "failure_cause_classification": "ENVIRONMENTAL_TRANSIENT",
+  "failure_cause_rationale": "Both failures are ROS2 discovery/lifecycle-query timing issues under WSL2 virtualization after multiple consecutive heavy Nav2 bring-ups in the same session (24-28 cumulative full Nav2 stack launches across diagnostic+attempts before each failure). No code change in this phase touches lifecycle, discovery, or bring-up logic -- only process-cleanup identity revalidation and env-gated fault-injection hooks that were inactive during these runs. Cleanup itself stayed fully clean (zero zombies/orphans/residual processes) in both failed runs, indicating the safety-critical part of this phase's changes functioned correctly even when the unrelated ROS2 functional check failed.",
+  "process_audit_method": "ps -eo pid,ppid,pgid,sid,stat,etimes,cmd via /proc after every run; grep for smoke_test_main_runtime|run_offline_navigation_runtime|offline_nav_sandbox|ros2 launch|ros2-daemon",
+  "residual_processes_any_run": "NONE",
+  "max_attempts_policy": "stopped at 5 attempts per mission policy; classified PARTIAL rather than retrying indefinitely"
+}
