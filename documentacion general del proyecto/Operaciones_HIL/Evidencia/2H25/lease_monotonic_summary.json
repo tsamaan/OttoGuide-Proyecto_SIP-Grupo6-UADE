@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "phase": "2H.2.5",
+  "lease_schema_version": 2,
+  "generated_at_utc": "2026-06-23T11:50:56Z",
+  "design": {
+    "monotonic_fields": ["created_monotonic_ns", "updated_monotonic_ns"],
+    "wallclock_fields": ["created_at_ns", "updated_at_ns"],
+    "wallclock_role": "audit_only_never_consulted_for_authorization",
+    "monotonic_clock_helper": "_lease_monotonic_ns() (module-level, test-monkeypatchable)",
+    "regression_guard": "update_child_identity/update_sandbox_identity raise LEASE_MONOTONIC_REGRESSION if new_mono < created_mono or new_mono < prev_updated_mono"
+  },
+  "unit_tests": {
+    "class": "MonotonicLeaseTests",
+    "file": "tests/unit/test_main_runtime_timeout_cleanup.py",
+    "passed": 8,
+    "total": 8,
+    "platform": "Windows (pure logic, no filesystem dependency)",
+    "scenarios_covered": [
+      "test_valid_monotonic_lease_produces_no_monotonic_errors",
+      "test_missing_monotonic_fields_yield_malformed",
+      "test_non_int_monotonic_fields_yield_malformed",
+      "test_monotonic_updated_before_created_rejected",
+      "test_monotonic_created_in_future_rejected",
+      "test_expired_lease_detected_via_monotonic",
+      "test_wallclock_rollback_with_valid_monotonic_does_not_trigger_monotonic_error",
+      "test_wallclock_future_jump_does_not_falsely_expire_lease"
+    ],
+    "schema_v1_rejection": {
+      "covered_by": "pre-existing tests at test_main_runtime_timeout_cleanup.py:287 and :1158 (LEASE_SCHEMA_MISMATCH assertion)",
+      "result": "PASS"
+    }
+  },
+  "parent_cli_timeout_runs": {
+    "platform": "WSL2 (Ubuntu 24.04.4 LTS)",
+    "driver": "tools/hil/offline_navigation/run_2h24_parent_cli_timeout.py",
+    "run_1": {"domain_id": "221", "cleanup_decision": "PASS", "scenario_decision": "EXPECTED_TIMEOUT", "lease_validation": "PASS", "child_reaped": true, "child_group_alive_after": false, "sandbox_group_alive_after": false, "sentinel_signaled": false, "sentinel_reaped": true, "zombies": 0, "orphans": 0},
+    "run_2": {"domain_id": "225", "cleanup_decision": "PASS", "scenario_decision": "EXPECTED_TIMEOUT", "lease_validation": "PASS", "child_reaped": true, "sandbox_group_alive_after": false, "sentinel_signaled": false, "sentinel_reaped": true, "zombies": 0, "orphans": 0},
+    "run_3": {"domain_id": "229", "cleanup_decision": "PASS", "scenario_decision": "EXPECTED_TIMEOUT", "lease_validation": "PASS", "child_reaped": true, "sandbox_group_alive_after": false, "sentinel_signaled": false, "sentinel_reaped": true, "zombies": 0, "orphans": 0}
+  },
+  "temporal_anomalies": "NONE_OBSERVED",
+  "result": "MONOTONIC_VALIDATED"
+}

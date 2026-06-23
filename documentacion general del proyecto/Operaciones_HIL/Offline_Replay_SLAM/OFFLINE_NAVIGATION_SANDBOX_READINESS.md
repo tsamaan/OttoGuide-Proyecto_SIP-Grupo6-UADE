@@ -51,6 +51,43 @@
 > Ver
 > `../../Arquitectura/MAIN_RUNTIME_NAVIGATION_SELECTION_2H24_P0_PIPELINE_REPORT.md`.
 
+> ## 🔄 ACTUALIZACIÓN 2H.2.5 (2026-06-23)
+>
+> Estado vigente tras Fase 2H.2.5 (lease timebase monotónica + P0
+> Decision Engine v2):
+>
+> ```text
+> MAIN_RUNTIME_BRIDGE_SELECTION =
+>   READY_OFFLINE_EVIDENCE_CORRECTED_PENDING_INDEPENDENT_AUDIT
+> LEASE_TIMEBASE = MONOTONIC_VALIDATED
+> P0_PIPELINE = HARDENED_OFFLINE_PENDING_INDEPENDENT_AUDIT
+> P0_PHYSICAL_READ_ONLY = PREPARED_NOT_AUTHORIZED / NOT_EXECUTED
+> PHYSICAL_NAVIGATION = NOT_READY   (sin cambios)
+> PHYSICAL_MOVEMENT   = NOT_AUTHORIZED
+> ```
+>
+> Evidencia 2H.2.5: la cleanup lease migró a timebase monotónico puro
+> (`LEASE_SCHEMA_VERSION=2`; el reloj de pared queda como evidencia de
+> auditoría, nunca consultado para autorización), validada por 8/8
+> tests deterministas y 3/3 corridas reales del parent CLI timeout
+> (WSL, dominios 221/225/229, sin anomalías temporales, cero zombies).
+> El P0 Decision Engine pasó a `SCHEMA_VERSION=2`: cuarta capa de
+> decisión `collection_completeness`, gates humanos explícitos sin
+> inferencia ni defaults (`robot_physically_supervised`,
+> `dual_control_prohibited_acknowledged`, `operator_role`,
+> `hardstop_type`, `hardstop_tested_before_session`), política de
+> untracked por regex exacto, directorio de salida que no debe
+> preexistir, sidecar de manifest escrito atómicamente. La
+> caracterización de inestabilidad runtime de 2H.2.4 (`PARTIAL`, 2/5
+> fallos de discovery/lifecycle) **no pudo reproducirse** en esta sesión
+> de recuperación: el entorno WSL usado en 2H.2.4 tenía ROS2 Jazzy
+> instalado; la instancia WSL disponible para esta sesión no tiene
+> ningún ROS2 instalado y no se instaló ninguno (prohibido por las
+> restricciones de la tarea). Clasificación honesta:
+> `NOT_REPRODUCED_IN_2H25` (no se reafirma `ENVIRONMENTAL_TRANSIENT`).
+> Ver
+> `../../Arquitectura/MAIN_RUNTIME_NAVIGATION_SELECTION_2H25_HARDENING_REPORT.md`.
+
 Este documento separa el estado de readiness del sandbox en niveles independientes. Ningún nivel implica automáticamente el siguiente.
 
 ## Niveles de readiness

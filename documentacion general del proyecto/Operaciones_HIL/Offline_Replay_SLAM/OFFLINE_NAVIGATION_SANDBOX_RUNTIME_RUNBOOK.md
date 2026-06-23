@@ -450,3 +450,71 @@ excluyentes (`--dry-run` por defecto, `--execute-read-only` triple-gateado,
 `--fixture-dir` gateado por `OTTOGUIDE_P0_FIXTURE_MODE=YES`, nunca
 ejecutado contra el robot en esta fase). Ver
 `P0_READ_ONLY_RUNBOOK.md` y `P0_READ_ONLY_EVIDENCE_SCHEMA.md`.
+
+## Apéndice 2H.2.5 — Lease monotónica, P0 v2 y bloqueo de runtime characterization (2026-06-23)
+
+### Lease timebase monotónica
+
+`LEASE_SCHEMA_VERSION = 2`. `created_monotonic_ns`/`updated_monotonic_ns`
+(vía `_lease_monotonic_ns()`, monkeypatchable en tests) son la única
+autoridad para orden, vigencia y expiración; `created_at_ns`/
+`updated_at_ns` (reloj de pared) quedan como evidencia de auditoría,
+nunca consultados para autorización. `validate_lease_immutable_fields`
+rechaza con `LEASE_SCHEMA_MISMATCH` cualquier lease con
+`schema_version != 2`. 8/8 `MonotonicLeaseTests` PASS en Windows; 3/3
+corridas reales del parent CLI timeout en WSL (dominios 221/225/229,
+sin anomalías temporales, cero zombies/huérfanos).
+
+### P0 Decision Engine v2
+
+`SCHEMA_VERSION = 2`, `COLLECTOR_VERSION = "2H.2.5"`. Cuarta capa de
+decisión `collection_completeness` (comandos estrictos deben tener
+`exit_code=0`/`timed_out=false`; comandos acotados aceptan timeout solo
+con evidencia parseable). Gates humanos sin inferencia ni default:
+`robot_physically_supervised`, `dual_control_prohibited_acknowledged`,
+`operator_role`, `hardstop_type`, `hardstop_tested_before_session` deben
+declararse explícitamente vía CLI; un `hardstop_tested_before_session`
+desconocido ya no es solo advertencia, es `NO_GO`. Política de
+untracked por regex exacto (no prefijo). `--output-dir` no debe
+preexistir. Sidecar del manifest escrito atómicamente. Ver
+`P0_READ_ONLY_RUNBOOK.md` y `P0_READ_ONLY_EVIDENCE_SCHEMA.md` para el
+detalle completo.
+
+### Bloqueo de runtime characterization en esta sesión de recuperación
+
+El Apéndice 2H.2.4 (arriba) documenta `RUNTIME_STABILITY = PARTIAL`
+sobre el comando:
+
+```bash
+source /opt/ros/jazzy/setup.bash && ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=<d> \
+  python3 tools/hil/offline_navigation/smoke_test_main_runtime_navigation_selection.py \
+  --base-domain-id <d> --output <out_d.json>
+```
+
+Esta sesión de recuperación (2H.2.5) intentó repetir esta
+caracterización para intentar elevar la clasificación de causa más allá
+de `ENVIRONMENTAL_TRANSIENT` (clasificación ya no admitida como causa
+probada bajo los criterios de 2H.2.5). **No fue posible**: la instancia
+WSL disponible en esta sesión (Ubuntu 24.04.4 LTS) no tiene ningún
+directorio `/opt/ros`, ningún `ros2` en `PATH`, ni `pytest`/
+`pytest_asyncio` instalados fuera del entorno Windows del proyecto.
+Instalar ROS2 (`apt`/`rosdep`) o pytest (`pip install`) está
+explícitamente prohibido por las restricciones de seguridad de la
+tarea de recuperación. En su lugar se realizó:
+
+1. una auditoría estática de `wait_for_components_deterministic()`
+   (líneas 904-948 de `smoke_test_main_runtime_navigation_selection.py`):
+   confirma un deadline compartido consumido secuencialmente entre
+   `_node_list()` y, por cada componente descubierto en orden fijo de
+   tupla, `_lifecycle_get()` -- consistente con, pero no demostrativo
+   de, el patrón de fallos observado en 2H.2.4 (`controller_server`
+   en 3ra posición con `LIFECYCLE_QUERY_FAILED`, `waypoint_follower`
+   en última posición con `NOT_ACTIVE`);
+2. ejecución de las 3 corridas reales del parent CLI timeout (que no
+   requieren ROS2, solo `/proc`/`setsid`/`killpg`), todas limpias.
+
+Clasificación honesta para esta sesión: `NOT_REPRODUCED_IN_2H25`. Ver
+`runtime_characterization_summary.json` en
+`Operaciones_HIL/Evidencia/2H25/` para el detalle completo, incluida la
+verificación explícita de la ausencia de `/opt/ros` y de
+`pytest_asyncio` en este entorno.

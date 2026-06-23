@@ -1,0 +1,27 @@
+{
+  "files": [
+    {
+      "filename": "test_summary.json",
+      "sha256": "54954b820de599a18b03b5ca33eb8d455c3e32a340fc9cad4559785096c15b7d",
+      "size_bytes": 5778
+    },
+    {
+      "filename": "lease_monotonic_summary.json",
+      "sha256": "d19f2b451285dc51f93b602ee33526b78e66567cb0ee88544679999746320f64",
+      "size_bytes": 2609
+    },
+    {
+      "filename": "p0_hardening_summary.json",
+      "sha256": "7164005b30dc2d7628f83fe4b5c39a00cacbbc862a37a6771359eff3798864e1",
+      "size_bytes": 7407
+    },
+    {
+      "filename": "runtime_characterization_summary.json",
+      "sha256": "db3c3387b3638be42a603ddd5a2afaadde5ecbebb190933082803a2197af042a",
+      "size_bytes": 6793
+    }
+  ],
+  "generated_at_utc": "2026-06-23T11:50:56Z",
+  "phase": "2H.2.5",
+  "schema_version": 1
+}

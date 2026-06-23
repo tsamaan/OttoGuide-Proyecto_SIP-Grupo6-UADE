@@ -40,6 +40,7 @@ Fase 2H.2.1                   = completada (hardening fail-closed, tests, guards
 Fase 2H.2.2                   = implementada; evidencia incompleta, corregida por 2H.2.3 (ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H22_HARDENING_REPORT.md)
 Fase 2H.2.3                   = PARTIAL_SUPERSEDED_BY_2H24 (timeout hardening válido; pipeline P0 era skeleton no funcional end-to-end — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H23_EVIDENCE_CORRECTION_REPORT.md)
 Fase 2H.2.4                   = IMPLEMENTED_PENDING_INDEPENDENT_AUDIT (TOCTOU de cleanup corregido, pipeline P0 funcional offline end-to-end, runtime declarado PARTIAL — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H24_P0_PIPELINE_REPORT.md)
+Fase 2H.2.5                   = IMPLEMENTED_LOCALLY_PENDING_PUSH_AND_INDEPENDENT_AUDIT (lease timebase migrada a monotónico puro, P0 Decision Engine v2 con cuarta capa collection_completeness, runtime instability CHARACTERIZED_ROOT_CAUSE_NOT_PROVEN — ver MAIN_RUNTIME_NAVIGATION_SELECTION_2H25_HARDENING_REPORT.md)
 P0_PHYSICAL_READ_ONLY         = PREPARED_NOT_AUTHORIZED / NOT_EXECUTED (tools/hil/physical_read_only/)
 P1_P2_P3                      = NOT_AUTHORIZED
 L2_ODOMETRY                   = NOT_READY
@@ -63,6 +64,20 @@ RAMA_OPERATIVA_VALIDADA       = robot
 > `PARTIAL` (2 de 5 corridas con fallos de discovery/lifecycle-query no
 > atribuibles a cambios de código, cleanup limpio en ambas). Ver el
 > reporte 2H.2.4 para el detalle completo.
+>
+> **Nota 2H.2.5 (2026-06-23)**: la lease de cleanup migró a timebase
+> monotónico puro (`LEASE_SCHEMA_VERSION=2`); el reloj de pared queda
+> como evidencia de auditoría, nunca consultado para autorización. El
+> P0 Decision Engine pasó a `SCHEMA_VERSION=2` con una cuarta capa
+> (`collection_completeness`) y gates humanos explícitos sin inferencia
+> ni defaults. La caracterización de inestabilidad runtime de 2H.2.4 no
+> pudo reproducirse en esta sesión: el entorno WSL usado en 2H.2.4 tenía
+> `ROS2 Jazzy` instalado en `/opt/ros/jazzy` (ver
+> `Evidencia/2H24/runtime_summary.json`); la instancia WSL disponible en
+> esta sesión de recuperación no tiene ningún ROS2 instalado. La
+> clasificación se mantiene honesta como `NOT_REPRODUCED_IN_2H25`, sin
+> reafirmar `ENVIRONMENTAL_TRANSIENT` (clasificación ya no admitida como
+> causa probada). Ver el reporte 2H.2.5 para el detalle completo.
 
 Toda la evidencia de `DirectNav2ActionBridge` recolectada hasta la Fase
 2H.1.5 es exclusivamente contra `offline_runtime_simulator.py` (odometría

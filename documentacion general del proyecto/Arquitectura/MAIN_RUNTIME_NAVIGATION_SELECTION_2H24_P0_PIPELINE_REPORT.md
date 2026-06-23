@@ -258,8 +258,24 @@ extra_2      (domain 228) = FAIL 3/4 (interaction_cancel: 7/7 componentes
                             NOT_DISCOVERED; cleanup_evidence limpio)
 consecutive_passes_max = 2
 RUNTIME_STABILITY = PARTIAL
-failure_cause_classification = ENVIRONMENTAL_TRANSIENT
+failure_cause_classification = OBSERVED_ROOT_CAUSE_NOT_PROVEN
 ```
+
+> **Corrección 2H.2.5 (2026-06-23)**: este reporte originalmente
+> clasificaba la causa de fallo como `ENVIRONMENTAL_TRANSIENT`. Esa
+> etiqueta describe un síntoma observado (degradación bajo WSL2 tras
+> bring-ups consecutivos), no una causa demostrada — ningún test
+> determinista reprodujo el defecto ni aisló su mecanismo. La
+> recuperación de Fase 2H.2.5 corrige la clasificación a
+> `OBSERVED_ROOT_CAUSE_NOT_PROVEN` y documenta explícitamente que un
+> cleanup limpio (cero zombies/huérfanos) **no** demuestra la causa del
+> fallo funcional de discovery/lifecycle-query — solo demuestra que la
+> parte de seguridad del cleanup funcionó correctamente incluso cuando
+> la comprobación funcional de ROS2 falló. Ver
+> `MAIN_RUNTIME_NAVIGATION_SELECTION_2H25_HARDENING_REPORT.md` para el
+> intento de re-caracterización (bloqueado por ausencia de entorno
+> ROS2 en la sesión de recuperación) y la auditoría estática del
+> algoritmo de discovery/lifecycle.
 
 Ningún cambio de esta fase toca lifecycle, discovery o bring-up de
 Nav2/ROS2 (los cambios de código se limitan a la revalidación de
@@ -267,11 +283,11 @@ identidad de procesos para señalización de cleanup, y a hooks de fault
 injection que nunca se activan sin la variable de entorno explícita).
 En ambos fallos, `cleanup_evidence` permaneció limpio (`group_alive_after
 = false`, `owned_members_remaining = []`, sin zombies ni huérfanos en la
-auditoría de `/proc` posterior), lo que indica que la falla fue de
-discovery/lifecycle-query de ROS 2 bajo la virtualización de WSL2 tras
-múltiples bring-ups consecutivos de Nav2 en la misma sesión, no una
-regresión de este cambio. No se reintentó más allá de los 5 intentos
-oficiales (192/200/208/220/228), consistente con la política de
+auditoría de `/proc` posterior). Esto demuestra que el cleanup en sí
+funcionó correctamente en ambos casos, pero **no identifica ni demuestra
+la causa** del fallo funcional de discovery/lifecycle-query de ROS 2 —
+ver la corrección 2H.2.5 arriba. No se reintentó más allá de los 5
+intentos oficiales (192/200/208/220/228), consistente con la política de
 resultado parcial.
 
 ### 7.2 Auditoría de procesos

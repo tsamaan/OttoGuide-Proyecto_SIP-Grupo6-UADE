@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "phase": "2H.2.5",
+  "generated_at_utc": "2026-06-23T11:50:56Z",
+  "historical_2H24_observation": {
+    "diagnostic": "PASS 4/4",
+    "attempt_1": "PASS 4/4",
+    "attempt_2": "PASS 4/4",
+    "attempt_3": "FAIL 3/4 (controller_server LIFECYCLE_QUERY_FAILED, waypoint_follower NOT_ACTIVE)",
+    "extra_1": "PASS 4/4",
+    "extra_2": "FAIL 3/4 (7/7 components NOT_DISCOVERED)",
+    "maximum_consecutive_passes": 2,
+    "previously_recorded_classification": "ENVIRONMENTAL_TRANSIENT (2H.2.4 report) -- not an acceptable proven classification under 2H.2.5 criteria; downgraded below to OBSERVED_ROOT_CAUSE_NOT_PROVEN",
+    "cleanup_was_clean_in_both_failures": true
+  },
+  "environment_availability_check": {
+    "wsl_distro": "Ubuntu 24.04.4 LTS (WSL2), hostname LucasFlex14",
+    "ros_install_present": false,
+    "evidence": "/opt/ros does not exist; `find / -iname jazzy -o -iname foxy` returns nothing; `which ros2` empty; no docker available in this WSL distro",
+    "contrast_with_2h24_evidence": "documentacion general del proyecto/Operaciones_HIL/Evidencia/2H24/runtime_summary.json records command_template using 'source /opt/ros/jazzy/setup.bash', proving a ROS2 Jazzy installation was present in the WSL environment used for that prior phase (2026-06-22T23:55:00Z). That installation is absent from the WSL instance available in this session.",
+    "pytest_asyncio_present": false,
+    "evidence_pytest": "python3 -c 'import pytest_asyncio' -> ModuleNotFoundError (system python3, no project WSL venv exists)",
+    "conclusion": "The runtime environment required to launch real Nav2/ROS2 smoke-test scenarios is not available in this session. Installing ROS2 (apt/rosdep) or pytest/pytest-asyncio (pip install) is explicitly prohibited by this task's security constraints (Section 5)."
+  },
+  "instrumentation_implemented_this_session": false,
+  "instrumentation_rationale": "Per Section 12, runtime characterization must be backed by real, reproducible execution evidence -- instrumentation fields (process_spawn_monotonic_ns, lifecycle_query_attempts, etc.) were not added to smoke_test_main_runtime_navigation_selection.py in this session because there is no ROS2 environment available to exercise and verify them. Adding unverified instrumentation code would itself be unverified work (contrary to this task's verification-first mandate) and risks producing dead code that silently bit-rots. The existing code at wait_for_components_deterministic() (smoke_test_main_runtime_navigation_selection.py:904-948) was inspected statically instead.",
+  "static_algorithm_audit": {
+    "function": "wait_for_components_deterministic",
+    "location": "tools/hil/offline_navigation/smoke_test_main_runtime_navigation_selection.py:904-948",
+    "observed_pattern": "Single shared `deadline` (time.monotonic()-based) across all REQUIRED_COMPONENTS. Each outer while-loop iteration calls `_node_list()` once (bounded by `remaining` time), then iterates REQUIRED_COMPONENTS in a fixed tuple order (map_server, planner_server, controller_server, collision_monitor, behavior_server, bt_navigator, waypoint_follower), and for each discovered component calls `_lifecycle_get()` sequentially, each call consuming a slice of the *same* shared deadline (`remaining2 = deadline - time.monotonic()`).",
+    "consistency_with_2H24_failure_signatures": "In 2H.2.4 attempt_3, controller_server (3rd in REQUIRED_COMPONENTS order) failed with LIFECYCLE_QUERY_FAILED and waypoint_follower (7th/last) failed with NOT_ACTIVE -- both consistent with a component late in iteration order being starved of remaining deadline budget by earlier sequential lifecycle queries in the same pass. In extra_2, all 7 components were NOT_DISCOVERED, consistent with `_node_list()` itself timing out or returning incomplete results under heavy concurrent ROS2 daemon load (24-28 cumulative Nav2 bring-ups across the session), not specifically an ordering defect.",
+    "candidate_defects_visible_in_source": [
+      "shared deadline consumed sequentially across components within one discovery pass (visible at line 933: `lifecycle_timeout = min(5.0, max(0.5, remaining2))`)",
+      "discovery (_node_list) and lifecycle query (_lifecycle_get) are interleaved per-component rather than batched, so a slow lifecycle_get for component N reduces the time budget available to query component N+1's lifecycle state in the same pass (though the outer while loop does retry on the next 1.0s-sleep iteration, so this is mitigated across iterations, not within one)"
+    ],
+    "not_assessed_due_to_missing_environment": [
+      "domain collision (cannot be tested without launching two concurrent ROS2 graphs)",
+      "cross-run contamination (requires real ros2 daemon state)",
+      "retry sufficiency (requires observing actual discovery latency distribution under real Nav2 bring-up)"
+    ]
+  },
+  "instrumentation": "NOT_IMPLEMENTED_THIS_SESSION_ENVIRONMENT_UNAVAILABLE",
+  "runs": {
+    "diagnostic_planned": 1,
+    "diagnostic_executed": 0,
+    "characterization_planned": 3,
+    "characterization_executed": 0,
+    "total_smokes_executed": 0,
+    "reason_not_executed": "No ROS2 distro available in the WSL instance accessible this session (see environment_availability_check above)"
+  },
+  "domains_used": "NONE (no runs executed)",
+  "failures": "NOT_REPRODUCIBLE_THIS_SESSION",
+  "root_cause_classification": "NOT_REPRODUCED_IN_2H25",
+  "root_cause_classification_rationale": "The 2H.2.4 instability could not be re-exercised because the ROS2 environment it depended on (WSL + ROS2 Jazzy at /opt/ros/jazzy) is not present in this session and installing it is prohibited. The static source-code audit above is consistent with, but does not prove, a shared-deadline/sequential-query defect; per Section 12 this must not be escalated to a PROVEN_* classification without a failing, reproducible test. The historical ENVIRONMENTAL_TRANSIENT classification recorded in the 2H.2.4 report is explicitly disallowed as a proven-cause label under 2H.2.5 criteria and is downgraded to OBSERVED_ROOT_CAUSE_NOT_PROVEN as a description of the historical record only -- it is NOT re-asserted as this session's finding, which is the stricter NOT_REPRODUCED_IN_2H25.",
+  "runtime_stability": "PARTIAL_CHARACTERIZED",
+  "process_residues": "NOT_APPLICABLE_NO_RUNS_EXECUTED",
+  "fix_applied": false,
+  "fix_rationale": "No fix was applied. Per Section 12 a defect may only be corrected if (1) it can be reproduced deterministically, (2) a failing test exists first, (3) the correction is confined to the harness, (4) no assertions are relaxed to obtain green. Condition (1) and (2) cannot be satisfied without a ROS2 environment, so no correction was attempted.",
+  "result": "CHARACTERIZED_ROOT_CAUSE_NOT_PROVEN"
+}
