@@ -365,5 +365,79 @@ class TestWaitForComponentsCounterAccuracy(unittest.TestCase):
         self.assertEqual(tel["lifecycle_query_count"], 3)
 
 
+class TestLifecycleStarvationUnderSlowEarlyProbe(unittest.TestCase):
+    """/early is DISCOVERED in node_list but its lifecycle probe raises
+    TimeoutExpired.  /late must still be probed in the same iteration.
+    Distinct from TestWaitForComponentsAntiStarvation: /early is present in the
+    node list here (absence of /early is not the condition under test)."""
+
+    def test_slow_early_lifecycle_does_not_starve_late_component(self):
+        fqns = ["/early", "/late"]
+        lifecycle_calls: list = []
+        iter_n = {"node_list": 0}
+
+        def fake_run(cmd, **kw):
+            if len(cmd) >= 3 and cmd[1] == "node" and cmd[2] == "list":
+                iter_n["node_list"] += 1
+                return _cp(stdout="/early\n/late\n")
+            if len(cmd) >= 3 and cmd[1] == "lifecycle" and cmd[2] == "get":
+                fqn = cmd[-1]
+                lifecycle_calls.append((iter_n["node_list"], fqn))
+                if fqn == "/early":
+                    raise subprocess.TimeoutExpired(cmd, kw.get("timeout", 1.0))
+                return _cp(stdout="active\n")
+            return _cp(returncode=1)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("time.sleep"):
+            ok, status = wait_for_components(fqns, {}, time.monotonic() + 30.0)
+
+        late_queried_in_iter1 = any(
+            it == 1 and fqn == "/late" for (it, fqn) in lifecycle_calls
+        )
+        self.assertTrue(
+            late_queried_in_iter1,
+            f"/late not queried in iter 1 despite only /early timing out; "
+            f"lifecycle_calls={lifecycle_calls}",
+        )
+        self.assertEqual(
+            status.get("/late"), "active",
+            f"/late never reached active; status={status}",
+        )
+
+    def test_telemetry_counts_timed_out_lifecycle_calls_as_errors(self):
+        fqns = ["/early", "/late"]
+        lc_early = {"n": 0}
+        early_timeout_rounds = 1
+
+        def fake_run(cmd, **kw):
+            if len(cmd) >= 3 and cmd[1] == "node" and cmd[2] == "list":
+                return _cp(stdout="/early\n/late\n")
+            if len(cmd) >= 3 and cmd[1] == "lifecycle" and cmd[2] == "get":
+                fqn = cmd[-1]
+                if fqn == "/early":
+                    lc_early["n"] += 1
+                    if lc_early["n"] <= early_timeout_rounds:
+                        raise subprocess.TimeoutExpired(cmd, kw.get("timeout", 1.0))
+                return _cp(stdout="active\n")
+            return _cp(returncode=1)
+
+        tel = {}
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("time.sleep"):
+            ok, _ = wait_for_components(fqns, {}, time.monotonic() + 30.0, _telemetry=tel)
+
+        self.assertTrue(ok)
+        self.assertGreaterEqual(
+            tel.get("lifecycle_query_errors", 0), early_timeout_rounds,
+            f"timed-out lifecycle calls not counted as errors; telemetry={tel}",
+        )
+        self.assertGreaterEqual(
+            tel.get("lifecycle_query_count", 0), 3,
+            f"lifecycle_query_count should be >=3 (1 fail early + 2 success min); "
+            f"telemetry={tel}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
