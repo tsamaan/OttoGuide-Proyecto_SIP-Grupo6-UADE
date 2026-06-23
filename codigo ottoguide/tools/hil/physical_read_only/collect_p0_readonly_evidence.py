@@ -331,6 +331,7 @@ def gather_tf_and_localization(ctx: _BaseContext, topic_names: "list[str]") -> d
     odom_frequency = {
         "measurement_status": "NOT_ATTEMPTED",
         "sample_count": None,
+        "message_window_size": None,
         "window_seconds": None,
         "average_hz": None,
         "minimum_hz": None,
@@ -358,9 +359,11 @@ def gather_tf_and_localization(ctx: _BaseContext, topic_names: "list[str]") -> d
             status = "MEASURED"
         else:
             status = "UNKNOWN"
+        _window_count = int(window_m.group(1)) if window_m else None
         odom_frequency = {
             "measurement_status": status,
-            "sample_count": int(window_m.group(1)) if window_m else None,
+            "sample_count": _window_count,
+            "message_window_size": _window_count,
             "window_seconds": None,
             "average_hz": float(avg_m.group(1)) if avg_m else None,
             "minimum_hz": float(min_m.group(1)) if min_m else None,
