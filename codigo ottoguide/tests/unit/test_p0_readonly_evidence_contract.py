@@ -12,7 +12,7 @@ Three sections:
 * Authorization contract: dry-run is the default; --execute-read-only and
   --fixture-dir are mutually exclusive; each requires its own environment
   variable; real execution requires every one of the ten extra CLI gates
-  introduced in 2H.2.5.
+  introduced in 2H.2.5; schema upgraded to v3 in 2H.2.6.
 
 * Validator behaviour: the four-layer decision (bundle_integrity,
   read_only_invariants, collection_completeness, p0_field_decision) and
@@ -740,7 +740,7 @@ class TestValidatorThreeLayerDecision(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# v2 contract tests (spec section 11, Fase 2H.2.5)
+# schema validation tests (spec section 11, Fase 2H.2.6)
 # ---------------------------------------------------------------------------
 
 

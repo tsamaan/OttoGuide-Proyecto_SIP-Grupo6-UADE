@@ -63,7 +63,7 @@ PASS = "PASS"
 FAIL = "FAIL"
 
 # ---------------------------------------------------------------------------
-# Command-log allowlist (Fase 2H.2.5)
+# Command-log allowlist (Fase 2H.2.6)
 # ---------------------------------------------------------------------------
 # Each entry: label_pattern -> (executable, required_subcommand_prefix)
 # label_pattern is a regex matched against the log entry's "label" field.
