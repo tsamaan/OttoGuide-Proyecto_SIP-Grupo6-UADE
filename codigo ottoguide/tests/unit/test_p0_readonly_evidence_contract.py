@@ -988,6 +988,23 @@ class TestV2FieldDecisionContract(unittest.TestCase):
                     self.assertTrue(any("CMD_VEL_PUBLISHER_COUNT_UNKNOWN:/cmd_vel_raw" in e
                                         for e in result["no_go_findings"]))
 
+    def test_cmd_vel_safe_unexpected_owners_is_no_go(self):
+        """Non-empty unexpected_owners for /cmd_vel_safe must produce NO_GO so
+        the safety chain is not silently consumed by an unknown process."""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            _write_good_bundle(d)
+            cmd_vel = json.loads((d / schema.CMD_VEL_CHAIN).read_text())
+            cmd_vel["topics"]["/cmd_vel_safe"]["unexpected_owners"] = ["/rogue_node"]
+            _write_json_0600(d / schema.CMD_VEL_CHAIN, cmd_vel)
+            _rehash(d, schema.CMD_VEL_CHAIN)
+            result = validator.validate_evidence_dir(d, expected_head="a" * 40)
+        self.assertEqual(result["p0_field_decision"], "NO_GO")
+        self.assertTrue(
+            any("CMD_VEL_SAFE_UNEXPECTED_OWNERS" in e for e in result["no_go_findings"]),
+            f"CMD_VEL_SAFE_UNEXPECTED_OWNERS not in no_go_findings: {result['no_go_findings']}",
+        )
+
     def test_tf_edge_missing_is_no_go(self):
         with tempfile.TemporaryDirectory() as td:
             d = Path(td)

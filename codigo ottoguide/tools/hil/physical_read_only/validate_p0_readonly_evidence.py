@@ -622,6 +622,8 @@ def check_field_decision(
                 no_go.append(f"CMD_VEL_SUBSCRIBER_IDENTITIES_UNKNOWN:{cv_topic}")
             if cv_topic == "/cmd_vel_safe" and not info.get("physical_consumer_candidate"):
                 no_go.append("CMD_VEL_SAFE_PHYSICAL_CONSUMER_UNKNOWN")
+            if cv_topic == "/cmd_vel_safe" and info.get("unexpected_owners"):
+                no_go.append("CMD_VEL_SAFE_UNEXPECTED_OWNERS")
     if not cmd_doc.get("controller_server_observed"):
         no_go.append("CONTROLLER_SERVER_NOT_OBSERVED")
     if not cmd_doc.get("collision_monitor_observed"):
