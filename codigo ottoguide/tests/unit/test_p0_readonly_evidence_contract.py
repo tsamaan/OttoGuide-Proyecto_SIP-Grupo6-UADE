@@ -434,6 +434,7 @@ def _write_good_bundle(d: Path, session_id="s1", fixture_mode=False) -> None:
         "candidate_odom_frequency": {
             "measurement_status": "MEASURED",
             "sample_count": 10,
+            "message_window_size": 10,
             "window_seconds": 1.0,
             "average_hz": 10.0,
             "minimum_hz": 9.8,
@@ -1024,6 +1025,45 @@ class TestV2FieldDecisionContract(unittest.TestCase):
             f"expected CMD_VEL_SAFE_OWNERSHIP_NOT_CONFIRMED:UNKNOWN_SUBSCRIBER in "
             f"{result['no_go_findings']}",
         )
+
+    def test_odom_frequency_window_size_invalid_is_no_go(self):
+        """Commit 3: message_window_size of None or 0 must produce NO_GO."""
+        for bad_value in (None, 0, -1, True, "10"):
+            with self.subTest(window_size=bad_value):
+                with tempfile.TemporaryDirectory() as td:
+                    d = Path(td)
+                    _write_good_bundle(d)
+                    tf_loc = json.loads((d / schema.TF_AND_LOCALIZATION).read_text())
+                    tf_loc["candidate_odom_frequency"]["message_window_size"] = bad_value
+                    tf_loc["candidate_odom_frequency"]["sample_count"] = bad_value
+                    _write_json_0600(d / schema.TF_AND_LOCALIZATION, tf_loc)
+                    _rehash(d, schema.TF_AND_LOCALIZATION)
+                    result = validator.validate_evidence_dir(d, expected_head="a" * 40)
+                self.assertEqual(result["p0_field_decision"], "NO_GO")
+                self.assertTrue(
+                    any("ODOM_FREQUENCY_WINDOW_SIZE_INVALID" in e for e in result["no_go_findings"]),
+                    f"ODOM_FREQUENCY_WINDOW_SIZE_INVALID not found for window_size={bad_value!r}: "
+                    f"{result['no_go_findings']}",
+                )
+
+    def test_odom_frequency_nonpositive_average_is_no_go(self):
+        """Commit 3: average_hz of 0 or negative must produce NO_GO."""
+        for bad_hz in (0, -1.0, 0.0):
+            with self.subTest(average_hz=bad_hz):
+                with tempfile.TemporaryDirectory() as td:
+                    d = Path(td)
+                    _write_good_bundle(d)
+                    tf_loc = json.loads((d / schema.TF_AND_LOCALIZATION).read_text())
+                    tf_loc["candidate_odom_frequency"]["average_hz"] = bad_hz
+                    _write_json_0600(d / schema.TF_AND_LOCALIZATION, tf_loc)
+                    _rehash(d, schema.TF_AND_LOCALIZATION)
+                    result = validator.validate_evidence_dir(d, expected_head="a" * 40)
+                self.assertEqual(result["p0_field_decision"], "NO_GO")
+                self.assertTrue(
+                    any("ODOM_FREQUENCY_AVERAGE_NONPOSITIVE" in e for e in result["no_go_findings"]),
+                    f"ODOM_FREQUENCY_AVERAGE_NONPOSITIVE not found for average_hz={bad_hz!r}: "
+                    f"{result['no_go_findings']}",
+                )
 
     def test_tf_edge_missing_is_no_go(self):
         with tempfile.TemporaryDirectory() as td:

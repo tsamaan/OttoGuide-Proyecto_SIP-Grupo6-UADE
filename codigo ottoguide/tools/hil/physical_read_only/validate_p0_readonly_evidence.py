@@ -537,6 +537,16 @@ def check_field_decision(
             no_go.append("ODOM_FREQUENCY_MISSING")
         elif freq.get("measurement_status") != "MEASURED" or not isinstance(freq.get("average_hz"), (int, float)):
             no_go.append(f"ODOM_FREQUENCY_NOT_MEASURED:status={freq.get('measurement_status')!r}")
+        else:
+            # message_window_size (or sample_count as alias) must be a positive int.
+            window_size = freq.get("message_window_size")
+            if window_size is None:
+                window_size = freq.get("sample_count")
+            if not isinstance(window_size, int) or isinstance(window_size, bool) or window_size <= 0:
+                no_go.append(f"ODOM_FREQUENCY_WINDOW_SIZE_INVALID:got={window_size!r}")
+            avg_hz = freq.get("average_hz")
+            if not isinstance(avg_hz, (int, float)) or isinstance(avg_hz, bool) or avg_hz <= 0:
+                no_go.append(f"ODOM_FREQUENCY_AVERAGE_NONPOSITIVE:got={avg_hz!r}")
 
     # TF edges: any required edge not linked to a concrete observation → NO_GO
     tf_edges_observed = tf_loc.get("tf_edges_observed", [])
