@@ -453,6 +453,52 @@ class TourOrchestrator(StateMachine):
 
         await self.trigger_emergency()
 
+    async def pause_navigation(self) -> None:
+        """Cancela _nav_task y solicita cancelación explícita al backend Nav2 sin cambiar el estado FSM.
+
+        Solo válido desde NAVIGATING; lanza RuntimeError desde cualquier otro estado.
+        Idempotente: si ya está pausado, _cancel_nav_task_safe() es no-op y
+        cancel_navigation() es seguro sobre un backend ya inactivo.
+        Preserva current_waypoint_index.
+        Orden cancel_nav_task → cancel_navigation() sigue el mismo contrato que on_enter_interacting().
+        """
+        if self.state_id != "navigating":
+            raise RuntimeError(
+                f"pause_navigation() rechazado: estado actual es '{self.state_id}', se requiere 'navigating'."
+            )
+        await self._cancel_nav_task_safe()
+        await self._nav_bridge.cancel_navigation()
+
+    @property
+    def is_navigation_paused(self) -> bool:
+        """True cuando el orquestador está en NAVIGATING sin una nav task activa.
+
+        False en IDLE, INTERACTING, EMERGENCY o con navegación activa.
+        No agrega un nuevo estado a la FSM; deriva del estado observable existente.
+        """
+        return (
+            self.state_id == "navigating"
+            and (self._nav_task is None or self._nav_task.done())
+        )
+
+    def resume_navigation(self) -> None:
+        """Crea una nueva _nav_task desde current_waypoint_index sin transición FSM.
+
+        Requiere estado NAVIGATING; lanza RuntimeError desde IDLE o EMERGENCY.
+        Idempotente: si ya hay una tarea activa, es un no-op.
+        """
+        if self.state_id != "navigating":
+            raise RuntimeError(
+                f"resume_navigation() rechazado: estado actual es '{self.state_id}', se requiere 'navigating'."
+            )
+        if self._nav_task is not None and not self._nav_task.done():
+            return
+        tour_id = self._context.tour_id or "unknown"
+        self._nav_task = self._create_supervised_task(
+            self._navigation_loop(),
+            name=f"nav-loop-{tour_id}",
+        )
+
     # ------------------------------------------------------------------
     # Callbacks on_enter de estados
     # ------------------------------------------------------------------
