@@ -960,6 +960,20 @@ def _run(cmd: list, env: dict, timeout: float) -> _CommandResult:
             stdout="", stderr=str(exc),
             timed_out=False, duration_ms=duration_ms, error_class="COMMAND_NOT_FOUND",
         )
+    except PermissionError as exc:
+        duration_ms = (time.monotonic() - t0) * 1000.0
+        return _CommandResult(
+            argv=list(cmd), returncode=126,
+            stdout="", stderr=str(exc),
+            timed_out=False, duration_ms=duration_ms, error_class="PROCESS_ERROR",
+        )
+    except OSError as exc:
+        duration_ms = (time.monotonic() - t0) * 1000.0
+        return _CommandResult(
+            argv=list(cmd), returncode=126,
+            stdout="", stderr=str(exc),
+            timed_out=False, duration_ms=duration_ms, error_class="PROCESS_ERROR",
+        )
 
 
 def _node_list(env: dict, timeout: float) -> "tuple[list, str | None]":
@@ -1025,7 +1039,7 @@ def wait_for_components_deterministic(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        list_timeout = min(5.0, max(0.5, remaining))
+        list_timeout = max(0.01, min(5.0, remaining))
         discovered, _ = _node_list(env, timeout=list_timeout)
         node_list_attempts += 1
 
@@ -1041,7 +1055,7 @@ def wait_for_components_deterministic(
             if remaining2 <= 0:
                 all_active = False
                 continue
-            lifecycle_timeout = min(5.0, max(0.5, remaining2))
+            lifecycle_timeout = max(0.01, min(5.0, remaining2))
             state, lc_error = _lifecycle_get(fqn, env, timeout=lifecycle_timeout)
             lifecycle_query_count += 1
             if lc_error is not None:

@@ -439,5 +439,123 @@ class TestLifecycleStarvationUnderSlowEarlyProbe(unittest.TestCase):
         )
 
 
+class TestRunCommandTimeoutOutputMatrix(unittest.TestCase):
+    """_run() must normalize partial output from TimeoutExpired for all
+    combinations of (stdout, stderr) being bytes, str, or None."""
+
+    def _make_result(self, stdout_val, stderr_val):
+        exc = subprocess.TimeoutExpired(
+            ["ros2", "node", "list"], 1.0, output=stdout_val, stderr=stderr_val
+        )
+        with patch("subprocess.run", side_effect=exc):
+            return _run(["ros2", "node", "list"], {}, timeout=1.0)
+
+    def test_bytes_bytes(self):
+        r = self._make_result(b"out\n", b"err\n")
+        self.assertTrue(r.timed_out)
+        self.assertEqual(r.error_class, "TIMEOUT")
+        self.assertEqual(r.stdout, "out\n")
+        self.assertEqual(r.stderr, "err\n")
+
+    def test_str_str(self):
+        r = self._make_result("out\n", "err\n")
+        self.assertTrue(r.timed_out)
+        self.assertEqual(r.stdout, "out\n")
+        self.assertEqual(r.stderr, "err\n")
+
+    def test_bytes_str(self):
+        r = self._make_result(b"out\n", "err\n")
+        self.assertEqual(r.stdout, "out\n")
+        self.assertEqual(r.stderr, "err\n")
+
+    def test_str_bytes(self):
+        r = self._make_result("out\n", b"err\n")
+        self.assertEqual(r.stdout, "out\n")
+        self.assertEqual(r.stderr, "err\n")
+
+    def test_none_bytes(self):
+        r = self._make_result(None, b"err\n")
+        self.assertEqual(r.stdout, "")
+        self.assertEqual(r.stderr, "err\n")
+
+    def test_bytes_none(self):
+        r = self._make_result(b"out\n", None)
+        self.assertEqual(r.stdout, "out\n")
+        self.assertEqual(r.stderr, "")
+
+    def test_none_none(self):
+        r = self._make_result(None, None)
+        self.assertTrue(r.timed_out)
+        self.assertEqual(r.error_class, "TIMEOUT")
+        self.assertEqual(r.stdout, "")
+        self.assertEqual(r.stderr, "")
+
+
+class TestRunCommandProcessError(unittest.TestCase):
+    """_run() must return PROCESS_ERROR for PermissionError and other OSError."""
+
+    def test_permission_error_sets_process_error(self):
+        with patch("subprocess.run", side_effect=PermissionError("permission denied")):
+            result = _run(["ros2", "node", "list"], {}, timeout=1.0)
+        self.assertEqual(result.error_class, "PROCESS_ERROR")
+        self.assertFalse(result.timed_out)
+        self.assertEqual(result.returncode, 126)
+
+    def test_oserror_sets_process_error(self):
+        with patch("subprocess.run", side_effect=OSError("os error")):
+            result = _run(["ros2", "node", "list"], {}, timeout=1.0)
+        self.assertEqual(result.error_class, "PROCESS_ERROR")
+        self.assertFalse(result.timed_out)
+
+
+class TestProbeTimeoutBudgetFairness(unittest.TestCase):
+    """Per-probe timeouts must not exceed the remaining deadline budget."""
+
+    def test_lifecycle_timeout_capped_at_remaining_not_padded_up(self):
+        """The old max(0.5, remaining2) formula padded small remaining values
+        up to 0.5, violating the contract. The new max(0.01, min(5.0, remaining2))
+        formula caps at remaining2. Verify: with remaining2 ≈ 0.15s, the
+        lifecycle probe receives timeout ≤ 0.15, not the old 0.5."""
+        fqns = ["/comp"]
+        lifecycle_timeouts: list = []
+
+        def capture_run(cmd, **kwargs):
+            if len(cmd) >= 3 and cmd[1] == "lifecycle" and cmd[2] == "get":
+                lifecycle_timeouts.append(kwargs.get("timeout"))
+            if len(cmd) >= 3 and cmd[1] == "node" and cmd[2] == "list":
+                return _cp(stdout="/comp\n")
+            return _cp(stdout="active\n")
+
+        deadline = 1005.0
+        # Sequence of time.monotonic() calls inside wait_for_components_deterministic
+        # (one iteration, single component, all_active → early return):
+        # 1. outer remaining check → 1000.0 (remaining = 5.0)
+        # 2. _run node_list t0  → 1000.0
+        # 3. _run node_list end → 1000.01
+        # 4. remaining2 check   → 1004.85 (remaining2 = 0.15)
+        # 5. _run lifecycle t0  → 1004.85
+        # 6. _run lifecycle end → 1004.86
+        mono_seq = [1000.0, 1000.0, 1000.01, 1004.85, 1004.85, 1004.86]
+        mono_idx = {"i": 0}
+
+        def fake_mono():
+            v = mono_seq[min(mono_idx["i"], len(mono_seq) - 1)]
+            mono_idx["i"] += 1
+            return v
+
+        with patch("subprocess.run", side_effect=capture_run), \
+             patch("time.sleep"), \
+             patch("time.monotonic", side_effect=fake_mono), \
+             patch("time.monotonic_ns", return_value=int(1000.0 * 1e9)):
+            ok, status = wait_for_components(fqns, {}, deadline)
+
+        self.assertTrue(ok)
+        self.assertEqual(len(lifecycle_timeouts), 1)
+        # New formula: max(0.01, min(5.0, 0.15)) = 0.15 ≤ remaining2
+        # Old formula: max(0.5, min(5.0, 0.15)) = 0.5 > remaining2
+        self.assertAlmostEqual(lifecycle_timeouts[0], 0.15, places=2)
+        self.assertLessEqual(lifecycle_timeouts[0], 0.15 + 1e-9)
+
+
 if __name__ == "__main__":
     unittest.main()
