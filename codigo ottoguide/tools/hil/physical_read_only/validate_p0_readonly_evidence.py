@@ -620,10 +620,17 @@ def check_field_decision(
                 no_go.append(f"CMD_VEL_PUBLISHER_IDENTITIES_UNKNOWN:{cv_topic}")
             if not isinstance(info.get("subscriber_identities"), list):
                 no_go.append(f"CMD_VEL_SUBSCRIBER_IDENTITIES_UNKNOWN:{cv_topic}")
-            if cv_topic == "/cmd_vel_safe" and not info.get("physical_consumer_candidate"):
-                no_go.append("CMD_VEL_SAFE_PHYSICAL_CONSUMER_UNKNOWN")
-            if cv_topic == "/cmd_vel_safe" and info.get("unexpected_owners"):
-                no_go.append("CMD_VEL_SAFE_UNEXPECTED_OWNERS")
+            if cv_topic == "/cmd_vel_safe":
+                ownership_status = info.get("ownership_status")
+                if ownership_status is None:
+                    # Legacy bundle (no ownership_status field): fall back to old check.
+                    if not info.get("physical_consumer_candidate"):
+                        no_go.append("CMD_VEL_SAFE_PHYSICAL_CONSUMER_UNKNOWN")
+                else:
+                    if ownership_status != "CONFIRMED":
+                        no_go.append(f"CMD_VEL_SAFE_OWNERSHIP_NOT_CONFIRMED:{ownership_status}")
+                if info.get("unexpected_owners"):
+                    no_go.append("CMD_VEL_SAFE_UNEXPECTED_OWNERS")
     if not cmd_doc.get("controller_server_observed"):
         no_go.append("CONTROLLER_SERVER_NOT_OBSERVED")
     if not cmd_doc.get("collision_monitor_observed"):

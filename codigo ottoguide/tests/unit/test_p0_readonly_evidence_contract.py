@@ -499,6 +499,8 @@ def _write_good_bundle(d: Path, session_id="s1", fixture_mode=False) -> None:
                 "subscriber_identities": ["/unitree_locomotion_bridge"],
                 "physical_consumer_candidate": "/unitree_locomotion_bridge",
                 "unexpected_owners": [],
+                "ownership_status": "CONFIRMED",
+                "expected_physical_consumer": "/unitree_locomotion_bridge",
                 "command_label": "cmd_vel_info_cmd_vel_safe", "observed_at_monotonic_ns": 2500,
                 "qos": None,
             },
@@ -1003,6 +1005,24 @@ class TestV2FieldDecisionContract(unittest.TestCase):
         self.assertTrue(
             any("CMD_VEL_SAFE_UNEXPECTED_OWNERS" in e for e in result["no_go_findings"]),
             f"CMD_VEL_SAFE_UNEXPECTED_OWNERS not in no_go_findings: {result['no_go_findings']}",
+        )
+
+    def test_cmd_vel_safe_unknown_subscriber_is_no_go(self):
+        """Commit 2: ownership_status=UNKNOWN_SUBSCRIBER must produce NO_GO."""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            _write_good_bundle(d)
+            cmd_vel = json.loads((d / schema.CMD_VEL_CHAIN).read_text())
+            cmd_vel["topics"]["/cmd_vel_safe"]["ownership_status"] = "UNKNOWN_SUBSCRIBER"
+            _write_json_0600(d / schema.CMD_VEL_CHAIN, cmd_vel)
+            _rehash(d, schema.CMD_VEL_CHAIN)
+            result = validator.validate_evidence_dir(d, expected_head="a" * 40)
+        self.assertEqual(result["p0_field_decision"], "NO_GO")
+        self.assertTrue(
+            any("CMD_VEL_SAFE_OWNERSHIP_NOT_CONFIRMED:UNKNOWN_SUBSCRIBER" in e
+                for e in result["no_go_findings"]),
+            f"expected CMD_VEL_SAFE_OWNERSHIP_NOT_CONFIRMED:UNKNOWN_SUBSCRIBER in "
+            f"{result['no_go_findings']}",
         )
 
     def test_tf_edge_missing_is_no_go(self):

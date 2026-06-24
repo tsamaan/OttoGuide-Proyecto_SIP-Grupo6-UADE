@@ -436,7 +436,15 @@ def gather_sensors(ctx: _BaseContext, topic_names: "list[str]") -> dict:
     return sensors
 
 
-def gather_cmd_vel_chain(ctx: _BaseContext, topic_names: "list[str]", nodes: "list[str]") -> dict:
+def gather_cmd_vel_chain(
+    ctx: _BaseContext,
+    topic_names: "list[str]",
+    nodes: "list[str]",
+    *,
+    expected_physical_consumer: "str | None" = None,
+) -> dict:
+    if expected_physical_consumer is None:
+        expected_physical_consumer = schema.EXPECTED_CMD_VEL_SAFE_CONSUMER
     topics: dict = {}
     for topic in schema.CMD_VEL_TOPICS:
         label = topic.strip("/").replace("/", "_")
@@ -454,6 +462,8 @@ def gather_cmd_vel_chain(ctx: _BaseContext, topic_names: "list[str]", nodes: "li
                 "subscribers": [],
                 "physical_consumer_candidate": None,
                 "unexpected_owners": [],
+                "ownership_status": None,
+                "expected_physical_consumer": expected_physical_consumer if topic == "/cmd_vel_safe" else None,
                 "command_label": f"cmd_vel_info_{label}",
                 "observed_at_monotonic_ns": None,
                 "qos": None,
@@ -465,18 +475,38 @@ def gather_cmd_vel_chain(ctx: _BaseContext, topic_names: "list[str]", nodes: "li
         sub_m = re.search(r"Subscription count:\s*(\d+)", info_text or "")
         publisher_ids = re.findall(r"Node name:\s*(\S+)", info_text or "")
         subscriber_ids = re.findall(r"Subscription node name:\s*(\S+)", info_text or "")
-        # physical_consumer_candidate: derived from observed subscriber identities.
-        # Only set when exactly one subscriber is observed (evidence-based, never invented).
-        # Multiple subscribers: first is candidate, rest are unexpected_owners.
-        if len(subscriber_ids) == 1:
-            physical_consumer_candidate: "str | None" = subscriber_ids[0]
-            unexpected_owners: "list[str]" = []
-        elif len(subscriber_ids) > 1:
-            physical_consumer_candidate = subscriber_ids[0]
-            unexpected_owners = subscriber_ids[1:]
+        # For /cmd_vel_safe: compare observed subscriber against the expected
+        # physical consumer identity and record the result as ownership_status.
+        # For other topics: keep the original auto-candidate heuristic.
+        if topic == "/cmd_vel_safe":
+            if len(subscriber_ids) == 1:
+                if subscriber_ids[0] == expected_physical_consumer:
+                    ownership_status: "str | None" = "CONFIRMED"
+                    physical_consumer_candidate: "str | None" = subscriber_ids[0]
+                    unexpected_owners: "list[str]" = []
+                else:
+                    ownership_status = "UNKNOWN_SUBSCRIBER"
+                    physical_consumer_candidate = None
+                    unexpected_owners = [subscriber_ids[0]]
+            elif len(subscriber_ids) > 1:
+                ownership_status = "MULTIPLE_SUBSCRIBERS"
+                physical_consumer_candidate = None
+                unexpected_owners = list(subscriber_ids)
+            else:
+                ownership_status = "ABSENT"
+                physical_consumer_candidate = None
+                unexpected_owners = []
         else:
-            physical_consumer_candidate = None
-            unexpected_owners = []
+            ownership_status = None
+            if len(subscriber_ids) == 1:
+                physical_consumer_candidate = subscriber_ids[0]
+                unexpected_owners = []
+            elif len(subscriber_ids) > 1:
+                physical_consumer_candidate = subscriber_ids[0]
+                unexpected_owners = subscriber_ids[1:]
+            else:
+                physical_consumer_candidate = None
+                unexpected_owners = []
         topics[topic] = {
             "topic": topic,
             "present": True,
@@ -489,6 +519,8 @@ def gather_cmd_vel_chain(ctx: _BaseContext, topic_names: "list[str]", nodes: "li
             "subscriber_identities": subscriber_ids,
             "physical_consumer_candidate": physical_consumer_candidate,
             "unexpected_owners": unexpected_owners,
+            "ownership_status": ownership_status,
+            "expected_physical_consumer": expected_physical_consumer if topic == "/cmd_vel_safe" else None,
             "command_label": f"cmd_vel_info_{label}",
             "observed_at_monotonic_ns": schema.monotonic_now_ns(),
             "publishers": publisher_ids, "subscribers": subscriber_ids,
@@ -662,7 +694,7 @@ def build_bundle(ctx: _BaseContext, args: argparse.Namespace, session_id: str) -
     graph, topic_names, nodes = gather_ros_graph(ctx, topic_override)
     tf_loc = gather_tf_and_localization(ctx, topic_names)
     sensors = gather_sensors(ctx, topic_names)
-    cmd_vel = gather_cmd_vel_chain(ctx, topic_names, nodes)
+    cmd_vel = gather_cmd_vel_chain(ctx, topic_names, nodes, expected_physical_consumer=schema.EXPECTED_CMD_VEL_SAFE_CONSUMER)
     safety = gather_safety_checklist(args, ctx)
 
     expected_head = args.expected_head

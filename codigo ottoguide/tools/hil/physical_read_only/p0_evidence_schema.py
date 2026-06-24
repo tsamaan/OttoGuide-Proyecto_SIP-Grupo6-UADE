@@ -118,6 +118,11 @@ CRITICAL_TOPIC_TYPES = {
 # --- cmd_vel chain (p0_cmd_vel_chain.json) ------------------------------
 CMD_VEL_TOPICS = ("/cmd_vel", "/cmd_vel_raw", "/cmd_vel_safe")
 
+# The one node that must be the sole subscriber of /cmd_vel_safe in a valid
+# physical topology. The collector uses this to set ownership_status; the
+# validator uses it to gate GO_CANDIDATE.
+EXPECTED_CMD_VEL_SAFE_CONSUMER = "/unitree_locomotion_bridge"
+
 # --- tf / localization (p0_tf_and_localization.json) -------------------
 REQUIRED_TF_EDGES = (
     "map->odom",
