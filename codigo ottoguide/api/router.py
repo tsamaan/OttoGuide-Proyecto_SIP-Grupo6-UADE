@@ -320,6 +320,8 @@ async def _resolve_navigation_observability(request: Request) -> dict:
     remote_state_unknown = False
     action_name: Optional[str] = None
     goal_uuid: Optional[str] = None
+    ntp_available: Optional[bool] = None
+    fw_available: Optional[bool] = None
 
     get_status_fn = getattr(nav_bridge, "get_status", None)
     if not callable(get_status_fn):
@@ -333,6 +335,15 @@ async def _resolve_navigation_observability(request: Request) -> dict:
         except Exception:
             remote_state_unknown = True
 
+    get_readiness_fn = getattr(nav_bridge, "get_readiness", None)
+    if callable(get_readiness_fn):
+        try:
+            readiness = get_readiness_fn()
+            ntp_available = bool(readiness.ntp_available)
+            fw_available = bool(readiness.fw_available)
+        except Exception:
+            pass
+
     return {
         "navigation_backend_requested": requested,
         "navigation_backend_resolved": resolved,
@@ -340,6 +351,8 @@ async def _resolve_navigation_observability(request: Request) -> dict:
         "navigation_remote_state_unknown": remote_state_unknown,
         "navigation_action_name": action_name,
         "navigation_goal_uuid": goal_uuid,
+        "navigation_ntp_available": ntp_available,
+        "navigation_fw_available": fw_available,
     }
 
 

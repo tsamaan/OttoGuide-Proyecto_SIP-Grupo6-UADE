@@ -81,10 +81,24 @@ class NavigationStatus:
     remote_state_unknown: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class NavigationLayeredReadiness:
+    """Per-server availability snapshot captured at start() time.
+
+    Lets observers understand which Nav2 action servers were confirmed
+    without requiring a live connection to the robot.
+    """
+
+    started: bool = False
+    ntp_available: bool = False
+    fw_available: bool = False
+
+
 __all__ = [
+    "MissedWaypointDetail",
     "NavWaypoint",
+    "NavigationLayeredReadiness",
+    "NavigationResult",
     "NavigationStatus",
     "NavigationTerminalStatus",
-    "MissedWaypointDetail",
-    "NavigationResult",
 ]

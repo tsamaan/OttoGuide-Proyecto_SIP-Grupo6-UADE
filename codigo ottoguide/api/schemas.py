@@ -72,6 +72,10 @@ class StatusResponse(BaseModel):
     navigation_action_name: Optional[str] = None
     navigation_goal_uuid: Optional[str] = None
 
+    # --- Readiness por servidor (Commit 5) ---
+    navigation_ntp_available: Optional[bool] = None
+    navigation_fw_available: Optional[bool] = None
+
 
 class QuestionRequest(BaseModel):
     """Payload para POST /question."""

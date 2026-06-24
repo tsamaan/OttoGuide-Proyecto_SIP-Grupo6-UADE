@@ -16,6 +16,7 @@ from typing import Any, Optional, Sequence
 
 from src.navigation.models import (
     MissedWaypointDetail,
+    NavigationLayeredReadiness,
     NavigationResult,
     NavigationStatus,
     NavigationTerminalStatus,
@@ -318,6 +319,14 @@ class DirectNav2ActionBridge(NavigationPort):
         """Consulta el ultimo resultado."""
         with self._state_lock:
             return self._status.last_result
+
+    def get_readiness(self) -> NavigationLayeredReadiness:
+        """Snapshot of per-server availability captured during start()."""
+        return NavigationLayeredReadiness(
+            started=self._started,
+            ntp_available=self._ntp_available,
+            fw_available=self._fw_available,
+        )
 
     def _ntp_feedback_cb(self, feedback_msg: Any) -> None:
         with self._state_lock:
