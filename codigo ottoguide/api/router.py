@@ -95,14 +95,14 @@ def _get_orchestrator(request: Request):
 async def endpoint_start_tour(
     request: Request,
     payload: StartTourRequest,
-    background_tasks: BackgroundTasks,
     orchestrator=Depends(_get_orchestrator),
 ) -> StartTourResponse:
     """
-    @TASK: Despachar plan de tour al orchestrator en background
+    @TASK: Despachar plan de tour al orchestrator de forma atomica
     @INPUT: payload con waypoints y tour_id
-    @OUTPUT: HTTP 202 Accepted
-    @CONTEXT: El endpoint retorna inmediatamente; dispatch corre en background
+    @OUTPUT: HTTP 202 Accepted tras confirmar la transicion FSM
+    @CONTEXT: await dispatch_tour() garantiza que la transicion idle->navigating
+              ocurre antes de retornar; errores de transicion producen HTTP 409
     @SECURITY: TransitionNotAllowed → HTTP 409
     """
     from src.navigation import NavWaypoint
@@ -124,15 +124,19 @@ async def endpoint_start_tour(
     ]
     plan = TourPlan(waypoints=domain_waypoints, tour_id=payload.tour_id)
 
-    async def _dispatch():
-        try:
-            await orchestrator.dispatch_tour(plan)
-        except TransitionNotAllowed as exc:
-            LOGGER.error("[API] dispatch_tour rechazado: %s", exc)
-        except Exception as exc:
-            LOGGER.error("[API] Excepcion en dispatch_tour: %s", exc)
-
-    background_tasks.add_task(_dispatch)
+    try:
+        await orchestrator.dispatch_tour(plan)
+    except TransitionNotAllowed as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Transicion rechazada: {exc}",
+        )
+    except Exception as exc:
+        LOGGER.error("[API] Excepcion en dispatch_tour: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al despachar tour: {exc}",
+        )
 
     LOGGER.info(
         "[API] POST /tour/start aceptado. tour_id=%s waypoints=%d",
@@ -177,17 +181,14 @@ async def endpoint_pause_tour(
         audio_pcm = np.zeros(1, dtype=np.float32)
 
     try:
-        asyncio.create_task(
-            orchestrator.request_interaction(audio_pcm, language=payload.language),
-            name="api-pause-interaction",
-        )
+        await orchestrator.request_interaction(audio_pcm, language=payload.language)
     except TransitionNotAllowed as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Transicion rechazada: {exc}",
         )
 
-    return {"accepted": "true", "detail": "Solicitud de interaccion despachada."}
+    return {"accepted": True, "detail": "Solicitud de interaccion despachada."}
 
 
 @router.post(
