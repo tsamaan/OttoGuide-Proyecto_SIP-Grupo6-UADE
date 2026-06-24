@@ -936,6 +936,78 @@ class TestDirectNav2ActionBridgeOwnershipAndTerminalSafety(unittest.IsolatedAsyn
         self.bridge._request_cancel_only.assert_not_called()
         self.assertFalse(self.bridge._status.remote_state_unknown)
 
+    async def test_54_single_waypoint_delegates_to_send_goal_not_follow_waypoints(self):
+        """Commit 4: navigate_to_waypoints([wp]) must call send_goal(), never
+        touch FollowWaypoints or require _fw_available."""
+        self.bridge._fw_available = False  # FW server absent — single-wp must still work
+        wp = NavWaypoint(1.0, 2.0, 0.0, "map")
+        self.bridge.send_goal = AsyncMock(return_value=True)
+
+        result = await self.bridge.navigate_to_waypoints([wp])
+
+        self.assertTrue(result)
+        self.bridge.send_goal.assert_awaited_once_with(wp)
+
+    async def test_55_multi_waypoint_fw_unavailable_returns_false(self):
+        """Commit 4: navigate_to_waypoints([wp1, wp2]) must return False and
+        record an ERROR result when _fw_available is False."""
+        self.bridge._fw_available = False
+        wp1 = NavWaypoint(1.0, 2.0, 0.0, "map")
+        wp2 = NavWaypoint(3.0, 4.0, 0.0, "map")
+
+        result = await self.bridge.navigate_to_waypoints([wp1, wp2])
+
+        self.assertFalse(result)
+        self.assertIsNotNone(self.bridge._status.last_result)
+        self.assertEqual(self.bridge._status.last_result.status, NavigationTerminalStatus.ERROR)
+        self.assertFalse(self.bridge._status.last_result_succeeded)
+
+    async def test_56_start_sets_fw_available_false_when_fw_server_absent(self):
+        """Commit 4: when NTP is ready but FW is not, start() must succeed,
+        set _ntp_available=True, and set _fw_available=False.
+
+        Tested via run_in_executor simulation: we bypass the real rclpy init
+        by making run_in_executor return (True, False) for the two wait calls.
+        """
+        ntp_client = MagicMock()
+        ntp_client.wait_for_server.return_value = True
+        fw_client = MagicMock()
+        fw_client.wait_for_server.return_value = False
+
+        call_index = [0]
+        executor_results = [True, False]
+
+        original_run = asyncio.get_event_loop().run_in_executor
+
+        async def fake_run_in_executor(pool, fn, *args):
+            idx = call_index[0]
+            call_index[0] += 1
+            return executor_results[idx] if idx < len(executor_results) else True
+
+        mock_rclpy = MagicMock()
+        mock_rclpy.context.Context.return_value = MagicMock()
+        mock_rclpy.create_node.return_value = MagicMock()
+
+        mock_spin_thread = MagicMock()
+        mock_spin_thread.is_alive.return_value = False
+
+        with patch.dict('sys.modules', {
+            'rclpy': mock_rclpy,
+            'rclpy.context': mock_rclpy.context,
+            'geometry_msgs.msg': MagicMock(),
+            'nav2_msgs.action': MagicMock(),
+            'rclpy.action': MagicMock(),
+            'rclpy.executors': MagicMock(),
+        }):
+            with patch('threading.Thread', return_value=mock_spin_thread):
+                loop = asyncio.get_running_loop()
+                with patch.object(loop, 'run_in_executor', side_effect=fake_run_in_executor):
+                    await self.bridge.start()
+
+        self.assertTrue(self.bridge._started)
+        self.assertTrue(self.bridge._ntp_available)
+        self.assertFalse(self.bridge._fw_available)
+
     async def test_54_goal_response_timeout_then_cancel_raises_handle_unavailable(self):
         """2H.1.5 #2: reproduces the exact defect of section 7 -- a real
         goal-response timeout leaves task_active=True, remote_state_unknown=True,
