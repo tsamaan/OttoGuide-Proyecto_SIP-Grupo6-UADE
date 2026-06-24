@@ -330,10 +330,6 @@ class TourOrchestrator(StateMachine):
 
         await self.start_tour()
 
-        self._nav_task = asyncio.create_task(
-            self._navigation_loop(),
-            name=f"nav-loop-{plan.tour_id}",
-        )
         LOGGER.info(
             "[Orchestrator] dispatch_tour aceptado. tour_id=%s waypoints=%d",
             plan.tour_id,
@@ -481,6 +477,14 @@ class TourOrchestrator(StateMachine):
                 name="odometry-injection-loop",
             )
             LOGGER.info("[Orchestrator] on_enter_navigating: Tarea de odometria iniciada.")
+
+        if self._nav_task is None or self._nav_task.done():
+            self._nav_task = self._create_supervised_task(
+                self._navigation_loop(),
+                name=f"nav-loop-{self._context.tour_id}",
+            )
+            LOGGER.info("[Orchestrator] on_enter_navigating: Tarea de navegacion iniciada.")
+
         self._schedule_telemetry_broadcast()
 
     async def on_enter_idle(self) -> None:
@@ -752,12 +756,20 @@ class TourOrchestrator(StateMachine):
         STEP 7: Re-propagar CancelledError desde el bloque except externo para terminacion limpia
         """
         plan = self._context.waypoint_plan
+        start_idx = self._context.current_waypoint_index
+        if start_idx < 0:
+            start_idx = 0
+        elif start_idx >= len(plan):
+            start_idx = len(plan)
+
         LOGGER.info(
-            "[Orchestrator] _navigation_loop iniciado. %d waypoints.", len(plan)
+            "[Orchestrator] _navigation_loop iniciado. %d waypoints, empezando desde indice %d.",
+            len(plan), start_idx,
         )
 
         try:
-            for idx, waypoint in enumerate(plan):
+            for idx in range(start_idx, len(plan)):
+                waypoint = plan[idx]
                 self._context.current_waypoint_index = idx
                 logical_waypoint_id = self._resolve_logical_waypoint_id_by_index(idx)
                 nav_target = self._resolve_navigation_target(
@@ -873,6 +885,32 @@ class TourOrchestrator(StateMachine):
         except asyncio.CancelledError:
             LOGGER.info("[Orchestrator] Bucle de odometria terminado por cancelacion.")
             raise
+
+    # ------------------------------------------------------------------
+    # Ciclo de vida del orquestador
+    # ------------------------------------------------------------------
+
+    async def close(self) -> None:
+        """Cancela y espera todas las tareas de fondo activas."""
+        await self._cancel_nav_task_safe()
+        await self._cancel_odometry_task_safe()
+
+    def _create_supervised_task(self, coro, name: str) -> asyncio.Task[None]:
+        """Crea una asyncio.Task que activa emergency_stop ante excepciones no controladas."""
+        async def _wrapper() -> None:
+            try:
+                await coro
+            except asyncio.CancelledError:
+                LOGGER.info("[Orchestrator] Tarea de fondo %s cancelada.", name)
+                raise
+            except Exception as exc:
+                LOGGER.error(
+                    "[Orchestrator] ERROR NO CONTROLADO en tarea de fondo %s: %s",
+                    name, exc, exc_info=True,
+                )
+                await self.emergency_stop(reason=f"Fallo critico en {name}: {exc}")
+
+        return asyncio.create_task(_wrapper(), name=name)
 
     # ------------------------------------------------------------------
     # Utilidades internas de cancelacion segura
