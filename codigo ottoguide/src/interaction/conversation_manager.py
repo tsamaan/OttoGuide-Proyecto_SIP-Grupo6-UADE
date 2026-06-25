@@ -342,6 +342,7 @@ class LocalNLPPipeline(NLPStrategy):
 
         self._http_client: Optional[httpx.AsyncClient] = http_client
         self._owns_http_client = http_client is None
+        self._playback_tasks: set[asyncio.Task[None]] = set()
 
     async def _get_http_client(self) -> httpx.AsyncClient:
         """
@@ -429,11 +430,35 @@ class LocalNLPPipeline(NLPStrategy):
         data = response.json()
         return str(data.get("response", "")).strip()
 
+    async def _run_alsa_playback(
+        self,
+        pcm_float32: NDArray[np.float32],
+        sample_rate: int,
+        block_size: int,
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            self._audio_executor, _play_audio_alsa, pcm_float32, sample_rate, block_size
+        )
+
+    def _on_playback_done(self, task: asyncio.Task[None]) -> None:
+        self._playback_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            LOGGER.warning("[LocalNLP] Excepcion en reproduccion ALSA: %s", exc)
+
+    def _track_playback_task(self, coroutine: Any, *, name: str) -> None:
+        task: asyncio.Task[None] = asyncio.create_task(coroutine, name=name)
+        self._playback_tasks.add(task)
+        task.add_done_callback(self._on_playback_done)
+
     async def synthesize_and_play(self, text: str) -> None:
         """
         @TASK: Sintetizar texto con piper-tts y reproducir en ALSA de forma no bloqueante
         @INPUT: text — respuesta del LLM a sintetizar; tipicamente < 200 palabras para latencia optima
-        @OUTPUT: Side-effect: asyncio.Task "tts-alsa-playback" creada como fire-and-forget; sin retorno
+        @OUTPUT: Side-effect: asyncio.Task "tts-alsa-playback" registrada en _playback_tasks; sin retorno
         @CONTEXT: Etapa TTS del pipeline local. Sintesis en cpu_executor (CPU-bound, proceso aislado);
                   reproduccion ALSA en audio_executor (I/O bloqueante, hilo dedicado de OS).
                   La tarea de reproduccion puede cancelarse si llega un stop-word o una emergencia.
@@ -441,7 +466,7 @@ class LocalNLPPipeline(NLPStrategy):
                    La closure _audio_callback corre en hilo de audio del OS; la cola es thread-safe.
 
         STEP 1: Despachar _run_piper_synthesis al cpu_executor con asyncio.wait_for timeout TTS_TIMEOUT_S
-        STEP 2: Crear asyncio.Task "tts-alsa-playback" con _play_audio_alsa en audio_executor (fire-and-forget)
+        STEP 2: Registrar asyncio.Task "tts-alsa-playback" en _playback_tasks via _track_playback_task
         """
         loop = asyncio.get_running_loop()
 
@@ -456,14 +481,8 @@ class LocalNLPPipeline(NLPStrategy):
             timeout=TTS_TIMEOUT_S,
         )
 
-        asyncio.create_task(
-            loop.run_in_executor(
-                self._audio_executor,
-                _play_audio_alsa,
-                pcm_float32,
-                AUDIO_SAMPLE_RATE,
-                AUDIO_BLOCK_SIZE,
-            ),
+        self._track_playback_task(
+            self._run_alsa_playback(pcm_float32, AUDIO_SAMPLE_RATE, AUDIO_BLOCK_SIZE),
             name="tts-alsa-playback",
         )
 
@@ -503,9 +522,15 @@ class LocalNLPPipeline(NLPStrategy):
                   Si los executors fueron inyectados externamente, el caller es responsable de cerrarlos.
         @SECURITY: cancel_futures=True previene inferencias tardias fuera del ciclo de vida del tour.
 
-        STEP 1: Apagar _cpu_executor con cancel_futures=True si _owns_cpu_executor es True
-        STEP 2: Apagar _audio_executor con cancel_futures=True si _owns_audio_executor es True
+        STEP 1: Cancelar tareas asyncio de reproduccion ALSA pendientes en _playback_tasks
+        STEP 2: Apagar _cpu_executor con cancel_futures=True si _owns_cpu_executor es True
+        STEP 3: Apagar _audio_executor con cancel_futures=True si _owns_audio_executor es True
         """
+        for task in list(self._playback_tasks):
+            task.cancel()
+        self._playback_tasks.clear()
+        # cancel_futures=True cancela Futures PENDING; tareas ya RUNNING dentro del
+        # ThreadPoolExecutor no pueden interrumpirse de forma forzosa desde asyncio.
         if self._owns_cpu_executor:
             self._cpu_executor.shutdown(wait=False, cancel_futures=True)
         if self._owns_audio_executor:
@@ -576,6 +601,7 @@ class CloudNLPPipeline(NLPStrategy):
         )
         self._owned_http = http_client is None
         self._http_client: Optional[httpx.AsyncClient] = http_client
+        self._playback_tasks: set[asyncio.Task[None]] = set()
 
     async def _get_http_client(self) -> httpx.AsyncClient:
         """
@@ -660,11 +686,35 @@ class CloudNLPPipeline(NLPStrategy):
         data = response.json()
         return str(data["candidates"][0]["content"]["parts"][0]["text"]).strip()
 
+    async def _run_alsa_playback(
+        self,
+        pcm_float32: NDArray[np.float32],
+        sample_rate: int,
+        block_size: int,
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            self._audio_executor, _play_audio_alsa, pcm_float32, sample_rate, block_size
+        )
+
+    def _on_playback_done(self, task: asyncio.Task[None]) -> None:
+        self._playback_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            LOGGER.warning("[CloudNLP] Excepcion en reproduccion ALSA: %s", exc)
+
+    def _track_playback_task(self, coroutine: Any, *, name: str) -> None:
+        task: asyncio.Task[None] = asyncio.create_task(coroutine, name=name)
+        self._playback_tasks.add(task)
+        task.add_done_callback(self._on_playback_done)
+
     async def _cloud_tts_openai(self, text: str) -> None:
         """
-        @TASK: Sintetizar texto con OpenAI TTS (tts-1) y reproducir via ALSA como fire-and-forget
+        @TASK: Sintetizar texto con OpenAI TTS (tts-1) y reproducir via ALSA de forma no bloqueante
         @INPUT: text — respuesta del LLM cloud a sintetizar para reproduccion en el altavoz del robot
-        @OUTPUT: Side-effect: asyncio.Task "cloud-tts-alsa-playback" creada en audio_executor
+        @OUTPUT: Side-effect: asyncio.Task "cloud-tts-alsa-playback" registrada en _playback_tasks
         @CONTEXT: TTS cloud como alternativa cuando piper-tts no esta disponible en el fallback cloud.
                   Respuesta de OpenAI TTS en formato PCM (response_format="pcm"); sample_rate 24000 Hz.
         @SECURITY: Respuesta de audio descargada completamente en memoria; sin escritura a disco.
@@ -672,7 +722,7 @@ class CloudNLPPipeline(NLPStrategy):
 
         STEP 1: POST a OPENAI_TTS_URL con modelo tts-1, voz "nova" y response_format="pcm"
         STEP 2: Leer bytes PCM de la respuesta y convertir de int16 a float32 normalizado [-1, 1]
-        STEP 3: Crear asyncio.Task "cloud-tts-alsa-playback" en audio_executor (fire-and-forget)
+        STEP 3: Registrar asyncio.Task "cloud-tts-alsa-playback" en _playback_tasks via _track_playback_task
         """
         client = await self._get_http_client()
         headers = {"Authorization": f"Bearer {self._openai_api_key}"}
@@ -687,15 +737,8 @@ class CloudNLPPipeline(NLPStrategy):
         pcm_int16 = np.frombuffer(response.content, dtype=np.int16)
         pcm_float32 = pcm_int16.astype(np.float32) / 32768.0
 
-        loop = asyncio.get_running_loop()
-        asyncio.create_task(
-            loop.run_in_executor(
-                self._audio_executor,
-                _play_audio_alsa,
-                pcm_float32,
-                24000,  # OpenAI TTS PCM rate
-                AUDIO_BLOCK_SIZE,
-            ),
+        self._track_playback_task(
+            self._run_alsa_playback(pcm_float32, 24000, AUDIO_BLOCK_SIZE),
             name="cloud-tts-alsa-playback",
         )
 
@@ -742,8 +785,14 @@ class CloudNLPPipeline(NLPStrategy):
                   El cliente HTTP compartido es responsabilidad del caller si fue inyectado.
         @SECURITY: cancel_futures=True evita reproducciones de audio tardias fuera del ciclo de vida.
 
-        STEP 1: Apagar _audio_executor con cancel_futures=True si _owns_audio_executor es True
+        STEP 1: Cancelar tareas asyncio de reproduccion ALSA pendientes en _playback_tasks
+        STEP 2: Apagar _audio_executor con cancel_futures=True si _owns_audio_executor es True
         """
+        for task in list(self._playback_tasks):
+            task.cancel()
+        self._playback_tasks.clear()
+        # cancel_futures=True cancela Futures PENDING; tareas ya RUNNING dentro del
+        # ThreadPoolExecutor no pueden interrumpirse de forma forzosa desde asyncio.
         if self._owns_audio_executor:
             self._audio_executor.shutdown(wait=False, cancel_futures=True)
 
