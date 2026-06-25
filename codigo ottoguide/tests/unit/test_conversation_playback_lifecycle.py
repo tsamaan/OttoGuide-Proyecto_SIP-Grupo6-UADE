@@ -22,18 +22,13 @@ from src.interaction.conversation_manager import CloudNLPPipeline, LocalNLPPipel
 
 _MODULE = "src.interaction.conversation_manager"
 
-# ---------------------------------------------------------------------------
-# Helpers de construccion
-# ---------------------------------------------------------------------------
 
-def _make_local() -> LocalNLPPipeline:
-    return LocalNLPPipeline(
-        cpu_executor=ThreadPoolExecutor(max_workers=1),
-        audio_executor=ThreadPoolExecutor(max_workers=1),
-    )
-
+# ---------------------------------------------------------------------------
+# Helpers de construccion e infraestructura de mocks
+# ---------------------------------------------------------------------------
 
 def _make_cloud_http() -> AsyncMock:
+    """Crea un cliente HTTP completamente mockeado que devuelve PCM int16 valido."""
     pcm_bytes = np.zeros(100, dtype=np.int16).tobytes()
     mock_response = MagicMock()
     mock_response.content = pcm_bytes
@@ -43,13 +38,6 @@ def _make_cloud_http() -> AsyncMock:
     return client
 
 
-def _make_cloud() -> CloudNLPPipeline:
-    return CloudNLPPipeline(
-        audio_executor=ThreadPoolExecutor(max_workers=1),
-        http_client=_make_cloud_http(),
-    )
-
-
 # ---------------------------------------------------------------------------
 # T01 — LocalNLP: synthesize_and_play no produce TypeError
 # ---------------------------------------------------------------------------
@@ -57,12 +45,18 @@ def _make_cloud() -> CloudNLPPipeline:
 @pytest.mark.asyncio
 async def test_t01_local_synthesize_no_type_error() -> None:
     """T01: synthesize_and_play completes without TypeError from create_task(Future)."""
-    pipeline = _make_local()
-    with patch(f"{_MODULE}._run_piper_synthesis", return_value=np.zeros(10, dtype=np.float32)), \
-         patch(f"{_MODULE}._play_audio_alsa", return_value=None):
-        await pipeline.synthesize_and_play("hola")
-        await asyncio.sleep(0.05)
-    pipeline.close()
+    cpu_exec = ThreadPoolExecutor(max_workers=1)
+    audio_exec = ThreadPoolExecutor(max_workers=1)
+    pipeline = LocalNLPPipeline(cpu_executor=cpu_exec, audio_executor=audio_exec)
+    try:
+        with patch(f"{_MODULE}._run_piper_synthesis", return_value=np.zeros(10, dtype=np.float32)), \
+             patch(f"{_MODULE}._play_audio_alsa", return_value=None):
+            await pipeline.synthesize_and_play("hola")
+            await asyncio.sleep(0.05)
+    finally:
+        pipeline.close()
+        cpu_exec.shutdown(wait=True, cancel_futures=True)
+        audio_exec.shutdown(wait=True, cancel_futures=True)
 
 
 # ---------------------------------------------------------------------------
@@ -72,11 +66,15 @@ async def test_t01_local_synthesize_no_type_error() -> None:
 @pytest.mark.asyncio
 async def test_t02_cloud_tts_no_type_error() -> None:
     """T02: _cloud_tts_openai completes without TypeError from create_task(Future)."""
-    pipeline = _make_cloud()
-    with patch(f"{_MODULE}._play_audio_alsa", return_value=None):
-        await pipeline._cloud_tts_openai("hola")
-        await asyncio.sleep(0.05)
-    pipeline.close()
+    audio_exec = ThreadPoolExecutor(max_workers=1)
+    pipeline = CloudNLPPipeline(audio_executor=audio_exec, http_client=_make_cloud_http())
+    try:
+        with patch(f"{_MODULE}._play_audio_alsa", return_value=None):
+            await pipeline._cloud_tts_openai("hola")
+            await asyncio.sleep(0.05)
+    finally:
+        pipeline.close()
+        audio_exec.shutdown(wait=True, cancel_futures=True)
 
 
 # ---------------------------------------------------------------------------
@@ -91,14 +89,21 @@ async def test_t03_local_task_registered() -> None:
     def blocking_alsa(*args: object) -> None:
         release.wait(timeout=5.0)
 
-    pipeline = _make_local()
-    with patch(f"{_MODULE}._run_piper_synthesis", return_value=np.zeros(10, dtype=np.float32)), \
-         patch(f"{_MODULE}._play_audio_alsa", side_effect=blocking_alsa):
-        await pipeline.synthesize_and_play("test")
-        assert len(pipeline._playback_tasks) >= 1, "Task must be registered before completion"
-        release.set()
-        await asyncio.sleep(0.05)
-    pipeline.close()
+    cpu_exec = ThreadPoolExecutor(max_workers=1)
+    audio_exec = ThreadPoolExecutor(max_workers=1)
+    pipeline = LocalNLPPipeline(cpu_executor=cpu_exec, audio_executor=audio_exec)
+    try:
+        with patch(f"{_MODULE}._run_piper_synthesis", return_value=np.zeros(10, dtype=np.float32)), \
+             patch(f"{_MODULE}._play_audio_alsa", side_effect=blocking_alsa):
+            await pipeline.synthesize_and_play("test")
+            assert len(pipeline._playback_tasks) >= 1, "Task must be registered before completion"
+            release.set()
+            await asyncio.sleep(0.05)
+    finally:
+        release.set()  # idempotente; garantiza que el worker no quede bloqueado
+        pipeline.close()
+        cpu_exec.shutdown(wait=True, cancel_futures=True)
+        audio_exec.shutdown(wait=True, cancel_futures=True)
 
 
 # ---------------------------------------------------------------------------
@@ -108,13 +113,19 @@ async def test_t03_local_task_registered() -> None:
 @pytest.mark.asyncio
 async def test_t04_local_task_removed_after_completion() -> None:
     """T04: Task is removed from _playback_tasks once it finishes."""
-    pipeline = _make_local()
-    with patch(f"{_MODULE}._run_piper_synthesis", return_value=np.zeros(10, dtype=np.float32)), \
-         patch(f"{_MODULE}._play_audio_alsa", return_value=None):
-        await pipeline.synthesize_and_play("test")
-        await asyncio.sleep(0.2)
-        assert len(pipeline._playback_tasks) == 0, "Task must be removed after done callback"
-    pipeline.close()
+    cpu_exec = ThreadPoolExecutor(max_workers=1)
+    audio_exec = ThreadPoolExecutor(max_workers=1)
+    pipeline = LocalNLPPipeline(cpu_executor=cpu_exec, audio_executor=audio_exec)
+    try:
+        with patch(f"{_MODULE}._run_piper_synthesis", return_value=np.zeros(10, dtype=np.float32)), \
+             patch(f"{_MODULE}._play_audio_alsa", return_value=None):
+            await pipeline.synthesize_and_play("test")
+            await asyncio.sleep(0.2)
+            assert len(pipeline._playback_tasks) == 0, "Task must be removed after done callback"
+    finally:
+        pipeline.close()
+        cpu_exec.shutdown(wait=True, cancel_futures=True)
+        audio_exec.shutdown(wait=True, cancel_futures=True)
 
 
 # ---------------------------------------------------------------------------
@@ -129,14 +140,19 @@ async def test_t05_cloud_task_registered_and_removed() -> None:
     def blocking_alsa(*args: object) -> None:
         release.wait(timeout=5.0)
 
-    pipeline = _make_cloud()
-    with patch(f"{_MODULE}._play_audio_alsa", side_effect=blocking_alsa):
-        await pipeline._cloud_tts_openai("test")
-        assert len(pipeline._playback_tasks) >= 1, "Cloud task must be registered"
+    audio_exec = ThreadPoolExecutor(max_workers=1)
+    pipeline = CloudNLPPipeline(audio_executor=audio_exec, http_client=_make_cloud_http())
+    try:
+        with patch(f"{_MODULE}._play_audio_alsa", side_effect=blocking_alsa):
+            await pipeline._cloud_tts_openai("test")
+            assert len(pipeline._playback_tasks) >= 1, "Cloud task must be registered"
+            release.set()
+            await asyncio.sleep(0.2)
+            assert len(pipeline._playback_tasks) == 0, "Cloud task must be removed after completion"
+    finally:
         release.set()
-        await asyncio.sleep(0.2)
-        assert len(pipeline._playback_tasks) == 0, "Cloud task must be removed after completion"
-    pipeline.close()
+        pipeline.close()
+        audio_exec.shutdown(wait=True, cancel_futures=True)
 
 
 # ---------------------------------------------------------------------------
@@ -149,19 +165,25 @@ async def test_t06_alsa_exception_logged(caplog: pytest.LogCaptureFixture) -> No
     def failing_alsa(*args: object) -> None:
         raise RuntimeError("ALSA device unavailable")
 
-    pipeline = _make_local()
-    with patch(f"{_MODULE}._run_piper_synthesis", return_value=np.zeros(10, dtype=np.float32)), \
-         patch(f"{_MODULE}._play_audio_alsa", side_effect=failing_alsa), \
-         caplog.at_level(logging.WARNING, logger=_MODULE):
-        await pipeline.synthesize_and_play("test")
-        await asyncio.sleep(0.2)
+    cpu_exec = ThreadPoolExecutor(max_workers=1)
+    audio_exec = ThreadPoolExecutor(max_workers=1)
+    pipeline = LocalNLPPipeline(cpu_executor=cpu_exec, audio_executor=audio_exec)
+    try:
+        with patch(f"{_MODULE}._run_piper_synthesis", return_value=np.zeros(10, dtype=np.float32)), \
+             patch(f"{_MODULE}._play_audio_alsa", side_effect=failing_alsa), \
+             caplog.at_level(logging.WARNING, logger=_MODULE):
+            await pipeline.synthesize_and_play("test")
+            await asyncio.sleep(0.2)
 
-    assert len(pipeline._playback_tasks) == 0
-    assert any(
-        "Excepcion" in r.getMessage() or "ALSA" in r.getMessage()
-        for r in caplog.records
-    ), f"Expected exception log; got: {[r.getMessage() for r in caplog.records]}"
-    pipeline.close()
+        assert len(pipeline._playback_tasks) == 0
+        assert any(
+            "Excepcion" in r.getMessage() or "ALSA" in r.getMessage()
+            for r in caplog.records
+        ), f"Expected exception log; got: {[r.getMessage() for r in caplog.records]}"
+    finally:
+        pipeline.close()
+        cpu_exec.shutdown(wait=True, cancel_futures=True)
+        audio_exec.shutdown(wait=True, cancel_futures=True)
 
 
 # ---------------------------------------------------------------------------
@@ -176,78 +198,136 @@ async def test_t07_cancelled_task_no_error_log(caplog: pytest.LogCaptureFixture)
     def blocking_alsa(*args: object) -> None:
         release.wait(timeout=5.0)
 
-    pipeline = _make_local()
-    with patch(f"{_MODULE}._run_piper_synthesis", return_value=np.zeros(10, dtype=np.float32)), \
-         patch(f"{_MODULE}._play_audio_alsa", side_effect=blocking_alsa), \
-         caplog.at_level(logging.WARNING, logger=_MODULE):
-        await pipeline.synthesize_and_play("test")
-        for task in list(pipeline._playback_tasks):
-            task.cancel()
-        await asyncio.sleep(0.05)
+    cpu_exec = ThreadPoolExecutor(max_workers=1)
+    audio_exec = ThreadPoolExecutor(max_workers=1)
+    pipeline = LocalNLPPipeline(cpu_executor=cpu_exec, audio_executor=audio_exec)
+    try:
+        with patch(f"{_MODULE}._run_piper_synthesis", return_value=np.zeros(10, dtype=np.float32)), \
+             patch(f"{_MODULE}._play_audio_alsa", side_effect=blocking_alsa), \
+             caplog.at_level(logging.WARNING, logger=_MODULE):
+            await pipeline.synthesize_and_play("test")
+            for task in list(pipeline._playback_tasks):
+                task.cancel()
+            await asyncio.sleep(0.05)
 
-    excepcion_records = [r for r in caplog.records if "Excepcion" in r.getMessage()]
-    assert len(excepcion_records) == 0, (
-        f"Cancelled task must not log exception; got: {[r.getMessage() for r in excepcion_records]}"
-    )
-    release.set()
-    pipeline.close()
+        excepcion_records = [r for r in caplog.records if "Excepcion" in r.getMessage()]
+        assert len(excepcion_records) == 0, (
+            f"Cancelled task must not log exception; got: "
+            f"{[r.getMessage() for r in excepcion_records]}"
+        )
+    finally:
+        release.set()  # desbloquear el worker antes del shutdown
+        pipeline.close()
+        cpu_exec.shutdown(wait=True, cancel_futures=True)
+        audio_exec.shutdown(wait=True, cancel_futures=True)
 
 
 # ---------------------------------------------------------------------------
-# T08 — close() cancela tareas pendientes locales
+# T08 — close() cancela tareas pendientes locales y las deja en estado terminal
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_t08_local_close_cancels_pending() -> None:
-    """T08: close() cancels all pending playback tasks in LocalNLPPipeline."""
+    """T08: close() cancels pending local tasks; tasks reach cancelled/done state."""
     release = threading.Event()
 
     def blocking_alsa(*args: object) -> None:
         release.wait(timeout=5.0)
 
-    pipeline = _make_local()
-    with patch(f"{_MODULE}._run_piper_synthesis", return_value=np.zeros(10, dtype=np.float32)), \
-         patch(f"{_MODULE}._play_audio_alsa", side_effect=blocking_alsa):
-        await pipeline.synthesize_and_play("test")
-        assert len(pipeline._playback_tasks) >= 1
-        pipeline.close()
-        assert len(pipeline._playback_tasks) == 0, "_playback_tasks must be cleared by close()"
-    release.set()
+    cpu_exec = ThreadPoolExecutor(max_workers=1)
+    audio_exec = ThreadPoolExecutor(max_workers=1)
+    pipeline = LocalNLPPipeline(cpu_executor=cpu_exec, audio_executor=audio_exec)
+    try:
+        with patch(f"{_MODULE}._run_piper_synthesis", return_value=np.zeros(10, dtype=np.float32)), \
+             patch(f"{_MODULE}._play_audio_alsa", side_effect=blocking_alsa):
+            await pipeline.synthesize_and_play("test")
+
+            pending_tasks = list(pipeline._playback_tasks)
+            assert pending_tasks, "There must be at least one pending task before close()"
+            task = pending_tasks[0]
+
+            pipeline.close()
+            await asyncio.sleep(0)  # permite que el event loop procese la cancelacion
+
+            assert task.cancelled() or task.done(), (
+                "Task must be in cancelled or done state after close()"
+            )
+            assert task not in pipeline._playback_tasks, (
+                "Task must be removed from _playback_tasks by close()"
+            )
+    finally:
+        release.set()
+        cpu_exec.shutdown(wait=True, cancel_futures=True)
+        audio_exec.shutdown(wait=True, cancel_futures=True)
 
 
 # ---------------------------------------------------------------------------
-# T09 — close() cancela tareas pendientes cloud
+# T09 — close() cancela tareas pendientes cloud y las deja en estado terminal
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_t09_cloud_close_cancels_pending() -> None:
-    """T09: close() cancels all pending playback tasks in CloudNLPPipeline."""
+    """T09: close() cancels pending cloud tasks; tasks reach cancelled/done state."""
     release = threading.Event()
 
     def blocking_alsa(*args: object) -> None:
         release.wait(timeout=5.0)
 
-    pipeline = _make_cloud()
-    with patch(f"{_MODULE}._play_audio_alsa", side_effect=blocking_alsa):
-        await pipeline._cloud_tts_openai("test")
-        assert len(pipeline._playback_tasks) >= 1
-        pipeline.close()
-        assert len(pipeline._playback_tasks) == 0, "_playback_tasks must be cleared by close()"
-    release.set()
+    audio_exec = ThreadPoolExecutor(max_workers=1)
+    pipeline = CloudNLPPipeline(audio_executor=audio_exec, http_client=_make_cloud_http())
+    try:
+        with patch(f"{_MODULE}._play_audio_alsa", side_effect=blocking_alsa):
+            await pipeline._cloud_tts_openai("test")
+
+            pending_tasks = list(pipeline._playback_tasks)
+            assert pending_tasks, "There must be at least one pending task before close()"
+            task = pending_tasks[0]
+
+            pipeline.close()
+            await asyncio.sleep(0)  # permite que el event loop procese la cancelacion
+
+            assert task.cancelled() or task.done(), (
+                "Task must be in cancelled or done state after close()"
+            )
+            assert task not in pipeline._playback_tasks, (
+                "Task must be removed from _playback_tasks by close()"
+            )
+    finally:
+        release.set()
+        audio_exec.shutdown(wait=True, cancel_futures=True)
 
 
 # ---------------------------------------------------------------------------
-# T10 — Ningun test accede a audio, red, Piper, Ollama ni hardware
+# T10 — Aislamiento de mocks: las funciones de IO estan parcheadas correctamente
 # ---------------------------------------------------------------------------
 
-def test_t10_no_real_io_accessed() -> None:
-    """T10: Prohibited hardware/network modules are not loaded in test scope."""
-    import sys
-    prohibited = {"sounddevice", "piper", "faster_whisper", "ollama"}
-    loaded_prohibited = {name for name in prohibited if name in sys.modules}
-    assert not loaded_prohibited, (
-        f"Prohibited modules must not be loaded: {loaded_prohibited}"
+def test_t10_isolation_patch_targets_are_correct() -> None:
+    """T10: Verify that IO patch targets are callable in the production module."""
+    from src.interaction import conversation_manager as cm
+
+    # Las funciones que los tests parchean deben existir en el modulo de produccion
+    assert callable(cm._run_piper_synthesis), (
+        "_run_piper_synthesis must be patchable at module level"
     )
+    assert callable(cm._play_audio_alsa), (
+        "_play_audio_alsa must be patchable at module level"
+    )
+
+    # El cliente HTTP mock debe proveer un coroutine en post() para que asyncio.wait_for funcione
+    http_mock = _make_cloud_http()
+    assert isinstance(http_mock, AsyncMock), "HTTP client must be AsyncMock"
+    assert isinstance(http_mock.post, AsyncMock), "client.post must be AsyncMock (awaitable)"
+
+    # La respuesta mock debe contener bytes validos para np.frombuffer(..., dtype=np.int16)
+    response = http_mock.post.return_value
+    assert isinstance(response.content, bytes), "mock response.content must be bytes"
+    pcm = np.frombuffer(response.content, dtype=np.int16)
+    assert pcm.dtype == np.int16, "PCM mock data must be parseable as int16"
+
+    # Verificar que modulos de hardware no han sido cargados como efecto colateral
+    import sys
+    for name in ("sounddevice", "piper", "faster_whisper", "ollama"):
+        assert name not in sys.modules, f"Hardware module '{name}' must not be loaded"
 
 
 # ---------------------------------------------------------------------------

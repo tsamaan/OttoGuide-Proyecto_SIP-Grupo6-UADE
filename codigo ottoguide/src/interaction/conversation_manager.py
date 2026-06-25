@@ -32,6 +32,7 @@ import os
 import queue
 import threading
 from abc import ABC, abstractmethod
+from collections.abc import Coroutine
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -449,7 +450,7 @@ class LocalNLPPipeline(NLPStrategy):
         if exc is not None:
             LOGGER.warning("[LocalNLP] Excepcion en reproduccion ALSA: %s", exc)
 
-    def _track_playback_task(self, coroutine: Any, *, name: str) -> None:
+    def _track_playback_task(self, coroutine: Coroutine[Any, Any, None], *, name: str) -> None:
         task: asyncio.Task[None] = asyncio.create_task(coroutine, name=name)
         self._playback_tasks.add(task)
         task.add_done_callback(self._on_playback_done)
@@ -705,7 +706,7 @@ class CloudNLPPipeline(NLPStrategy):
         if exc is not None:
             LOGGER.warning("[CloudNLP] Excepcion en reproduccion ALSA: %s", exc)
 
-    def _track_playback_task(self, coroutine: Any, *, name: str) -> None:
+    def _track_playback_task(self, coroutine: Coroutine[Any, Any, None], *, name: str) -> None:
         task: asyncio.Task[None] = asyncio.create_task(coroutine, name=name)
         self._playback_tasks.add(task)
         task.add_done_callback(self._on_playback_done)
