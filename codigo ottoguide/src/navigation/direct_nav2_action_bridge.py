@@ -16,6 +16,7 @@ from typing import Any, Optional, Sequence
 
 from src.navigation.models import (
     MissedWaypointDetail,
+    NavigationLayeredReadiness,
     NavigationResult,
     NavigationStatus,
     NavigationTerminalStatus,
@@ -63,6 +64,8 @@ class DirectNav2ActionBridge(NavigationPort):
         self._cancel_terminal_timeout_s = cancel_terminal_timeout_s
 
         self._started = False
+        self._ntp_available: bool = False
+        self._fw_available: bool = False
 
         self._rclpy: Any = None
         self._context: Any = None
@@ -133,8 +136,16 @@ class DirectNav2ActionBridge(NavigationPort):
             ntp_ready = await loop.run_in_executor(None, wait_ntp)
             fw_ready = await loop.run_in_executor(None, wait_fw)
 
-            if not ntp_ready or not fw_ready:
-                raise RuntimeError("Action servers not available")
+            if not ntp_ready:
+                raise RuntimeError("NavigateToPose action server not available")
+
+            self._ntp_available = True
+            self._fw_available = fw_ready
+            if not fw_ready:
+                LOGGER.warning(
+                    "FollowWaypoints server unavailable; multi-waypoint routes "
+                    "will fail at dispatch time. Single-waypoint routes use NavigateToPose."
+                )
 
             self._started = True
             LOGGER.info("DirectNav2ActionBridge started successfully.")
@@ -308,6 +319,14 @@ class DirectNav2ActionBridge(NavigationPort):
         """Consulta el ultimo resultado."""
         with self._state_lock:
             return self._status.last_result
+
+    def get_readiness(self) -> NavigationLayeredReadiness:
+        """Snapshot of per-server availability captured during start()."""
+        return NavigationLayeredReadiness(
+            started=self._started,
+            ntp_available=self._ntp_available,
+            fw_available=self._fw_available,
+        )
 
     def _ntp_feedback_cb(self, feedback_msg: Any) -> None:
         with self._state_lock:
@@ -588,6 +607,21 @@ class DirectNav2ActionBridge(NavigationPort):
                 self._status.last_result = res
                 self._status.last_result_succeeded = True
             return True
+
+        if len(waypoints) == 1:
+            return await self.send_goal(waypoints[0])
+
+        if not self._fw_available:
+            res = NavigationResult(
+                action_name=self._fw_action,
+                status=NavigationTerminalStatus.ERROR,
+                succeeded=False,
+                error_msg="FollowWaypoints server not available; use single-waypoint route"
+            )
+            with self._state_lock:
+                self._status.last_result = res
+                self._status.last_result_succeeded = False
+            return False
 
         from nav2_msgs.action import FollowWaypoints
         goal_msg = FollowWaypoints.Goal()

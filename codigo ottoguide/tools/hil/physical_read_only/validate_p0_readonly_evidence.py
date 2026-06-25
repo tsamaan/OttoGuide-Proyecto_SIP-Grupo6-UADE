@@ -537,6 +537,16 @@ def check_field_decision(
             no_go.append("ODOM_FREQUENCY_MISSING")
         elif freq.get("measurement_status") != "MEASURED" or not isinstance(freq.get("average_hz"), (int, float)):
             no_go.append(f"ODOM_FREQUENCY_NOT_MEASURED:status={freq.get('measurement_status')!r}")
+        else:
+            # message_window_size (or sample_count as alias) must be a positive int.
+            window_size = freq.get("message_window_size")
+            if window_size is None:
+                window_size = freq.get("sample_count")
+            if not isinstance(window_size, int) or isinstance(window_size, bool) or window_size <= 0:
+                no_go.append(f"ODOM_FREQUENCY_WINDOW_SIZE_INVALID:got={window_size!r}")
+            avg_hz = freq.get("average_hz")
+            if not isinstance(avg_hz, (int, float)) or isinstance(avg_hz, bool) or avg_hz <= 0:
+                no_go.append(f"ODOM_FREQUENCY_AVERAGE_NONPOSITIVE:got={avg_hz!r}")
 
     # TF edges: any required edge not linked to a concrete observation → NO_GO
     tf_edges_observed = tf_loc.get("tf_edges_observed", [])
@@ -620,10 +630,17 @@ def check_field_decision(
                 no_go.append(f"CMD_VEL_PUBLISHER_IDENTITIES_UNKNOWN:{cv_topic}")
             if not isinstance(info.get("subscriber_identities"), list):
                 no_go.append(f"CMD_VEL_SUBSCRIBER_IDENTITIES_UNKNOWN:{cv_topic}")
-            if cv_topic == "/cmd_vel_safe" and not info.get("physical_consumer_candidate"):
-                no_go.append("CMD_VEL_SAFE_PHYSICAL_CONSUMER_UNKNOWN")
-            if cv_topic == "/cmd_vel_safe" and info.get("unexpected_owners"):
-                no_go.append("CMD_VEL_SAFE_UNEXPECTED_OWNERS")
+            if cv_topic == "/cmd_vel_safe":
+                ownership_status = info.get("ownership_status")
+                if ownership_status is None:
+                    # Legacy bundle (no ownership_status field): fall back to old check.
+                    if not info.get("physical_consumer_candidate"):
+                        no_go.append("CMD_VEL_SAFE_PHYSICAL_CONSUMER_UNKNOWN")
+                else:
+                    if ownership_status != "CONFIRMED":
+                        no_go.append(f"CMD_VEL_SAFE_OWNERSHIP_NOT_CONFIRMED:{ownership_status}")
+                if info.get("unexpected_owners"):
+                    no_go.append("CMD_VEL_SAFE_UNEXPECTED_OWNERS")
     if not cmd_doc.get("controller_server_observed"):
         no_go.append("CONTROLLER_SERVER_NOT_OBSERVED")
     if not cmd_doc.get("collision_monitor_observed"):

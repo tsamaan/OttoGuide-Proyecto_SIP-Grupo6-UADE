@@ -9,9 +9,13 @@ from __future__ import annotations
 # STEP 2: Contratos de contenido — ZoneContent y TourScript (nuevos)
 # STEP 3: Contratos de recarga de script (nuevos)
 
+import math
 from typing import Optional, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+_MAX_COORD_M = 1_000.0
+_MAX_WAYPOINTS = 50
 
 
 class NavWaypointDTO(BaseModel):
@@ -23,12 +27,39 @@ class NavWaypointDTO(BaseModel):
     yaw_rad: float
     frame_id: str = "map"
 
+    @field_validator("x", "y", "yaw_rad", mode="before")
+    @classmethod
+    def _reject_nan_inf(cls, v: float, info) -> float:
+        if not isinstance(v, (int, float)):
+            return v
+        if math.isnan(v):
+            raise ValueError(f"{info.field_name} must not be NaN")
+        if math.isinf(v):
+            raise ValueError(f"{info.field_name} must not be infinite")
+        return v
+
+    @field_validator("x", "y", mode="after")
+    @classmethod
+    def _check_coord_bounds(cls, v: float, info) -> float:
+        if abs(v) > _MAX_COORD_M:
+            raise ValueError(
+                f"{info.field_name}={v} exceeds ±{_MAX_COORD_M} m map bounds"
+            )
+        return v
+
+    @field_validator("frame_id", mode="after")
+    @classmethod
+    def _frame_id_nonempty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("frame_id must not be empty")
+        return v
+
 
 class StartTourRequest(BaseModel):
     """Payload para POST /tour/start."""
     model_config = ConfigDict(extra="forbid")
 
-    waypoints: list[NavWaypointDTO] = Field(min_length=1)
+    waypoints: list[NavWaypointDTO] = Field(min_length=1, max_length=_MAX_WAYPOINTS)
     tour_id: str = Field(default="tour-001", min_length=1)
 
 
@@ -71,6 +102,10 @@ class StatusResponse(BaseModel):
     navigation_remote_state_unknown: bool = False
     navigation_action_name: Optional[str] = None
     navigation_goal_uuid: Optional[str] = None
+
+    # --- Readiness por servidor (Commit 5) ---
+    navigation_ntp_available: Optional[bool] = None
+    navigation_fw_available: Optional[bool] = None
 
 
 class QuestionRequest(BaseModel):

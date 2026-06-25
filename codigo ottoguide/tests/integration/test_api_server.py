@@ -208,3 +208,80 @@ async def test_post_start_tour_triggers_state_change(
     assert payload["state"] in {"navigating", "idle"}
     assert payload["tour_id"] == "tour-api-002"
     assert len(api_bundle.nav_bridge.navigation_calls) == 1
+
+
+def test_schema_waypoint_nan_server_pydantic_direct() -> None:
+    """Commit 6: src.api.server.NavWaypointDTO must reject NaN (Pydantic-level)."""
+    import math
+    from src.api.server import NavWaypointDTO as ServerNavWaypointDTO
+    with pytest.raises(Exception):
+        ServerNavWaypointDTO(x=math.nan, y=0.0, yaw_rad=0.0)
+
+
+def test_schema_waypoint_inf_server_pydantic_direct() -> None:
+    """Commit 6: src.api.server.NavWaypointDTO must reject infinity (Pydantic-level)."""
+    import math
+    from src.api.server import NavWaypointDTO as ServerNavWaypointDTO
+    with pytest.raises(Exception):
+        ServerNavWaypointDTO(x=0.0, y=math.inf, yaw_rad=0.0)
+
+
+@pytest.mark.asyncio
+async def test_waypoint_out_of_bounds_rejected(async_client: httpx.AsyncClient) -> None:
+    """Commit 6: x or y beyond ±1000 m must produce HTTP 422."""
+    response = await async_client.post(
+        "/tour/start",
+        json={
+            "tour_id": "oob-tour",
+            "waypoints": [{"x": 9999.0, "y": 0.0, "yaw_rad": 0.0, "frame_id": "map"}],
+        },
+    )
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.asyncio
+async def test_waypoint_empty_frame_id_rejected(async_client: httpx.AsyncClient) -> None:
+    """Commit 6: blank frame_id must produce HTTP 422."""
+    response = await async_client.post(
+        "/tour/start",
+        json={
+            "tour_id": "frame-tour",
+            "waypoints": [{"x": 0.0, "y": 0.0, "yaw_rad": 0.0, "frame_id": "   "}],
+        },
+    )
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.asyncio
+async def test_too_many_waypoints_rejected(async_client: httpx.AsyncClient) -> None:
+    """Commit 6: more than 50 waypoints must produce HTTP 422."""
+    waypoints = [{"x": float(i % 100), "y": 0.0, "yaw_rad": 0.0, "frame_id": "map"}
+                 for i in range(51)]
+    response = await async_client.post(
+        "/tour/start",
+        json={"tour_id": "big-tour", "waypoints": waypoints},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_schema_waypoint_nan_pydantic_direct() -> None:
+    """Commit 6: NavWaypointDTO must reject NaN at the Pydantic model level."""
+    import math
+    from api.schemas import NavWaypointDTO
+    with pytest.raises(Exception):
+        NavWaypointDTO(x=math.nan, y=0.0, yaw_rad=0.0)
+
+
+def test_schema_waypoint_inf_pydantic_direct() -> None:
+    """Commit 6: NavWaypointDTO must reject infinity at the Pydantic model level."""
+    import math
+    from api.schemas import NavWaypointDTO
+    with pytest.raises(Exception):
+        NavWaypointDTO(x=0.0, y=math.inf, yaw_rad=0.0)
+
+
+def test_schema_waypoint_oob_pydantic_direct() -> None:
+    """Commit 6: NavWaypointDTO must reject coordinates beyond ±1000 m."""
+    from api.schemas import NavWaypointDTO
+    with pytest.raises(Exception):
+        NavWaypointDTO(x=1001.0, y=0.0, yaw_rad=0.0)

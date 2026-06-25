@@ -14,11 +14,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 from typing import Optional
 
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from statemachine.exceptions import TransitionNotAllowed
 
 from src.core import TourOrchestrator, TourPlan
@@ -26,6 +27,9 @@ from src.navigation import NavWaypoint
 
 
 LOGGER = logging.getLogger(__name__)
+
+_MAX_COORD_M = 1_000.0
+_MAX_WAYPOINTS = 50
 
 # ---------------------------------------------------------------------------
 # Modelos Pydantic — contratos de entrada/salida
@@ -46,6 +50,33 @@ class NavWaypointDTO(BaseModel):
     yaw_rad: float
     frame_id: str = "map"
 
+    @field_validator("x", "y", "yaw_rad", mode="before")
+    @classmethod
+    def _reject_nan_inf(cls, v: float, info) -> float:
+        if not isinstance(v, (int, float)):
+            return v
+        if math.isnan(v):
+            raise ValueError(f"{info.field_name} must not be NaN")
+        if math.isinf(v):
+            raise ValueError(f"{info.field_name} must not be infinite")
+        return v
+
+    @field_validator("x", "y", mode="after")
+    @classmethod
+    def _check_coord_bounds(cls, v: float, info) -> float:
+        if abs(v) > _MAX_COORD_M:
+            raise ValueError(
+                f"{info.field_name}={v} exceeds ±{_MAX_COORD_M} m map bounds"
+            )
+        return v
+
+    @field_validator("frame_id", mode="after")
+    @classmethod
+    def _frame_id_nonempty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("frame_id must not be empty")
+        return v
+
 
 class StartTourRequest(BaseModel):
     # @TASK: Definir payload del endpoint POST /tour/start
@@ -58,7 +89,7 @@ class StartTourRequest(BaseModel):
     # @AI_CONTEXT: waypoints se convierten a NavWaypoint antes de despachar
     model_config = ConfigDict(extra="forbid")
 
-    waypoints: list[NavWaypointDTO] = Field(min_length=1)
+    waypoints: list[NavWaypointDTO] = Field(min_length=1, max_length=_MAX_WAYPOINTS)
     tour_id: str = Field(default="tour-001", min_length=1)
 
 

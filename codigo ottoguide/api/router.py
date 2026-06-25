@@ -95,14 +95,14 @@ def _get_orchestrator(request: Request):
 async def endpoint_start_tour(
     request: Request,
     payload: StartTourRequest,
-    background_tasks: BackgroundTasks,
     orchestrator=Depends(_get_orchestrator),
 ) -> StartTourResponse:
     """
-    @TASK: Despachar plan de tour al orchestrator en background
+    @TASK: Despachar plan de tour al orchestrator de forma atomica
     @INPUT: payload con waypoints y tour_id
-    @OUTPUT: HTTP 202 Accepted
-    @CONTEXT: El endpoint retorna inmediatamente; dispatch corre en background
+    @OUTPUT: HTTP 202 Accepted tras confirmar la transicion FSM
+    @CONTEXT: await dispatch_tour() garantiza que la transicion idle->navigating
+              ocurre antes de retornar; errores de transicion producen HTTP 409
     @SECURITY: TransitionNotAllowed → HTTP 409
     """
     from src.navigation import NavWaypoint
@@ -124,15 +124,19 @@ async def endpoint_start_tour(
     ]
     plan = TourPlan(waypoints=domain_waypoints, tour_id=payload.tour_id)
 
-    async def _dispatch():
-        try:
-            await orchestrator.dispatch_tour(plan)
-        except TransitionNotAllowed as exc:
-            LOGGER.error("[API] dispatch_tour rechazado: %s", exc)
-        except Exception as exc:
-            LOGGER.error("[API] Excepcion en dispatch_tour: %s", exc)
-
-    background_tasks.add_task(_dispatch)
+    try:
+        await orchestrator.dispatch_tour(plan)
+    except TransitionNotAllowed as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Transicion rechazada: {exc}",
+        )
+    except Exception as exc:
+        LOGGER.error("[API] Excepcion en dispatch_tour: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al despachar tour: {exc}",
+        )
 
     LOGGER.info(
         "[API] POST /tour/start aceptado. tour_id=%s waypoints=%d",
@@ -177,17 +181,14 @@ async def endpoint_pause_tour(
         audio_pcm = np.zeros(1, dtype=np.float32)
 
     try:
-        asyncio.create_task(
-            orchestrator.request_interaction(audio_pcm, language=payload.language),
-            name="api-pause-interaction",
-        )
+        await orchestrator.request_interaction(audio_pcm, language=payload.language)
     except TransitionNotAllowed as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Transicion rechazada: {exc}",
         )
 
-    return {"accepted": "true", "detail": "Solicitud de interaccion despachada."}
+    return {"accepted": True, "detail": "Solicitud de interaccion despachada."}
 
 
 @router.post(
@@ -320,6 +321,8 @@ async def _resolve_navigation_observability(request: Request) -> dict:
     remote_state_unknown = False
     action_name: Optional[str] = None
     goal_uuid: Optional[str] = None
+    ntp_available: Optional[bool] = None
+    fw_available: Optional[bool] = None
 
     get_status_fn = getattr(nav_bridge, "get_status", None)
     if not callable(get_status_fn):
@@ -333,6 +336,15 @@ async def _resolve_navigation_observability(request: Request) -> dict:
         except Exception:
             remote_state_unknown = True
 
+    get_readiness_fn = getattr(nav_bridge, "get_readiness", None)
+    if callable(get_readiness_fn):
+        try:
+            readiness = get_readiness_fn()
+            ntp_available = bool(readiness.ntp_available)
+            fw_available = bool(readiness.fw_available)
+        except Exception:
+            pass
+
     return {
         "navigation_backend_requested": requested,
         "navigation_backend_resolved": resolved,
@@ -340,6 +352,8 @@ async def _resolve_navigation_observability(request: Request) -> dict:
         "navigation_remote_state_unknown": remote_state_unknown,
         "navigation_action_name": action_name,
         "navigation_goal_uuid": goal_uuid,
+        "navigation_ntp_available": ntp_available,
+        "navigation_fw_available": fw_available,
     }
 
 
