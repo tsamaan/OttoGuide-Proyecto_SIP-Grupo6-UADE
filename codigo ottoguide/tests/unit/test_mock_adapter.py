@@ -133,6 +133,42 @@ class TestMockAdapterMove:
         assert state["position"]["y"] == 0.0
         assert state["position"]["yaw"] == 0.0
 
+    @pytest.mark.asyncio
+    async def test_move_before_damp_still_updates_position(self) -> None:
+        """Verificar que move() sigue actualizando posicion y estado antes de damp()."""
+        adapter = MockRobotAdapter()
+        cmd = MotionCommand(linear_x=0.5, angular_z=0.0, duration_ms=1000)
+        await adapter.move(cmd)
+        state = await adapter.get_state()
+        assert state["state"] == "moving"
+        assert abs(state["position"]["x"] - 0.5) < 1e-6
+
+    @pytest.mark.asyncio
+    async def test_move_after_damp_is_ignored(self) -> None:
+        """move() despues de damp() no modifica posicion ni estado."""
+        adapter = MockRobotAdapter()
+        # Establecer posicion no-trivial antes de damp
+        await adapter.move(MotionCommand(linear_x=0.3, angular_z=0.0, duration_ms=1000))
+        state_before_damp = await adapter.get_state()
+        assert state_before_damp["state"] == "moving"
+
+        await adapter.damp()
+        state_after_damp = await adapter.get_state()
+        assert state_after_damp["state"] == "damped"
+        pos_after_damp = dict(state_after_damp["position"])
+
+        # move() con velocidad no nula despues de damp debe ser ignorado
+        await adapter.move(MotionCommand(linear_x=1.0, angular_z=1.0, duration_ms=2000))
+        state_final = await adapter.get_state()
+
+        assert state_final["state"] == "damped", (
+            f"estado esperado 'damped', obtenido '{state_final['state']}'"
+        )
+        assert state_final["position"] == pos_after_damp, (
+            f"posicion no debe cambiar tras move() en estado damped. "
+            f"antes={pos_after_damp!r}  despues={state_final['position']!r}"
+        )
+
 
 class TestMockAdapterEmergencyStop:
     """Verificar que emergency_stop() llama a damp()."""

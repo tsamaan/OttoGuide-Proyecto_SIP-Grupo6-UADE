@@ -86,6 +86,11 @@ class MockHardwareAPI(RobotHardwareInterface):
         STEP 3: Integrar yaw.
         @SECURITY: Solo aritmetica local; no publica comandos a bus externo.
         """
+        if self._state == "damped":
+            LOGGER.warning(
+                "[MOCK] move() ignorado: el adaptador permanece en estado 'damped'."
+            )
+            return
         dt = command.duration_ms / 1000.0
         self._position["x"] += command.linear_x * dt * math.cos(self._position["yaw"])
         self._position["y"] += command.linear_x * dt * math.sin(self._position["yaw"])
