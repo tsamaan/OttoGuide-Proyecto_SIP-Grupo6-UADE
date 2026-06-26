@@ -20,9 +20,11 @@ MIN_PYTHON_MINOR=10
 # @CONTEXT: Biblioteca C de Eclipse CycloneDDS (releases/0.10.x), requerida
 #           para compilar el binding Python cyclonedds==0.10.2 (no hay wheel
 #           prebuilt para Linux/py3.12 en este indice). Se instala fuera del
-#           repositorio, sin sudo, en una ruta propiedad del usuario. Ver
-#           bootstrap manual: clonar releases/0.10.x, compilar con CMake e
-#           instalar en SITL_CYCLONEDDS_HOME antes de ejecutar este script.
+#           repositorio, sin sudo, en una ruta propiedad del usuario. El
+#           prerequisito reproducible se crea ejecutando primero
+#           scripts/bootstrap_cyclonedds_wsl.sh (clona releases/0.10.x en el
+#           commit fijado, compila con CMake e instala en
+#           SITL_CYCLONEDDS_HOME) antes de ejecutar este script.
 SITL_CYCLONEDDS_HOME="${SITL_CYCLONEDDS_HOME:-${HOME}/.local/opt/cyclonedds-0.10.x}"
 
 echo "[BOOTSTRAP] Este script aprovisiona el runtime SITL de WSL."
@@ -107,7 +109,9 @@ if [[ -x "${SITL_VENV_PYTHON}" ]]; then
 else
   echo "[BOOTSTRAP] Creando venv en ${SITL_VENV_DIR}..."
   mkdir -p "$(dirname "${SITL_VENV_DIR}")"
-  if ! python3 -m venv "${SITL_VENV_DIR}"; then
+  if python3 -m venv "${SITL_VENV_DIR}"; then
+    echo "[BOOTSTRAP] Venv creado."
+  else
     VENV_CREATE_EXIT=$?
     echo "[ERROR] NO-GO bootstrap: python3 -m venv fallo (exit=${VENV_CREATE_EXIT})." >&2
     echo "[ERROR] Si el mensaje anterior menciona 'ensurepip is not available', falta el" >&2
@@ -116,7 +120,6 @@ else
     echo "[ERROR] Este script no instala paquetes apt ni usa sudo." >&2
     exit "${VENV_CREATE_EXIT}"
   fi
-  echo "[BOOTSTRAP] Venv creado."
 fi
 
 if [[ ! -x "${SITL_VENV_PYTHON}" ]]; then
@@ -142,8 +145,9 @@ echo "[BOOTSTRAP] pip actual: ${PIP_VERSION_BEFORE}"
 #           prebuilt para este host; el build desde fuente necesita
 #           CYCLONEDDS_HOME/CMAKE_PREFIX_PATH apuntando a una instalacion
 #           ya compilada de la biblioteca C. Este script no compila esa
-#           biblioteca (eso es un paso manual fuera de alcance, ver
-#           SITL_CYCLONEDDS_HOME arriba); solo valida que ya exista.
+#           biblioteca; el procedimiento reproducible es
+#           scripts/bootstrap_cyclonedds_wsl.sh (ver SITL_CYCLONEDDS_HOME
+#           arriba). Aqui solo se valida que ya exista.
 CYCLONEDDS_LIB_FOUND=0
 for _candidate in "${SITL_CYCLONEDDS_HOME}/lib/libddsc.so" "${SITL_CYCLONEDDS_HOME}/lib"/libddsc.so.*; do
   if [[ -e "${_candidate}" ]]; then
