@@ -37,7 +37,7 @@ Repositorio documental oficial del proyecto OttoGuide MVP para arquitectura, pro
 ## Estado de deuda técnica de aplicación
 | Componente histórico | Estado actual | Reemplazo vigente |
 |---|---|---|
-| `api_server.py` | Eliminado | `codigo ottoguide/src/api/server.py` |
+| `api_server.py` y `codigo ottoguide/src/api/server.py` | Eliminados | `codigo ottoguide/api/router.py` y `codigo ottoguide/api/schemas.py`, integrados desde `codigo ottoguide/main.py` |
 | `navigation_manager.py` | Eliminado | `codigo ottoguide/src/navigation/nav2_bridge.py` |
 
 ## Flujo del protocolo HIL

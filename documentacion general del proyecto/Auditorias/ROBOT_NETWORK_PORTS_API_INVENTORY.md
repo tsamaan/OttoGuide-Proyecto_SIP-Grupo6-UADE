@@ -72,7 +72,17 @@ Servicios Linux running relevantes: `ssh.service`, `ollama.service`, `master_ser
 
 Nodos observados: `/livox_sdk_bridge_node`, `/pointcloud_to_laserscan`.
 
-## APIs/endpoints OttoGuide en codigo
+## APIs/endpoints OttoGuide observados en el código al momento de la auditoría
+
+> **Nota de vigencia del repositorio — commit `7216d6f`:**
+> esta tabla conserva el resultado de la auditoría original.
+> `codigo ottoguide/src/api/server.py` fue retirado posteriormente.
+> La superficie HTTP canónica vigente se define en
+> `codigo ottoguide/api/router.py`, sus contratos en
+> `codigo ottoguide/api/schemas.py` y la aplicación se ensambla desde
+> `codigo ottoguide/main.py`.
+> Las observaciones de runtime de esta sección pertenecen al momento
+> original de la auditoría y no fueron revalidadas por este cambio documental.
 
 | Endpoint | Metodo | Archivo | Funcion | Estado | Uso |
 |---|---|---|---|---|---|

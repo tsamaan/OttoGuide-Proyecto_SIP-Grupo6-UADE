@@ -65,7 +65,7 @@ canónicas y eliminó módulos legacy de la capa de aplicación.
 
 | Deuda técnica histórica | Estado actual |
 |------------------------|-------------|
-| `api_server.py` | Eliminado, reemplazado por `codigo ottoguide/src/api/server.py` |
+| `api_server.py` y `codigo ottoguide/src/api/server.py` | Eliminados; superficie HTTP canónica en `codigo ottoguide/api/router.py`, contratos en `codigo ottoguide/api/schemas.py` y aplicación ensamblada desde `codigo ottoguide/main.py` |
 | `navigation_manager.py` | Eliminado, reemplazado por `codigo ottoguide/src/navigation/nav2_bridge.py` |
 | `OttoGuide IA/` (directorio prototipo) | **Eliminado en FASE R1.** Toda la lógica fue migrada y refactorizada en `src/interaction/`. El `Modelfile` se conserva en `codigo ottoguide/resources/llm/Modelfile`. |
 
@@ -273,8 +273,11 @@ El flujo de actualización de contenido es:
 3. El `ConversationManager` valida el JSON sin interrumpir las interacciones activas.
 4. `set_active_zone(zone_id)` actualiza el `system_prompt` en caché para la próxima consulta a Ollama.
 
-Nota de contrato: la API HTTP vigente en `src/api/server.py` no expone endpoint
-de recarga de contenido en esta versión del MVP.
+Nota de contrato: la API canónica expone `GET /content/script` y
+`POST /content/script/reload` desde `codigo ottoguide/api/router.py`.
+La recarga utiliza la ruta fija `data/mvp_tour_script.json` y ejecuta
+`ConversationManager.load_script_from_file(...)` en un executor de I/O
+para no bloquear el event loop de FastAPI.
 
 El `system_prompt` de cada zona se pre-concatena al texto del usuario antes del
 envío a Ollama, sin modificar el cliente HTTP `httpx` ni la estructura del

@@ -127,6 +127,16 @@ Servicios observados: servicios de parametros de esos dos nodos. Actions: ningun
 
 ## 9. APIs/endpoints
 
+> **Nota de vigencia del repositorio — commit `7216d6f`:**
+> esta tabla preserva el estado observado durante la validación original.
+> `codigo ottoguide/src/api/server.py` fue retirado posteriormente.
+> Los endpoints canónicos actuales se definen en
+> `codigo ottoguide/api/router.py`, con contratos en
+> `codigo ottoguide/api/schemas.py` y ensamblado de la aplicación en
+> `codigo ottoguide/main.py`.
+> La ausencia de un servidor escuchando en el robot corresponde a la
+> ejecución documentada originalmente y no fue revalidada en esta actualización.
+
 | Endpoint/API | Metodo | Archivo | Runtime | Estado |
 |---|---|---|---|---|
 | `/tour/start` | POST | `codigo ottoguide/src/api/server.py` | No observado en puerto 8000 | Presente en codigo, no observado en runtime |
