@@ -1,0 +1,94 @@
+# Manifiesto para el runtime SITL offline (WSL) del panel FastAPI de
+# `scripts/launch_sitl_tmux.sh` (panel 0.3: `uvicorn main:create_app --factory`).
+#
+# Este archivo distingue tres capas de necesidad, auditadas con evidencia
+# exacta sobre el codigo real (main.py, config/settings.py,
+# hardware/sim_adapter.py, libs/unitree_sdk2_python-master/setup.py):
+#
+#   FACTORY_MINIMAL
+#     Necesario para `import main` y para que `create_app()` construya el
+#     objeto FastAPI (sin ejecutar lifespan). Evidencia:
+#       - fastapi: main.py (create_app), api/router.py:22
+#       - python-statemachine: api/router.py:23 (TransitionNotAllowed,
+#         import a nivel de modulo, cargado por create_app() via
+#         `from api.router import router`)
+#       - pydantic / pydantic_core: dependencia transitiva de fastapi y de
+#         api/schemas.py:15
+#
+#   LIFESPAN_SIM
+#     Necesario para que `lifespan()` arranque y llegue a invocar
+#     `hardware.initialize()` con ROBOT_MODE=sim. Evidencia:
+#       - pydantic-settings: config/settings.py:16; get_settings() se llama
+#         en main.py:115, primera linea de lifespan()
+#       - unitree_sdk2py: hardware/sim_adapter.py:90-91, import lazy dentro
+#         de UnitreeG1SimAdapter.initialize(), invocado por
+#         get_hardware_adapter() -> hardware.initialize() en main.py:148-149
+#       - cyclonedds==0.10.2, numpy, opencv-python: declarados como
+#         install_requires del propio paquete vendorizado en
+#         libs/unitree_sdk2_python-master/setup.py. No son importados
+#         directamente por hardware/sim_adapter.py, pero son dependencias
+#         transitivas obligatorias de unitree_sdk2py y se instalan junto a
+#         el. Se usa opencv-python-headless (no opencv-python) porque es la
+#         variante ya usada en pyproject.toml:32 para el resto del proyecto
+#         y es funcionalmente compatible (mismo modulo `cv2`, sin
+#         dependencias de sistema de UI que no aplican en un host SITL
+#         headless).
+#       - httpx: usado por ConversationManager con fallback a un stub si el
+#         import falla (main.py:507-520); no bloquea el lifespan si falta,
+#         pero se incluye para evitar degradar silenciosamente a stub en el
+#         runtime SITL.
+#
+#   FULL_SIM_EXTERNAL_RUNTIME (NO cubierto por este manifiesto, no instalable via pip)
+#     Que `ChannelFactoryInitialize`/`LocoClient.Init()` completen con exito
+#     requiere el proceso externo `unitree_mujoco` (simulate.py) corriendo y
+#     respondiendo en DDS domain 1, interfaz loopback. Sin ese proceso,
+#     `hardware.initialize()` puede bloquear indefinidamente: main.py no
+#     envuelve `await hardware.initialize()` ni `await nav_bridge.start()`
+#     en ningun `asyncio.wait_for` (confirmado por inspeccion; solo
+#     `damp()`/`MotionCommand` tienen timeout). Por esta razon, ejecutar el
+#     lifespan real contra ROBOT_MODE=sim sin unitree_mujoco activo NO debe
+#     intentarse como smoke test automatizado de este runtime: no hay
+#     garantia de cleanup. ROS 2/Isaac tampoco estan validados por este
+#     manifiesto ni por ningun smoke test asociado.
+#
+# No se usa `pip install -c requirements_prod.txt` como mecanismo de
+# constraints porque ese archivo contiene una linea editable local
+# (`-e ./libs/unitree_sdk2_python`, linea 110), y pip rechaza archivos de
+# constraints que contengan requisitos editables. Las versiones FACTORY_MINIMAL
+# y LIFESPAN_SIM se copian explicitamente desde requirements_prod.txt
+# (lineas 32, 40, 67, 68, 69, 83, 106) para no introducir un segundo
+# conjunto de versiones independiente del manifiesto productivo.
+#
+# unitree_sdk2py NO se lista en este archivo: pip rechaza
+# `paquete @ file:ruta-relativa` cuando la ruta no es absoluta (confirmado
+# al ejecutar `pip install -r requirements_sitl.txt`: "Invalid requirement
+# ... It looks like a path"). Como este archivo no conoce en tiempo de
+# edicion la ruta absoluta del checkout, unitree_sdk2py se instala por
+# separado desde scripts/bootstrap_sitl_wsl.sh, que calcula
+# "${PROJECT_ROOT}/libs/unitree_sdk2_python-master" en runtime y lo instala
+# con `pip install -e <ruta absoluta>`. cyclonedds, numpy y
+# opencv-python-headless si quedan en este archivo porque son paquetes de
+# PyPI con nombre fijo, no rutas locales.
+#
+# Regla de sincronizacion: si fastapi, uvicorn, pydantic, pydantic-settings,
+# pydantic_core, python-statemachine o httpx cambian de version en
+# requirements_prod.txt, este archivo debe actualizarse en el mismo cambio.
+# Si la version de unitree_sdk2py vendorizado en
+# libs/unitree_sdk2_python-master cambia su propio setup.py
+# (install_requires), revisar tambien cyclonedds/numpy/opencv-python-headless
+# aqui.
+
+# --- FACTORY_MINIMAL ---
+fastapi==0.118.2
+python-statemachine==3.0.0
+pydantic==2.12.0
+pydantic_core==2.41.1
+uvicorn[standard]==0.37.0
+
+# --- LIFESPAN_SIM ---
+pydantic-settings==2.13.1
+httpx==0.28.1
+cyclonedds==0.10.2
+numpy>=1.24
+opencv-python-headless>=4.9
+# unitree_sdk2py se instala aparte por scripts/bootstrap_sitl_wsl.sh (ver nota arriba)
