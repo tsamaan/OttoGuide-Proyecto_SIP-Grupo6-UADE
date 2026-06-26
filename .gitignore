@@ -19,6 +19,9 @@ build/
 install/
 log/
 
+# Runtime-generated mission audit logs
+/codigo ottoguide/logs/mission_*.json
+
 # Local HIL/GitOps session artifacts
 artifacts/*_current_path.txt
 artifacts/*.bundle
