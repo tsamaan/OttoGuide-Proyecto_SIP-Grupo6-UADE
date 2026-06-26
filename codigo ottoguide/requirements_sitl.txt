@@ -1,5 +1,14 @@
-# Manifiesto para el runtime SITL offline (WSL) del panel FastAPI de
-# `scripts/launch_sitl_tmux.sh` (panel 0.3: `uvicorn main:create_app --factory`).
+# Manifiesto para el runtime SITL offline (WSL, Ubuntu 24.04, x86_64) del
+# panel FastAPI de `scripts/launch_sitl_tmux.sh`
+# (panel 0.3: `uvicorn main:create_app --factory`).
+#
+# Este archivo es EXCLUSIVO para el host de desarrollo/validacion SITL sobre
+# WSL2. NO es el manifiesto del robot fisico (Jetson Tegra, AArch64,
+# Ubuntu 20.04, ROS 2 Foxy). La compatibilidad AArch64/Foxy de estos pines
+# NO fue evaluada y no debe asumirse. El lifespan real (ROBOT_MODE=sim
+# contra unitree_mujoco) no fue validado por este manifiesto ni por ningun
+# smoke test asociado; solo se valido la construccion del factory FastAPI
+# y un arranque de Uvicorn con `--lifespan off`.
 #
 # Este archivo distingue tres capas de necesidad, auditadas con evidencia
 # exacta sobre el codigo real (main.py, config/settings.py,
@@ -32,7 +41,12 @@
 #         variante ya usada en pyproject.toml:32 para el resto del proyecto
 #         y es funcionalmente compatible (mismo modulo `cv2`, sin
 #         dependencias de sistema de UI que no aplican en un host SITL
-#         headless).
+#         headless). numpy y opencv-python-headless se pinean exactamente
+#         (==) en vez de con minimos (>=), copiando el pin productivo de
+#         requirements_prod.txt, para eliminar el drift de version
+#         detectado entre el entorno SITL ya aprovisionado (numpy 2.5.0,
+#         resuelto por pip al no haber tope superior) y el pin productivo
+#         real (numpy==2.3.3, requirements_prod.txt:55).
 #       - httpx: usado por ConversationManager con fallback a un stub si el
 #         import falla (main.py:507-520); no bloquea el lifespan si falta,
 #         pero se incluye para evitar degradar silenciosamente a stub en el
@@ -70,13 +84,22 @@
 # opencv-python-headless si quedan en este archivo porque son paquetes de
 # PyPI con nombre fijo, no rutas locales.
 #
+# Todos los pines de esta capa provienen de requirements_prod.txt (lineas
+# 32, 40, 55, 56, 67, 68, 69, 83, 106 al momento de esta correccion):
+# fastapi, httpx, numpy, opencv-python-headless, pydantic, pydantic_core,
+# pydantic-settings, python-statemachine, uvicorn. cyclonedds==0.10.2 no
+# aparece en requirements_prod.txt (ese manifiesto fija el SDK via
+# `-e ./libs/unitree_sdk2_python`, que arrastra cyclonedds==0.10.2 via su
+# propio setup.py); se mantiene aqui pineado a la misma version exacta que
+# install_requires del SDK vendorizado.
+#
 # Regla de sincronizacion: si fastapi, uvicorn, pydantic, pydantic-settings,
-# pydantic_core, python-statemachine o httpx cambian de version en
-# requirements_prod.txt, este archivo debe actualizarse en el mismo cambio.
-# Si la version de unitree_sdk2py vendorizado en
-# libs/unitree_sdk2_python-master cambia su propio setup.py
-# (install_requires), revisar tambien cyclonedds/numpy/opencv-python-headless
-# aqui.
+# pydantic_core, python-statemachine, httpx, numpy o
+# opencv-python-headless cambian de version en requirements_prod.txt, este
+# archivo debe actualizarse en el mismo cambio. Si la version de
+# unitree_sdk2py vendorizado en libs/unitree_sdk2_python-master cambia su
+# propio setup.py (install_requires), revisar tambien
+# cyclonedds/numpy/opencv-python-headless aqui.
 
 # --- FACTORY_MINIMAL ---
 fastapi==0.118.2
@@ -89,6 +112,6 @@ uvicorn[standard]==0.37.0
 pydantic-settings==2.13.1
 httpx==0.28.1
 cyclonedds==0.10.2
-numpy>=1.24
-opencv-python-headless>=4.9
+numpy==2.3.3
+opencv-python-headless==4.13.0.92
 # unitree_sdk2py se instala aparte por scripts/bootstrap_sitl_wsl.sh (ver nota arriba)

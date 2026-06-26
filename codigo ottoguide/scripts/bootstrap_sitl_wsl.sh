@@ -2,7 +2,11 @@
 # @TASK: Aprovisionar un venv Linux reproducible para el panel FastAPI del runtime SITL en WSL.
 # @INPUT: SITL_VENV_DIR (opcional, default ${HOME}/.venvs/ottoguide-sitl)
 # @OUTPUT: Venv creado/validado en SITL_VENV_DIR con las dependencias de requirements_sitl.txt.
-# @CONTEXT: No reemplaza bootstrap_target.sh (Companion PC). Aislado del .venv Windows del repo.
+# @CONTEXT: Exclusivo para WSL2 x86_64. No reemplaza bootstrap_target.sh (Companion PC) ni el
+#           runtime del robot fisico (Jetson Tegra, AArch64, Ubuntu 20.04, ROS 2 Foxy). Aislado
+#           del .venv Windows del repo. Idempotencia: FUNCTIONALLY_IDEMPOTENT_WITH_EDITABLE_REINSTALL
+#           (pip reinstala el enlace editable de unitree_sdk2py en cada corrida; el resto de
+#           pip install -r resuelve a "Requirement already satisfied" sin cambios).
 # @SECURITY: Sin sudo, sin apt, sin activar el venv, sin iniciar tmux/uvicorn/ROS/MuJoCo/Isaac.
 
 set -euo pipefail
@@ -21,16 +25,42 @@ MIN_PYTHON_MINOR=10
 #           instalar en SITL_CYCLONEDDS_HOME antes de ejecutar este script.
 SITL_CYCLONEDDS_HOME="${SITL_CYCLONEDDS_HOME:-${HOME}/.local/opt/cyclonedds-0.10.x}"
 
+echo "[BOOTSTRAP] Este script aprovisiona el runtime SITL de WSL."
+echo "[BOOTSTRAP] No es el bootstrap del robot fisico."
 echo "[BOOTSTRAP] PROJECT_ROOT=${PROJECT_ROOT}"
 echo "[BOOTSTRAP] SITL_VENV_DIR=${SITL_VENV_DIR}"
 
+# --- Guard de plataforma: WSL + x86_64 obligatorios ---
+ARCH="$(uname -m)"
+IS_WSL=0
 if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+  IS_WSL=1
   echo "[BOOTSTRAP] Host WSL detectado: WSL_DISTRO_NAME=${WSL_DISTRO_NAME}"
 elif grep -qi microsoft /proc/version 2>/dev/null; then
+  IS_WSL=1
   echo "[BOOTSTRAP] Host WSL detectado via /proc/version (kernel microsoft)."
-else
-  echo "[BOOTSTRAP] No se detecto WSL explicitamente; continuando igual (host Linux generico)."
 fi
+
+if [[ "${IS_WSL}" -ne 1 ]]; then
+  echo "[ERROR] NO_GO_WRONG_PLATFORM: no se detecto WSL (WSL_DISTRO_NAME ausente y /proc/version sin 'microsoft')." >&2
+  echo "[ERROR] Este script aprovisiona el runtime SITL de WSL. No debe ejecutarse en el robot fisico." >&2
+  exit 1
+fi
+
+case "${ARCH}" in
+  x86_64) : ;;
+  aarch64|arm64)
+    echo "[ERROR] NO_GO_WRONG_PLATFORM: arquitectura '${ARCH}' rechazada explicitamente." >&2
+    echo "[ERROR] El venv y los pines de requirements_sitl.txt son para x86_64 (WSL SITL)." >&2
+    echo "[ERROR] No es compatible con el robot fisico (Jetson Tegra, AArch64)." >&2
+    exit 1
+    ;;
+  *)
+    echo "[ERROR] NO_GO_WRONG_PLATFORM: arquitectura '${ARCH}' no reconocida ni autorizada." >&2
+    exit 1
+    ;;
+esac
+echo "[BOOTSTRAP] Plataforma validada: arch=${ARCH}"
 
 if [[ ! -f "${REQUIREMENTS_FILE}" ]]; then
   echo "[ERROR] NO-GO bootstrap: manifiesto SITL ausente en ${REQUIREMENTS_FILE}" >&2
@@ -123,8 +153,7 @@ for _candidate in "${SITL_CYCLONEDDS_HOME}/lib/libddsc.so" "${SITL_CYCLONEDDS_HO
 done
 if [[ "${CYCLONEDDS_LIB_FOUND}" -ne 1 ]]; then
   echo "[ERROR] NO-GO bootstrap: no se encontro libddsc.so en ${SITL_CYCLONEDDS_HOME}/lib" >&2
-  echo "[ERROR] Compilar Eclipse CycloneDDS (releases/0.10.x) e instalarlo en esa ruta" >&2
-  echo "[ERROR] antes de ejecutar este bootstrap (cmake + make install, sin sudo)." >&2
+  echo "[ERROR] Ejecutar primero: scripts/bootstrap_cyclonedds_wsl.sh" >&2
   echo "[ERROR] Alternativamente, exportar SITL_CYCLONEDDS_HOME apuntando a una" >&2
   echo "[ERROR] instalacion existente de la biblioteca C." >&2
   exit 1
@@ -132,8 +161,10 @@ fi
 echo "[BOOTSTRAP] Biblioteca C de CycloneDDS encontrada en ${SITL_CYCLONEDDS_HOME}"
 export CYCLONEDDS_HOME="${SITL_CYCLONEDDS_HOME}"
 export CMAKE_PREFIX_PATH="${SITL_CYCLONEDDS_HOME}${CMAKE_PREFIX_PATH:+:${CMAKE_PREFIX_PATH}}"
+export LD_LIBRARY_PATH="${SITL_CYCLONEDDS_HOME}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 echo "[BOOTSTRAP] CYCLONEDDS_HOME=${CYCLONEDDS_HOME}"
 echo "[BOOTSTRAP] CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
+echo "[BOOTSTRAP] LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
 
 # --- Instalacion del manifiesto SITL ---
 echo "[BOOTSTRAP] Instalando dependencias desde ${REQUIREMENTS_FILE}..."
@@ -193,7 +224,7 @@ if faltantes:
 "
 
 echo "[BOOTSTRAP] Validando imports especificos del SDK Unitree (sin contactar hardware)..."
-CYCLONEDDS_HOME="${SITL_CYCLONEDDS_HOME}" "${SITL_VENV_PYTHON}" -B -c "
+"${SITL_VENV_PYTHON}" -B -c "
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py.g1.loco.g1_loco_client import LocoClient
 print('  ChannelFactoryInitialize: OK (import)')
