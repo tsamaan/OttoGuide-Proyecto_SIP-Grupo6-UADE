@@ -557,6 +557,7 @@ class CloudNLPPipeline(NLPStrategy):
     def __init__(
         self,
         *,
+        enabled: bool = False,
         timeout_s: float = CLOUD_TIMEOUT_S,
         provider: str = _DEFAULT_CLOUD_PROVIDER,
         openai_api_key: str = "",
@@ -585,6 +586,7 @@ class CloudNLPPipeline(NLPStrategy):
         if timeout_s <= 0:
             raise ValueError("timeout_s debe ser mayor que 0.")
 
+        self._enabled: bool = enabled
         self._timeout_s: float = timeout_s
         self._provider: str = provider.lower()
         self._openai_api_key: str = openai_api_key
@@ -758,6 +760,13 @@ class CloudNLPPipeline(NLPStrategy):
         STEP 2: Intentar TTS cloud via _cloud_tts_openai si provider es "openai"; error es no critico
         STEP 3: Retornar ConversationResponse con source_pipeline="cloud" y audio_stream_ready=True
         """
+        if not self._enabled:
+            raise RuntimeError("[CloudNLP] Cloud fallback deshabilitado por politica de interlock.")
+        if self._provider == "openai" and not self._openai_api_key:
+            raise RuntimeError("[CloudNLP] OPENAI_API_KEY requerida pero no configurada.")
+        if self._provider == "gemini" and not self._gemini_api_key:
+            raise RuntimeError("[CloudNLP] GEMINI_API_KEY requerida pero no configurada.")
+
         if self._provider == "openai":
             answer_text = await self._call_openai_chat(request.user_text)
         elif self._provider == "gemini":
@@ -819,7 +828,8 @@ class ConversationManager:
         self,
         *,
         local_strategy: LocalNLPPipeline,
-        cloud_strategy: CloudNLPPipeline,
+        cloud_strategy: Optional[CloudNLPPipeline] = None,
+        cloud_fallback_enabled: bool = False,
         llm_client: Optional[OllamaAsyncClient] = None,
         audio_bridge: Optional[AudioHardwareBridge] = None,
     ) -> None:
@@ -839,8 +849,14 @@ class ConversationManager:
         STEP 2: Inicializar contadores de telemetria de hot-swap y pipeline activo
         STEP 3: Inicializar estado de contenido del tour (script, waypoint activo y cache de prompt)
         """
+        if cloud_fallback_enabled and cloud_strategy is None:
+            raise ValueError(
+                "cloud_fallback_enabled=True requiere cloud_strategy. "
+                "Proporcionar una instancia de CloudNLPPipeline."
+            )
         self._local: LocalNLPPipeline = local_strategy
-        self._cloud: CloudNLPPipeline = cloud_strategy
+        self._cloud: Optional[CloudNLPPipeline] = cloud_strategy
+        self._cloud_fallback_enabled: bool = cloud_fallback_enabled
 
         self._active_pipeline: str = "local"
         self._swap_count: int = 0
@@ -1097,6 +1113,23 @@ class ConversationManager:
             return None
         return (x, y, theta)
 
+    def _safe_local_response(self) -> ConversationResponse:
+        """Respuesta segura local cuando cloud esta deshabilitado y el pipeline local falla."""
+        return ConversationResponse(
+            answer_text="No pude procesar la consulta en este momento. Retornando a estado seguro.",
+            source_pipeline="local",
+            audio_stream_ready=False,
+        )
+
+    async def _handle_local_failure(self, raw_text: str, reason: str) -> ConversationResponse:
+        """Maneja fallo local: safe response si cloud deshabilitado; cloud si habilitado."""
+        if not self._cloud_fallback_enabled:
+            LOGGER.warning("[CM] %s — cloud deshabilitado, retornando respuesta segura.", reason)
+            return self._safe_local_response()
+        self._swap_count += 1
+        self._active_pipeline = "cloud"
+        return await self._cloud_fallback_text(raw_text)
+
     async def process_interaction(
         self,
         audio_buffer: NDArray[np.float32],
@@ -1139,24 +1172,22 @@ class ConversationManager:
                 LOGGER.debug("[CM] STT local exitoso: '%s'", user_text[:60])
             except (TimeoutError, asyncio.TimeoutError) as exc:
                 LOGGER.warning(
-                    "[CM] Hot-swap STT: timeout %.1f s — conmutando a cloud. (%s)",
+                    "[CM] Hot-swap STT: timeout %.1f s. (%s)",
                     STT_TIMEOUT_S,
                     type(exc).__name__,
                 )
-                self._swap_count += 1
-                self._active_pipeline = "cloud"
-                return await self._cloud_fallback_text(
-                    raw_text="[STT timeout — entrada de usuario no disponible]"
+                return await self._handle_local_failure(
+                    raw_text="[STT timeout — entrada de usuario no disponible]",
+                    reason="Hot-swap STT: timeout",
                 )
             except Exception as exc:
                 LOGGER.error(
-                    "[CM] Hot-swap STT: excepcion '%s' — conmutando a cloud.",
+                    "[CM] Hot-swap STT: excepcion '%s'.",
                     type(exc).__name__,
                 )
-                self._swap_count += 1
-                self._active_pipeline = "cloud"
-                return await self._cloud_fallback_text(
-                    raw_text="[STT error — entrada de usuario no disponible]"
+                return await self._handle_local_failure(
+                    raw_text="[STT error — entrada de usuario no disponible]",
+                    reason=f"Hot-swap STT: excepcion {type(exc).__name__}",
                 )
 
         request = ConversationRequest(
@@ -1164,6 +1195,7 @@ class ConversationManager:
             locale=language,
         )
 
+        _failure_reason: str = "cloud-route"
         if preferred_pipeline == "local" and self._active_pipeline == "local":
             try:
                 response = await asyncio.wait_for(
@@ -1175,24 +1207,21 @@ class ConversationManager:
                 return response
             except (TimeoutError, asyncio.TimeoutError):
                 LOGGER.warning(
-                    "[CM] Hot-swap LLM: timeout %.1f s — conmutando a cloud.",
+                    "[CM] Hot-swap LLM: timeout %.1f s.",
                     LLM_LOCAL_TIMEOUT_S,
                 )
-                self._swap_count += 1
-                self._active_pipeline = "cloud"
+                _failure_reason = "Hot-swap LLM: timeout"
             except MemoryError as exc:
                 LOGGER.error("[CM] Hot-swap LLM: MemoryError — %s", exc)
-                self._swap_count += 1
-                self._active_pipeline = "cloud"
+                _failure_reason = "Hot-swap LLM: MemoryError"
             except Exception as exc:
                 LOGGER.error(
-                    "[CM] Hot-swap LLM: excepcion inesperada '%s' — conmutando a cloud.",
+                    "[CM] Hot-swap LLM: excepcion inesperada '%s'.",
                     type(exc).__name__,
                 )
-                self._swap_count += 1
-                self._active_pipeline = "cloud"
+                _failure_reason = f"Hot-swap LLM: excepcion {type(exc).__name__}"
 
-        return await self._cloud_fallback_text(raw_text=user_text)
+        return await self._handle_local_failure(raw_text=user_text, reason=_failure_reason)
 
     async def _cloud_fallback_text(self, raw_text: str) -> ConversationResponse:
         """
@@ -1208,6 +1237,9 @@ class ConversationManager:
         STEP 2: Invocar cloud_strategy.generate() con asyncio.wait_for timeout CLOUD_TIMEOUT_S
         STEP 3: Registrar resultado en LOGGER.info para trazabilidad y telemetria de fallback
         """
+        if not self._cloud_fallback_enabled or self._cloud is None:
+            return self._safe_local_response()
+
         request = ConversationRequest(user_text=raw_text)
 
         response = await asyncio.wait_for(
@@ -1236,6 +1268,7 @@ class ConversationManager:
         STEP 2: Ante TimeoutError, MemoryError o excepcion inesperada, incrementar swap y activar cloud
         STEP 3: Invocar _cloud_fallback_text con el texto zoneado como fallback final
         """
+        _failure_reason: str = "respond-failure"
         try:
             zoned_request = ConversationRequest(
                 user_text=self._build_zoned_text(request.user_text),
@@ -1249,16 +1282,15 @@ class ConversationManager:
             self._active_pipeline = "local"
             return response
         except (TimeoutError, asyncio.TimeoutError):
-            LOGGER.warning("[CM] respond(): hot-swap a cloud por timeout local.")
-            self._swap_count += 1
-            self._active_pipeline = "cloud"
+            LOGGER.warning("[CM] respond(): timeout local.")
+            _failure_reason = "respond: timeout local"
         except (MemoryError, Exception) as exc:
-            LOGGER.error("[CM] respond(): hot-swap a cloud por '%s'.", type(exc).__name__)
-            self._swap_count += 1
-            self._active_pipeline = "cloud"
+            LOGGER.error("[CM] respond(): excepcion '%s'.", type(exc).__name__)
+            _failure_reason = f"respond: excepcion {type(exc).__name__}"
 
-        return await self._cloud_fallback_text(
-            raw_text=self._build_zoned_text(request.user_text)
+        return await self._handle_local_failure(
+            raw_text=self._build_zoned_text(request.user_text),
+            reason=_failure_reason,
         )
 
     async def start_interactive_session(self, waypoint_id: str) -> ConversationResponse:
@@ -1343,7 +1375,8 @@ class ConversationManager:
         """
         LOGGER.info("[CM] Cerrando ConversationManager.")
         self._local.close()
-        self._cloud.close()
+        if self._cloud is not None:
+            self._cloud.close()
 
 
 # ---------------------------------------------------------------------------

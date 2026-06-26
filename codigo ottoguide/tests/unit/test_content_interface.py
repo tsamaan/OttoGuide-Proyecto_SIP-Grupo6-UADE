@@ -75,13 +75,8 @@ def conversation_manager():
     local_mock.generate = AsyncMock()
     local_mock.close = MagicMock()
 
-    cloud_mock = MagicMock()
-    cloud_mock.generate = AsyncMock()
-    cloud_mock.close = MagicMock()
-
     return ConversationManager(
         local_strategy=local_mock,
-        cloud_strategy=cloud_mock,
     )
 
 

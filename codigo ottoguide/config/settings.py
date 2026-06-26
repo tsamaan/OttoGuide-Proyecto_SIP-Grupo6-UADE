@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     # Nombre del modelo personalizado creado via Modelfile (ollama create otto -f Modelfile)
     OLLAMA_OTTO_MODEL: str = "otto"
 
+    # --- Cloud fallback (interlock fail-closed por defecto) ---
+    # @SECURITY: CLOUD_FALLBACK_ENABLED default False es un interlock cerrado: habilitar cloud
+    #            exige intencion explicita. En ROBOT_MODE=real siempre bloqueado aunque sea True.
+    #            Usar cloud_fallback_effective para la decision real en runtime.
+    CLOUD_FALLBACK_ENABLED: bool = False
+
     # --- API Server ---
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
@@ -101,6 +107,16 @@ class Settings(BaseSettings):
         "case_sensitive": True,
         "extra": "ignore",
     }
+
+    @property
+    def cloud_fallback_effective(self) -> bool:
+        """
+        @TASK: Determinar si cloud fallback esta activo para el modo de operacion actual
+        @OUTPUT: True solo si CLOUD_FALLBACK_ENABLED=True Y ROBOT_MODE != "real"
+        @SECURITY: ROBOT_MODE=real bloquea cloud incondicionalmente; CLOUD_FALLBACK_ENABLED
+                   se ignora en modo real para garantizar aislamiento de red en produccion.
+        """
+        return self.CLOUD_FALLBACK_ENABLED and self.ROBOT_MODE != "real"
 
     def validate_navigation_config(self) -> None:
         """

@@ -152,3 +152,45 @@ class TestSettingsValues:
             assert settings.OLLAMA_MODEL == "llama3:8b"
             assert settings.API_HOST == "127.0.0.1"
             assert settings.API_PORT == 9000
+
+
+class TestCloudInterlockSettings:
+    """Verificar interlock de cloud fallback en Settings."""
+
+    def _s(self, **env) -> Settings:
+        with patch.dict(os.environ, env, clear=True):
+            return Settings(_env_file=None)  # type: ignore[call-arg]
+
+    def test_cloud_fallback_enabled_default_false(self) -> None:
+        """CLOUD_FALLBACK_ENABLED defaults to False — interlock fail-closed."""
+        settings = self._s()
+        assert settings.CLOUD_FALLBACK_ENABLED is False
+
+    def test_cloud_fallback_effective_false_when_disabled(self) -> None:
+        """cloud_fallback_effective=False when CLOUD_FALLBACK_ENABLED=False."""
+        settings = self._s(ROBOT_MODE="mock")
+        assert settings.cloud_fallback_effective is False
+
+    def test_cloud_fallback_effective_true_when_enabled_mock(self) -> None:
+        """cloud_fallback_effective=True when CLOUD_FALLBACK_ENABLED=True and mode=mock."""
+        settings = self._s(ROBOT_MODE="mock", CLOUD_FALLBACK_ENABLED="true")
+        assert settings.cloud_fallback_effective is True
+
+    def test_cloud_fallback_effective_blocked_in_real_mode(self) -> None:
+        """cloud_fallback_effective=False when ROBOT_MODE=real, even if CLOUD_FALLBACK_ENABLED=True."""
+        settings = self._s(
+            ROBOT_MODE="real",
+            ROBOT_NETWORK_INTERFACE="eth0",
+            CLOUD_FALLBACK_ENABLED="true",
+        )
+        assert settings.cloud_fallback_effective is False
+
+    def test_cloud_fallback_effective_false_sim_disabled(self) -> None:
+        """cloud_fallback_effective=False when mode=sim and CLOUD_FALLBACK_ENABLED=False."""
+        settings = self._s(ROBOT_MODE="sim")
+        assert settings.cloud_fallback_effective is False
+
+    def test_cloud_fallback_effective_true_demo_enabled(self) -> None:
+        """cloud_fallback_effective=True when mode=demo and CLOUD_FALLBACK_ENABLED=True."""
+        settings = self._s(ROBOT_MODE="demo", CLOUD_FALLBACK_ENABLED="true")
+        assert settings.cloud_fallback_effective is True

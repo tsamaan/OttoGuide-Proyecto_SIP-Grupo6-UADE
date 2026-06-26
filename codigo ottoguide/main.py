@@ -498,20 +498,28 @@ def _build_navigation_bridge(settings, resolved_backend: str):
 
 def _get_conversation_manager_stub(settings):
     """
-    @TASK: Obtener stub o instancia real de ConversationManager
-    @INPUT: settings — Settings con OLLAMA_HOST y OLLAMA_MODEL
-    @OUTPUT: Instancia de ConversationManager
+    @TASK: Obtener stub o instancia real de ConversationManager con interlock cloud
+    @INPUT: settings — Settings con OLLAMA_HOST, OLLAMA_MODEL y CLOUD_FALLBACK_ENABLED
+    @OUTPUT: Instancia de ConversationManager; cloud solo si cloud_fallback_effective
     @CONTEXT: Ollama daemon es Capa 3; puede no estar disponible en CI
-    @SECURITY: Sin APIs externas (sin OpenAI, sin Anthropic)
+    @SECURITY: cloud_fallback_effective bloquea cloud en ROBOT_MODE=real o CLOUD_FALLBACK_ENABLED=False
     """
+    cloud_enabled = settings.cloud_fallback_effective
+    if settings.ROBOT_MODE == "real" and settings.CLOUD_FALLBACK_ENABLED:
+        LOGGER.warning("[BOOT] Cloud fallback solicitado pero bloqueado en ROBOT_MODE=real.")
     try:
         from src.interaction import ConversationManager, CloudNLPPipeline, LocalNLPPipeline
+        cloud_strategy = (
+            CloudNLPPipeline(enabled=True, timeout_s=1.0)
+            if cloud_enabled else None
+        )
         return ConversationManager(
-            cloud_strategy=CloudNLPPipeline(timeout_s=1.0),
+            cloud_strategy=cloud_strategy,
             local_strategy=LocalNLPPipeline(
                 model_name=settings.OLLAMA_MODEL,
                 ollama_base_url=settings.OLLAMA_HOST,
             ),
+            cloud_fallback_enabled=cloud_enabled,
         )
     except Exception:
         LOGGER.warning(
