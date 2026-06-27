@@ -49,7 +49,7 @@ La ruta primaria operativa de OttoGuide es `SDK2/DDS Unicast` hacia `192.168.123
 .
 ├── README.md
 ├── TODO.md
-├── codigo ottoguide/
+├── codigo ottoguide/      ← software, runtime y tests
 │   ├── src/
 │   ├── scripts/
 │   ├── tools/
@@ -57,42 +57,40 @@ La ruta primaria operativa de OttoGuide es `SDK2/DDS Unicast` hacia `192.168.123
 │   ├── launch/
 │   ├── ros2_ws/
 │   └── libs/
-└── documentacion general del proyecto/
+└── docs/                  ← documentación, planificación, operaciones y auditorías
     ├── README.md
     ├── Arquitectura/
     ├── Operaciones_HIL/
     ├── Hardware_Reference/
     ├── AppPhone/
     ├── Auditorias/
-    └── Historico/
+    ├── Historico/
+    ├── Investigacion/
+    ├── planning/
+    └── audits/
 ```
 
 - `README.md`: front-page pública y mapa de navegación del repositorio.
 - `TODO.md`: backlog post-`RC1` y validaciones HIL pendientes.
-- `codigo ottoguide/src/`: lógica de aplicación y módulos runtime.
-- `codigo ottoguide/scripts/`: orquestadores y utilidades HIL.
-- `codigo ottoguide/tools/`: herramientas HIL, auditoría offline, RViz y validadores.
-- `codigo ottoguide/config/`: configuración operativa.
-- `codigo ottoguide/launch/`: launch files ROS 2/offline.
-- `codigo ottoguide/libs/`: dependencias vendorizadas air-gapped preservadas.
-- `documentacion general del proyecto/`: documentación técnica profunda e histórica.
+- `codigo ottoguide/`: todo el software, runtime, scripts, herramientas, configuración y tests.
+- `docs/`: única raíz documental — arquitectura, operaciones HIL, referencias de hardware, planificación, auditorías e histórico.
 
-La raíz del repositorio se mantiene limpia: documentación propia en `documentacion general del proyecto/` y código, tooling, launch files y configuración runtime dentro de `codigo ottoguide/`.
+La raíz del repositorio se mantiene limpia. No recrear `documentacion general del proyecto/` ni `planificacion/` como raíces independientes.
 
 ## Roadmap de Ejecución Rápida
 
 Los procedimientos operativos viven en runbooks dedicados. Este `README.md` no duplica pasos de despliegue ni pruebas:
 
-- [Startup RC1](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_STARTUP_RC1.md>)
-- [Deploy](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_DEPLOY.md>)
-- [Protocolo HIL](<documentacion general del proyecto/Operaciones_HIL/HIL_TESTING_PROTOCOL.md>)
-- [Livox SDK2 bridge](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_LIVOX_SDK2_BRIDGE.md>)
-- [OttoGuide map quickstart](<documentacion general del proyecto/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md>)
-- [ODOM/TF offline analysis](<documentacion general del proyecto/Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md>)
-- [ODOM bridge contract](<documentacion general del proyecto/Arquitectura/ODOM_BRIDGE_CONTRACT.md>)
-- [Preflight ODOM/TF](<documentacion general del proyecto/Operaciones_HIL/PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md>)
-- [Demo local](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_DEMO_LOCAL.md>)
-- [Packet capture HIL](<documentacion general del proyecto/Operaciones_HIL/RUNBOOK_PACKET_CAPTURE_HIL.md>)
+- [Startup RC1](<docs/Operaciones_HIL/RUNBOOK_STARTUP_RC1.md>)
+- [Deploy](<docs/Operaciones_HIL/RUNBOOK_DEPLOY.md>)
+- [Protocolo HIL](<docs/Operaciones_HIL/HIL_TESTING_PROTOCOL.md>)
+- [Livox SDK2 bridge](<docs/Operaciones_HIL/RUNBOOK_LIVOX_SDK2_BRIDGE.md>)
+- [OttoGuide map quickstart](<docs/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md>)
+- [ODOM/TF offline analysis](<docs/Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md>)
+- [ODOM bridge contract](<docs/Arquitectura/ODOM_BRIDGE_CONTRACT.md>)
+- [Preflight ODOM/TF](<docs/Operaciones_HIL/PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md>)
+- [Demo local](<docs/Operaciones_HIL/RUNBOOK_DEMO_LOCAL.md>)
+- [Packet capture HIL](<docs/Operaciones_HIL/RUNBOOK_PACKET_CAPTURE_HIL.md>)
 
 ## Estado Actual
 
@@ -135,15 +133,15 @@ Pendiente:
 
 | Recurso | Ruta |
 |---|---|
-| Documentación técnica | [documentacion general del proyecto/README.md](<documentacion general del proyecto/README.md>) |
+| Documentación técnica | [docs/README.md](<docs/README.md>) |
 | Backlog | [TODO.md](<TODO.md>) |
-| Arquitectura operativa | [ARQUITECTURA_OPERATIVA_RC1.md](<documentacion general del proyecto/Arquitectura/ARQUITECTURA_OPERATIVA_RC1.md>) |
-| `ROS 2` / `DDS` | [ROS2_INTEGRATION.md](<documentacion general del proyecto/Arquitectura/ROS2_INTEGRATION.md>) |
-| Contrato ODOM bridge | [ODOM_BRIDGE_CONTRACT.md](<documentacion general del proyecto/Arquitectura/ODOM_BRIDGE_CONTRACT.md>) |
-| Protocolo HIL | [HIL_TESTING_PROTOCOL.md](<documentacion general del proyecto/Operaciones_HIL/HIL_TESTING_PROTOCOL.md>) |
-| Preflight sensores | [PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md](<documentacion general del proyecto/Operaciones_HIL/PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md>) |
-| Preflight ODOM/TF | [PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md](<documentacion general del proyecto/Operaciones_HIL/PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md>) |
-| ODOM/TF offline | [ODOM_TF_OFFLINE_ANALYSIS_20260618.md](<documentacion general del proyecto/Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md>) |
-| Quickstart de mapeo | [OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md](<documentacion general del proyecto/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md>) |
-| Auditorias HIL | [Auditorias](<documentacion general del proyecto/Auditorias/>) |
-| AppPhone / APK | [README_AppPhone.md](<documentacion general del proyecto/AppPhone/README_AppPhone.md>) |
+| Arquitectura operativa | [ARQUITECTURA_OPERATIVA_RC1.md](<docs/Arquitectura/ARQUITECTURA_OPERATIVA_RC1.md>) |
+| `ROS 2` / `DDS` | [ROS2_INTEGRATION.md](<docs/Arquitectura/ROS2_INTEGRATION.md>) |
+| Contrato ODOM bridge | [ODOM_BRIDGE_CONTRACT.md](<docs/Arquitectura/ODOM_BRIDGE_CONTRACT.md>) |
+| Protocolo HIL | [HIL_TESTING_PROTOCOL.md](<docs/Operaciones_HIL/HIL_TESTING_PROTOCOL.md>) |
+| Preflight sensores | [PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md](<docs/Operaciones_HIL/PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md>) |
+| Preflight ODOM/TF | [PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md](<docs/Operaciones_HIL/PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md>) |
+| ODOM/TF offline | [ODOM_TF_OFFLINE_ANALYSIS_20260618.md](<docs/Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md>) |
+| Quickstart de mapeo | [OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md](<docs/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md>) |
+| Auditorias HIL | [Auditorias](<docs/Auditorias/>) |
+| AppPhone / APK | [README_AppPhone.md](<docs/AppPhone/README_AppPhone.md>) |

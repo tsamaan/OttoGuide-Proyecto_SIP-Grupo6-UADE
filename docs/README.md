@@ -1,8 +1,35 @@
-# Indice Interno de Documentacion Tecnica - OttoGuide
+# docs/ — Raíz Documental Canónica de OttoGuide
 
-Este directorio contiene la documentacion tecnica real del proyecto OttoGuide en estado `RC1_LOCKED`: arquitectura, operacion HIL, referencias de hardware, auditorias, analisis de aplicaciones Unitree y material historico.
+## Gobierno documental
 
-Advertencia: el README maestro publico del proyecto vive en `../README.md` desde la raiz del repositorio. Este archivo es solo el indice documental interno de `documentacion general del proyecto/`.
+`docs/` es la **única raíz documental canónica** de este repositorio.
+
+- `docs/planning/` contiene planificación activa e histórica (`V1/`, `V2/`, `V3/`).
+- `docs/audits/` contiene evidencias y auditorías técnicas.
+- **No crear nuevamente** `documentacion general del proyecto/` en ninguna ruta.
+- **No crear nuevamente** `planificacion/` en ninguna ruta.
+- **No crear raíces documentales por dominio** fuera de `docs/` (por ejemplo `docs/domains/` está diferido).
+- La reclasificación semántica profunda de documentos está diferida; la clasificación actual se conserva tal cual.
+
+## Índice de categorías presentes
+
+| Carpeta | Contenido |
+|---|---|
+| `Arquitectura/` | Contratos técnicos, memoria arquitectónica, frontera ROS 2/DDS/SDK2 y análisis de integración. |
+| `Operaciones_HIL/` | Runbooks, protocolo físico, preflight de sensores, mapeo, replay offline y procedimientos de despliegue. |
+| `Hardware_Reference/` | Manuales y referencias técnicas del Unitree G1 EDU. |
+| `AppPhone/` | Análisis pasivo de `Unitree Go` y documentación del plano factory `192.168.12.x`. |
+| `Auditorias/` | Informes de auditoría SRE y evidencias de revisión documental/arquitectónica. |
+| `Historico/` | Material archivado, duplicados preservados, snapshots y documentación no vigente. |
+| `Investigacion/` | Investigaciones y prototipos exploratorios. |
+| `planning/` | Planificación del proyecto (V1, V2, V3). |
+| `audits/` | Evidencias y contratos de auditoría técnica Stage B. |
+
+---
+
+Este directorio contiene la documentación técnica real del proyecto OttoGuide en estado `RC1_LOCKED`: arquitectura, operación HIL, referencias de hardware, auditorías, análisis de aplicaciones Unitree y material histórico.
+
+El README maestro público del proyecto vive en `../README.md` desde la raíz del repositorio.
 
 ## Indice de carpetas
 
@@ -69,5 +96,5 @@ Advertencia: el README maestro publico del proyecto vive en `../README.md` desde
 4. La ruta primaria de control G1 es `SDK2/DDS Unicast` hacia `192.168.123.161`.
 5. El runtime HIL nativo esperado en la Companion PC G1 EDU es `ROS 2 Foxy`.
 6. `Unitree Go` se documenta solo como referencia pasiva del plano factory; `Unitree Explore` es la app oficial G1/G1_D, pero no forma parte de la ruta MVP.
-7. Toda documentacion propia vigente debe vivir bajo `documentacion general del proyecto/`, salvo `README.md`, `TODO.md` y READMEs locales estrictamente acoplados a codigo/configuracion.
-8. La raiz del repositorio se mantiene limpia: codigo, tooling, launch files y configuracion runtime propia viven bajo `codigo ottoguide/`.
+7. Toda documentación propia vigente debe vivir bajo `docs/`, salvo `README.md`, `TODO.md` y READMEs locales estrictamente acoplados a código/configuración.
+8. La raíz del repositorio se mantiene limpia: código, tooling, launch files y configuración runtime propia viven bajo `codigo ottoguide/`.
