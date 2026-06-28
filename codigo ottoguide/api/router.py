@@ -309,6 +309,11 @@ async def endpoint_status(
         readiness_errors=readiness_errors,
         factory_rest=factory_rest,
         conversation_runtime_degraded=bool(getattr(request.app.state, "conversation_runtime_degraded", False)),
+        conversation_runtime_error=getattr(request.app.state, "conversation_runtime_error", None),
+        script_loaded=bool(getattr(request.app.state, "script_loaded", False)),
+        script_version=getattr(request.app.state, "script_version", None),
+        script_waypoint_count=int(getattr(request.app.state, "script_waypoint_count", 0)),
+        script_load_error=getattr(request.app.state, "script_load_error", None),
         **nav_observability,
     )
 

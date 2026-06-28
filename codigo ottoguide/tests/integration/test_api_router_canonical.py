@@ -112,6 +112,66 @@ def test_canonical_wiring():
 
 
 # ---------------------------------------------------------------------------
+# 5.1b — GET /status exposes conversation/script observability fields (Section 10)
+# ---------------------------------------------------------------------------
+
+class _IdleOrchestrator:
+    state_id = "idle"
+    context = _FakeContext()
+
+
+@pytest.mark.asyncio
+async def test_status_exposes_conversation_and_script_observability_fields():
+    """/status must surface conversation_runtime_error and the script_* fields straight
+    from app.state, defaulting safely when boot never set them (mock/sim degraded path)."""
+    app = _build_minimal_app(_IdleOrchestrator())
+    app.state.conversation_runtime_degraded = True
+    app.state.conversation_runtime_error = "RuntimeError: ollama unreachable"
+    app.state.script_loaded = False
+    app.state.script_version = None
+    app.state.script_waypoint_count = 0
+    app.state.script_load_error = "SCRIPT_NOT_FOUND:/data/mvp_tour_script.json"
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["conversation_runtime_degraded"] is True
+    assert body["conversation_runtime_error"] == "RuntimeError: ollama unreachable"
+    assert body["script_loaded"] is False
+    assert body["script_version"] is None
+    assert body["script_waypoint_count"] == 0
+    assert body["script_load_error"] == "SCRIPT_NOT_FOUND:/data/mvp_tour_script.json"
+
+
+@pytest.mark.asyncio
+async def test_status_reports_script_loaded_successfully():
+    """/status must report script_loaded=True with version/waypoint_count once the boot
+    sequence has populated app.state after a successful load_script_from_file()."""
+    app = _build_minimal_app(_IdleOrchestrator())
+    app.state.conversation_runtime_degraded = False
+    app.state.conversation_runtime_error = None
+    app.state.script_loaded = True
+    app.state.script_version = "1.2.0"
+    app.state.script_waypoint_count = 5
+    app.state.script_load_error = None
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["conversation_runtime_degraded"] is False
+    assert body["script_loaded"] is True
+    assert body["script_version"] == "1.2.0"
+    assert body["script_waypoint_count"] == 5
+    assert body["script_load_error"] is None
+
+
+# ---------------------------------------------------------------------------
 # 5.2 — POST /tour/start awaits dispatch_tour()
 # ---------------------------------------------------------------------------
 

@@ -75,6 +75,11 @@ artifacts/_quarantine/
 metadata.yaml
 
 # Mission audit logs (runtime-generated; never committed)
+# MissionAuditLogger (src/core/mission_audit.py) writes mission_<timestamp>.json
+# (single JSON file with an embedded events array) — NOT .jsonl. Both patterns are
+# kept: .json for the actual producer, .jsonl as a harmless safety net.
 codigo\ ottoguide/mission_logs/
+codigo\ ottoguide/logs/mission_*.json
 codigo\ ottoguide/logs/mission_*.jsonl
+mission_*.json
 mission_*.jsonl

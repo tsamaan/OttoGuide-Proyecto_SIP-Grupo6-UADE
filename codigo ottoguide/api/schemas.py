@@ -107,8 +107,13 @@ class StatusResponse(BaseModel):
     navigation_ntp_available: Optional[bool] = None
     navigation_fw_available: Optional[bool] = None
 
-    # --- Observabilidad del runtime de conversacion ---
+    # --- Observabilidad del runtime de conversacion y guion (Section 10) ---
     conversation_runtime_degraded: bool = False
+    conversation_runtime_error: Optional[str] = None
+    script_loaded: bool = False
+    script_version: Optional[str] = None
+    script_waypoint_count: int = 0
+    script_load_error: Optional[str] = None
 
 
 class QuestionRequest(BaseModel):
