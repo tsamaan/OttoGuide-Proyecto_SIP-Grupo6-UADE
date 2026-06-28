@@ -136,7 +136,7 @@ def _fake_settings(**overrides) -> SimpleNamespace:
         UNITREE_FACTORY_DIAGNOSTICS_ENABLED=False,
         CLOUD_FALLBACK_ENABLED=False,
         cloud_fallback_effective=False,
-        WEB_UI_ALLOWED_ORIGINS="http://localhost:3001,http://127.0.0.1:3001",
+        WEB_UI_ALLOWED_ORIGINS="",
         WEB_UI_PUBLIC_URL="",
         WEB_UI_ALLOW_MISSING_ORIGIN=False,
     )

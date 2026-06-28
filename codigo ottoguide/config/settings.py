@@ -17,6 +17,14 @@ from pydantic_settings import BaseSettings
 
 LOGGER = logging.getLogger("otto_guide.config.settings")
 
+# @SECURITY: Defaults aplicados unicamente cuando WEB_UI_ALLOWED_ORIGINS esta vacio Y
+#            ROBOT_MODE in (mock, sim, demo). Nunca se aplican en ROBOT_MODE=real: ahi una
+#            allow-list vacia debe bloquear el arranque (ver Settings.validate_web_ui_config).
+_WEB_UI_DEV_DEFAULT_ORIGINS: tuple[str, ...] = (
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+)
+
 
 class Settings(BaseSettings):
     """
@@ -104,9 +112,11 @@ class Settings(BaseSettings):
     # --- Web UI (React frontend) CORS / origin ---
     # @SECURITY: WEB_UI_ALLOWED_ORIGINS es la unica fuente de verdad para CORS HTTP y para la
     #            validacion manual del header Origin en /ws/telemetry. Wildcard "*" prohibido
-    #            en ROBOT_MODE=real (ver validate_web_ui_config). Lista vacia en real tambien
-    #            es invalida: el operador debe declarar explicitamente que origenes confia.
-    WEB_UI_ALLOWED_ORIGINS: str = "http://localhost:3001,http://127.0.0.1:3001"
+    #            en ROBOT_MODE=real (ver validate_web_ui_config). Default vacio: en
+    #            ROBOT_MODE=real el operador debe declarar explicitamente que origenes confia
+    #            (ver validate_web_ui_config); en mock/sim/demo se aplican automaticamente los
+    #            defaults de desarrollo (ver _WEB_UI_DEV_DEFAULT_ORIGINS / web_ui_allowed_origins_list).
+    WEB_UI_ALLOWED_ORIGINS: str = ""
     WEB_UI_PUBLIC_URL: str = ""
     WEB_UI_ALLOW_MISSING_ORIGIN: bool = False
 
@@ -131,11 +141,17 @@ class Settings(BaseSettings):
     def web_ui_allowed_origins_list(self) -> list[str]:
         """
         @TASK: Parsear WEB_UI_ALLOWED_ORIGINS (CSV) a una lista de origenes normalizada
-        @OUTPUT: Lista de strings sin espacios ni entradas vacias; preserva "*" si esta presente
+        @OUTPUT: Lista de strings sin espacios ni entradas vacias; preserva "*" si esta presente.
+                 Si WEB_UI_ALLOWED_ORIGINS esta vacio y ROBOT_MODE in (mock, sim, demo), retorna
+                 los defaults de desarrollo (_WEB_UI_DEV_DEFAULT_ORIGINS). Si esta vacio y
+                 ROBOT_MODE=real, retorna lista vacia (validate_web_ui_config bloquea el arranque).
         @CONTEXT: Fuente unica consumida por CORSMiddleware (main.py) y por la validacion
                   manual del header Origin en /ws/telemetry (api/router.py).
         """
-        return [origin.strip() for origin in self.WEB_UI_ALLOWED_ORIGINS.split(",") if origin.strip()]
+        origins = [origin.strip() for origin in self.WEB_UI_ALLOWED_ORIGINS.split(",") if origin.strip()]
+        if not origins and self.ROBOT_MODE in ("mock", "sim", "demo"):
+            return list(_WEB_UI_DEV_DEFAULT_ORIGINS)
+        return origins
 
     def validate_web_ui_config(self) -> None:
         """
