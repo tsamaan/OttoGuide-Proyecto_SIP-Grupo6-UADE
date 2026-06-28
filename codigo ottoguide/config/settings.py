@@ -101,6 +101,15 @@ class Settings(BaseSettings):
     # @CONTEXT: "levenshtein" = automático (default); "manual" = usa data/correcciones_uade.json
     UADE_CORRECTION_MODE: str = "levenshtein"
 
+    # --- Web UI (React frontend) CORS / origin ---
+    # @SECURITY: WEB_UI_ALLOWED_ORIGINS es la unica fuente de verdad para CORS HTTP y para la
+    #            validacion manual del header Origin en /ws/telemetry. Wildcard "*" prohibido
+    #            en ROBOT_MODE=real (ver validate_web_ui_config). Lista vacia en real tambien
+    #            es invalida: el operador debe declarar explicitamente que origenes confia.
+    WEB_UI_ALLOWED_ORIGINS: str = "http://localhost:3001,http://127.0.0.1:3001"
+    WEB_UI_PUBLIC_URL: str = ""
+    WEB_UI_ALLOW_MISSING_ORIGIN: bool = False
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
@@ -117,6 +126,31 @@ class Settings(BaseSettings):
                    se ignora en modo real para garantizar aislamiento de red en produccion.
         """
         return self.CLOUD_FALLBACK_ENABLED and self.ROBOT_MODE != "real"
+
+    @property
+    def web_ui_allowed_origins_list(self) -> list[str]:
+        """
+        @TASK: Parsear WEB_UI_ALLOWED_ORIGINS (CSV) a una lista de origenes normalizada
+        @OUTPUT: Lista de strings sin espacios ni entradas vacias; preserva "*" si esta presente
+        @CONTEXT: Fuente unica consumida por CORSMiddleware (main.py) y por la validacion
+                  manual del header Origin en /ws/telemetry (api/router.py).
+        """
+        return [origin.strip() for origin in self.WEB_UI_ALLOWED_ORIGINS.split(",") if origin.strip()]
+
+    def validate_web_ui_config(self) -> None:
+        """
+        @TASK: Validar la configuracion de CORS/origin del frontend web antes de servir requests
+        @OUTPUT: None si valida; ValueError("WEB_UI_CONFIG_INVALID:<detalle>") si no
+        @CONTEXT: Invocado desde el lifespan de main.py junto a validate_navigation_config().
+        @SECURITY: Wildcard "*" en ROBOT_MODE=real esta prohibido sin excepcion; una lista vacia
+                   en real mode tambien se rechaza (el operador debe declarar origenes explicitos).
+        """
+        origins = self.web_ui_allowed_origins_list
+        if self.ROBOT_MODE == "real":
+            if not origins:
+                raise ValueError("WEB_UI_CONFIG_INVALID:WEB_UI_ALLOWED_ORIGINS_empty_in_real_mode")
+            if "*" in origins:
+                raise ValueError("WEB_UI_CONFIG_INVALID:wildcard_origin_prohibited_in_real_mode")
 
     def validate_navigation_config(self) -> None:
         """

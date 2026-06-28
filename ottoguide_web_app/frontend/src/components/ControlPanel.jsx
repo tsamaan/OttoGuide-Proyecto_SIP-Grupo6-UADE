@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Play, MessageSquare, Square } from 'lucide-react'
+import { Play, Mic, Square } from 'lucide-react'
 import { robotApi } from '../services/robotApi.js'
+import { tourScriptToStartTourRequest, TourScriptValidationError } from '../services/tourMapper.js'
+import { tourStartBlockReasons } from '../services/statusAdapter.js'
 
-const MODE_LABEL = { idle: 'En reposo', tour: 'Recorrido en curso', chat: 'Charla activa' }
-const CONV_LABEL = {
-  hibernacion: 'Hibernacion', escuchando: 'Escuchando', procesando: 'Procesando',
-}
-
-export default function ControlPanel({ mockMode, baseUrl, status, setStatus, refresh }) {
-  const [busy, setBusy] = useState(null) // 'tour' | 'chat' | 'stop' | null
-  const [msg, setMsg] = useState(null) // { text, kind: 'ok' | 'error' }
+export default function ControlPanel({ mockMode, baseUrl, status, apiReachable, setStatus, refresh }) {
+  const [busy, setBusy] = useState(null) // 'tour' | 'voice' | 'stop' | null
+  const [msg, setMsg] = useState(null) // { text, kind: 'ok' | 'error' | 'critical' }
+  const [voiceMockActive, setVoiceMockActive] = useState(false)
   const timers = useRef([])
 
   const clearTimers = () => {
@@ -19,59 +17,51 @@ export default function ControlPanel({ mockMode, baseUrl, status, setStatus, ref
   }
   useEffect(() => clearTimers, [])
 
-  const running = status.running
-  const mode = status.mode
+  const running = status.fsmState === 'navigating' || status.fsmState === 'interacting'
 
-  // En simulacion, anima el estado de la conversacion para que se vea vivo.
-  useEffect(() => {
-    if (!(mockMode && mode === 'chat')) return
-    const seq = ['hibernacion', 'escuchando', 'procesando', 'escuchando']
-    let i = 0
-    const id = setInterval(() => {
-      i = (i + 1) % seq.length
-      setStatus((s) => ({ ...s, conversation_state: seq[i] }))
-    }, 2500)
-    timers.current.push(id)
-    return () => clearInterval(id)
-  }, [mockMode, mode, setStatus])
+  // Bloqueo del boton de tour: nunca oculta un motivo (operational_ready, script_loaded,
+  // guion vacio, API inalcanzable, etc.) — section 8 del task brief.
+  const tourBlockReasons = mockMode ? [] : tourStartBlockReasons(status, { apiReachable })
+  const tourBlocked = tourBlockReasons.length > 0
 
   async function startTour() {
     setBusy('tour'); setMsg(null)
     try {
       if (mockMode) {
-        setStatus({ mode: 'tour', running: true, llm_enabled: false, conversation_state: 'hibernacion' })
-        // Simula que al terminar el recorrido el orquestador habilita el LLM.
-        const id = setTimeout(() => setStatus((s) => (s.mode === 'tour' ? { ...s, llm_enabled: true } : s)), 8000)
-        timers.current.push(id)
+        setStatus((s) => ({ ...s, fsmState: 'navigating', fsmStateLabel: 'recorrido' }))
         setMsg({ text: 'Recorrido iniciado (simulacion).', kind: 'ok' })
       } else {
-        await robotApi.startTour(baseUrl)
+        const script = await robotApi.getScript(baseUrl)
+        const payload = tourScriptToStartTourRequest(script)
+        await robotApi.startTour(baseUrl, payload)
         await refresh()
-        setMsg({ text: 'Recorrido iniciado.', kind: 'ok' })
+        setMsg({ text: `Recorrido iniciado (tour_id=${payload.tour_id}).`, kind: 'ok' })
       }
-    } catch {
-      setMsg({ text: 'No se pudo iniciar el recorrido. Revisa el cable y la IP del robot.', kind: 'error' })
+    } catch (err) {
+      if (err instanceof TourScriptValidationError) {
+        setMsg({ text: `Guion invalido: ${err.message}`, kind: 'error' })
+      } else if (err?.status) {
+        // Nunca ocultar 409/422/503: mostrar el detail que devuelve FastAPI.
+        setMsg({ text: `No se pudo iniciar el recorrido (HTTP ${err.status}): ${err.detail ?? err.message}`, kind: 'error' })
+      } else {
+        setMsg({ text: `No se pudo iniciar el recorrido: ${err.message}`, kind: 'error' })
+      }
     } finally {
       setBusy(null)
     }
   }
 
-  async function startChat() {
-    setBusy('chat'); setMsg(null)
-    try {
-      if (mockMode) {
-        setStatus({ mode: 'chat', running: true, llm_enabled: true, conversation_state: 'hibernacion' })
-        setMsg({ text: 'Charla iniciada (simulacion).', kind: 'ok' })
-      } else {
-        await robotApi.startChat(baseUrl)
-        await refresh()
-        setMsg({ text: 'Charla iniciada.', kind: 'ok' })
-      }
-    } catch {
-      setMsg({ text: 'No se pudo iniciar la charla. Revisa el cable y la IP del robot.', kind: 'error' })
-    } finally {
-      setBusy(null)
-    }
+  // "Interaccion por voz": el backend canonico NO expone /chat/start. Este control nunca
+  // hace una llamada real (tampoco sustituye con /tour/pause + audio vacio, que seria un
+  // mock silencioso disfrazado de funcionalidad real). Solo anima localmente en mock mode.
+  function startVoiceInteraction() {
+    if (!mockMode) return
+    setBusy('voice'); setMsg(null)
+    setVoiceMockActive(true)
+    setMsg({ text: 'Interaccion por voz simulada (mock mode). No hay llamada real al backend.', kind: 'ok' })
+    const id = setTimeout(() => setVoiceMockActive(false), 4000)
+    timers.current.push(id)
+    setBusy(null)
   }
 
   async function stopAll() {
@@ -80,15 +70,29 @@ export default function ControlPanel({ mockMode, baseUrl, status, setStatus, ref
     try {
       if (mockMode) {
         clearTimers()
-        setStatus({ mode: 'idle', running: false, llm_enabled: false, conversation_state: 'hibernacion' })
+        setVoiceMockActive(false)
+        setStatus((s) => ({ ...s, fsmState: 'idle', fsmStateLabel: 'reposo' }))
         setMsg({ text: 'Ejecucion terminada (simulacion).', kind: 'ok' })
       } else {
-        await robotApi.stopAll(baseUrl)
+        const res = await robotApi.stopAll(baseUrl, 'web_operator')
         await refresh()
-        setMsg({ text: 'Ejecucion terminada.', kind: 'ok' })
+        if (res.terminal_safe === true) {
+          setMsg({ text: 'Ejecucion terminada. Parada de emergencia confirmada (terminal_safe).', kind: 'ok' })
+        } else {
+          // Nunca un mensaje ambiguo de "exito" si la seguridad terminal no se confirmo.
+          const errList = (res.errors ?? []).join('; ')
+          setMsg({
+            text: `ATENCION: la parada de emergencia NO confirmo seguridad terminal (HTTP ${res.httpStatus}).` +
+              (errList ? ` Detalle: ${errList}` : ''),
+            kind: 'critical',
+          })
+        }
       }
-    } catch {
-      setMsg({ text: 'No se pudo terminar la ejecucion. Revisa la conexion con el robot.', kind: 'error' })
+    } catch (err) {
+      setMsg({
+        text: `ERROR CRITICO ejecutando /emergency: ${err.detail ?? err.message}`,
+        kind: 'critical',
+      })
     } finally {
       setBusy(null)
     }
@@ -99,34 +103,52 @@ export default function ControlPanel({ mockMode, baseUrl, status, setStatus, ref
       <div className="controls-head">
         <h2 className="controls-title">Control del robot</h2>
         <div className="status-pills">
-          <span className={`pill ${running ? 'pill-live' : 'pill-idle'}`}>{MODE_LABEL[mode] || mode}</span>
-          {mode === 'chat' && (
-            <span className="pill pill-conv">Dialogo: {CONV_LABEL[status.conversation_state] || status.conversation_state}</span>
+          <span className={`pill ${running ? 'pill-live' : 'pill-idle'}`}>{status.fsmStateLabel}</span>
+          {status.tourId && <span className="pill pill-conv">Tour: {status.tourId}</span>}
+          <span className="pill">Waypoint: {status.currentWaypointIndex}</span>
+          {status.conversationRuntimeDegraded && (
+            <span className="pill pill-llm-off" title={status.conversationRuntimeError ?? ''}>
+              Conversacion degradada
+            </span>
           )}
-          <span className={`pill ${status.llm_enabled ? 'pill-llm-on' : 'pill-llm-off'}`}>
-            LLM {status.llm_enabled ? 'habilitado' : 'apagado'}
-          </span>
         </div>
       </div>
 
       <div className="controls-buttons">
         <button className="btn btn-primary" onClick={startTour}
-          disabled={busy !== null || running}>
+          disabled={busy !== null || running || tourBlocked}
+          title={tourBlocked ? tourBlockReasons.join('; ') : undefined}>
           <Play size={18} /> Iniciar recorrido
         </button>
 
-        <button className="btn btn-accent" onClick={startChat}
-          disabled={busy !== null || running}>
-          <MessageSquare size={18} /> Iniciar charla
+        <button className="btn btn-accent" onClick={startVoiceInteraction}
+          disabled={busy !== null || !mockMode}
+          title={!mockMode ? 'Pendiente de integracion Wake Word/TTS - Fase 2' : undefined}>
+          <Mic size={18} /> Interaccion por voz{voiceMockActive ? ' (simulando...)' : ''}
         </button>
 
         <button className="btn btn-danger" onClick={stopAll}
-          disabled={busy !== null || !running}>
-          <Square size={18} /> Terminar ejecucion
+          disabled={busy !== null}>
+          <Square size={18} /> Detener
         </button>
       </div>
 
-      {msg && <p className={`controls-msg ${msg.kind === 'error' ? 'is-error' : 'is-ok'}`}>{msg.text}</p>}
+      {!mockMode && (
+        <p className="controls-note">
+          Interaccion por voz: pendiente de integracion Wake Word/TTS — Fase 2.
+        </p>
+      )}
+      {tourBlocked && (
+        <p className="controls-note is-error">
+          Recorrido bloqueado: {tourBlockReasons.join('; ')}
+        </p>
+      )}
+
+      {msg && (
+        <p className={`controls-msg ${msg.kind === 'critical' ? 'is-critical' : msg.kind === 'error' ? 'is-error' : 'is-ok'}`}>
+          {msg.text}
+        </p>
+      )}
     </section>
   )
 }

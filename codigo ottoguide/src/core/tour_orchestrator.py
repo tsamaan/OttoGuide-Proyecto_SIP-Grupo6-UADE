@@ -111,6 +111,7 @@ class EmergencyStopResult:
     damp_attempted: bool = False
     damp_succeeded: bool = False
     terminal_safe: bool = False
+    already_emergency: bool = False
     errors: list[str] = field(default_factory=list)
 
 
@@ -464,21 +465,48 @@ class TourOrchestrator(StateMachine):
         @TASK: Activar la transicion de emergencia desde cualquier estado operativo de la FSM
         @INPUT: reason — descripcion de la causa de emergencia para diagnostico y auditoria
         @OUTPUT: EmergencyStopResult tipado describiendo exactamente que fases de la secuencia
-                 fisica tuvieron exito; _context.last_error actualizado con reason.
+                 fisica tuvieron exito; _context.last_error actualizado con reason (salvo en el
+                 camino idempotente, donde se preserva la causa original de la primera emergencia).
         @CONTEXT: Invocable desde APIServer, señal del OS, o cualquier excepcion no recuperable.
-                  trigger_emergency acepta cualquier estado origen operativo; si la FSM ya esta
-                  en EMERGENCY (estado final), la transicion es rechazada y se retorna un resultado
-                  no-terminal con el error registrado (no se reintenta Damp(), ya fue terminal antes).
+                  trigger_emergency acepta cualquier estado origen operativo. Si la FSM YA esta en
+                  EMERGENCY (estado final), este metodo es idempotente: retorna el
+                  self._last_emergency_result de la primera invocacion con already_emergency=True,
+                  sin reintentar trigger_emergency() ni repetir ninguna fase fisica (move/damp ya
+                  fueron terminales o fallaron terminalmente en la primera llamada).
         @SECURITY: Este metodo NO ejecuta Damp() directamente; delega en on_enter_emergency que lo hace
                    como STEP 5, garantizando la secuencia correcta de cancelacion antes que hardware.
                    terminal_safe del resultado retornado es la UNICA fuente de verdad sobre exito;
-                   nunca debe inferirse de self.state_id por separado.
+                   nunca debe inferirse de self.state_id por separado. La idempotencia es necesaria
+                   porque EMERGENCY es un estado final de python-statemachine: una segunda transicion
+                   trigger_emergency() siempre seria rechazada, independientemente de si la primera
+                   parada fue terminal_safe=True o False.
 
-        STEP 1: Registrar reason en _context.last_error y emitir LOGGER.critical para trazabilidad
-        STEP 2: Ejecutar trigger_emergency via AsyncEngine para activar el callback on_enter_emergency
-        STEP 3: Leer self._last_emergency_result poblado por on_enter_emergency (AsyncEngine no
+        STEP 1: Si la FSM ya esta en EMERGENCY, retornar el resultado cacheado como idempotente
+        STEP 2: Registrar reason en _context.last_error y emitir LOGGER.critical para trazabilidad
+        STEP 3: Ejecutar trigger_emergency via AsyncEngine para activar el callback on_enter_emergency
+        STEP 4: Leer self._last_emergency_result poblado por on_enter_emergency (AsyncEngine no
                 propaga el valor de retorno del callback a traves de trigger_emergency())
         """
+        if self.state_id == "emergency":
+            cached = self._last_emergency_result
+            if cached is not None:
+                LOGGER.warning(
+                    "[Orchestrator] emergency_stop() idempotente: FSM ya en EMERGENCY. "
+                    "Retornando resultado terminal previo sin reintentar Damp(). Razon nueva: %s",
+                    reason,
+                )
+                return EmergencyStopResult(
+                    nav_cancel_attempted=cached.nav_cancel_attempted,
+                    nav_cancel_succeeded=cached.nav_cancel_succeeded,
+                    zero_velocity_attempted=cached.zero_velocity_attempted,
+                    zero_velocity_succeeded=cached.zero_velocity_succeeded,
+                    damp_attempted=cached.damp_attempted,
+                    damp_succeeded=cached.damp_succeeded,
+                    terminal_safe=cached.terminal_safe,
+                    already_emergency=True,
+                    errors=list(cached.errors),
+                )
+
         self._context.last_error = reason
         LOGGER.critical("[Orchestrator] EMERGENCY STOP solicitado. Razon: %s", reason)
 

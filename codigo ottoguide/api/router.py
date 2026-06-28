@@ -19,12 +19,14 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
 from statemachine.exceptions import TransitionNotAllowed
+from config.settings import get_settings
 from src.api.websocket_manager import TelemetryManager
 
 from .schemas import (
     EmergencyRequest,
+    EmergencyResponse,
     PauseTourRequest,
     QuestionRequest,
     QuestionResponse,
@@ -204,45 +206,94 @@ async def endpoint_pause_tour(
 
 @router.post(
     "/emergency",
-    status_code=status.HTTP_200_OK,
+    response_model=EmergencyResponse,
     summary="Activar parada de emergencia (maxima prioridad)",
 )
 async def endpoint_emergency(
     payload: EmergencyRequest,
+    response: Response,
     orchestrator=Depends(_get_orchestrator),
-) -> dict:
+) -> EmergencyResponse:
     """
-    @TASK: Trigger de emergencia con Damp() inmediato
+    @TASK: Trigger de emergencia con Damp() inmediato y contrato HTTP fiel al resultado fisico
     @INPUT: payload con reason
-    @OUTPUT: HTTP 200 tras despacho
-    @CONTEXT: Maxima prioridad; acepta cualquier estado origen
-    @SECURITY: await directo para que Damp() inicie antes de retornar
+    @OUTPUT: HTTP 200 solo si terminal_safe=True; 503 si la secuencia corrio pero no confirmo
+             seguridad terminal; 504 ante timeout del endpoint; 500 ante excepcion no controlada
+    @CONTEXT: Maxima prioridad; acepta cualquier estado origen. Nunca infiere exito de que la
+              FSM haya alcanzado EMERGENCY ni de que la llamada haya retornado sin excepcion.
+    @SECURITY: await directo para que Damp() inicie antes de retornar; el codigo HTTP es
+               siempre coherente con EmergencyStopResult.terminal_safe, nunca con un string
+               "true"/"false" ni con un 200 incondicional.
     """
     LOGGER.critical("[API] POST /emergency recibido. Razon: %s", payload.reason)
 
     try:
-        await asyncio.wait_for(
+        result = await asyncio.wait_for(
             orchestrator.emergency_stop(reason=payload.reason),
             timeout=5.0,
         )
     except asyncio.TimeoutError:
-        LOGGER.critical("[API] Timeout en emergency_stop.")
+        LOGGER.critical("[API] Timeout en emergency_stop via API.")
+        response.status_code = status.HTTP_504_GATEWAY_TIMEOUT
+        return EmergencyResponse(
+            executed=False,
+            terminal_safe=False,
+            already_emergency=False,
+            reason=payload.reason,
+            state=orchestrator.state_id,
+            nav_cancel_succeeded=False,
+            zero_velocity_succeeded=False,
+            damp_succeeded=False,
+            errors=["emergency_endpoint_timeout"],
+        )
     except Exception as exc:
-        LOGGER.critical("[API] Excepcion en emergency_stop: %s", exc)
+        LOGGER.critical("[API] Excepcion en emergency_stop via API: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error ejecutando emergency_stop: {exc}",
         )
 
-    return {
-        "executed": "true",
-        "reason": payload.reason,
-        "state": orchestrator.state_id,
-    }
+    body = EmergencyResponse(
+        executed=True,
+        terminal_safe=result.terminal_safe,
+        already_emergency=result.already_emergency,
+        reason=payload.reason,
+        state=orchestrator.state_id,
+        nav_cancel_succeeded=result.nav_cancel_succeeded,
+        zero_velocity_succeeded=result.zero_velocity_succeeded,
+        damp_succeeded=result.damp_succeeded,
+        errors=list(result.errors),
+    )
+    response.status_code = (
+        status.HTTP_200_OK if result.terminal_safe else status.HTTP_503_SERVICE_UNAVAILABLE
+    )
+    return body
 
 
 
 
+
+
+_WS_POLICY_VIOLATION_CLOSE_CODE = 1008
+
+
+def _is_websocket_origin_allowed(websocket: WebSocket) -> bool:
+    """
+    @TASK: Validar manualmente el header Origin de una conexion WebSocket entrante
+    @INPUT: websocket — instancia WebSocket aun no aceptada; lee request.app.state.settings
+    @OUTPUT: True si el origen esta autorizado (o ausente y explicitamente permitido)
+    @CONTEXT: CORSMiddleware NO protege WebSockets (es middleware ASGI HTTP-only); esta
+              validacion manual usa la misma fuente de configuracion (Settings.web_ui_allowed_origins_list)
+              que el CORS HTTP para mantener una unica fuente de verdad de origenes confiables.
+    @SECURITY: Origin ausente solo se permite si WEB_UI_ALLOW_MISSING_ORIGIN=True (pruebas
+               controladas); en caso contrario se rechaza junto con cualquier origen no listado.
+    """
+    settings = get_settings()
+    origin = websocket.headers.get("origin")
+    if origin is None:
+        return settings.WEB_UI_ALLOW_MISSING_ORIGIN
+    allowed = settings.web_ui_allowed_origins_list
+    return origin in allowed or "*" in allowed
 
 
 @router.websocket("/ws/telemetry")
@@ -259,12 +310,24 @@ async def websocket_telemetry(
               (build_telemetry_payload), luego permanece suscrito hasta la desconexion.
               telemetry_manager.broadcast() es invocado por el orquestador para propagar
               cambios de estado a todos los clientes suscritos de forma concurrente.
+    @SECURITY: El header Origin se valida ANTES de aceptar la conexion (websocket.close() en
+               lugar de accept() ante origen no autorizado), usando la misma fuente de
+               configuracion que CORSMiddleware HTTP.
 
-    STEP 1: Registrar el WebSocket en el TelemetryManager (pool de broadcast activo)
-    STEP 2: Enviar snapshot inicial del estado FSM si el orquestador esta disponible en app.state
-    STEP 3: Mantener el loop de recepcion activo; desconectar limpiamente ante WebSocketDisconnect
+    STEP 1: Validar Origin; cerrar con codigo 1008 (policy violation) si no esta autorizado
+    STEP 2: Registrar el WebSocket en el TelemetryManager (pool de broadcast activo)
+    STEP 3: Enviar snapshot inicial del estado FSM si el orquestador esta disponible en app.state
+    STEP 4: Mantener el loop de recepcion activo; desconectar limpiamente ante WebSocketDisconnect
             o cualquier excepcion no controlada
     """
+    if not _is_websocket_origin_allowed(websocket):
+        LOGGER.warning(
+            "[API] WS /ws/telemetry rechazado: Origin no autorizado (%s).",
+            websocket.headers.get("origin"),
+        )
+        await websocket.close(code=_WS_POLICY_VIOLATION_CLOSE_CODE)
+        return
+
     await telemetry_manager.connect(websocket)
     try:
         orchestrator = getattr(websocket.app.state, "orchestrator", None)

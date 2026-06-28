@@ -133,6 +133,7 @@ async def lifespan(app: FastAPI):
         try:
             # STEP 2: Config, resolucion de backend e interlock — antes de tocar hardware/ROS
             settings.validate_navigation_config()
+            settings.validate_web_ui_config()
 
             resolved_backend = _resolve_navigation_backend(settings)
             app.state.navigation_backend_resolved = resolved_backend
@@ -811,21 +812,34 @@ def create_app() -> FastAPI:
     """
     @TASK: Factory de la aplicacion FastAPI
     @INPUT: Sin parametros
-    @OUTPUT: FastAPI app con lifespan y router incluido
+    @OUTPUT: FastAPI app con lifespan, CORS, router incluido y dashboard legacy/redirect
     @CONTEXT: Invocada por uvicorn con factory=True
     @SECURITY: La politica de exposicion de documentacion OpenAPI se gestiona fuera de esta factory.
+               CORSMiddleware usa Settings.web_ui_allowed_origins_list como unica fuente de
+               verdad (la misma que valida /ws/telemetry); allow_credentials=False siempre.
     """
     from fastapi import FastAPI, HTTPException, status
-    from fastapi.responses import FileResponse
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import FileResponse, RedirectResponse
     from fastapi.staticfiles import StaticFiles
     from api.router import router
     _configure_logging()
+
+    settings = get_settings()
 
     app = FastAPI(
         title="OttoGuide API",
         version="1.0.0",
         description="Robot humanoide Unitree G1 EDU — Guia de visitas universitarias",
         lifespan=lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.web_ui_allowed_origins_list,
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
     )
 
     if STATIC_DIR.exists():
@@ -835,13 +849,21 @@ def create_app() -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     @app.get("/dashboard", include_in_schema=False)
-    async def dashboard() -> FileResponse:
+    async def dashboard():
+        # @SECURITY: Si WEB_UI_PUBLIC_URL esta configurado, React es la interfaz principal y
+        #            el dashboard HTML legacy nunca se sirve desde este proceso; redirige.
+        #            Sin configurar, sirve static/dashboard.html como fallback transicional,
+        #            identificado como legacy via header de respuesta.
+        public_url = settings.WEB_UI_PUBLIC_URL.strip()
+        if public_url:
+            return RedirectResponse(url=public_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
         if not DASHBOARD_FILE.is_file():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Dashboard no encontrado en {DASHBOARD_FILE}",
             )
-        return FileResponse(DASHBOARD_FILE)
+        return FileResponse(DASHBOARD_FILE, headers={"X-OttoGuide-Dashboard": "legacy-fallback"})
 
     return app
 

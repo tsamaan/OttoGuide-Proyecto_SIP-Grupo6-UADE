@@ -34,7 +34,7 @@ export default function App() {
   useEffect(() => savePref('otto_url', baseUrl), [baseUrl])
 
   const { frame, history, connState } = useTelemetry({ mockMode, baseUrl })
-  const { status, setStatus, refresh } = useRobotStatus({ mockMode, baseUrl })
+  const { status, setStatus, refresh, apiReachable } = useRobotStatus({ mockMode, baseUrl })
 
   return (
     <div className="app-shell">
@@ -49,10 +49,10 @@ export default function App() {
       <AlertBanner motors={frame?.motors} />
 
       <section className="cards-grid">
-        <EnergyCard frame={frame} />
-        <BatteryCard frame={frame} />
-        <ImuCard frame={frame} />
-        <FootForceCard frame={frame} />
+        <EnergyCard frame={frame} mockMode={mockMode} />
+        <BatteryCard frame={frame} mockMode={mockMode} />
+        <ImuCard frame={frame} mockMode={mockMode} />
+        <FootForceCard frame={frame} mockMode={mockMode} />
       </section>
 
       <section className="panel">
@@ -65,6 +65,12 @@ export default function App() {
           </button>
         </div>
         <div className="panel-body">
+          {!mockMode && (
+            <p className="panel-not-available">
+              Telemetria rica (motores/graficos) no disponible en el contrato actual del backend canonico.
+              Mostrando ultimos datos conocidos (probablemente vacios fuera de mock mode).
+            </p>
+          )}
           {tab === 'tabla'
             ? <MotorsTable motors={frame?.motors} />
             : <ChartsGrid history={history} />}
@@ -75,12 +81,13 @@ export default function App() {
         mockMode={mockMode}
         baseUrl={baseUrl}
         status={status}
+        apiReachable={apiReachable}
         setStatus={setStatus}
         refresh={refresh}
       />
 
       <footer className="app-foot">
-        OttoGuide · Unitree G1-EDU · backend en el robot (puerto 3000) · front en notebook (puerto 3001)
+        OttoGuide · Unitree G1-EDU · companion PC :8000 (FastAPI canonico) · frontend notebook :3001
       </footer>
     </div>
   )

@@ -1,6 +1,24 @@
-// Conexion de telemetria con el backend del robot.
-// Intenta WebSocket; si falla, cae a polling por GET. Reintenta solo.
+// Conexion de telemetria con el backend canonico. Intenta WebSocket (/ws/telemetry);
+// si falla, cae a polling de GET /status (no existe GET /telemetry en el backend canonico —
+// ese endpoint roto del backend especulativo de pilar-web fue eliminado de este cliente).
 import { config, wsUrl } from '../config.js'
+import { normalizeTelemetryFrame } from './telemetryNormalizer.js'
+
+// GET /status no tiene el mismo shape que un frame de telemetria; se sintetiza un frame
+// minimo compatible para que el normalizador y la UI no necesiten dos caminos distintos.
+function statusResponseToTelemetryFrame(statusResponse) {
+  return {
+    timestamp: new Date().toISOString(),
+    fsm_state: (statusResponse?.state ?? 'unknown').toUpperCase(),
+    current_waypoint_id: statusResponse?.current_waypoint_index != null
+      ? String(statusResponse.current_waypoint_index)
+      : 'N/A',
+    battery_level: null,
+    nlp_intent: 'UNKNOWN',
+    nlp_source_pipeline: 'N/A',
+    nlp_answer_preview: '',
+  }
+}
 
 export function connectTelemetry(baseUrl, { onFrame, onState }) {
   let ws = null
@@ -9,14 +27,15 @@ export function connectTelemetry(baseUrl, { onFrame, onState }) {
   let closed = false
 
   const setState = (s) => onState && onState(s)
+  const emitFrame = (rawFrame) => onFrame(normalizeTelemetryFrame(rawFrame))
 
   function startPolling() {
     setState('polling')
     const tick = async () => {
       try {
-        const res = await fetch(`${baseUrl}${config.endpoints.telemetry}`)
+        const res = await fetch(`${baseUrl}${config.endpoints.status}`)
         if (res.ok) {
-          onFrame(await res.json())
+          emitFrame(statusResponseToTelemetryFrame(await res.json()))
           setState('polling')
         } else {
           setState('error')
@@ -45,19 +64,19 @@ export function connectTelemetry(baseUrl, { onFrame, onState }) {
     ws.onopen = () => setState('connected')
     ws.onmessage = (ev) => {
       try {
-        onFrame(JSON.parse(ev.data))
+        emitFrame(JSON.parse(ev.data))
       } catch {
         /* frame invalido, lo ignoramos */
       }
     }
     ws.onerror = () => {
-      // si el WS no levanta, probamos polling
+      // si el WS no levanta, probamos polling de /status
       if (ws) { try { ws.close() } catch {} }
     }
     ws.onclose = () => {
       ws = null
       if (closed) return
-      // fallback: polling + reintento de WS mas adelante
+      // fallback: polling de /status + reintento de WS mas adelante
       if (!pollTimer) startPolling()
       setState('reconnecting')
       retryTimer = setTimeout(() => {

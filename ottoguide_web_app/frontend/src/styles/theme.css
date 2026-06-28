@@ -122,6 +122,9 @@ button, input, select { font-family: inherit; }
 .card-icon { display: grid; place-items: center; color: var(--accent); }
 .card-title { margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); }
 .card-body { display: flex; flex-direction: column; gap: 7px; }
+.card-badge { margin-left: auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 999px; color: var(--text-3); border: 1px dashed var(--border-2); }
+.card-badge-mock { color: var(--warn); border-color: rgba(250, 204, 21, 0.4); }
+.card-not-available { color: var(--text-3); font-size: 12.5px; font-style: italic; margin: 0; }
 .metric-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .metric-label { color: var(--text-2); font-size: 12.5px; }
 .metric-value { font-family: var(--font-mono); font-weight: 600; font-size: 14px; text-align: right; }
@@ -179,6 +182,7 @@ button, input, select { font-family: inherit; }
 .chart-title { margin: 0 0 6px; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
 .chart-area { height: 220px; }
 .charts-empty, .charts-empty { text-align: center; color: var(--text-3); padding: 40px; }
+.panel-not-available { color: var(--text-3); font-size: 12.5px; font-style: italic; margin: 0 0 10px; }
 
 /* ---------- Controls ---------- */
 .controls { border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--surface), var(--bg-2)); padding: 16px 18px; }
@@ -206,9 +210,13 @@ button, input, select { font-family: inherit; }
 .btn-accent { background: var(--accent); color: #04222A; box-shadow: 0 8px 22px rgba(34, 211, 238, 0.22); }
 .btn-danger { background: var(--danger); box-shadow: 0 8px 22px rgba(239, 68, 68, 0.24); }
 
+.controls-note { margin: 10px 0 0; font-size: 12px; color: var(--text-3); }
+.controls-note.is-error { color: var(--warn); }
+
 .controls-msg { margin: 12px 0 0; font-size: 13px; }
 .controls-msg.is-ok { color: var(--ok); }
 .controls-msg.is-error { color: #FCA5A5; }
+.controls-msg.is-critical { color: #fff; background: var(--crit); padding: 8px 12px; border-radius: 8px; font-weight: 700; }
 
 /* ---------- Footer ---------- */
 .app-foot { text-align: center; color: var(--text-3); font-size: 11.5px; padding-top: 6px; }

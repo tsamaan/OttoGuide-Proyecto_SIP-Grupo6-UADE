@@ -85,6 +85,27 @@ class EmergencyRequest(BaseModel):
     reason: str = "emergency-stop-api"
 
 
+class EmergencyResponse(BaseModel):
+    """
+    @TASK: Tipar la respuesta de POST /emergency reflejando el EmergencyStopResult real
+    @INPUT: Poblado desde TourOrchestrator.emergency_stop()
+    @OUTPUT: executed/terminal_safe como booleanos JSON reales (nunca strings "true"/"false")
+    @CONTEXT: executed indica que la secuencia se ejecuto (o ya estaba ejecutada via
+              already_emergency); terminal_safe es la unica fuente de verdad sobre seguridad
+              fisica confirmada. El codigo HTTP del endpoint depende de terminal_safe, no de
+              si esta respuesta se pudo construir.
+    """
+    executed: bool
+    terminal_safe: bool
+    already_emergency: bool
+    reason: str
+    state: str
+    nav_cancel_succeeded: bool
+    zero_velocity_succeeded: bool
+    damp_succeeded: bool
+    errors: list[str] = Field(default_factory=list)
+
+
 class StatusResponse(BaseModel):
     """Snapshot consolidado del estado del sistema."""
     state: str
@@ -203,6 +224,7 @@ class ScriptReloadResponse(BaseModel):
 
 __all__ = [
     "EmergencyRequest",
+    "EmergencyResponse",
     "NavWaypointDTO",
     "PauseTourRequest",
     "QuestionRequest",

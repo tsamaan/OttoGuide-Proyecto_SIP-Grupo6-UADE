@@ -4,13 +4,13 @@ import MetricCard, { MetricRow } from './MetricCard.jsx'
 const f2 = (n) => (n != null ? n.toFixed(2) : '—')
 const f3 = (n) => (n != null ? n.toFixed(3) : '—')
 
-export default function ImuCard({ frame }) {
+export default function ImuCard({ frame, mockMode }) {
   const imu = frame?.imu || {}
   const rpy = imu.rpy_deg || [null, null, null]
   const acc = imu.accelerometer || [null, null, null]
   const gyr = imu.gyroscope || [null, null, null]
   return (
-    <MetricCard title="IMU - Orientacion" icon={<Compass size={18} />}>
+    <MetricCard title="IMU - Orientacion" icon={<Compass size={18} />} mockMode={mockMode} notAvailable={!mockMode}>
       <MetricRow label="Roll" value={rpy[0] != null ? rpy[0].toFixed(1) : '—'} unit="°" />
       <MetricRow label="Pitch" value={rpy[1] != null ? rpy[1].toFixed(1) : '—'} unit="°" />
       <MetricRow label="Yaw" value={rpy[2] != null ? rpy[2].toFixed(1) : '—'} unit="°" />

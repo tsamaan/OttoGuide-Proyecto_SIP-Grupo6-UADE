@@ -1,12 +1,12 @@
 import { BatteryMedium } from 'lucide-react'
 import MetricCard, { MetricRow } from './MetricCard.jsx'
 
-export default function BatteryCard({ frame }) {
+export default function BatteryCard({ frame, mockMode }) {
   const bms = frame?.bms || {}
   const ntc = bms.mcu_ntc?.length ? bms.mcu_ntc.join(', ') : '—'
   const cells = bms.cell_vol?.length ? bms.cell_vol.join(', ') : '—'
   return (
-    <MetricCard title="Bateria" icon={<BatteryMedium size={18} />}>
+    <MetricCard title="Bateria" icon={<BatteryMedium size={18} />} mockMode={mockMode} notAvailable={!mockMode}>
       <MetricRow label="Carga" value={bms.soc ?? '—'} unit="%" />
       <MetricRow label="Corriente BMS" value={bms.current ?? '—'} unit="mA" />
       <MetricRow label="Temp NTC" value={ntc} unit="C" />
