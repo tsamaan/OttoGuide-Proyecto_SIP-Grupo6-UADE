@@ -107,6 +107,9 @@ class StatusResponse(BaseModel):
     navigation_ntp_available: Optional[bool] = None
     navigation_fw_available: Optional[bool] = None
 
+    # --- Observabilidad del runtime de conversacion ---
+    conversation_runtime_degraded: bool = False
+
 
 class QuestionRequest(BaseModel):
     """Payload para POST /question."""

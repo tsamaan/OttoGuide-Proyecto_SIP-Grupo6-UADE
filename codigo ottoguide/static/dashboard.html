@@ -305,7 +305,7 @@
         <h2>Control</h2>
         <button id="emergencyBtn" class="emergency-btn">EMERGENCY STOP</button>
         <div class="footer-note">
-          La acción envía `POST /api/emergency_stop` y fuerza la transición inmediata a EMERGENCY.
+          La acción envía `POST /emergency` con `{"reason":"dashboard_operator"}` y fuerza la transición inmediata a EMERGENCY.
         </div>
         <pre id="controlLog" class="log">Sin acciones ejecutadas.</pre>
       </aside>
@@ -458,15 +458,15 @@
     async function triggerEmergencyStop() {
       emergencyBtn.disabled = true;
       emergencyBtn.classList.add("emergency-active");
-      appendLog(controlLog, "[control] enviando POST /api/emergency_stop...");
+      appendLog(controlLog, "[control] enviando POST /emergency...");
 
       try {
-        const response = await fetch("/api/emergency_stop", {
+        const response = await fetch("/emergency", {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({})
+          body: JSON.stringify({"reason": "dashboard_operator"})
         });
 
         if (!response.ok) {

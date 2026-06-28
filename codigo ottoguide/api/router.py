@@ -180,6 +180,17 @@ async def endpoint_pause_tour(
     else:
         audio_pcm = np.zeros(1, dtype=np.float32)
 
+    current_state = getattr(orchestrator, "state_id", None)
+    if current_state != "navigating":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "La pausa solo es valida en estado NAVIGATING.",
+                "current_state": current_state,
+                "reason": f"Estado actual: '{current_state}'; se requiere 'navigating'.",
+            },
+        )
+
     try:
         await orchestrator.request_interaction(audio_pcm, language=payload.language)
     except TransitionNotAllowed as exc:
@@ -297,6 +308,7 @@ async def endpoint_status(
         operational_ready=not readiness_errors,
         readiness_errors=readiness_errors,
         factory_rest=factory_rest,
+        conversation_runtime_degraded=bool(getattr(request.app.state, "conversation_runtime_degraded", False)),
         **nav_observability,
     )
 
@@ -416,6 +428,9 @@ async def _resolve_readiness_errors(request: Request, orchestrator) -> list[str]
                     errors.append("hardware no inicializado")
             except Exception as exc:
                 errors.append(f"hardware state no disponible: {type(exc).__name__}")
+
+        if bool(getattr(state, "conversation_runtime_degraded", False)):
+            errors.append("conversation_manager degradado: stub activo en modo real")
 
     return errors
 
