@@ -1416,12 +1416,18 @@ def check_direct_nav2_action_bridge_smoke_hardening_contract(result: dict, files
                     if "REJECTED" in attr_names and "ABORTED" in attr_names:
                         result["errors"].append("SMOKE_FW_UNREACHABLE_ACCEPTS_REJECTED")
 
-    # 3. Child output paths must carry a uniqueness token (time_ns()).
-    has_time_ns = any(
-        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "time_ns"
-        for n in ast.walk(tree)
-    )
-    if not has_time_ns:
+    # 3. Child output paths must carry a uniqueness token (time_ns() or uuid4()).
+    def _is_uniqueness_call(node):
+        if not isinstance(node, ast.Call):
+            return False
+        func = node.func
+        if isinstance(func, ast.Attribute) and func.attr in ("time_ns", "uuid4"):
+            return True
+        if isinstance(func, ast.Name) and func.id == "uuid4":
+            return True
+        return False
+
+    if not any(_is_uniqueness_call(n) for n in ast.walk(tree)):
         result["errors"].append("SMOKE_CHILD_OUTPUT_PATH_NOT_UNIQUE")
 
     # 4. Observer thread must be checked again after join(), not just before.

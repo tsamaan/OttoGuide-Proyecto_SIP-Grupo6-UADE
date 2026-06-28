@@ -30,6 +30,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -237,7 +238,7 @@ def _build_child_output_path(parent_pid: int, scenario: str, domain: str) -> Pat
     domain. Never reused across invocations, so a stale JSON from a
     previous run can never be silently re-read as if it were fresh.
     """
-    token = f"{parent_pid}_{time.time_ns()}_{scenario}_{domain}"
+    token = f"{parent_pid}_{uuid.uuid4().hex}_{scenario}_{domain}"
     return Path(f"/tmp/ottoguide_direct_bridge_child_{token}.json")
 
 

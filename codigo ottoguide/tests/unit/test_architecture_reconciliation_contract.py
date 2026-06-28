@@ -155,8 +155,12 @@ class ModelCompatibilityTests(unittest.TestCase):
         self._preexisting_ros_mocks = {
             name: sys.modules[name] for name in _ROS_MOCK_MODULE_NAMES if name in sys.modules
         }
+        # Only purge navigation modules — these tests only import from src.navigation.*
+        # and the ROS mocks only affect that package. Purging all src.* would orphan
+        # module objects already captured by other test files' closures (e.g. piper patches
+        # in test_conversation_playback_lifecycle.py capture __globals__ at collection time).
         for mod in list(sys.modules):
-            if mod == "src" or mod.startswith("src."):
+            if mod == "src.navigation" or mod.startswith("src.navigation."):
                 del sys.modules[mod]
         from tests.mocks.mock_ros2 import install_mocks  # noqa: PLC0415
 
@@ -167,7 +171,7 @@ class ModelCompatibilityTests(unittest.TestCase):
             sys.modules.pop(name, None)
         sys.modules.update(self._preexisting_ros_mocks)
         for mod in list(sys.modules):
-            if mod == "src" or mod.startswith("src."):
+            if mod == "src.navigation" or mod.startswith("src.navigation."):
                 del sys.modules[mod]
 
     def test_navwaypoint_identity_across_import_paths(self):
@@ -315,8 +319,10 @@ class StructuralConformanceTests(unittest.TestCase):
         self.assertEqual(missing, set(), f"missing methods on DirectNav2ActionBridge: {missing}")
 
     def test_mock_nav2_bridge_conforms_via_isinstance(self):
+        # Only purge navigation modules — purging all src.* orphans module objects
+        # that other tests' closures already captured, breaking their patches.
         for mod in list(sys.modules):
-            if mod == "src" or mod.startswith("src."):
+            if mod == "src.navigation" or mod.startswith("src.navigation."):
                 del sys.modules[mod]
         from tests.mocks.mock_nav2_bridge import MockNav2Bridge  # noqa: PLC0415
         from src.navigation.port import NavigationPort  # noqa: PLC0415

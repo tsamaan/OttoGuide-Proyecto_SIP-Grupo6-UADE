@@ -73,3 +73,8 @@ artifacts/_quarantine/
 *.light.tar.gz
 *.tar.gz
 metadata.yaml
+
+# Mission audit logs (runtime-generated; never committed)
+codigo\ ottoguide/mission_logs/
+codigo\ ottoguide/logs/mission_*.jsonl
+mission_*.jsonl

@@ -88,11 +88,20 @@ def test_canonical_wiring():
 
     app = main.create_app()
 
-    route_map = {
-        r.path: r.endpoint
-        for r in app.routes
-        if hasattr(r, "path") and hasattr(r, "endpoint")
-    }
+    def _collect_routes(routes):
+        # FastAPI (>=0.100) wraps include_router() in _IncludedRouter objects which
+        # store their routes in .original_router rather than as direct .routes.
+        result = {}
+        for r in routes:
+            if hasattr(r, "path") and hasattr(r, "endpoint"):
+                result[r.path] = r.endpoint
+            if hasattr(r, "routes"):
+                result.update(_collect_routes(r.routes))
+            if hasattr(r, "original_router") and hasattr(r.original_router, "routes"):
+                result.update(_collect_routes(r.original_router.routes))
+        return result
+
+    route_map = _collect_routes(app.routes)
 
     for path in ("/tour/start", "/tour/pause", "/status"):
         assert path in route_map, f"Route {path} not registered in create_app()"
@@ -262,7 +271,7 @@ async def test_concurrent_start_single_acceptance():
 # ---------------------------------------------------------------------------
 
 class _PauseControlledOrchestrator:
-    state_id = "idle"
+    state_id = "navigating"  # CHANGE D: endpoint requires NAVIGATING state
     _robot_mode = "mock"
     context = _FakeContext()
 
@@ -316,7 +325,7 @@ async def test_pause_awaits_interaction():
 # ---------------------------------------------------------------------------
 
 class _RejectingOrchestrator:
-    state_id = "idle"
+    state_id = "navigating"  # CHANGE D: must be navigating to reach request_interaction
     _robot_mode = "mock"
     context = _FakeContext()
 
@@ -350,6 +359,157 @@ async def test_pause_transition_not_allowed_returns_409():
 # ---------------------------------------------------------------------------
 # accepted is JSON boolean true (not string "true" / "True" / 1)
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# 5.4.D — POST /tour/pause: explicit state guard added by CHANGE D
+# ---------------------------------------------------------------------------
+
+class _StateOrchestrator:
+    """Fake orchestrator with configurable state_id for state-guard tests."""
+    _robot_mode = "mock"
+    context = _FakeContext()
+
+    def __init__(self, state: str):
+        self.state_id = state
+
+    async def request_interaction(self, audio, *, language="es"):
+        pass
+
+    async def dispatch_tour(self, plan):
+        pass
+
+    async def emergency_stop(self, *, reason=""):
+        pass
+
+    async def build_telemetry_payload(self):
+        return {}
+
+
+async def test_pause_idle_state_returns_409():
+    """POST /tour/pause from IDLE must return 409 — explicit state guard (CHANGE D)."""
+    orch = _StateOrchestrator("idle")
+    app = _build_minimal_app(orch)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/tour/pause", json={"language": "es"})
+    assert resp.status_code == 409
+
+
+async def test_pause_interacting_state_returns_409():
+    """POST /tour/pause from INTERACTING must return 409 — explicit state guard (CHANGE D)."""
+    orch = _StateOrchestrator("interacting")
+    app = _build_minimal_app(orch)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/tour/pause", json={"language": "es"})
+    assert resp.status_code == 409
+
+
+async def test_pause_emergency_state_returns_409():
+    """POST /tour/pause from EMERGENCY must return 409 — explicit state guard (CHANGE D)."""
+    orch = _StateOrchestrator("emergency")
+    app = _build_minimal_app(orch)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/tour/pause", json={"language": "es"})
+    assert resp.status_code == 409
+
+
+async def test_pause_navigating_state_returns_202():
+    """POST /tour/pause from NAVIGATING must return 202 — correct state (CHANGE D)."""
+    orch = _PauseControlledOrchestrator()
+    app = _build_minimal_app(orch)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        orch._release.set()
+        resp = await asyncio.wait_for(
+            client.post("/tour/pause", json={"language": "es"}),
+            timeout=3.0,
+        )
+    assert resp.status_code == 202
+
+
+# ---------------------------------------------------------------------------
+# G-03 — Real TourOrchestrator (AsyncEngine) concurrent dispatch atomicity
+# ---------------------------------------------------------------------------
+
+async def test_real_orchestrator_concurrent_dispatch_is_atomic():
+    """G-03: Real TourOrchestrator with AsyncEngine serialises concurrent dispatch_tour().
+
+    Unlike _AtomicOrchestrator (a hand-rolled barrier fake), this test uses the
+    actual python-statemachine FSM to prove that two concurrent dispatch_tour()
+    calls produce exactly one success and one rejection — no barrier fake needed.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+    from src.core import TourOrchestrator, TourPlan
+    from src.navigation.models import NavWaypoint
+
+    hw = MagicMock()
+    hw.move = AsyncMock()
+    hw.damp = AsyncMock()
+
+    nav = MagicMock()
+    nav.navigate_to_waypoints = AsyncMock(return_value=False)
+    nav.cancel_navigation = AsyncMock()
+    nav.get_status = AsyncMock(return_value=MagicMock(
+        remote_state_unknown=False,
+        task_active=False,
+        last_result=MagicMock(succeeded=False),
+    ))
+    nav.inject_absolute_pose = AsyncMock()
+    nav.start = AsyncMock()
+    nav.close = AsyncMock()
+
+    cm = MagicMock()
+    cm.process_interaction = AsyncMock(return_value=MagicMock(
+        answer_text="", source_pipeline="stub", audio_stream_ready=False,
+    ))
+    cm.close = MagicMock()
+    cm.loaded_script = None
+
+    vp = MagicMock()
+    vp.close = MagicMock()
+    vp.get_next_estimate = AsyncMock(return_value=None)
+
+    orchestrator = TourOrchestrator(
+        hardware_api=hw,
+        nav_bridge=nav,
+        conversation_manager=cm,
+        vision_processor=vp,
+        robot_mode="mock",
+    )
+    await orchestrator.activate_initial_state()
+
+    plan = TourPlan(
+        waypoints=[NavWaypoint(x=0.0, y=0.0, yaw_rad=0.0, frame_id="map")],
+        tour_id="g03-concurrent",
+    )
+
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(
+                orchestrator.dispatch_tour(plan),
+                orchestrator.dispatch_tour(plan),
+                return_exceptions=True,
+            ),
+            timeout=5.0,
+        )
+    finally:
+        try:
+            await asyncio.wait_for(
+                orchestrator.emergency_stop(reason="g03-cleanup"),
+                timeout=2.0,
+            )
+        except Exception:
+            pass
+
+    successes = [r for r in results if not isinstance(r, BaseException)]
+    failures = [r for r in results if isinstance(r, BaseException)]
+
+    assert len(successes) == 1, (
+        f"G-03: expected exactly 1 dispatch_tour() to succeed, got {len(successes)}; "
+        f"results={results}"
+    )
+    assert len(failures) == 1, (
+        f"G-03: expected 1 rejection, got {len(failures)}; results={results}"
+    )
+
 
 async def test_start_accepted_is_json_boolean():
     """accepted in POST /tour/start response must be JSON boolean true, not a string."""

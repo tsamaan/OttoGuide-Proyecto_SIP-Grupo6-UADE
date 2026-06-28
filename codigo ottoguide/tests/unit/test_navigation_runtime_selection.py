@@ -134,6 +134,8 @@ def _fake_settings(**overrides) -> SimpleNamespace:
         UNITREE_FACTORY_BASE_URL="http://192.168.12.1:9991",
         UNITREE_FACTORY_TIMEOUT_S=0.35,
         UNITREE_FACTORY_DIAGNOSTICS_ENABLED=False,
+        CLOUD_FALLBACK_ENABLED=False,
+        cloud_fallback_effective=False,
     )
     fields.update(overrides)
     ns = SimpleNamespace(**fields)
