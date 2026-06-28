@@ -181,6 +181,40 @@ async def lifespan(app: FastAPI):
             )
             app.state.orchestrator = orchestrator
             await orchestrator.activate_initial_state()
+
+            # CHANGE F: Track conversation runtime degradation
+            _cm_boot = (
+                getattr(orchestrator, "conversation_manager", None)
+                or getattr(orchestrator, "_conversation_manager", None)
+            )
+            app.state.conversation_runtime_degraded = (
+                _cm_boot is None or not hasattr(_cm_boot, "load_script_from_file")
+            )
+            if app.state.conversation_runtime_degraded:
+                LOGGER.warning("[BOOT] ConversationManager degradado (stub activo). CONVERSATION_RUNTIME_DEGRADED")
+
+            # CHANGE E: Cargar guion al arrancar
+            _script_path = Path(__file__).resolve().parent / "data" / "mvp_tour_script.json"
+            if _cm_boot is not None and hasattr(_cm_boot, "load_script_from_file"):
+                if _script_path.exists():
+                    try:
+                        _boot_loop = asyncio.get_running_loop()
+                        await _boot_loop.run_in_executor(None, _cm_boot.load_script_from_file, _script_path)
+                        _loaded = getattr(_cm_boot, "loaded_script", None)
+                        LOGGER.info(
+                            "[BOOT] Script cargado. version='%s' waypoints=%d",
+                            getattr(_loaded, "version", "?"),
+                            len(getattr(_loaded, "waypoints", [])),
+                        )
+                    except Exception as exc:
+                        if settings.ROBOT_MODE == "real":
+                            raise RuntimeError(f"SCRIPT_LOAD_FAILED:{exc}") from exc
+                        LOGGER.warning("[BOOT] Script no cargado (modo=%s): %s", settings.ROBOT_MODE, exc)
+                elif settings.ROBOT_MODE == "real":
+                    raise RuntimeError(f"SCRIPT_NOT_FOUND:{_script_path}")
+                else:
+                    LOGGER.info("[BOOT] Script ausente (%s); modo=%s — degradado aceptable.", _script_path, settings.ROBOT_MODE)
+
             app.state.factory_rest_client = UnitreeFactoryRestClient.get_instance(
                 base_url=settings.UNITREE_FACTORY_BASE_URL,
                 timeout_s=settings.UNITREE_FACTORY_TIMEOUT_S,
@@ -203,10 +237,35 @@ async def lifespan(app: FastAPI):
         # @SECURITY: La secuencia de shutdown HIL-safe se ejecuta siempre en el finally.
         #            El orden es critico: EventBus -> FSM -> hardware -> bridge de navegacion.
         LOGGER.info("[SHUTDOWN] Iniciando secuencia de cierre HIL-safe.")
+        _orch_shutdown = getattr(app.state, "orchestrator", None)
         await _run_shutdown_sequence(
             hardware=hardware,
-            orchestrator=getattr(app.state, "orchestrator", None),
+            orchestrator=_orch_shutdown,
         )
+
+        # CHANGE A: Close orchestrator (cancels background tasks)
+        if _orch_shutdown is not None:
+            try:
+                _orch_close = getattr(_orch_shutdown, "close", None)
+                if callable(_orch_close):
+                    await _orch_close()
+                    LOGGER.info("[SHUTDOWN] TourOrchestrator.close() completado.")
+            except Exception as exc:
+                LOGGER.warning("[SHUTDOWN] TourOrchestrator.close() fallido: %s", exc)
+
+            # CHANGE A: Close ConversationManager (synchronous — must not be awaited)
+            _cm_shutdown = (
+                getattr(_orch_shutdown, "conversation_manager", None)
+                or getattr(_orch_shutdown, "_conversation_manager", None)
+            )
+            if _cm_shutdown is not None:
+                _cm_close = getattr(_cm_shutdown, "close", None)
+                if callable(_cm_close) and not asyncio.iscoroutinefunction(_cm_close):
+                    try:
+                        _cm_close()
+                        LOGGER.info("[SHUTDOWN] ConversationManager.close() completado.")
+                    except Exception as exc:
+                        LOGGER.warning("[SHUTDOWN] ConversationManager.close() fallido: %s", exc)
 
         if nav_bridge is not None:
             try:
@@ -314,6 +373,10 @@ async def _run_shutdown_sequence(
     # STEP 2: Transicionar FSM a EMERGENCY
     # @SECURITY: emergency_stop() cancela _nav_task y _odometry_task de forma segura.
     #            Se ejecuta ANTES del hardware para que Nav2 cancele sus comandos activos.
+    #            Si tiene éxito, on_enter_emergency ya emitió MotionCommand(0)+damp() —
+    #            STEP 3 y STEP 4 se omiten (ORCHESTRATOR_EMERGENCY_COMPLETED).
+    #            Si falla o tiene timeout, se ejecuta fallback directo (DIRECT_HARDWARE_FALLBACK_USED).
+    _orchestrator_handled_shutdown = False
     if orchestrator is not None:
         try:
             emergency_fn = getattr(orchestrator, "emergency_stop", None)
@@ -322,57 +385,64 @@ async def _run_shutdown_sequence(
                     emergency_fn(reason="graceful_shutdown"),
                     timeout=2.0,
                 )
-                LOGGER.info("[SHUTDOWN] STEP 2: TourOrchestrator en estado EMERGENCY.")
+                LOGGER.info("[SHUTDOWN] STEP 2: TourOrchestrator en estado EMERGENCY. ORCHESTRATOR_EMERGENCY_COMPLETED")
+                _orchestrator_handled_shutdown = True
         except asyncio.TimeoutError:
-            LOGGER.warning("[SHUTDOWN] STEP 2: Timeout en emergency_stop(). Continuando.")
+            LOGGER.warning("[SHUTDOWN] STEP 2: Timeout en emergency_stop(). DIRECT_HARDWARE_FALLBACK_USED. Continuando.")
         except Exception as exc:
-            LOGGER.warning("[SHUTDOWN] STEP 2: Fallo en emergency_stop(): %s. Continuando.", exc)
+            LOGGER.warning("[SHUTDOWN] STEP 2: Fallo en emergency_stop(): %s. DIRECT_HARDWARE_FALLBACK_USED. Continuando.", exc)
     else:
         LOGGER.info("[SHUTDOWN] STEP 2: No hay orchestrator activo — omitido.")
 
-    # STEP 3: Failsafe cinematico — MotionCommand(0) antes de damp()
-    # @SECURITY: Garantiza velocidad 0 incluso si damp() tiene timeout o falla.
-    #            El robot puede quedar en postura rigida ante fallo de damp(), pero
-    #            al menos no avanzara con velocidad remanente.
-    if hardware is not None:
-        try:
-            from hardware.interface import MotionCommand
-            await asyncio.wait_for(
-                hardware.move(MotionCommand(linear_x=0.0, angular_z=0.0, duration_ms=0)),
-                timeout=0.5,
-            )
-            LOGGER.info("[SHUTDOWN] STEP 3: MotionCommand(0) enviado correctamente.")
-        except asyncio.TimeoutError:
-            LOGGER.warning("[SHUTDOWN] STEP 3: Timeout enviando MotionCommand(0).")
-        except Exception as exc:
-            LOGGER.warning("[SHUTDOWN] STEP 3: Fallo en MotionCommand(0): %s.", exc)
-
-    # STEP 4 (CRITICO): damp() — parada elastica del hardware. PRIORIDAD ABSOLUTA.
-    # @SECURITY: Se ejecuta incluso si todos los pasos anteriores fallaron.
-    if hardware is not None:
+    if _orchestrator_handled_shutdown:
         LOGGER.info(
-            "[SHUTDOWN] STEP 4: Ejecutando damp() (timeout=%.1fs). PRIORIDAD ABSOLUTA.",
-            _DAMP_SHUTDOWN_TIMEOUT_S,
+            "[SHUTDOWN] STEP 3+4: Omitidos — TourOrchestrator es la autoridad de motion; "
+            "on_enter_emergency ya ejecutó MotionCommand(0) y damp()."
         )
-        try:
-            await asyncio.wait_for(
-                hardware.damp(),
-                timeout=_DAMP_SHUTDOWN_TIMEOUT_S,
-            )
-            LOGGER.info("[SHUTDOWN] STEP 4: damp() ejecutado correctamente.")
-        except asyncio.TimeoutError:
-            LOGGER.critical(
-                "[SHUTDOWN] STEP 4: TIMEOUT en damp() (%.1fs). "
-                "Verificar estado mecanico. Activar L1+A en mando si el robot sigue activo.",
+    else:
+        # STEP 3: Failsafe cinematico — MotionCommand(0) antes de damp()
+        # @SECURITY: Garantiza velocidad 0 incluso si damp() tiene timeout o falla.
+        #            El robot puede quedar en postura rigida ante fallo de damp(), pero
+        #            al menos no avanzara con velocidad remanente.
+        if hardware is not None:
+            try:
+                from hardware.interface import MotionCommand
+                await asyncio.wait_for(
+                    hardware.move(MotionCommand(linear_x=0.0, angular_z=0.0, duration_ms=0)),
+                    timeout=0.5,
+                )
+                LOGGER.info("[SHUTDOWN] STEP 3: MotionCommand(0) enviado correctamente.")
+            except asyncio.TimeoutError:
+                LOGGER.warning("[SHUTDOWN] STEP 3: Timeout enviando MotionCommand(0).")
+            except Exception as exc:
+                LOGGER.warning("[SHUTDOWN] STEP 3: Fallo en MotionCommand(0): %s.", exc)
+
+        # STEP 4 (CRITICO): damp() — parada elastica del hardware. PRIORIDAD ABSOLUTA.
+        # @SECURITY: Se ejecuta incluso si todos los pasos anteriores fallaron.
+        if hardware is not None:
+            LOGGER.info(
+                "[SHUTDOWN] STEP 4: Ejecutando damp() (timeout=%.1fs). PRIORIDAD ABSOLUTA.",
                 _DAMP_SHUTDOWN_TIMEOUT_S,
             )
-        except Exception as exc:
-            LOGGER.critical(
-                "[SHUTDOWN] STEP 4: Fallo CRITICO en damp(): %s — %s. Verificar hardware.",
-                type(exc).__name__, exc,
-            )
-    else:
-        LOGGER.info("[SHUTDOWN] STEP 4: No hay hardware activo — damp() omitido.")
+            try:
+                await asyncio.wait_for(
+                    hardware.damp(),
+                    timeout=_DAMP_SHUTDOWN_TIMEOUT_S,
+                )
+                LOGGER.info("[SHUTDOWN] STEP 4: damp() ejecutado correctamente.")
+            except asyncio.TimeoutError:
+                LOGGER.critical(
+                    "[SHUTDOWN] STEP 4: TIMEOUT en damp() (%.1fs). "
+                    "Verificar estado mecanico. Activar L1+A en mando si el robot sigue activo.",
+                    _DAMP_SHUTDOWN_TIMEOUT_S,
+                )
+            except Exception as exc:
+                LOGGER.critical(
+                    "[SHUTDOWN] STEP 4: Fallo CRITICO en damp(): %s — %s. Verificar hardware.",
+                    type(exc).__name__, exc,
+                )
+        else:
+            LOGGER.info("[SHUTDOWN] STEP 4: No hay hardware activo — damp() omitido.")
 
     LOGGER.info("[SHUTDOWN] === SECUENCIA HIL-SAFE COMPLETADA ===")
 
