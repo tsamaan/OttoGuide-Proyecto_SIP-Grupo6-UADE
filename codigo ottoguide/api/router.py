@@ -363,6 +363,8 @@ async def endpoint_status(
     readiness_errors = await _resolve_readiness_errors(request, orchestrator)
     factory_rest = await _resolve_factory_rest_status(request)
     nav_observability = await _resolve_navigation_observability(request)
+    interaction_runtime_status = await _resolve_interaction_runtime_status(request)
+    station_trigger_status = await _resolve_station_trigger_status(request)
     return StatusResponse(
         state=orchestrator.state_id,
         tour_id=ctx.tour_id,
@@ -377,8 +379,159 @@ async def endpoint_status(
         script_version=getattr(request.app.state, "script_version", None),
         script_waypoint_count=int(getattr(request.app.state, "script_waypoint_count", 0)),
         script_load_error=getattr(request.app.state, "script_load_error", None),
+        interaction_runtime=interaction_runtime_status,
+        station_trigger=station_trigger_status,
         **nav_observability,
     )
+
+
+async def _resolve_interaction_runtime_status(request: Request) -> dict:
+    """
+    @TASK: Construir el snapshot observable del runtime de interaccion real (U1)
+    @INPUT: request.app.state.interaction_runtime opcional
+    @OUTPUT: dict con las claves de InteractionRuntimeStatusResponse
+    @CONTEXT: La ausencia del port no debe bloquear tours en U1; degrada a
+              not_configured. health() se invoca con timeout estricto y cualquier
+              excepcion o ausencia del metodo degrada conservadoramente sin romper
+              el endpoint.
+    @SECURITY: Solo se exponen campos primitivos (state, ready, capabilities,
+               heartbeat, error); nunca PID, transporte, socket o credenciales.
+    """
+    runtime = getattr(request.app.state, "interaction_runtime", None)
+    if runtime is None:
+        return {
+            "configured": False,
+            "protocol_version": 1,
+            "state": "not_configured",
+            "ready": False,
+            "capabilities": {},
+            "last_heartbeat_monotonic_s": None,
+            "last_error": None,
+        }
+
+    health_fn = getattr(runtime, "health", None)
+    if not callable(health_fn):
+        return {
+            "configured": True,
+            "protocol_version": 1,
+            "state": "failed",
+            "ready": False,
+            "capabilities": {},
+            "last_heartbeat_monotonic_s": None,
+            "last_error": "health_method_missing",
+        }
+
+    try:
+        health = await asyncio.wait_for(health_fn(), timeout=0.25)
+    except asyncio.TimeoutError:
+        return {
+            "configured": True,
+            "protocol_version": 1,
+            "state": "failed",
+            "ready": False,
+            "capabilities": {},
+            "last_heartbeat_monotonic_s": None,
+            "last_error": "health_timeout",
+        }
+    except Exception as exc:
+        return {
+            "configured": True,
+            "protocol_version": 1,
+            "state": "failed",
+            "ready": False,
+            "capabilities": {},
+            "last_heartbeat_monotonic_s": None,
+            "last_error": f"health_error:{type(exc).__name__}",
+        }
+
+    capabilities = getattr(health, "capabilities", None)
+    capabilities_dict = (
+        {
+            "audio_capture": bool(getattr(capabilities, "audio_capture", False)),
+            "wake_word": bool(getattr(capabilities, "wake_word", False)),
+            "vad": bool(getattr(capabilities, "vad", False)),
+            "stt": bool(getattr(capabilities, "stt", False)),
+            "local_llm": bool(getattr(capabilities, "local_llm", False)),
+            "spanish_tts": bool(getattr(capabilities, "spanish_tts", False)),
+            "physical_playback": bool(getattr(capabilities, "physical_playback", False)),
+            "physical_playback_stop": bool(getattr(capabilities, "physical_playback_stop", False)),
+            "physical_playback_completion": bool(getattr(capabilities, "physical_playback_completion", False)),
+        }
+        if capabilities is not None
+        else {}
+    )
+    state_value = getattr(health, "state", None)
+    state_str = state_value.value if hasattr(state_value, "value") else str(state_value)
+
+    return {
+        "configured": True,
+        "protocol_version": int(getattr(health, "protocol_version", 1)),
+        "state": state_str,
+        "ready": bool(getattr(health, "ready", False)),
+        "capabilities": capabilities_dict,
+        "last_heartbeat_monotonic_s": getattr(health, "last_heartbeat_monotonic_s", None),
+        "last_error": getattr(health, "last_error", None),
+    }
+
+
+async def _resolve_station_trigger_status(request: Request) -> dict:
+    """
+    @TASK: Construir el snapshot observable del sensor de estaciones por QR (U1)
+    @INPUT: request.app.state.station_trigger opcional
+    @OUTPUT: dict con las claves de StationTriggerStatusResponse
+    @CONTEXT: La ausencia del port no debe bloquear tours en U1; degrada a
+              not_configured. health() se invoca con timeout estricto.
+    @SECURITY: Solo se exponen campos primitivos (state, ready, source, error).
+    """
+    trigger = getattr(request.app.state, "station_trigger", None)
+    if trigger is None:
+        return {
+            "configured": False,
+            "state": "not_configured",
+            "ready": False,
+            "source": "",
+            "last_error": None,
+        }
+
+    health_fn = getattr(trigger, "health", None)
+    if not callable(health_fn):
+        return {
+            "configured": True,
+            "state": "failed",
+            "ready": False,
+            "source": "",
+            "last_error": "health_method_missing",
+        }
+
+    try:
+        health = await asyncio.wait_for(health_fn(), timeout=0.25)
+    except asyncio.TimeoutError:
+        return {
+            "configured": True,
+            "state": "failed",
+            "ready": False,
+            "source": "",
+            "last_error": "health_timeout",
+        }
+    except Exception as exc:
+        return {
+            "configured": True,
+            "state": "failed",
+            "ready": False,
+            "source": "",
+            "last_error": f"health_error:{type(exc).__name__}",
+        }
+
+    state_value = getattr(health, "state", None)
+    state_str = state_value.value if hasattr(state_value, "value") else str(state_value)
+
+    return {
+        "configured": True,
+        "state": state_str,
+        "ready": bool(getattr(health, "ready", False)),
+        "source": str(getattr(health, "source", "") or ""),
+        "last_error": getattr(health, "last_error", None),
+    }
 
 
 async def _resolve_navigation_observability(request: Request) -> dict:

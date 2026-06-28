@@ -74,6 +74,14 @@ class EventType(Enum):
     # Suscripto por: Dashboard para alertas de conectividad
     FACTORY_UNREACHABLE = "system.factory_unreachable"
 
+    # ------------------------------------------------------------------
+    # STEP 4: Dominio de Vision (Capa 3) — U1 contrato, sin publicador aun
+    # ------------------------------------------------------------------
+
+    # Publicado por: futuro StationTriggerPort (U2) al detectar un QR de estacion
+    # Suscripto por: futuro suscriptor en TourOrchestrator (no implementado en U1)
+    QR_STATION_DETECTED = "vision.qr_station_detected"
+
     def __str__(self) -> str:
         """Retorna el valor string para serialización en logs y telemetría."""
         return self.value

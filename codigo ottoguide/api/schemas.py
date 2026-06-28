@@ -106,6 +106,53 @@ class EmergencyResponse(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class InteractionCapabilitiesResponse(BaseModel):
+    """
+    @TASK: Exponer capacidades booleanas del runtime de interaccion real (U1)
+    @CONTEXT: Todas False por defecto; un runtime real declarara explicitamente
+              las capacidades que soporta. Aditivo, sin impacto en endpoints existentes.
+    """
+    audio_capture: bool = False
+    wake_word: bool = False
+    vad: bool = False
+    stt: bool = False
+    local_llm: bool = False
+    spanish_tts: bool = False
+    physical_playback: bool = False
+    physical_playback_stop: bool = False
+    physical_playback_completion: bool = False
+
+
+class InteractionRuntimeStatusResponse(BaseModel):
+    """
+    @TASK: Exponer el estado observable del runtime de interaccion real (U1)
+    @CONTEXT: configured=False indica que no hay app.state.interaction_runtime
+              configurado; el router degrada conservadoramente ante timeout o error.
+    """
+    configured: bool = False
+    protocol_version: int = 1
+    state: str = "not_configured"
+    ready: bool = False
+    capabilities: InteractionCapabilitiesResponse = Field(
+        default_factory=InteractionCapabilitiesResponse
+    )
+    last_heartbeat_monotonic_s: Optional[float] = None
+    last_error: Optional[str] = None
+
+
+class StationTriggerStatusResponse(BaseModel):
+    """
+    @TASK: Exponer el estado observable del sensor de estaciones por QR (U1)
+    @CONTEXT: configured=False indica que no hay app.state.station_trigger
+              configurado; el router degrada conservadoramente ante timeout o error.
+    """
+    configured: bool = False
+    state: str = "not_configured"
+    ready: bool = False
+    source: str = ""
+    last_error: Optional[str] = None
+
+
 class StatusResponse(BaseModel):
     """Snapshot consolidado del estado del sistema."""
     state: str
@@ -135,6 +182,14 @@ class StatusResponse(BaseModel):
     script_version: Optional[str] = None
     script_waypoint_count: int = 0
     script_load_error: Optional[str] = None
+
+    # --- Observabilidad de contratos canonicos de integracion (U1) ---
+    interaction_runtime: InteractionRuntimeStatusResponse = Field(
+        default_factory=InteractionRuntimeStatusResponse
+    )
+    station_trigger: StationTriggerStatusResponse = Field(
+        default_factory=StationTriggerStatusResponse
+    )
 
 
 class QuestionRequest(BaseModel):
@@ -225,6 +280,8 @@ class ScriptReloadResponse(BaseModel):
 __all__ = [
     "EmergencyRequest",
     "EmergencyResponse",
+    "InteractionCapabilitiesResponse",
+    "InteractionRuntimeStatusResponse",
     "NavWaypointDTO",
     "PauseTourRequest",
     "QuestionRequest",
@@ -232,6 +289,7 @@ __all__ = [
     "ScriptReloadResponse",
     "StartTourRequest",
     "StartTourResponse",
+    "StationTriggerStatusResponse",
     "StatusResponse",
     "TourScript",
     "WaypointContent",
