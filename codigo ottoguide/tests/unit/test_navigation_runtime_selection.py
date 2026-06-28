@@ -136,10 +136,14 @@ def _fake_settings(**overrides) -> SimpleNamespace:
         UNITREE_FACTORY_DIAGNOSTICS_ENABLED=False,
         CLOUD_FALLBACK_ENABLED=False,
         cloud_fallback_effective=False,
+        WEB_UI_ALLOWED_ORIGINS="http://localhost:3001,http://127.0.0.1:3001",
+        WEB_UI_PUBLIC_URL="",
+        WEB_UI_ALLOW_MISSING_ORIGIN=False,
     )
     fields.update(overrides)
     ns = SimpleNamespace(**fields)
     ns.validate_navigation_config = lambda: None
+    ns.validate_web_ui_config = lambda: None
     return ns
 
 
@@ -927,6 +931,9 @@ class SettingsDefaultsParityTests(unittest.TestCase):
         "UNITREE_FACTORY_BASE_URL",
         "UNITREE_FACTORY_TIMEOUT_S",
         "UNITREE_FACTORY_DIAGNOSTICS_ENABLED",
+        "WEB_UI_ALLOWED_ORIGINS",
+        "WEB_UI_PUBLIC_URL",
+        "WEB_UI_ALLOW_MISSING_ORIGIN",
     )
 
     def test_fake_settings_defaults_match_real_settings_defaults(self):

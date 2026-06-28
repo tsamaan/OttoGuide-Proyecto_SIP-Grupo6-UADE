@@ -383,21 +383,40 @@ async def test_emergency_result_damp_timeout() -> None:
 @pytest.mark.asyncio
 async def test_emergency_result_fsm_rejects_second_call() -> None:
     """5. emergency falla antes de la fase fisica: la FSM ya esta en EMERGENCY (estado final),
-    por lo que una segunda invocacion de emergency_stop() es rechazada por trigger_emergency()
-    antes de que on_enter_emergency llegue a ejecutar ninguna fase fisica. El resultado debe
-    reflejar la falla sin reintentar Damp() (ya fue terminal en la primera llamada)."""
+    por lo que una segunda invocacion de emergency_stop() es idempotente — retorna el
+    EmergencyStopResult cacheado de la primera llamada con already_emergency=True, sin
+    reintentar trigger_emergency() ni ninguna fase fisica (move/damp ya fueron terminales)."""
     orchestrator, calls = await _make_emergency_spy_orchestrator("normal")
 
     first = await orchestrator.emergency_stop("first-call")
     assert first.terminal_safe is True
+    assert first.already_emergency is False
     calls_after_first = len(calls)
 
-    second = await orchestrator.emergency_stop("second-call-rejected")
+    second = await orchestrator.emergency_stop("second-call-idempotent")
+
+    assert second.terminal_safe is True
+    assert second.already_emergency is True
+    assert second.damp_succeeded is True
+    # Ningun comando fisico adicional se emitio durante la segunda invocacion idempotente.
+    assert len(calls) == calls_after_first
+
+
+@pytest.mark.asyncio
+async def test_emergency_result_idempotent_after_unsafe_stop() -> None:
+    """Idempotencia tambien debe preservar un resultado NO seguro: si la primera parada
+    fallo (damp_fails), la segunda invocacion no debe reintentar Damp() ni inventar exito."""
+    orchestrator, calls = await _make_emergency_spy_orchestrator("damp_raises")
+
+    first = await orchestrator.emergency_stop("first-call-unsafe")
+    assert first.terminal_safe is False
+    calls_after_first = len(calls)
+
+    second = await orchestrator.emergency_stop("second-call-idempotent-unsafe")
 
     assert second.terminal_safe is False
-    assert second.damp_attempted is False
-    assert any(e.startswith("trigger_emergency_failed:") for e in second.errors)
-    # Ningun comando fisico adicional se emitio durante el segundo intento rechazado.
+    assert second.already_emergency is True
+    assert second.damp_succeeded is False
     assert len(calls) == calls_after_first
 
 

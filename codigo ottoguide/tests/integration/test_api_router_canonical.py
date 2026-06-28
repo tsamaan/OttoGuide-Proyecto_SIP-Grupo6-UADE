@@ -601,3 +601,143 @@ async def test_start_accepted_is_json_boolean():
         f"accepted must be bool True, got {raw['accepted']!r} "
         f"(type: {type(raw['accepted']).__name__})"
     )
+
+
+# ---------------------------------------------------------------------------
+# 6 — POST /emergency: typed EmergencyResponse contract (web integration hardening)
+# ---------------------------------------------------------------------------
+
+class _FakeEmergencyResult:
+    def __init__(self, *, terminal_safe, damp_succeeded, already_emergency=False, errors=None):
+        self.terminal_safe = terminal_safe
+        self.damp_succeeded = damp_succeeded
+        self.nav_cancel_succeeded = True
+        self.zero_velocity_succeeded = True
+        self.already_emergency = already_emergency
+        self.errors = errors or []
+
+
+class _EmergencyOrchestrator:
+    state_id = "emergency"
+    context = _FakeContext()
+
+    def __init__(self, *, result_sequence):
+        self._results = list(result_sequence)
+        self.calls = []
+
+    async def emergency_stop(self, *, reason=""):
+        self.calls.append(reason)
+        return self._results.pop(0) if len(self._results) > 1 else self._results[0]
+
+
+class _TimeoutEmergencyOrchestrator:
+    state_id = "navigating"
+    context = _FakeContext()
+
+    async def emergency_stop(self, *, reason=""):
+        await asyncio.sleep(10)
+
+
+class _RaisingEmergencyOrchestrator:
+    state_id = "navigating"
+    context = _FakeContext()
+
+    async def emergency_stop(self, *, reason=""):
+        raise RuntimeError("uncontrolled failure")
+
+
+async def test_emergency_safe_stop_returns_200_with_terminal_safe_true():
+    orch = _EmergencyOrchestrator(result_sequence=[
+        _FakeEmergencyResult(terminal_safe=True, damp_succeeded=True),
+    ])
+    app = _build_minimal_app(orch)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/emergency", json={"reason": "web_operator"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["executed"] is True
+    assert body["terminal_safe"] is True
+    assert body["damp_succeeded"] is True
+    assert orch.calls == ["web_operator"]
+
+
+async def test_emergency_damp_failed_returns_503_with_terminal_safe_false():
+    orch = _EmergencyOrchestrator(result_sequence=[
+        _FakeEmergencyResult(terminal_safe=False, damp_succeeded=False, errors=["damp_failed:RuntimeError:x"]),
+    ])
+    app = _build_minimal_app(orch)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/emergency", json={"reason": "web_operator"})
+
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["terminal_safe"] is False
+    assert "damp_failed:RuntimeError:x" in body["errors"]
+
+
+async def test_emergency_endpoint_timeout_returns_504():
+    app = _build_minimal_app(_TimeoutEmergencyOrchestrator())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test", timeout=10.0) as client:
+        resp = await client.post("/emergency", json={"reason": "web_operator"})
+
+    assert resp.status_code == 504
+    body = resp.json()
+    assert body["terminal_safe"] is False
+    assert "emergency_endpoint_timeout" in body["errors"]
+
+
+async def test_emergency_uncontrolled_exception_returns_500():
+    app = _build_minimal_app(_RaisingEmergencyOrchestrator())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/emergency", json={"reason": "web_operator"})
+
+    assert resp.status_code == 500
+
+
+async def test_emergency_repeat_call_after_safe_stop_stays_200_idempotent():
+    safe = _FakeEmergencyResult(terminal_safe=True, damp_succeeded=True, already_emergency=False)
+    idempotent = _FakeEmergencyResult(terminal_safe=True, damp_succeeded=True, already_emergency=True)
+    orch = _EmergencyOrchestrator(result_sequence=[safe, idempotent])
+    app = _build_minimal_app(orch)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post("/emergency", json={"reason": "first"})
+        second = await client.post("/emergency", json={"reason": "second"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["already_emergency"] is True
+
+
+async def test_emergency_repeat_call_after_unsafe_stop_stays_503_idempotent():
+    unsafe = _FakeEmergencyResult(terminal_safe=False, damp_succeeded=False, already_emergency=False, errors=["damp_failed:x"])
+    idempotent = _FakeEmergencyResult(terminal_safe=False, damp_succeeded=False, already_emergency=True, errors=["damp_failed:x"])
+    orch = _EmergencyOrchestrator(result_sequence=[unsafe, idempotent])
+    app = _build_minimal_app(orch)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post("/emergency", json={"reason": "first"})
+        second = await client.post("/emergency", json={"reason": "second"})
+
+    assert first.status_code == 503
+    assert second.status_code == 503
+    assert second.json()["already_emergency"] is True
+
+
+async def test_emergency_accepts_web_operator_reason_payload():
+    orch = _EmergencyOrchestrator(result_sequence=[
+        _FakeEmergencyResult(terminal_safe=True, damp_succeeded=True),
+    ])
+    app = _build_minimal_app(orch)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/emergency", json={"reason": "web_operator"})
+
+    assert resp.status_code == 200
+    assert resp.json()["reason"] == "web_operator"
+    assert orch.calls == ["web_operator"]
