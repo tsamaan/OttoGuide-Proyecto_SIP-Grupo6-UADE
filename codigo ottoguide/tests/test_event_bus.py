@@ -8,14 +8,15 @@
 @AI_CONTEXT: Resetea OttoEventBus._instance entre tests para aislamiento correcto.
              Los módulos ROS2 (rclpy, nav2_msgs) no están disponibles en Windows/CI;
              se stubs-ean antes de cualquier import de src.core para evitar ImportError.
+             U2R2: events.py/event_bus.py se cargan via tests.support.core_module_identity,
+             que garantiza una unica identidad canonica de EventType/OttoEventBus por proceso
+             de pytest (nunca reemplaza una entrada ya presente en sys.modules).
 """
 from __future__ import annotations
 
 import asyncio
-import importlib
 import sys
 import os
-import types
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -59,30 +60,16 @@ for _mod_name in _ROS2_STUBS:
 
 # ---------------------------------------------------------------------------
 # Imports de los módulos bajo prueba (post-stub)
-# @AI_CONTEXT: Se importan los archivos .py DIRECTAMENTE con importlib para evitar
-#              que src.core.__init__ cargue tour_orchestrator → navigation → rclpy.
+# @AI_CONTEXT: tests.support.core_module_identity evita que src.core.__init__ cargue
+#              tour_orchestrator → navigation → rclpy, y garantiza que si otro archivo
+#              de test del mismo proceso de pytest ya cargo events.py/event_bus.py,
+#              se reutiliza esa misma identidad de clase en vez de re-ejecutar el archivo.
 # ---------------------------------------------------------------------------
-_event_bus_spec = importlib.util.spec_from_file_location(
-    "src.core.event_bus",
-    os.path.join(_PROJECT_ROOT, "src", "core", "event_bus.py"),
-)
-_events_spec = importlib.util.spec_from_file_location(
-    "src.core.events",
-    os.path.join(_PROJECT_ROOT, "src", "core", "events.py"),
-)
+from tests.support.core_module_identity import ensure_core_event_modules  # noqa: E402
 
-# Cargar events primero (event_bus lo importa)
-_events_mod = importlib.util.module_from_spec(_events_spec)
-sys.modules["src.core.events"] = _events_mod
-_events_spec.loader.exec_module(_events_mod)
-
-# Cargar event_bus
-_event_bus_mod = importlib.util.module_from_spec(_event_bus_spec)
-sys.modules["src.core.event_bus"] = _event_bus_mod
-_event_bus_spec.loader.exec_module(_event_bus_mod)
-
-OttoEventBus = _event_bus_mod.OttoEventBus
-EventType = _events_mod.EventType
+_core_modules = ensure_core_event_modules()
+EventType = _core_modules.EventType
+OttoEventBus = _core_modules.OttoEventBus
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +259,14 @@ async def test_orchestrator_subscribes_on_init():
     """
     # Importar tour_orchestrator directamente (rclpy ya está stub-eado)
     from src.core.tour_orchestrator import TourOrchestrator
+    import src.core.tour_orchestrator as tour_orchestrator_module
+
+    # U2R2: confirmar que el modulo ya cargado (events/event_bus, sea cual sea
+    # el orden de coleccion) es la MISMA identidad de clase que usa este test
+    # y la que tour_orchestrator efectivamente importo.
+    assert sys.modules["src.core.events"].EventType is EventType
+    assert sys.modules["src.core.event_bus"].OttoEventBus is OttoEventBus
+    assert tour_orchestrator_module.EventType is EventType
 
     # Mocks mínimos para el constructor
     mock_hw = MagicMock()
@@ -314,4 +309,16 @@ async def test_orchestrator_subscribes_on_init():
     assert hasattr(subs[0], "__func__"), "El suscriptor debe ser un método bound"
     assert subs[0].__func__.__name__ == "_on_interaction_started", (
         f"Nombre de método inesperado: {subs[0].__func__.__name__}"
+    )
+
+    # U2R2: verificar que hay exactamente 1 suscriptor en QR_STATION_DETECTED,
+    # usando el mismo enum canonico (sin copia distinta del EventType).
+    qr_subs = test_bus._subscribers.get(EventType.QR_STATION_DETECTED, [])
+    assert len(qr_subs) == 1, (
+        f"TourOrchestrator debe registrar 1 suscriptor en QR_STATION_DETECTED; "
+        f"encontrados: {len(qr_subs)}"
+    )
+    assert hasattr(qr_subs[0], "__func__"), "El suscriptor QR debe ser un método bound"
+    assert qr_subs[0].__func__.__name__ == "_on_qr_station_detected", (
+        f"Nombre de método inesperado: {qr_subs[0].__func__.__name__}"
     )

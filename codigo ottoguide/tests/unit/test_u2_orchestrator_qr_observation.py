@@ -4,9 +4,9 @@
 @OUTPUT: Resultado de pytest: PASSED si el handler actualiza TourContext sin alterar
          FSM, navegacion, interaccion o movimiento
 @CONTEXT: Ejecutar con: python -m pytest tests/unit/test_u2_orchestrator_qr_observation.py -q
-@AI_CONTEXT: events.py y event_bus.py se cargan de forma aislada bajo los nombres reales
-             "src.core.events" / "src.core.event_bus" ANTES de importar tour_orchestrator,
-             exactamente como en tests/test_event_bus.py, para que TourOrchestrator
+@AI_CONTEXT: events.py y event_bus.py se cargan de forma aislada via
+             tests.support.core_module_identity (mismo mecanismo que
+             tests/test_event_bus.py) para que TourOrchestrator
              (from src.core.events import EventType) resuelva contra la misma clase
              EventType usada por este archivo. Esto evita el problema conocido de doble
              carga incompatible del enum cuando este test corre junto a test_event_bus.py
@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import os
 import sys
 from datetime import datetime, timezone
@@ -51,24 +50,11 @@ for _mod_name in _ROS2_STUBS:
     if _mod_name not in sys.modules:
         sys.modules[_mod_name] = _make_package_mock(_mod_name)
 
-if "src.core.events" not in sys.modules:
-    _events_spec = importlib.util.spec_from_file_location(
-        "src.core.events", os.path.join(_PROJECT_ROOT, "src", "core", "events.py")
-    )
-    _events_mod = importlib.util.module_from_spec(_events_spec)
-    sys.modules["src.core.events"] = _events_mod
-    _events_spec.loader.exec_module(_events_mod)
+from tests.support.core_module_identity import ensure_core_event_modules
 
-if "src.core.event_bus" not in sys.modules:
-    _event_bus_spec = importlib.util.spec_from_file_location(
-        "src.core.event_bus", os.path.join(_PROJECT_ROOT, "src", "core", "event_bus.py")
-    )
-    _event_bus_mod = importlib.util.module_from_spec(_event_bus_spec)
-    sys.modules["src.core.event_bus"] = _event_bus_mod
-    _event_bus_spec.loader.exec_module(_event_bus_mod)
-
-EventType = sys.modules["src.core.events"].EventType
-OttoEventBus = sys.modules["src.core.event_bus"].OttoEventBus
+_core_modules = ensure_core_event_modules()
+EventType = _core_modules.EventType
+OttoEventBus = _core_modules.OttoEventBus
 
 from src.core.tour_orchestrator import TourOrchestrator, TourPlan
 from src.navigation.models import NavWaypoint

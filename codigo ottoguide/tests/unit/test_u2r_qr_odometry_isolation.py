@@ -5,17 +5,16 @@
          AprilTag/odometria sin afectar el lane QR, y si TourOrchestrator respeta ese
          interlock al entrar a NAVIGATING
 @CONTEXT: Ejecutar con: python -m pytest tests/unit/test_u2r_qr_odometry_isolation.py -q
-@AI_CONTEXT: events.py y event_bus.py se cargan de forma aislada bajo los nombres reales
-             "src.core.events" / "src.core.event_bus" ANTES de importar tour_orchestrator,
-             igual que tests/test_event_bus.py y tests/unit/test_u2_orchestrator_qr_observation.py,
-             para evitar el defecto preexistente y documentado de doble carga de EventType
-             cuando este archivo corre junto a otros tests en el mismo proceso de pytest.
+@AI_CONTEXT: events.py y event_bus.py se cargan de forma aislada via
+             tests.support.core_module_identity, igual que tests/test_event_bus.py y
+             tests/unit/test_u2_orchestrator_qr_observation.py, para evitar el defecto
+             preexistente y documentado de doble carga de EventType cuando este archivo
+             corre junto a otros tests en el mismo proceso de pytest.
 """
 from __future__ import annotations
 
 import ast
 import asyncio
-import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -52,23 +51,12 @@ for _mod_name in _ROS2_STUBS:
     if _mod_name not in sys.modules:
         sys.modules[_mod_name] = _make_package_mock(_mod_name)
 
-if "src.core.events" not in sys.modules:
-    _events_spec = importlib.util.spec_from_file_location(
-        "src.core.events", os.path.join(_PROJECT_ROOT, "src", "core", "events.py")
-    )
-    _events_mod = importlib.util.module_from_spec(_events_spec)
-    sys.modules["src.core.events"] = _events_mod
-    _events_spec.loader.exec_module(_events_mod)
+from tests.support.core_module_identity import (
+    PRESERVED_CORE_IDENTITY_MODULES,
+    ensure_core_event_modules,
+)
 
-if "src.core.event_bus" not in sys.modules:
-    _event_bus_spec = importlib.util.spec_from_file_location(
-        "src.core.event_bus", os.path.join(_PROJECT_ROOT, "src", "core", "event_bus.py")
-    )
-    _event_bus_mod = importlib.util.module_from_spec(_event_bus_spec)
-    sys.modules["src.core.event_bus"] = _event_bus_mod
-    _event_bus_spec.loader.exec_module(_event_bus_mod)
-
-OttoEventBus = sys.modules["src.core.event_bus"].OttoEventBus
+OttoEventBus = ensure_core_event_modules().OttoEventBus
 
 from src.core.tour_orchestrator import TourOrchestrator, TourPlan
 from src.navigation.models import NavWaypoint
@@ -360,7 +348,8 @@ def test_build_vision_processor_qr_enabled_passes_visual_odometry_disabled(tmp_p
 
     _purged = {
         mod for mod in list(sys.modules)
-        if mod == "main" or (mod.startswith("src.") and mod not in ("src.core.events", "src.core.event_bus"))
+        if mod not in PRESERVED_CORE_IDENTITY_MODULES
+        and (mod == "main" or mod.startswith("src."))
     }
     saved = {m: sys.modules[m] for m in _purged if m in sys.modules}
     for m in _purged:
@@ -380,7 +369,7 @@ def test_build_vision_processor_qr_enabled_passes_visual_odometry_disabled(tmp_p
         assert vp.qr_enabled is True
     finally:
         for m in list(sys.modules):
-            if m == "main" or (m.startswith("src.") and m not in ("src.core.events", "src.core.event_bus")):
+            if m not in PRESERVED_CORE_IDENTITY_MODULES and (m == "main" or m.startswith("src.")):
                 del sys.modules[m]
         for m, mod in saved.items():
             sys.modules[m] = mod
@@ -391,7 +380,8 @@ def test_build_vision_processor_qr_disabled_preserves_default_true() -> None:
 
     _purged = {
         mod for mod in list(sys.modules)
-        if mod == "main" or (mod.startswith("src.") and mod not in ("src.core.events", "src.core.event_bus"))
+        if mod not in PRESERVED_CORE_IDENTITY_MODULES
+        and (mod == "main" or mod.startswith("src."))
     }
     saved = {m: sys.modules[m] for m in _purged if m in sys.modules}
     for m in _purged:
@@ -404,7 +394,7 @@ def test_build_vision_processor_qr_disabled_preserves_default_true() -> None:
         assert getattr(vp, "visual_odometry_enabled", True) is True
     finally:
         for m in list(sys.modules):
-            if m == "main" or (m.startswith("src.") and m not in ("src.core.events", "src.core.event_bus")):
+            if m not in PRESERVED_CORE_IDENTITY_MODULES and (m == "main" or m.startswith("src.")):
                 del sys.modules[m]
         for m, mod in saved.items():
             sys.modules[m] = mod

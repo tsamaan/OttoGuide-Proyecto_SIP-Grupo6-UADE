@@ -40,6 +40,17 @@ CODE_ROOT = REPO_ROOT / "codigo ottoguide"
 if str(CODE_ROOT) not in sys.path:
     sys.path.insert(0, str(CODE_ROOT))
 
+from tests.support.core_module_identity import (  # noqa: E402
+    PRESERVED_CORE_IDENTITY_MODULES,
+    ensure_core_event_modules,
+)
+
+# U2R2: cargar events.py/event_bus.py bajo su identidad canonica ANTES de la
+# primera purga/reimport de main, para que ningun reimport posterior de este
+# archivo (ni de ningun otro test del mismo proceso de pytest) reemplace la
+# clase EventType/OttoEventBus ya en uso por el resto del proceso.
+ensure_core_event_modules()
+
 _PYDANTIC_SETTINGS_AVAILABLE = importlib.util.find_spec("pydantic_settings") is not None
 _SKIP_REASON = "pydantic_settings not installed in this environment (pre-existing gap)"
 
@@ -86,7 +97,14 @@ def _remove_interaction_dependency_mocks(installed: dict) -> None:
 
 
 def _purge_app_modules() -> None:
+    """Purga main/src.*/config.* para forzar un reimport fresco, preservando
+    explicitamente src.core.events/event_bus/tour_orchestrator (U2R2): esos
+    tres modulos sostienen la identidad canonica de EventType/OttoEventBus
+    compartida por todo el proceso de pytest, y purgarlos incondicionalmente
+    rompia esa identidad segun el orden de coleccion de tests."""
     for mod in list(sys.modules):
+        if mod in PRESERVED_CORE_IDENTITY_MODULES:
+            continue
         if mod == "main" or mod == "src" or mod.startswith("src.") or mod == "config" or mod.startswith("config."):
             del sys.modules[mod]
 
@@ -952,6 +970,79 @@ class SettingsDefaultsParityTests(unittest.TestCase):
             if getattr(fake, field) != real_defaults[field]
         ]
         self.assertEqual(mismatches, [], f"_fake_settings() drifted from Settings: {mismatches}")
+
+
+# ---------------------------------------------------------------------------
+# U2R2: identidad estable de EventType/OttoEventBus a traves de reimports
+# ---------------------------------------------------------------------------
+
+class FreshMainReimportIdentityTests(unittest.TestCase):
+    """_fresh_import_main() purga y reimporta main.py repetidas veces; esta
+    suite confirma que esas purgas/reimports NUNCA cambian la identidad de
+    EventType/OttoEventBus, y que el singleton de OttoEventBus no acumula
+    suscriptores entre reimports (lo cual indicaria una fuga de TourOrchestrator
+    instances colgando del bus global)."""
+
+    def tearDown(self):
+        _remove_interaction_dependency_mocks(self._mocks)
+        _purge_app_modules()
+
+    def test_event_type_and_event_bus_identity_stable_across_three_reimports(self):
+        from src.core.events import EventType as initial_event_type
+        from src.core.event_bus import OttoEventBus as initial_event_bus
+
+        initial_event_type_id = id(initial_event_type)
+        initial_event_bus_id = id(initial_event_bus)
+
+        observed_event_type_ids = []
+        observed_event_bus_ids = []
+
+        for _ in range(3):
+            self.main, self._mocks = _fresh_import_main()
+            from src.core.events import EventType as reimported_event_type
+            from src.core.event_bus import OttoEventBus as reimported_event_bus
+
+            observed_event_type_ids.append(id(reimported_event_type))
+            observed_event_bus_ids.append(id(reimported_event_bus))
+            _remove_interaction_dependency_mocks(self._mocks)
+
+        self.assertTrue(
+            all(eid == initial_event_type_id for eid in observed_event_type_ids),
+            f"EventType cambio de identidad entre reimports: {observed_event_type_ids} "
+            f"(inicial={initial_event_type_id})",
+        )
+        self.assertTrue(
+            all(bid == initial_event_bus_id for bid in observed_event_bus_ids),
+            f"OttoEventBus cambio de identidad entre reimports: {observed_event_bus_ids} "
+            f"(inicial={initial_event_bus_id})",
+        )
+
+    def test_fresh_main_reimports_do_not_accumulate_subscribers_on_singleton(self):
+        from src.core.event_bus import OttoEventBus
+        from src.core.events import EventType
+
+        OttoEventBus.reset_for_testing()
+        bus = OttoEventBus.get_instance()
+        baseline_subs = len(bus._subscribers.get(EventType.INTERACTION_STARTED, []))
+
+        for _ in range(3):
+            self.main, self._mocks = _fresh_import_main()
+            _remove_interaction_dependency_mocks(self._mocks)
+
+        from src.core.event_bus import OttoEventBus as bus_after
+        from src.core.events import EventType as event_type_after
+
+        bus_after_reimports = bus_after.get_instance()
+        self.assertIs(bus_after_reimports, bus)
+        final_subs = len(bus_after_reimports._subscribers.get(event_type_after.INTERACTION_STARTED, []))
+        self.assertEqual(
+            final_subs, baseline_subs,
+            "El reimport repetido de main.py no debe acumular suscriptores en el "
+            "singleton global de OttoEventBus (cada TourOrchestrator descartado entre "
+            "reimports nunca se construyo con event_bus=OttoEventBus.get_instance(), "
+            "por lo que esta cuenta debe permanecer estable)",
+        )
+        OttoEventBus.reset_for_testing()
 
 
 if __name__ == "__main__":

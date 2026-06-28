@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import os
 import sys
 import unittest
@@ -29,6 +28,10 @@ if str(CODE_ROOT) not in sys.path:
 
 from src.navigation.models import NavigationStatus
 from src.vision.station_trigger import QRStationDetected, StationTriggerHealth, StationTriggerState
+from tests.support.core_module_identity import (
+    PRESERVED_CORE_IDENTITY_MODULES,
+    ensure_core_event_modules,
+)
 
 # AI_CONTEXT: un (re)import agresivo de main.py recarga src.core, lo que recrea
 # src.core.events/src.core.event_bus desde cero. Si otro archivo de test en el
@@ -36,33 +39,18 @@ from src.vision.station_trigger import QRStationDetected, StationTriggerHealth, 
 # variables de modulo, en collection-time, una referencia a la copia ANTERIOR
 # de EventType/OttoEventBus, una purga+reimport posterior deja esas variables
 # apuntando a una clase EventType incompatible con la que main/tour_orchestrator
-# usaran a partir de ese punto. Para evitar esto, pre-cargamos events.py y
-# event_bus.py de forma aislada bajo sus nombres reales ANTES de la primera
-# purga+import de main, y nunca los purgamos junto con el resto de src.* — asi
-# todo reimport de main dentro de este archivo sigue resolviendo contra la
-# MISMA copia de EventType que el resto del proceso de pytest ya este usando.
-if "src.core.events" not in sys.modules:
-    _events_spec = importlib.util.spec_from_file_location(
-        "src.core.events", os.path.join(str(CODE_ROOT), "src", "core", "events.py")
-    )
-    _events_mod = importlib.util.module_from_spec(_events_spec)
-    sys.modules["src.core.events"] = _events_mod
-    _events_spec.loader.exec_module(_events_mod)
-
-if "src.core.event_bus" not in sys.modules:
-    _event_bus_spec = importlib.util.spec_from_file_location(
-        "src.core.event_bus", os.path.join(str(CODE_ROOT), "src", "core", "event_bus.py")
-    )
-    _event_bus_mod = importlib.util.module_from_spec(_event_bus_spec)
-    sys.modules["src.core.event_bus"] = _event_bus_mod
-    _event_bus_spec.loader.exec_module(_event_bus_mod)
-
-_PRESERVED_MODULES = frozenset({"src.core.events", "src.core.event_bus"})
+# usaran a partir de ese punto. tests.support.core_module_identity centraliza
+# la carga aislada y la guarda idempotente (U2R2): se llama una sola vez aqui,
+# ANTES de la primera purga+import de main, y los modulos resultantes nunca se
+# purgan junto con el resto de src.* — asi todo reimport de main dentro de
+# este archivo sigue resolviendo contra la MISMA copia de EventType que el
+# resto del proceso de pytest ya este usando.
+ensure_core_event_modules()
 
 
 def _purge_app_modules() -> None:
     for mod in list(sys.modules):
-        if mod in _PRESERVED_MODULES:
+        if mod in PRESERVED_CORE_IDENTITY_MODULES:
             continue
         if (
             mod == "main"
