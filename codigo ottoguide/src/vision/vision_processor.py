@@ -170,6 +170,7 @@ class VisionProcessor:
         qr_detector: Optional[StableQRFrameDetector] = None,
         station_registry: Optional[StationRegistry] = None,
         station_queue_maxsize: int = QR_STATION_QUEUE_MAX_SIZE_DEFAULT,
+        visual_odometry_enabled: bool = True,
     ) -> None:
         """
         @TASK: Construir estado interno del VisionProcessor sin inicializar hardware
@@ -217,6 +218,7 @@ class VisionProcessor:
         self._station_queue: asyncio.Queue[QRStationDetected] = asyncio.Queue(
             maxsize=station_queue_maxsize
         )
+        self._visual_odometry_enabled: bool = visual_odometry_enabled
 
         self._aruco_dict = cv2.aruco.getPredefinedDictionary(
             cv2.aruco.DICT_APRILTAG_36h11
@@ -322,6 +324,18 @@ class VisionProcessor:
         @OUTPUT: True si qr_detector y station_registry fueron inyectados en el constructor
         """
         return self._qr_detector is not None and self._station_registry is not None
+
+    @property
+    def visual_odometry_enabled(self) -> bool:
+        """
+        @TASK: Indicar si el lane AprilTag/odometria visual esta activo en esta instancia
+        @OUTPUT: True (default) preserva el comportamiento historico; False desactiva
+                 deteccion AprilTag, produccion de OdometryVector y escritura en pose_queue,
+                 sin afectar captura de frames, lane QR ni station_queue.
+        @CONTEXT: U2R1 — interlock de seguridad para que habilitar QR no active
+                  indirectamente odometria visual sin calibracion real de camara.
+        """
+        return self._visual_odometry_enabled
 
     @property
     def is_started(self) -> bool:
@@ -430,17 +444,18 @@ class VisionProcessor:
             backoff_s = RECONNECT_BACKOFF_MIN_S
             self._stats.frames_captured += 1
 
-            try:
-                pose = self._process_frame_sync(frame_bgr)
-            except Exception as exc:
-                LOGGER.error("[Vision] Error en _process_frame_sync: %s", exc)
-                pose = None
+            if self._visual_odometry_enabled:
+                try:
+                    pose = self._process_frame_sync(frame_bgr)
+                except Exception as exc:
+                    LOGGER.error("[Vision] Error en _process_frame_sync: %s", exc)
+                    pose = None
 
-            if pose is not None:
-                odometry = self._pose_to_odometry(pose)
-                self._stats.detections += 1
-                self._stats.last_detection_ts = time.monotonic()
-                self._dispatch_odometry(odometry)
+                if pose is not None:
+                    odometry = self._pose_to_odometry(pose)
+                    self._stats.detections += 1
+                    self._stats.last_detection_ts = time.monotonic()
+                    self._dispatch_odometry(odometry)
 
             if self.qr_enabled:
                 try:

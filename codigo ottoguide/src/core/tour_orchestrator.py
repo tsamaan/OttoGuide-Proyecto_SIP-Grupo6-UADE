@@ -661,17 +661,32 @@ class TourOrchestrator(StateMachine):
         """
         @TASK: Iniciar el bucle de inyeccion de odometria visual como background task al entrar a NAVIGATING
         @INPUT: Sin parametros directos; opera sobre _vision_processor y _nav_bridge inyectados
-        @OUTPUT: _odometry_task creada y activa consumiendo OdometryVector de VisionProcessor.pose_queue;
-                 broadcast de telemetria programado para notificar el nuevo estado
+        @OUTPUT: _odometry_task creada y activa consumiendo OdometryVector de VisionProcessor.pose_queue
+                 solo si _vision_processor.visual_odometry_enabled es True (default); broadcast de
+                 telemetria programado para notificar el nuevo estado
         @CONTEXT: Callback invocado por AsyncEngine al completar start_tour o resume_tour.
                   _navigation_loop fue creado previamente en dispatch_tour; este callback solo inicia odometria.
+                  U2R1: interlock de seguridad — si visual_odometry_enabled=False (p. ej. VisionProcessor
+                  configurado en modo QR-only sin calibracion real de camara), no se crea _odometry_task,
+                  no se invoca get_next_estimate() ni inject_absolute_pose(). Consumidores/mocks sin esta
+                  propiedad usan default True via getattr, preservando el comportamiento historico.
         @SECURITY: La tarea se crea solo si _odometry_task es None o ya termino, previniendo duplicados.
 
-        STEP 1: Crear asyncio.Task de _odometry_injection_loop si no existe una activa en _odometry_task
-        STEP 2: Registrar la nueva tarea en _odometry_task para su cancelacion en on_exit_navigating
-        STEP 3: Programar broadcast de telemetria para notificar el ingreso a NAVIGATING
+        STEP 1: Resolver visual_odometry_enabled con default True para compatibilidad con mocks/stubs
+        STEP 2: Crear asyncio.Task de _odometry_injection_loop solo si esta habilitado y no existe una activa
+        STEP 3: Registrar la nueva tarea en _odometry_task para su cancelacion en on_exit_navigating
+        STEP 4: Programar broadcast de telemetria para notificar el ingreso a NAVIGATING
         """
-        if self._odometry_task is None or self._odometry_task.done():
+        visual_odometry_enabled = bool(
+            getattr(self._vision_processor, "visual_odometry_enabled", True)
+        )
+
+        if not visual_odometry_enabled:
+            LOGGER.info(
+                "[Orchestrator] on_enter_navigating: odometria visual deshabilitada "
+                "(visual_odometry_enabled=False); _odometry_task no se crea."
+            )
+        elif self._odometry_task is None or self._odometry_task.done():
             self._odometry_task = asyncio.create_task(
                 self._odometry_injection_loop(),
                 name="odometry-injection-loop",

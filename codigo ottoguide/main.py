@@ -711,6 +711,12 @@ def _build_vision_processor(settings):
     @CONTEXT: U2 — Si QR_STATION_TRIGGER_ENABLED=True, cualquier fallo al construir el
               StationRegistry, el decoder o el VisionProcessor con lane QR debe propagarse
               (fail-closed); no se sustituye silenciosamente por el stub legado.
+              U2R1: el CameraModel usado aqui es un placeholder (camera_matrix=np.eye(3),
+              distortion_coefficients=np.zeros) y NO es calibracion productiva de la D435i.
+              Por eso, cuando QR esta habilitado, el VisionProcessor se construye con
+              visual_odometry_enabled=False: la captura de frames y el lane QR siguen
+              activos, pero el lane AprilTag/odometria visual permanece inactivo hasta que
+              una etapa futura provea calibracion real e inyecte esa odometria.
     @SECURITY: Si QR esta deshabilitado, el comportamiento es identico al previo a U2:
                no se importa cv2 por causa de QR, no se abre camara por causa de QR.
     """
@@ -740,6 +746,7 @@ def _build_vision_processor(settings):
             qr_detector=qr_detector,
             station_registry=registry,
             station_queue_maxsize=settings.QR_STATION_QUEUE_MAX_SIZE,
+            visual_odometry_enabled=False,
         )
 
     try:

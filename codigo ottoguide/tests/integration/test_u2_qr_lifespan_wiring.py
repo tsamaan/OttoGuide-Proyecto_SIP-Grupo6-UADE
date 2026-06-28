@@ -170,13 +170,20 @@ class _FakeVisionProcessorNoQR:
 
 
 class _FakeVisionProcessorWithQR:
-    """QR-enabled fake VisionProcessor — never imports cv2, never opens a camera."""
+    """QR-enabled fake VisionProcessor — never imports cv2, never opens a camera.
+
+    U2R1: visual_odometry_enabled=False mirrors the production wiring in
+    main.py._build_vision_processor(), where the QR-enabled branch always
+    disables the AprilTag/visual-odometry lane (placeholder CameraModel,
+    no real D435i calibration)."""
 
     def __init__(self) -> None:
         self.close_calls = 0
         self.start_calls = 0
         self.qr_enabled = True
+        self.visual_odometry_enabled = False
         self.is_started = False
+        self.get_next_estimate_calls = 0
         self._station_queue: asyncio.Queue = asyncio.Queue()
 
     def start(self, loop) -> None:
@@ -187,6 +194,7 @@ class _FakeVisionProcessorWithQR:
         self.close_calls += 1
 
     async def get_next_estimate(self, *, timeout_s: float = 0.5):
+        self.get_next_estimate_calls += 1
         return None
 
     @property
@@ -298,6 +306,35 @@ class QREnabledLifespanTests(unittest.IsolatedAsyncioTestCase):
             trigger = app.state.station_trigger
             health = await trigger.health()
             self.assertTrue(health.ready)
+
+    async def test_qr_enabled_visual_odometry_disabled_no_pose_injection(self) -> None:
+        """U2R1: el VisionProcessor inyectado en QR-enabled debe tener
+        visual_odometry_enabled=False, seguir compartiendo la misma instancia
+        con TourOrchestrator, mantener StationTrigger READY, y nunca llamar
+        inject_absolute_pose() ni abrir una segunda camara durante el lifespan."""
+        app = _FakeApp()
+        settings = _fake_settings(QR_STATION_TRIGGER_ENABLED=True)
+        fake_vp = _FakeVisionProcessorWithQR()
+        fake_nav_bridge = _FakeNavBridge()
+
+        self.main.get_settings = lambda: settings
+        self.main.get_hardware_adapter = lambda: _FakeHardware()
+        self.main._build_navigation_bridge = lambda s, backend: fake_nav_bridge
+        self.main._get_conversation_manager_stub = lambda s: _FakeConversationManager()
+        self.main._build_vision_processor = lambda s: fake_vp
+
+        async with self.main.lifespan(app):
+            self.assertIs(app.state.orchestrator._vision_processor, fake_vp)
+            self.assertFalse(fake_vp.visual_odometry_enabled)
+            self.assertTrue(fake_vp.qr_enabled)
+
+            health = await app.state.station_trigger.health()
+            self.assertEqual(health.state, StationTriggerState.READY)
+            self.assertTrue(health.ready)
+
+            self.assertEqual(fake_vp.get_next_estimate_calls, 0)
+            fake_nav_bridge.inject_absolute_pose.assert_not_called()
+            self.assertEqual(fake_vp.start_calls, 1)
 
 
 class QRConfigFailureLifespanTests(unittest.IsolatedAsyncioTestCase):
