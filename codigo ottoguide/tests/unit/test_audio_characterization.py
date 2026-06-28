@@ -167,6 +167,14 @@ async def test_audio_char_003_synthesize_passes_same_pcm_values_to_alsa_task(
         tasks = list(pipeline._playback_tasks)
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        # task.done() being True after gather() does not guarantee that
+        # add_done_callback(_on_playback_done) has already run: callback
+        # dispatch order relative to gather()'s own return is scheduler-
+        # dependent (observed: always already run on 3.10, never yet run on
+        # 3.12 for this exact awaited-Event-then-gather shape). Yielding the
+        # loop once is the deterministic way to wait for any callback queued
+        # via loop.call_soon() during the task's last step.
+        await asyncio.sleep(0)
 
         assert captured["pcm"] is pcm
         np.testing.assert_array_equal(captured["pcm"], pcm)
