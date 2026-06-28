@@ -1,12 +1,15 @@
 """Unit tests for _run_shutdown_sequence — CHANGE A shutdown authority.
 
 Verifies that TourOrchestrator is the sole motion authority on the success
-path: when emergency_stop() succeeds, main.py skips direct MotionCommand(0)
-and damp() calls (ORCHESTRATOR_EMERGENCY_COMPLETED). On failure or timeout,
-the direct hardware fallback executes (DIRECT_HARDWARE_FALLBACK_USED).
+path: only an EmergencyStopResult with terminal_safe=True (damp_succeeded=True)
+skips direct MotionCommand(0)+damp() calls (ORCHESTRATOR_EMERGENCY_COMPLETED).
+A normal return with terminal_safe=False, a timeout, or an exception all
+trigger the direct hardware fallback (DIRECT_HARDWARE_FALLBACK_USED) — see
+test_ta02b for the exact false-positive this remediation closes.
 
-Also verifies that orchestrator.close() and ConversationManager.close() are
-called exactly once after the shutdown sequence (CHANGE A lifecycle).
+Also verifies that main._close_orchestrator_and_conversation_manager (the
+productive helper extracted from the lifespan finally block) calls
+orchestrator.close() and ConversationManager.close() exactly once.
 """
 from __future__ import annotations
 
@@ -34,7 +37,21 @@ def _make_hardware():
     return hw
 
 
-def _make_orchestrator(*, emergency_side_effect=None, emergency_delay=0.0):
+def _make_emergency_result(*, terminal_safe: bool):
+    from src.core.tour_orchestrator import EmergencyStopResult
+    return EmergencyStopResult(
+        nav_cancel_attempted=True,
+        nav_cancel_succeeded=True,
+        zero_velocity_attempted=True,
+        zero_velocity_succeeded=True,
+        damp_attempted=True,
+        damp_succeeded=terminal_safe,
+        terminal_safe=terminal_safe,
+        errors=[] if terminal_safe else ["damp_failed:RuntimeError:simulated"],
+    )
+
+
+def _make_orchestrator(*, emergency_side_effect=None, emergency_delay=0.0, terminal_safe=True):
     orch = MagicMock()
     if emergency_side_effect is not None:
         orch.emergency_stop = AsyncMock(side_effect=emergency_side_effect)
@@ -43,7 +60,7 @@ def _make_orchestrator(*, emergency_side_effect=None, emergency_delay=0.0):
             await asyncio.sleep(emergency_delay)
         orch.emergency_stop = _slow
     else:
-        orch.emergency_stop = AsyncMock()
+        orch.emergency_stop = AsyncMock(return_value=_make_emergency_result(terminal_safe=terminal_safe))
     orch.close = AsyncMock()
     return orch
 
@@ -89,6 +106,28 @@ async def test_ta02_orchestrator_timeout_triggers_direct_fallback():
 
 
 # ---------------------------------------------------------------------------
+# T-A02b: emergency_stop() returns WITHOUT raising but terminal_safe=False
+#         (the exact false-positive this remediation fixes: a normal return no
+#         longer implies ORCHESTRATOR_EMERGENCY_COMPLETED — only terminal_safe does)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_ta02b_non_terminal_safe_result_triggers_direct_fallback():
+    """T-A02b: emergency_stop() returning normally (no exception, no timeout) with
+    terminal_safe=False (e.g. damp failed inside on_enter_emergency) must still
+    trigger the direct hardware fallback — this was the original false positive."""
+    fn = _import_run_shutdown_sequence()
+    hw = _make_hardware()
+    orch = _make_orchestrator(terminal_safe=False)
+
+    await fn(hardware=hw, orchestrator=orch)
+
+    orch.emergency_stop.assert_awaited_once()
+    hw.move.assert_awaited_once()
+    hw.damp.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
 # T-A03: orchestrator is None — direct fallback always executes
 # ---------------------------------------------------------------------------
 
@@ -111,22 +150,18 @@ async def test_ta03_none_orchestrator_uses_direct_hardware():
 
 @pytest.mark.asyncio
 async def test_ta04_orchestrator_close_called_in_lifespan():
-    """T-A04: After _run_shutdown_sequence, the lifespan finally block must
-    call orchestrator.close() exactly once."""
+    """T-A04: main._close_orchestrator_and_conversation_manager (the real helper
+    extracted from the lifespan finally block) must call orchestrator.close()
+    exactly once. Exercises productive code directly instead of re-implementing
+    the close sequence inline in the test."""
     import main as _main
 
     orch_mock = MagicMock()
-    orch_mock.emergency_stop = AsyncMock()
     orch_mock.close = AsyncMock()
     orch_mock.conversation_manager = None
     orch_mock._conversation_manager = None
 
-    # Simulate the lifespan finally close logic directly
-    _orch_shutdown = orch_mock
-    if _orch_shutdown is not None:
-        _orch_close = getattr(_orch_shutdown, "close", None)
-        if callable(_orch_close):
-            await _orch_close()
+    await _main._close_orchestrator_and_conversation_manager(orch_mock)
 
     orch_mock.close.assert_awaited_once()
 
@@ -137,28 +172,34 @@ async def test_ta04_orchestrator_close_called_in_lifespan():
 
 @pytest.mark.asyncio
 async def test_ta05_conversation_manager_close_called_sync():
-    """T-A05: The lifespan finally block must call the SYNCHRONOUS
-    ConversationManager.close() exactly once — must NOT be awaited."""
+    """T-A05: main._close_orchestrator_and_conversation_manager must call the
+    SYNCHRONOUS ConversationManager.close() exactly once — must NOT be awaited.
+    Exercises productive code directly instead of re-implementing the close
+    sequence inline in the test."""
+    import main as _main
+
     cm_mock = MagicMock()
     cm_mock.close = MagicMock()  # sync — not AsyncMock
 
     orch_mock = MagicMock()
-    orch_mock.emergency_stop = AsyncMock()
     orch_mock.close = AsyncMock()
     orch_mock.conversation_manager = cm_mock
 
-    # Simulate the lifespan finally close logic directly
-    _orch_shutdown = orch_mock
-    if _orch_shutdown is not None:
-        _cm_shutdown = (
-            getattr(_orch_shutdown, "conversation_manager", None)
-            or getattr(_orch_shutdown, "_conversation_manager", None)
-        )
-        if _cm_shutdown is not None:
-            _cm_close = getattr(_cm_shutdown, "close", None)
-            if callable(_cm_close) and not asyncio.iscoroutinefunction(_cm_close):
-                _cm_close()
+    await _main._close_orchestrator_and_conversation_manager(orch_mock)
 
     cm_mock.close.assert_called_once()
     # Verify it was called synchronously (not awaited)
     assert not asyncio.iscoroutinefunction(cm_mock.close)
+
+
+# ---------------------------------------------------------------------------
+# T-A06: orchestrator is None — close helper is a safe no-op
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_ta06_close_helper_noop_when_orchestrator_none():
+    """T-A06: _close_orchestrator_and_conversation_manager(None) must not raise
+    (mock/CI boot-failure path where no orchestrator was ever constructed)."""
+    import main as _main
+
+    await _main._close_orchestrator_and_conversation_manager(None)

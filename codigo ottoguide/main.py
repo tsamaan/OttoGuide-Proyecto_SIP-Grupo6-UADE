@@ -190,10 +190,19 @@ async def lifespan(app: FastAPI):
             app.state.conversation_runtime_degraded = (
                 _cm_boot is None or not hasattr(_cm_boot, "load_script_from_file")
             )
+            app.state.conversation_runtime_error = getattr(_cm_boot, "degradation_error", None)
             if app.state.conversation_runtime_degraded:
-                LOGGER.warning("[BOOT] ConversationManager degradado (stub activo). CONVERSATION_RUNTIME_DEGRADED")
+                LOGGER.warning(
+                    "[BOOT] ConversationManager degradado (stub activo). "
+                    "CONVERSATION_RUNTIME_DEGRADED causa=%s",
+                    app.state.conversation_runtime_error,
+                )
 
             # CHANGE E: Cargar guion al arrancar
+            app.state.script_loaded = False
+            app.state.script_version = None
+            app.state.script_waypoint_count = 0
+            app.state.script_load_error = None
             _script_path = Path(__file__).resolve().parent / "data" / "mvp_tour_script.json"
             if _cm_boot is not None and hasattr(_cm_boot, "load_script_from_file"):
                 if _script_path.exists():
@@ -201,18 +210,24 @@ async def lifespan(app: FastAPI):
                         _boot_loop = asyncio.get_running_loop()
                         await _boot_loop.run_in_executor(None, _cm_boot.load_script_from_file, _script_path)
                         _loaded = getattr(_cm_boot, "loaded_script", None)
+                        app.state.script_loaded = True
+                        app.state.script_version = getattr(_loaded, "version", None)
+                        app.state.script_waypoint_count = len(getattr(_loaded, "waypoints", []))
                         LOGGER.info(
                             "[BOOT] Script cargado. version='%s' waypoints=%d",
-                            getattr(_loaded, "version", "?"),
-                            len(getattr(_loaded, "waypoints", [])),
+                            app.state.script_version,
+                            app.state.script_waypoint_count,
                         )
                     except Exception as exc:
+                        app.state.script_load_error = f"{type(exc).__name__}: {exc}"
                         if settings.ROBOT_MODE == "real":
                             raise RuntimeError(f"SCRIPT_LOAD_FAILED:{exc}") from exc
                         LOGGER.warning("[BOOT] Script no cargado (modo=%s): %s", settings.ROBOT_MODE, exc)
                 elif settings.ROBOT_MODE == "real":
+                    app.state.script_load_error = f"SCRIPT_NOT_FOUND:{_script_path}"
                     raise RuntimeError(f"SCRIPT_NOT_FOUND:{_script_path}")
                 else:
+                    app.state.script_load_error = f"SCRIPT_NOT_FOUND:{_script_path}"
                     LOGGER.info("[BOOT] Script ausente (%s); modo=%s — degradado aceptable.", _script_path, settings.ROBOT_MODE)
 
             app.state.factory_rest_client = UnitreeFactoryRestClient.get_instance(
@@ -243,29 +258,10 @@ async def lifespan(app: FastAPI):
             orchestrator=_orch_shutdown,
         )
 
-        # CHANGE A: Close orchestrator (cancels background tasks)
-        if _orch_shutdown is not None:
-            try:
-                _orch_close = getattr(_orch_shutdown, "close", None)
-                if callable(_orch_close):
-                    await _orch_close()
-                    LOGGER.info("[SHUTDOWN] TourOrchestrator.close() completado.")
-            except Exception as exc:
-                LOGGER.warning("[SHUTDOWN] TourOrchestrator.close() fallido: %s", exc)
-
-            # CHANGE A: Close ConversationManager (synchronous — must not be awaited)
-            _cm_shutdown = (
-                getattr(_orch_shutdown, "conversation_manager", None)
-                or getattr(_orch_shutdown, "_conversation_manager", None)
-            )
-            if _cm_shutdown is not None:
-                _cm_close = getattr(_cm_shutdown, "close", None)
-                if callable(_cm_close) and not asyncio.iscoroutinefunction(_cm_close):
-                    try:
-                        _cm_close()
-                        LOGGER.info("[SHUTDOWN] ConversationManager.close() completado.")
-                    except Exception as exc:
-                        LOGGER.warning("[SHUTDOWN] ConversationManager.close() fallido: %s", exc)
+        # CHANGE A: Close orchestrator + ConversationManager (extracted helper; ver
+        #           _close_orchestrator_and_conversation_manager para el contrato productivo
+        #           ejercido directamente por tests/unit/test_shutdown_sequence.py T-A04/T-A05).
+        await _close_orchestrator_and_conversation_manager(_orch_shutdown)
 
         if nav_bridge is not None:
             try:
@@ -373,20 +369,34 @@ async def _run_shutdown_sequence(
     # STEP 2: Transicionar FSM a EMERGENCY
     # @SECURITY: emergency_stop() cancela _nav_task y _odometry_task de forma segura.
     #            Se ejecuta ANTES del hardware para que Nav2 cancele sus comandos activos.
-    #            Si tiene éxito, on_enter_emergency ya emitió MotionCommand(0)+damp() —
-    #            STEP 3 y STEP 4 se omiten (ORCHESTRATOR_EMERGENCY_COMPLETED).
-    #            Si falla o tiene timeout, se ejecuta fallback directo (DIRECT_HARDWARE_FALLBACK_USED).
+    #            El resultado tipado (EmergencyStopResult.terminal_safe) es la UNICA fuente de
+    #            verdad sobre exito — NUNCA se infiere de que emergency_stop() haya retornado
+    #            sin excepcion. terminal_safe=True requiere damp_succeeded=True; solo entonces
+    #            se omiten STEP 3+4 (ORCHESTRATOR_EMERGENCY_COMPLETED). En cualquier otro caso
+    #            (incluyendo fallo de damp dentro de on_enter_emergency) se ejecuta el fallback
+    #            directo (DIRECT_HARDWARE_FALLBACK_USED).
     _orchestrator_handled_shutdown = False
     if orchestrator is not None:
         try:
             emergency_fn = getattr(orchestrator, "emergency_stop", None)
             if callable(emergency_fn):
-                await asyncio.wait_for(
+                emergency_result = await asyncio.wait_for(
                     emergency_fn(reason="graceful_shutdown"),
                     timeout=2.0,
                 )
-                LOGGER.info("[SHUTDOWN] STEP 2: TourOrchestrator en estado EMERGENCY. ORCHESTRATOR_EMERGENCY_COMPLETED")
-                _orchestrator_handled_shutdown = True
+                terminal_safe = bool(getattr(emergency_result, "terminal_safe", False))
+                if terminal_safe:
+                    LOGGER.info(
+                        "[SHUTDOWN] STEP 2: TourOrchestrator confirmo terminal_safe=True (damp_succeeded). "
+                        "ORCHESTRATOR_EMERGENCY_COMPLETED"
+                    )
+                    _orchestrator_handled_shutdown = True
+                else:
+                    LOGGER.warning(
+                        "[SHUTDOWN] STEP 2: emergency_stop() retorno sin excepcion pero terminal_safe=False "
+                        "(errors=%s). DIRECT_HARDWARE_FALLBACK_USED.",
+                        getattr(emergency_result, "errors", None),
+                    )
         except asyncio.TimeoutError:
             LOGGER.warning("[SHUTDOWN] STEP 2: Timeout en emergency_stop(). DIRECT_HARDWARE_FALLBACK_USED. Continuando.")
         except Exception as exc:
@@ -397,7 +407,7 @@ async def _run_shutdown_sequence(
     if _orchestrator_handled_shutdown:
         LOGGER.info(
             "[SHUTDOWN] STEP 3+4: Omitidos — TourOrchestrator es la autoridad de motion; "
-            "on_enter_emergency ya ejecutó MotionCommand(0) y damp()."
+            "on_enter_emergency confirmo damp_succeeded=True (terminal_safe)."
         )
     else:
         # STEP 3: Failsafe cinematico — MotionCommand(0) antes de damp()
@@ -445,6 +455,47 @@ async def _run_shutdown_sequence(
             LOGGER.info("[SHUTDOWN] STEP 4: No hay hardware activo — damp() omitido.")
 
     LOGGER.info("[SHUTDOWN] === SECUENCIA HIL-SAFE COMPLETADA ===")
+
+
+async def _close_orchestrator_and_conversation_manager(orchestrator: object) -> None:
+    """
+    @TASK: Cerrar TourOrchestrator y su ConversationManager tras la secuencia HIL-safe
+    @INPUT: orchestrator — instancia activa o None (modo mock/CI sin orquestador)
+    @OUTPUT: orchestrator.close() awaited (cancela tareas de fondo, desuscribe EventBus);
+             conversation_manager.close() invocado de forma SINCRONA (nunca awaited)
+    @CONTEXT: Extraido del finally de lifespan() para que sea ejercido directamente por
+              tests/unit/test_shutdown_sequence.py en lugar de que los tests reimplementen
+              esta secuencia manualmente (codigo productivo real, no una copia paralela).
+    @SECURITY: Fallos en cualquiera de los dos close() se absorben y loguean; nunca deben
+               impedir el cierre del nav_bridge que ocurre despues en el finally del caller.
+
+    STEP 1: No-op si orchestrator es None
+    STEP 2: Invocar await orchestrator.close() con manejo de excepciones
+    STEP 3: Resolver conversation_manager (publico o privado) e invocar su close() sincrono
+    """
+    if orchestrator is None:
+        return
+
+    try:
+        orch_close = getattr(orchestrator, "close", None)
+        if callable(orch_close):
+            await orch_close()
+            LOGGER.info("[SHUTDOWN] TourOrchestrator.close() completado.")
+    except Exception as exc:
+        LOGGER.warning("[SHUTDOWN] TourOrchestrator.close() fallido: %s", exc)
+
+    cm = (
+        getattr(orchestrator, "conversation_manager", None)
+        or getattr(orchestrator, "_conversation_manager", None)
+    )
+    if cm is not None:
+        cm_close = getattr(cm, "close", None)
+        if callable(cm_close) and not asyncio.iscoroutinefunction(cm_close):
+            try:
+                cm_close()
+                LOGGER.info("[SHUTDOWN] ConversationManager.close() completado.")
+            except Exception as exc:
+                LOGGER.warning("[SHUTDOWN] ConversationManager.close() fallido: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -591,11 +642,15 @@ def _get_conversation_manager_stub(settings):
             ),
             cloud_fallback_enabled=cloud_enabled,
         )
-    except Exception:
+    except Exception as exc:
         LOGGER.warning(
-            "[BOOT] ConversationManager no disponible. Usando stub minimo."
+            "[BOOT] ConversationManager no disponible. Usando stub minimo. Causa: %s — %s",
+            type(exc).__name__, exc,
+            exc_info=True,
         )
-        return _MinimalConversationStub()
+        return _MinimalConversationStub(
+            degradation_error=f"{type(exc).__name__}: {exc}"
+        )
 
 
 def _get_vision_processor_stub():
@@ -679,10 +734,16 @@ class _MinimalConversationStub:
     @OUTPUT: Respuestas vacias compatibles con el contrato esperado
     @CONTEXT: Fallback de bootstrap cuando Ollama no esta disponible
     @SECURITY: Sin llamadas a APIs externas ni ejecucion de modelos remotos
+    @AI_CONTEXT: degradation_error opcional preserva tipo y mensaje de la excepcion que causo
+                 el fallback a este stub, para exponerla en app.state.conversation_runtime_error
+                 sin requerir que el caller parsee logs (Section 10 de la remediacion).
     """
 
     swap_count = 0
     active_strategy_name = "stub"
+
+    def __init__(self, degradation_error: Optional[str] = None) -> None:
+        self.degradation_error = degradation_error
 
     async def process_interaction(self, audio, *, language="es"):
         """

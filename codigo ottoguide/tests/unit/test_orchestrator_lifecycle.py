@@ -235,6 +235,86 @@ async def test_close_removes_tasks_from_event_loop() -> None:
     assert after == [], f"tareas del orquestador remanentes: {[t.get_name() for t in after]}"
 
 
+def _make_orchestrator_with_event_bus(nav_delay: float = 0.15):
+    """Como _make_orchestrator pero inyecta un OttoEventBus fresco (no el singleton de
+    proceso) para que los contadores de suscriptores sean deterministas entre tests."""
+    from src.core import TourOrchestrator  # noqa: PLC0415
+    from src.core.event_bus import OttoEventBus  # noqa: PLC0415
+    from src.interaction import ConversationManager, ConversationResponse  # noqa: PLC0415
+
+    hardware_api = MockHardwareAPI()
+    nav_bridge = MockNav2Bridge(navigation_delay_s=nav_delay)
+    vision_processor = MockVisionProcessor()
+    bus = OttoEventBus()
+
+    local_strategy = MagicMock()
+    local_strategy.generate = AsyncMock(
+        return_value=ConversationResponse(
+            answer_text="ok", source_pipeline="local", audio_stream_ready=False
+        )
+    )
+    local_strategy.close = MagicMock()
+    cloud_strategy = MagicMock()
+    cloud_strategy.close = MagicMock()
+
+    conversation_manager = ConversationManager(
+        local_strategy=local_strategy,
+        cloud_strategy=cloud_strategy,
+    )
+
+    orchestrator = TourOrchestrator(
+        hardware_api=hardware_api,
+        nav_bridge=nav_bridge,
+        conversation_manager=conversation_manager,
+        vision_processor=vision_processor,
+        event_bus=bus,
+    )
+    return orchestrator, bus
+
+
+@pytest.mark.asyncio
+async def test_close_unsubscribes_from_event_bus() -> None:
+    """Section 8: close() desuscribe _on_interaction_started del OttoEventBus inyectado.
+
+    SUBSCRIBERS_BEFORE_CLOSE = 1
+    SUBSCRIBERS_AFTER_CLOSE = 0
+    """
+    from src.core.events import EventType  # noqa: PLC0415
+
+    orchestrator, bus = _make_orchestrator_with_event_bus()
+    await orchestrator.activate_initial_state()
+
+    subscribers_before = list(bus._subscribers.get(EventType.INTERACTION_STARTED, []))
+    assert len(subscribers_before) == 1
+    assert subscribers_before[0] == orchestrator._on_interaction_started
+
+    await orchestrator.close()
+
+    subscribers_after = list(bus._subscribers.get(EventType.INTERACTION_STARTED, []))
+    assert len(subscribers_after) == 0
+
+
+@pytest.mark.asyncio
+async def test_close_is_idempotent_second_call_no_error() -> None:
+    """Section 8: una segunda invocacion de close() no lanza excepcion ni duplica efectos.
+
+    SECOND_CLOSE_ERROR = NO
+    """
+    from src.core.events import EventType  # noqa: PLC0415
+
+    orchestrator, bus = _make_orchestrator_with_event_bus()
+    await orchestrator.activate_initial_state()
+
+    await orchestrator.close()
+    # Segunda invocacion: no debe lanzar, no debe intentar desuscribir de nuevo.
+    await orchestrator.close()
+
+    subscribers_after = list(bus._subscribers.get(EventType.INTERACTION_STARTED, []))
+    assert len(subscribers_after) == 0
+    assert orchestrator._nav_task is None
+    assert orchestrator._odometry_task is None
+
+
 @pytest.mark.asyncio
 async def test_waypoint_index_advances_and_preserved_on_resume() -> None:
     """Gate 5: current_waypoint_index = indice del waypoint actualmente en ejecucion.

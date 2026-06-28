@@ -305,6 +305,115 @@ async def test_emergency_stop_attempts_damp_after_move_timeout() -> None:
     assert "hardware.damp.start" in calls
 
 
+# ---------------------------------------------------------------------------
+# EmergencyStopResult — contrato tipado de resultado terminal (Section 7 remediation)
+# ---------------------------------------------------------------------------
+# Las 6 pruebas obligatorias de la tarea de remediacion, contra TourOrchestrator real:
+#   1. move OK + damp OK            -> test_emergency_result_move_ok_damp_ok
+#   2. move falla + damp OK         -> test_emergency_result_move_fails_damp_ok
+#   3. damp falla                   -> test_emergency_result_damp_fails
+#   4. damp timeout                 -> test_emergency_result_damp_timeout
+#   5. emergency falla antes de la fase fisica -> test_emergency_result_fsm_rejects_second_call
+#   6. cero movimiento tras damp exitoso -> test_emergency_result_no_motion_after_successful_damp
+
+
+@pytest.mark.asyncio
+async def test_emergency_result_move_ok_damp_ok() -> None:
+    """1. move OK + damp OK -> terminal_safe=True, todas las fases exitosas."""
+    orchestrator, _calls = await _make_emergency_spy_orchestrator("normal")
+
+    result = await orchestrator.emergency_stop("move-ok-damp-ok")
+
+    assert result.nav_cancel_attempted is True
+    assert result.nav_cancel_succeeded is True
+    assert result.zero_velocity_attempted is True
+    assert result.zero_velocity_succeeded is True
+    assert result.damp_attempted is True
+    assert result.damp_succeeded is True
+    assert result.terminal_safe is True
+    assert result.errors == []
+
+
+@pytest.mark.asyncio
+async def test_emergency_result_move_fails_damp_ok() -> None:
+    """2. move falla + damp OK -> terminal_safe sigue True (damp es la condicion necesaria,
+    no la velocidad cero); el fallo de move queda registrado en errors."""
+    orchestrator, _calls = await _make_emergency_spy_orchestrator("move_raises")
+
+    result = await orchestrator.emergency_stop("move-fails-damp-ok")
+
+    assert result.zero_velocity_attempted is True
+    assert result.zero_velocity_succeeded is False
+    assert result.damp_succeeded is True
+    assert result.terminal_safe is True
+    assert any(e.startswith("zero_velocity_failed:") for e in result.errors)
+
+
+@pytest.mark.asyncio
+async def test_emergency_result_damp_fails() -> None:
+    """3. damp falla (excepcion) -> terminal_safe=False; este es exactamente el falso positivo
+    que main._run_shutdown_sequence ya no debe interpretar como ORCHESTRATOR_EMERGENCY_COMPLETED."""
+    orchestrator, _calls = await _make_emergency_spy_orchestrator("damp_raises")
+
+    result = await orchestrator.emergency_stop("damp-fails")
+
+    assert result.damp_attempted is True
+    assert result.damp_succeeded is False
+    assert result.terminal_safe is False
+    assert any(e.startswith("damp_failed:") for e in result.errors)
+    # La FSM SI transiciona a emergency (irreversible) aunque el resultado fisico no sea seguro.
+    assert orchestrator.state_id == "emergency"
+
+
+@pytest.mark.asyncio
+async def test_emergency_result_damp_timeout() -> None:
+    """4. damp timeout -> terminal_safe=False; distinto codigo de error que damp_fails pero
+    misma consecuencia: el caller (main.py) debe ejecutar el fallback de hardware directo."""
+    orchestrator, _calls = await _make_emergency_spy_orchestrator("damp_times_out")
+    orchestrator._damp_timeout_s = 0.05  # type: ignore[attr-defined]
+
+    result = await orchestrator.emergency_stop("damp-timeout")
+
+    assert result.damp_attempted is True
+    assert result.damp_succeeded is False
+    assert result.terminal_safe is False
+    assert any(e.startswith("damp_timeout:") for e in result.errors)
+
+
+@pytest.mark.asyncio
+async def test_emergency_result_fsm_rejects_second_call() -> None:
+    """5. emergency falla antes de la fase fisica: la FSM ya esta en EMERGENCY (estado final),
+    por lo que una segunda invocacion de emergency_stop() es rechazada por trigger_emergency()
+    antes de que on_enter_emergency llegue a ejecutar ninguna fase fisica. El resultado debe
+    reflejar la falla sin reintentar Damp() (ya fue terminal en la primera llamada)."""
+    orchestrator, calls = await _make_emergency_spy_orchestrator("normal")
+
+    first = await orchestrator.emergency_stop("first-call")
+    assert first.terminal_safe is True
+    calls_after_first = len(calls)
+
+    second = await orchestrator.emergency_stop("second-call-rejected")
+
+    assert second.terminal_safe is False
+    assert second.damp_attempted is False
+    assert any(e.startswith("trigger_emergency_failed:") for e in second.errors)
+    # Ningun comando fisico adicional se emitio durante el segundo intento rechazado.
+    assert len(calls) == calls_after_first
+
+
+@pytest.mark.asyncio
+async def test_emergency_result_no_motion_after_successful_damp() -> None:
+    """6. Cero comandos de locomocion despues de un damp exitoso, verificado tanto via
+    el log de llamadas del spy como via los campos del EmergencyStopResult."""
+    orchestrator, calls = await _make_emergency_spy_orchestrator("normal")
+
+    result = await orchestrator.emergency_stop("no-motion-after-damp")
+
+    assert result.damp_succeeded is True
+    assert result.terminal_safe is True
+    _assert_no_locomotion_after_damp(calls)
+
+
 @pytest.mark.asyncio
 async def test_handle_user_question_returns_response(orchestrator_bundle: OrchestratorBundle) -> None:
     # @TASK: Validar question path

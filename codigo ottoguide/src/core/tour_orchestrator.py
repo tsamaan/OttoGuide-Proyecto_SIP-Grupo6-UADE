@@ -91,6 +91,29 @@ class TourContext:
     tour_id: Optional[str] = None
 
 
+@dataclass(slots=True)
+class EmergencyStopResult:
+    """
+    @TASK: Tipar el resultado terminal de una secuencia de EMERGENCY para el caller de emergency_stop()
+    @INPUT: Poblado incrementalmente por on_enter_emergency() durante cada fase de la secuencia
+    @OUTPUT: Snapshot inmutable-por-convencion consultado por main._run_shutdown_sequence()
+    @CONTEXT: Resuelve el falso positivo donde un retorno normal de emergency_stop() se interpretaba
+              como exito terminal sin verificar si damp() realmente tuvo exito.
+    @SECURITY: terminal_safe NO puede inferirse solo de la transicion FSM a EMERGENCY; requiere
+               damp_succeeded=True como condicion necesaria. errors acumula cada excepcion absorbida
+               para diagnostico post-mortem sin romper la garantia de no propagar excepciones.
+    """
+
+    nav_cancel_attempted: bool = False
+    nav_cancel_succeeded: bool = False
+    zero_velocity_attempted: bool = False
+    zero_velocity_succeeded: bool = False
+    damp_attempted: bool = False
+    damp_succeeded: bool = False
+    terminal_safe: bool = False
+    errors: list[str] = field(default_factory=list)
+
+
 @dataclass(frozen=True, slots=True)
 class TourPlan:
     """
@@ -236,6 +259,8 @@ class TourOrchestrator(StateMachine):
         self._interaction_done_event: asyncio.Event = asyncio.Event()
         self._pending_audio: np.ndarray = np.zeros(1, dtype=np.float32)
         self._pending_language: str = "es"
+        self._last_emergency_result: Optional[EmergencyStopResult] = None
+        self._closed: bool = False
 
         resolved_bus = event_bus if event_bus is not None else OttoEventBus.get_instance()
         self._event_bus: OttoEventBus = resolved_bus
@@ -434,24 +459,43 @@ class TourOrchestrator(StateMachine):
                 type(exc).__name__, exc,
             )
 
-    async def emergency_stop(self, reason: str = "manual") -> None:
+    async def emergency_stop(self, reason: str = "manual") -> EmergencyStopResult:
         """
         @TASK: Activar la transicion de emergencia desde cualquier estado operativo de la FSM
         @INPUT: reason — descripcion de la causa de emergencia para diagnostico y auditoria
-        @OUTPUT: _context.last_error actualizado con reason; transicion trigger_emergency ejecutada;
-                 on_enter_emergency invocado por AsyncEngine (Damp() + limpieza de subsistemas)
+        @OUTPUT: EmergencyStopResult tipado describiendo exactamente que fases de la secuencia
+                 fisica tuvieron exito; _context.last_error actualizado con reason.
         @CONTEXT: Invocable desde APIServer, señal del OS, o cualquier excepcion no recuperable.
-                  trigger_emergency acepta cualquier estado origen; no requiere verificacion previa.
+                  trigger_emergency acepta cualquier estado origen operativo; si la FSM ya esta
+                  en EMERGENCY (estado final), la transicion es rechazada y se retorna un resultado
+                  no-terminal con el error registrado (no se reintenta Damp(), ya fue terminal antes).
         @SECURITY: Este metodo NO ejecuta Damp() directamente; delega en on_enter_emergency que lo hace
-                   como STEP 3, garantizando la secuencia correcta de cancelacion antes que hardware.
+                   como STEP 5, garantizando la secuencia correcta de cancelacion antes que hardware.
+                   terminal_safe del resultado retornado es la UNICA fuente de verdad sobre exito;
+                   nunca debe inferirse de self.state_id por separado.
 
         STEP 1: Registrar reason en _context.last_error y emitir LOGGER.critical para trazabilidad
         STEP 2: Ejecutar trigger_emergency via AsyncEngine para activar el callback on_enter_emergency
+        STEP 3: Leer self._last_emergency_result poblado por on_enter_emergency (AsyncEngine no
+                propaga el valor de retorno del callback a traves de trigger_emergency())
         """
         self._context.last_error = reason
         LOGGER.critical("[Orchestrator] EMERGENCY STOP solicitado. Razon: %s", reason)
 
-        await self.trigger_emergency()
+        try:
+            await self.trigger_emergency()
+        except Exception as exc:
+            LOGGER.error(
+                "[Orchestrator] trigger_emergency() rechazado o fallido: %s — %s",
+                type(exc).__name__, exc,
+            )
+            return EmergencyStopResult(errors=[f"trigger_emergency_failed:{type(exc).__name__}:{exc}"])
+
+        result = self._last_emergency_result
+        if result is None:
+            # on_enter_emergency no se ejecuto (no deberia ocurrir si trigger_emergency tuvo exito).
+            return EmergencyStopResult(errors=["on_enter_emergency_did_not_run"])
+        return result
 
     async def pause_navigation(self) -> None:
         """Cancela _nav_task y solicita cancelación explícita al backend Nav2 sin cambiar el estado FSM.
@@ -676,14 +720,20 @@ class TourOrchestrator(StateMachine):
         @TASK: Ejecutar la secuencia de emergencia perentoria e irreversible ante cualquier fallo critico
         @INPUT: Sin parametros directos; _context.last_error contiene la causa registrada por emergency_stop()
         @OUTPUT: Todas las tareas background canceladas; Nav2 detenido; Damp() ejecutado en hardware;
-                 VisionProcessor cerrado; eventos de auditoria y telemetria registrados
+                 VisionProcessor cerrado; eventos de auditoria y telemetria registrados;
+                 self._last_emergency_result poblado con un EmergencyStopResult tipado
         @CONTEXT: Callback del estado final EMERGENCY invocado por AsyncEngine. Irreversible desde esta clase
                   (python-statemachine final=True; no hay transicion de salida automatica).
-                  Todos los errores se absorben para garantizar la ejecucion completa de la
-                  secuencia de cierre.
+                  Todos los errores se absorben (nunca propagan, ver verificacion empirica: una excepcion
+                  no absorbida aqui hace que AsyncEngine revierta la transicion a EMERGENCY) pero se
+                  registran en EmergencyStopResult.errors para que el caller pueda diagnosticar la causa
+                  exacta de una falla terminal sin depender de logs.
         @SECURITY: Damp() es el ULTIMO comando de locomocion (STEP 5); ninguna operacion de
                    movimiento o velocidad ocurre despues de Damp() para garantizar el estado terminal
                    seguro. Secuencia: cancel_navigation -> zero velocity -> damp -> sin locomocion.
+                   terminal_safe=True requiere damp_succeeded=True como condicion necesaria; un fallo
+                   de logging o de VisionProcessor.close() posterior a un damp exitoso NUNCA repite
+                   comandos fisicos ni revierte terminal_safe a False.
 
         STEP 1: Persistir evento EMERGENCY_TRIGGERED en MissionAuditLogger con await directo
         STEP 2: Cancelar _nav_task y _odometry_task via _cancel_*_safe() sin propagar excepciones
@@ -693,6 +743,9 @@ class TourOrchestrator(StateMachine):
         STEP 6: Invocar VisionProcessor.close() para liberar el bus USB y el thread de captura
         STEP 7: Registrar estado final del sistema via LOGGER.critical para diagnostico post-mortem
         """
+        result = EmergencyStopResult()
+        self._last_emergency_result = result
+
         LOGGER.critical(
             "[Orchestrator] EMERGENCY activado. Causa: %s",
             self._context.last_error,
@@ -716,6 +769,7 @@ class TourOrchestrator(StateMachine):
                 LOGGER.error(
                     "[Orchestrator] Fallo al persistir auditoria EMERGENCY: %s", exc
                 )
+                result.errors.append(f"mission_audit_failed:{type(exc).__name__}:{exc}")
         else:
             LOGGER.warning(
                 "[Orchestrator] MissionAuditLogger no configurado; EMERGENCY sin persistencia de auditoria."
@@ -724,55 +778,71 @@ class TourOrchestrator(StateMachine):
         await self._cancel_nav_task_safe()
         await self._cancel_odometry_task_safe()
 
+        result.nav_cancel_attempted = True
         try:
             await asyncio.wait_for(
                 self._nav_bridge.cancel_navigation(),
                 timeout=1.0,
             )
+            result.nav_cancel_succeeded = True
         except Exception as exc:
             LOGGER.error("[Orchestrator] Fallo al cancelar Nav2 en emergencia: %s", exc)
+            result.errors.append(f"nav_cancel_failed:{type(exc).__name__}:{exc}")
 
+        result.zero_velocity_attempted = True
         try:
             await asyncio.wait_for(
                 self._hardware_api.move(MotionCommand(linear_x=0.0, angular_z=0.0, duration_ms=0)),
                 timeout=0.5,
             )
-        except Exception:
-            pass
+            result.zero_velocity_succeeded = True
+        except Exception as exc:
+            result.errors.append(f"zero_velocity_failed:{type(exc).__name__}:{exc}")
 
         LOGGER.critical(
             "[Orchestrator] Emitiendo Damp() al hardware (timeout=%.1f s).",
             self._damp_timeout_s,
         )
+        result.damp_attempted = True
         try:
             await asyncio.wait_for(
                 self._hardware_api.damp(),
                 timeout=self._damp_timeout_s,
             )
+            result.damp_succeeded = True
             LOGGER.critical("[Orchestrator] Damp() ejecutado correctamente.")
-        except (TimeoutError, asyncio.TimeoutError):
+        except (TimeoutError, asyncio.TimeoutError) as exc:
             LOGGER.critical(
                 "[Orchestrator] TIMEOUT en Damp() durante EMERGENCY. "
                 "Verificar estado mecanico manualmente."
             )
+            result.errors.append(f"damp_timeout:{type(exc).__name__}:{exc}")
         except Exception as exc:
             LOGGER.critical(
                 "[Orchestrator] Excepcion inesperada en Damp(): %s — %s",
                 type(exc).__name__,
                 exc,
             )
+            result.errors.append(f"damp_failed:{type(exc).__name__}:{exc}")
+
+        # @SECURITY: terminal_safe se fija inmediatamente despues de Damp() y nunca se revierte
+        #            por fallos posteriores (logging, VisionProcessor). damp_succeeded=True es
+        #            condicion necesaria; ninguna rama posterior ejecuta comandos de locomocion.
+        result.terminal_safe = result.damp_succeeded
 
         try:
             self._vision_processor.close()
             LOGGER.info("[Orchestrator] VisionProcessor cerrado en EMERGENCY.")
         except Exception as exc:
             LOGGER.error("[Orchestrator] Fallo al cerrar VisionProcessor: %s", exc)
+            result.errors.append(f"vision_close_failed:{type(exc).__name__}:{exc}")
 
         LOGGER.critical(
             "[Orchestrator] Secuencia de EMERGENCY completada. "
-            "Estado: %s | Causa: %s",
+            "Estado: %s | Causa: %s | terminal_safe=%s",
             self.state_id,
             self._context.last_error,
+            result.terminal_safe,
         )
 
     # ------------------------------------------------------------------
@@ -937,9 +1007,28 @@ class TourOrchestrator(StateMachine):
     # ------------------------------------------------------------------
 
     async def close(self) -> None:
-        """Cancela y espera todas las tareas de fondo activas."""
+        """
+        @TASK: Liberar todos los recursos del orquestador de forma idempotente
+        @INPUT: Sin parametros
+        @OUTPUT: _nav_task y _odometry_task canceladas; suscripcion a INTERACTION_STARTED
+                 removida del OttoEventBus; estado interno marcado como cerrado
+        @CONTEXT: Invocado desde el finally del lifespan de FastAPI. Debe ser seguro invocar
+                  mas de una vez (p. ej. shutdown manual seguido del finally automatico).
+        @SECURITY: Sin esta desuscripcion, OttoEventBus.get_instance() (singleton de proceso)
+                   retiene una referencia a self._on_interaction_started indefinidamente,
+                   filtrando el orquestador cerrado como suscriptor activo.
+
+        STEP 1: No-op si close() ya fue invocado previamente
+        STEP 2: Cancelar tareas de fondo via los helpers _safe existentes (ya idempotentes)
+        STEP 3: Desuscribir _on_interaction_started usando la misma referencia de subscribe()
+        STEP 4: Marcar _closed=True para que invocaciones posteriores sean no-op
+        """
+        if self._closed:
+            return
         await self._cancel_nav_task_safe()
         await self._cancel_odometry_task_safe()
+        self._event_bus.unsubscribe(EventType.INTERACTION_STARTED, self._on_interaction_started)
+        self._closed = True
 
     def _create_supervised_task(self, coro, name: str) -> asyncio.Task[None]:
         """Crea una asyncio.Task que activa emergency_stop ante excepciones no controladas."""
