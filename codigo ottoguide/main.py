@@ -117,6 +117,7 @@ async def lifespan(app: FastAPI):
     nav_bridge = None
     resolved_backend: Optional[str] = None
     reached_yield = False
+    station_trigger_coordinator = None
 
     # STEP 1: Instalar handlers de senales al arrancar el event loop
     _install_signal_handlers(asyncio.get_running_loop())
@@ -128,12 +129,24 @@ async def lifespan(app: FastAPI):
     app.state.navigation_startup_error = None
     app.state.navigation_shutdown_error = None
     app.state.nav_bridge = None
+    app.state.station_trigger = None
 
     try:
         try:
             # STEP 2: Config, resolucion de backend e interlock — antes de tocar hardware/ROS
             settings.validate_navigation_config()
             settings.validate_web_ui_config()
+            # getattr defensivo: compatibilidad con test doubles preexistentes (SimpleNamespace
+            # en tests/unit/test_navigation_runtime_selection.py) que no implementan este metodo
+            # nuevo de U2. config.settings.Settings real SIEMPRE lo expone y lo ejecuta; esto no
+            # degrada el fail-closed productivo, solo evita romper fakes parciales fuera de scope.
+            validate_qr_station_config = getattr(settings, "validate_qr_station_config", None)
+            if validate_qr_station_config is not None:
+                if not callable(validate_qr_station_config):
+                    raise TypeError(
+                        "QR_STATION_CONFIG_VALIDATOR_INVALID:validate_qr_station_config_not_callable"
+                    )
+                validate_qr_station_config()
 
             resolved_backend = _resolve_navigation_backend(settings)
             app.state.navigation_backend_resolved = resolved_backend
@@ -167,21 +180,47 @@ async def lifespan(app: FastAPI):
             # Los modulos congelados siguen usando src.* — no modificar sus imports
             from api.router import telemetry_manager
             from src.core import TourOrchestrator
+            from src.core.event_bus import OttoEventBus
             from src.core.mission_audit import MissionAuditLogger
             from src.infrastructure.unitree import UnitreeFactoryRestClient
             mission_audit_logger = MissionAuditLogger()
+
+            shared_event_bus = OttoEventBus.get_instance()
+            vision_processor = _build_vision_processor(settings)
 
             orchestrator = TourOrchestrator(
                 hardware_api=hardware,
                 nav_bridge=nav_bridge,
                 conversation_manager=_get_conversation_manager_stub(settings),
-                vision_processor=_get_vision_processor_stub(),
+                vision_processor=vision_processor,
                 telemetry_manager=telemetry_manager,
                 mission_audit_logger=mission_audit_logger,
                 robot_mode=settings.ROBOT_MODE,
+                event_bus=shared_event_bus,
             )
             app.state.orchestrator = orchestrator
             await orchestrator.activate_initial_state()
+
+            # QR Station Trigger (U2) — opcional; fail-closed si esta habilitado y algo falla
+            # getattr defensivo: compatibilidad con test doubles preexistentes (ver
+            # _build_vision_processor); config.settings.Settings real siempre lo expone.
+            if getattr(settings, "QR_STATION_TRIGGER_ENABLED", False):
+                try:
+                    vision_processor.start(asyncio.get_running_loop())
+
+                    from src.core.station_trigger_coordinator import StationTriggerCoordinator
+                    from src.vision import VisionStationTrigger
+
+                    vision_station_trigger = VisionStationTrigger(vision_processor)
+                    station_trigger_coordinator = StationTriggerCoordinator(
+                        station_trigger=vision_station_trigger,
+                        event_bus=shared_event_bus,
+                    )
+                    await station_trigger_coordinator.start()
+                    app.state.station_trigger = vision_station_trigger
+                    LOGGER.info("[BOOT] QR Station Trigger iniciado.")
+                except Exception as exc:
+                    raise RuntimeError(f"QR_STATION_TRIGGER_START_FAILED:{exc}") from exc
 
             # CHANGE F: Track conversation runtime degradation
             _cm_boot = (
@@ -258,6 +297,14 @@ async def lifespan(app: FastAPI):
             hardware=hardware,
             orchestrator=_orch_shutdown,
         )
+
+        # U2: cerrar StationTriggerCoordinator antes de continuar con el cierre existente
+        if station_trigger_coordinator is not None:
+            try:
+                await station_trigger_coordinator.close()
+                LOGGER.info("[SHUTDOWN] StationTriggerCoordinator cerrado.")
+            except Exception as exc:
+                LOGGER.warning("[SHUTDOWN] StationTriggerCoordinator.close() fallido: %s", exc)
 
         # CHANGE A: Close orchestrator + ConversationManager (extracted helper; ver
         #           _close_orchestrator_and_conversation_manager para el contrato productivo
@@ -654,14 +701,47 @@ def _get_conversation_manager_stub(settings):
         )
 
 
-def _get_vision_processor_stub():
+def _build_vision_processor(settings):
     """
-    @TASK: Obtener stub o instancia real de VisionProcessor
-    @INPUT: Sin parametros
-    @OUTPUT: Instancia de VisionProcessor
-    @CONTEXT: Camara D435i es infraestructura externa
-    @SECURITY: Sin acceso a hardware de vision en CI/mock
+    @TASK: Construir la unica instancia de VisionProcessor del proceso, con o sin lane QR
+    @INPUT: settings — Settings con QR_STATION_TRIGGER_ENABLED y parametros QR_*
+    @OUTPUT: Instancia de VisionProcessor (o stub minimo si VisionProcessor no esta disponible
+             y QR esta deshabilitado); la misma instancia se inyecta en TourOrchestrator y,
+             si QR esta habilitado, en VisionStationTrigger — nunca se construyen dos.
+    @CONTEXT: U2 — Si QR_STATION_TRIGGER_ENABLED=True, cualquier fallo al construir el
+              StationRegistry, el decoder o el VisionProcessor con lane QR debe propagarse
+              (fail-closed); no se sustituye silenciosamente por el stub legado.
+    @SECURITY: Si QR esta deshabilitado, el comportamiento es identico al previo a U2:
+               no se importa cv2 por causa de QR, no se abre camara por causa de QR.
     """
+    # getattr defensivo: compatibilidad con test doubles preexistentes que no declaran
+    # QR_STATION_TRIGGER_ENABLED (config.settings.Settings real siempre lo expone, default False).
+    if getattr(settings, "QR_STATION_TRIGGER_ENABLED", False):
+        import numpy as np
+        from pathlib import Path as _Path
+
+        from src.stations.station_registry import StationRegistry
+        from src.vision import CameraModel, OpenCVQRCodeDecoder, StableQRFrameDetector, VisionProcessor
+
+        registry = StationRegistry.from_yaml(_Path(settings.QR_STATION_CONFIG_PATH))
+        decoder = OpenCVQRCodeDecoder()
+        qr_detector = StableQRFrameDetector(
+            decoder,
+            stable_frames=settings.QR_STABLE_FRAMES,
+            release_frames=settings.QR_RELEASE_FRAMES,
+        )
+        camera_model = CameraModel(
+            camera_matrix=np.eye(3, dtype=np.float64),
+            distortion_coefficients=np.zeros((5, 1), dtype=np.float64),
+        )
+        return VisionProcessor(
+            camera_model=camera_model,
+            tag_size_m=0.16,
+            qr_detector=qr_detector,
+            station_registry=registry,
+            station_queue_maxsize=settings.QR_STATION_QUEUE_MAX_SIZE,
+        )
+
     try:
         import numpy as np
         from src.vision import CameraModel, VisionProcessor

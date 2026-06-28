@@ -49,7 +49,7 @@ from src.core.event_bus import OttoEventBus
 from src.interaction import ConversationManager, ConversationRequest, ConversationResponse
 from src.navigation.models import NavWaypoint
 from src.navigation.port import NavigationPort
-from src.vision import OdometryVector, VisionProcessor
+from src.vision import OdometryVector, QRStationDetected, VisionProcessor
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +89,10 @@ class TourContext:
     last_interaction: Optional[ConversationResponse] = None
     last_error: Optional[str] = None
     tour_id: Optional[str] = None
+    last_station_id: Optional[str] = None
+    last_station_qr_value: Optional[str] = None
+    last_station_detected_at: Optional[str] = None
+    last_station_matches_expected: Optional[bool] = None
 
 
 @dataclass(slots=True)
@@ -266,8 +270,10 @@ class TourOrchestrator(StateMachine):
         resolved_bus = event_bus if event_bus is not None else OttoEventBus.get_instance()
         self._event_bus: OttoEventBus = resolved_bus
         self._event_bus.subscribe(EventType.INTERACTION_STARTED, self._on_interaction_started)
+        self._event_bus.subscribe(EventType.QR_STATION_DETECTED, self._on_qr_station_detected)
         LOGGER.info(
-            "[Orchestrator] Suscripción a INTERACTION_STARTED registrada en OttoEventBus."
+            "[Orchestrator] Suscripción a INTERACTION_STARTED y QR_STATION_DETECTED "
+            "registrada en OttoEventBus."
         )
 
         LOGGER.critical(
@@ -459,6 +465,82 @@ class TourOrchestrator(StateMachine):
                 "[Orchestrator] Fallo en transición pause_for_interaction desde EventBus: %s — %s",
                 type(exc).__name__, exc,
             )
+
+    async def _on_qr_station_detected(
+        self,
+        event_type: EventType,
+        data: object,
+    ) -> None:
+        """
+        @TASK: Registrar y auditar una observacion de estacion QR sin alterar control de tour
+        @INPUT: event_type — EventType.QR_STATION_DETECTED (filtrado por el bus)
+                data — se acepta exclusivamente una instancia de QRStationDetected
+        @OUTPUT: TourContext actualizado con los cuatro campos last_station_*; evento de
+                 auditoria QR_STATION_DETECTED registrado. Sin mutacion de FSM, navegacion,
+                 interaccion, movimiento o LLM bajo ninguna circunstancia.
+        @CONTEXT: U2 — Este handler es deliberadamente pasivo. La unica autoridad de control
+                  del tour sigue siendo TourOrchestrator a traves de sus transiciones FSM
+                  explicitas; QR es solo observacion auditada.
+        @SECURITY: Ignora payload invalido, estado cerrado o EMERGENCY sin excepcion. Solo
+                   actualiza el contexto operativo cuando el estado actual es NAVIGATING.
+
+        STEP 1: Ignorar si el payload no es QRStationDetected, si _closed o si EMERGENCY
+        STEP 2: Si el estado actual no es NAVIGATING, no actualizar contexto operativo
+        STEP 3: Calcular expected_station_id y matches_expected
+        STEP 4: Actualizar los cuatro campos last_station_* en TourContext
+        STEP 5: Registrar evento de auditoria QR_STATION_DETECTED con payload completo
+        """
+        if not isinstance(data, QRStationDetected):
+            LOGGER.debug(
+                "[Orchestrator] QR_STATION_DETECTED ignorado: payload invalido (%s).",
+                type(data).__name__,
+            )
+            return
+
+        if self._closed:
+            return
+
+        if self.state_id == "emergency":
+            LOGGER.debug("[Orchestrator] QR_STATION_DETECTED ignorado: estado=emergency.")
+            return
+
+        if self.state_id != "navigating":
+            LOGGER.info(
+                "[Orchestrator] QR_STATION_DETECTED observado fuera de NAVIGATING "
+                "(estado='%s'); sin actualizacion de contexto operativo.",
+                self.state_id,
+            )
+            return
+
+        expected_station_id = self._resolve_logical_waypoint_id()
+        matches_expected = data.station_id == expected_station_id
+
+        self._context.last_station_id = data.station_id
+        self._context.last_station_qr_value = data.qr_value
+        self._context.last_station_detected_at = data.detected_at.isoformat()
+        self._context.last_station_matches_expected = matches_expected
+
+        self._schedule_audit_event(
+            event_type="QR_STATION_DETECTED",
+            node_id=expected_station_id,
+            payload={
+                "station_id": data.station_id,
+                "qr_value": data.qr_value,
+                "detected_at": data.detected_at.isoformat(),
+                "confidence_or_stability": data.confidence_or_stability,
+                "source": data.source,
+                "expected_station_id": expected_station_id,
+                "matches_expected": matches_expected,
+            },
+        )
+
+        LOGGER.info(
+            "[Orchestrator] QR_STATION_DETECTED registrado. station_id=%s "
+            "expected=%s matches_expected=%s",
+            data.station_id, expected_station_id, matches_expected,
+        )
+
+        self._schedule_telemetry_broadcast()
 
     async def emergency_stop(self, reason: str = "manual") -> EmergencyStopResult:
         """
@@ -1056,6 +1138,7 @@ class TourOrchestrator(StateMachine):
         await self._cancel_nav_task_safe()
         await self._cancel_odometry_task_safe()
         self._event_bus.unsubscribe(EventType.INTERACTION_STARTED, self._on_interaction_started)
+        self._event_bus.unsubscribe(EventType.QR_STATION_DETECTED, self._on_qr_station_detected)
         self._closed = True
 
     def _create_supervised_task(self, coro, name: str) -> asyncio.Task[None]:

@@ -21,11 +21,19 @@ import math
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import cv2
 import numpy as np
 from numpy.typing import NDArray
+
+from src.stations.station_registry import StationRegistry
+from src.vision.qr_frame_detector import QRDecodeError, StableQRFrameDetector
+from src.vision.station_trigger import QRStationDetected
+
+QR_STATION_QUEUE_MAX_SIZE_DEFAULT: int = 8
+QR_DETECTION_SOURCE: str = "vision_processor.shared_camera"
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +134,10 @@ class _CaptureStats:
     detections: int = 0
     reconnect_count: int = 0
     last_detection_ts: float = 0.0
+    qr_candidates: int = 0
+    qr_known_detections: int = 0
+    qr_unknown_values: int = 0
+    qr_queue_drops: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +167,9 @@ class VisionProcessor:
         target_fps: float = TARGET_FPS,
         pose_queue_maxsize: int = POSE_QUEUE_MAX_SIZE,
         preferred_marker_id: Optional[int] = None,
+        qr_detector: Optional[StableQRFrameDetector] = None,
+        station_registry: Optional[StationRegistry] = None,
+        station_queue_maxsize: int = QR_STATION_QUEUE_MAX_SIZE_DEFAULT,
     ) -> None:
         """
         @TASK: Construir estado interno del VisionProcessor sin inicializar hardware
@@ -174,6 +189,12 @@ class VisionProcessor:
             raise ValueError("tag_size_m debe ser mayor que 0.")
         if target_fps <= 0 or target_fps > 30:
             raise ValueError("target_fps debe estar en el rango (0, 30].")
+        if (qr_detector is None) != (station_registry is None):
+            raise ValueError(
+                "qr_detector y station_registry deben estar ambos configurados o ambos ausentes."
+            )
+        if station_queue_maxsize <= 0:
+            raise ValueError("station_queue_maxsize debe ser mayor que 0.")
 
         self._camera_model: CameraModel = camera_model
         self._tag_size_m: float = tag_size_m
@@ -190,6 +211,12 @@ class VisionProcessor:
         self._cap: Optional[cv2.VideoCapture] = None
         self._stats: _CaptureStats = _CaptureStats()
         self._started: bool = False
+
+        self._qr_detector: Optional[StableQRFrameDetector] = qr_detector
+        self._station_registry: Optional[StationRegistry] = station_registry
+        self._station_queue: asyncio.Queue[QRStationDetected] = asyncio.Queue(
+            maxsize=station_queue_maxsize
+        )
 
         self._aruco_dict = cv2.aruco.getPredefinedDictionary(
             cv2.aruco.DICT_APRILTAG_36h11
@@ -289,6 +316,38 @@ class VisionProcessor:
         return self._pose_queue
 
     @property
+    def qr_enabled(self) -> bool:
+        """
+        @TASK: Indicar si el lane QR esta configurado en esta instancia
+        @OUTPUT: True si qr_detector y station_registry fueron inyectados en el constructor
+        """
+        return self._qr_detector is not None and self._station_registry is not None
+
+    @property
+    def is_started(self) -> bool:
+        """
+        @TASK: Indicar si start() ya fue invocado exitosamente
+        @OUTPUT: True una vez que la camara abrio y el daemon thread esta activo
+        """
+        return self._started
+
+    @property
+    def station_queue(self) -> asyncio.Queue[QRStationDetected]:
+        """
+        @TASK: Exponer la cola de detecciones de estacion QR para consumo asincrono
+        @OUTPUT: asyncio.Queue[QRStationDetected]; vacia si el lane QR no esta configurado
+        """
+        return self._station_queue
+
+    async def get_next_station_detection(self) -> QRStationDetected:
+        """
+        @TASK: Obtener la siguiente deteccion de estacion QR de forma asincrona
+        @OUTPUT: QRStationDetected una vez disponible en la cola
+        @CONTEXT: Bloquea hasta que haya una deteccion; el caller controla el timeout externo.
+        """
+        return await self._station_queue.get()
+
+    @property
     def stats(self) -> _CaptureStats:
         """
         @TASK: Exponer metricas de salud del ciclo de captura
@@ -383,6 +442,12 @@ class VisionProcessor:
                 self._stats.last_detection_ts = time.monotonic()
                 self._dispatch_odometry(odometry)
 
+            if self.qr_enabled:
+                try:
+                    self._process_qr_lane_sync(frame_bgr)
+                except Exception as exc:
+                    LOGGER.error("[Vision] Error en lane QR: %s", exc)
+
             elapsed_total = time.monotonic() - frame_start
             sleep_remaining = self._frame_period_s - elapsed_total
             if sleep_remaining > 0.0:
@@ -469,6 +534,81 @@ class VisionProcessor:
                 try:
                     self._pose_queue.get_nowait()
                     self._pose_queue.put_nowait(odometry)
+                except (asyncio.QueueEmpty, asyncio.QueueFull):
+                    pass
+
+        loop.call_soon_threadsafe(_enqueue)
+
+    # -----------------------------------------------------------------------
+    # Lane QR — comparte el mismo frame_bgr leido por _capture_loop
+    # -----------------------------------------------------------------------
+
+    def _process_qr_lane_sync(self, frame_bgr: NDArray[np.uint8]) -> None:
+        """
+        @TASK: Procesar el frame compartido en el lane QR sin abrir una segunda camara
+        @INPUT: frame_bgr — el mismo frame ya leido por cv2.VideoCapture en _capture_loop
+        @OUTPUT: QRStationDetected despachado a station_queue si hay valor estable y conocido
+        @CONTEXT: Lane independiente del lane AprilTag; un error aqui no debe impedir
+                  el procesamiento AprilTag (ya garantizado por el try/except del caller).
+        @SECURITY: No abre, libera ni reconfigura cv2.VideoCapture; solo decodifica el frame.
+        """
+        qr_detector = self._qr_detector
+        station_registry = self._station_registry
+        if qr_detector is None or station_registry is None:
+            return
+
+        try:
+            stable_value = qr_detector.process_frame(frame_bgr)
+        except QRDecodeError as exc:
+            LOGGER.debug("[Vision] QRDecodeError en lane QR: %s", exc)
+            return
+
+        if stable_value is None:
+            return
+
+        self._stats.qr_candidates += 1
+
+        station = station_registry.resolve(stable_value.value)
+        if station is None:
+            self._stats.qr_unknown_values += 1
+            LOGGER.debug("[Vision] Valor QR estable desconocido: %r", stable_value.value)
+            return
+
+        self._stats.qr_known_detections += 1
+
+        detection = QRStationDetected(
+            station_id=station.station_id,
+            qr_value=stable_value.value,
+            detected_at=datetime.now(timezone.utc),
+            confidence_or_stability=stable_value.confidence_or_stability,
+            source=QR_DETECTION_SOURCE,
+        )
+        self._dispatch_station_detection(detection)
+
+    def _dispatch_station_detection(self, detection: QRStationDetected) -> None:
+        """
+        @TASK: Despachar una QRStationDetected a station_queue de forma thread-safe
+        @INPUT: detection — deteccion ya resuelta contra StationRegistry
+        @OUTPUT: detection encolada; si la cola esta llena, se descarta la mas antigua
+                 y se conserva la mas reciente
+        @CONTEXT: Mismo patron de call_soon_threadsafe usado por _dispatch_odometry.
+        """
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+
+        def _enqueue() -> None:
+            try:
+                self._station_queue.put_nowait(detection)
+            except asyncio.QueueFull:
+                self._stats.qr_queue_drops += 1
+                LOGGER.debug(
+                    "[Vision] Cola de estaciones QR llena (maxsize=%d); descartando deteccion antigua.",
+                    self._station_queue.maxsize,
+                )
+                try:
+                    self._station_queue.get_nowait()
+                    self._station_queue.put_nowait(detection)
                 except (asyncio.QueueEmpty, asyncio.QueueFull):
                     pass
 

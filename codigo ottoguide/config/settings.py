@@ -120,6 +120,16 @@ class Settings(BaseSettings):
     WEB_UI_PUBLIC_URL: str = ""
     WEB_UI_ALLOW_MISSING_ORIGIN: bool = False
 
+    # --- QR Station Trigger (U2) ---
+    # @SECURITY: QR_STATION_TRIGGER_ENABLED default False es un interlock cerrado: habilitar
+    #            el sensor QR exige intencion explicita. Deshabilitado, no se importa cv2 ni
+    #            se abre camara por causa de QR.
+    QR_STATION_TRIGGER_ENABLED: bool = False
+    QR_STATION_CONFIG_PATH: str = "config/qr_stations.yaml"
+    QR_STABLE_FRAMES: int = 4
+    QR_RELEASE_FRAMES: int = 3
+    QR_STATION_QUEUE_MAX_SIZE: int = 8
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
@@ -203,6 +213,29 @@ class Settings(BaseSettings):
 
         if not self.NAVIGATION_NAMESPACE:
             raise ValueError("NAVIGATION_CONFIG_INVALID:NAVIGATION_NAMESPACE_empty")
+
+    def validate_qr_station_config(self) -> None:
+        """
+        @TASK: Validar la configuracion del sensor QR de estaciones antes de inicializar el stack
+        @INPUT: Sin parametros; opera sobre los campos QR_* de esta instancia
+        @OUTPUT: None si la configuracion es valida; ValueError("QR_STATION_CONFIG_INVALID:<detalle>") si no
+        @CONTEXT: Invocado desde el lifespan de main.py ANTES de inicializar VisionProcessor
+                  o StationTriggerCoordinator. Si QR_STATION_TRIGGER_ENABLED=False, no exige
+                  archivo, no importa cv2 y no abre camara: retorna sin error.
+        @SECURITY: La carga y validacion del contenido YAML la realiza StationRegistry, no
+                   esta clase; aqui solo se valida la forma de los parametros de Settings.
+        """
+        if not self.QR_STATION_TRIGGER_ENABLED:
+            return
+
+        if not self.QR_STATION_CONFIG_PATH:
+            raise ValueError("QR_STATION_CONFIG_INVALID:QR_STATION_CONFIG_PATH_empty")
+        if self.QR_STABLE_FRAMES <= 0:
+            raise ValueError("QR_STATION_CONFIG_INVALID:QR_STABLE_FRAMES_must_be_positive")
+        if self.QR_RELEASE_FRAMES <= 0:
+            raise ValueError("QR_STATION_CONFIG_INVALID:QR_RELEASE_FRAMES_must_be_positive")
+        if self.QR_STATION_QUEUE_MAX_SIZE <= 0:
+            raise ValueError("QR_STATION_CONFIG_INVALID:QR_STATION_QUEUE_MAX_SIZE_must_be_positive")
 
 
 @lru_cache(maxsize=1)

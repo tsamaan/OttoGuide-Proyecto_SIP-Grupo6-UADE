@@ -13,6 +13,15 @@ _SYMBOL_MODULE_MAP: dict[str, str] = {
     "StationTriggerHealth": ".station_trigger",
     "StationTriggerPort": ".station_trigger",
     "StationTriggerState": ".station_trigger",
+    # Decodificacion y estabilidad QR sobre frames compartidos (U2)
+    "OpenCVQRCodeDecoder": ".qr_frame_detector",
+    "QRDecodeError": ".qr_frame_detector",
+    "QRFrameDecoder": ".qr_frame_detector",
+    "StableQRFrameDetector": ".qr_frame_detector",
+    "StableQRValue": ".qr_frame_detector",
+    # Adaptador StationTriggerPort sobre la camara compartida de VisionProcessor (U2)
+    "StationTriggerUnavailableError": ".vision_station_trigger",
+    "VisionStationTrigger": ".vision_station_trigger",
 }
 
 
@@ -40,4 +49,11 @@ __all__ = [
     "StationTriggerHealth",
     "StationTriggerPort",
     "StationTriggerState",
+    "OpenCVQRCodeDecoder",
+    "QRDecodeError",
+    "QRFrameDecoder",
+    "StableQRFrameDetector",
+    "StableQRValue",
+    "StationTriggerUnavailableError",
+    "VisionStationTrigger",
 ]
