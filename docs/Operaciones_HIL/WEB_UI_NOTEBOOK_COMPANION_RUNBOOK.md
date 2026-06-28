@@ -54,35 +54,56 @@ ping -c 3 192.168.123.161
 
 ## 4. Variables de entorno — backend (companion PC)
 
-Archivo: `codigo ottoguide/.env` (copiar desde `.env.example`).
+Archivo: `codigo ottoguide/.env` (copiar desde `.env.example`). **El `.env.example` deja
+`WEB_UI_ALLOWED_ORIGINS`, `WEB_UI_PUBLIC_URL` y `WEB_UI_ALLOW_MISSING_ORIGIN` vacios/false a
+proposito (fail-closed): copiar el archivo sin editar estas variables NO produce una
+allow-list utilizable en `ROBOT_MODE=real`.**
+
+### 4.1 Configuracion mock/sim/demo (panel de pruebas, sin robot)
 
 ```bash
-ROBOT_MODE=mock                # mock|sim|demo para pruebas de panel sin robot; real para HIL
-ROBOT_NETWORK_INTERFACE=eth0   # solo si ROBOT_MODE=real
+ROBOT_MODE=mock                # mock|sim|demo
 API_HOST=0.0.0.0
 API_PORT=8000
 
 # --- Web UI React ---
-WEB_UI_ALLOWED_ORIGINS=http://localhost:3001,http://127.0.0.1:3001
+WEB_UI_ALLOWED_ORIGINS=
 WEB_UI_PUBLIC_URL=http://localhost:3001
 WEB_UI_ALLOW_MISSING_ORIGIN=false
 ```
 
-Reglas obligatorias:
+Con `WEB_UI_ALLOWED_ORIGINS` vacio, el runtime aplica automaticamente los origenes locales
+efectivos (`http://localhost:3001`, `http://127.0.0.1:3001`). No es necesario editarla para
+pruebas locales de panel; solo configurar `WEB_UI_PUBLIC_URL` si se quiere que `/dashboard`
+redirija a React.
 
-- En `ROBOT_MODE=real`, `WEB_UI_ALLOWED_ORIGINS` **debe** establecerse explicitamente con
-  el/los origenes reales desde donde se sirve React (ej. la IP de la notebook en la red
-  del companion PC: `http://192.168.123.101:3001`). Dejarla vacia o en `*` bloquea el
-  arranque del backend con `WEB_UI_CONFIG_INVALID:WEB_UI_ALLOWED_ORIGINS_empty_in_real_mode`
-  o `WEB_UI_CONFIG_INVALID:wildcard_origin_prohibited_in_real_mode`.
-- En `ROBOT_MODE=mock|sim|demo`, si se deja vacia, el backend usa automaticamente
-  `http://localhost:3001` y `http://127.0.0.1:3001` (defaults de desarrollo). No es
-  necesario configurarla para pruebas locales de panel.
-- `WEB_UI_PUBLIC_URL` es la URL a la que `/` y `/dashboard` redirigen (normalmente
-  `http://localhost:3001` en desarrollo, o la URL real de la notebook en HIL). Sin
-  configurar, el backend sirve el dashboard HTML legacy como fallback transicional.
+### 4.2 Configuracion real (HIL, robot fisico)
+
+```bash
+ROBOT_MODE=real
+ROBOT_NETWORK_INTERFACE=eth0
+API_HOST=0.0.0.0
+API_PORT=8000
+
+# --- Web UI React ---
+WEB_UI_ALLOWED_ORIGINS=http://<ip-notebook>:3001
+WEB_UI_PUBLIC_URL=http://<ip-notebook>:3001
+WEB_UI_ALLOW_MISSING_ORIGIN=false
+```
+
+`WEB_UI_ALLOWED_ORIGINS` **debe configurarse explicitamente** con la IP real de la notebook
+en la red del companion PC (ej. `http://192.168.123.101:3001`). Dejarla vacia o en `*`
+bloquea el arranque del backend con
+`WEB_UI_CONFIG_INVALID:WEB_UI_ALLOWED_ORIGINS_empty_in_real_mode` o
+`WEB_UI_CONFIG_INVALID:wildcard_origin_prohibited_in_real_mode`.
+
+### 4.3 Reglas obligatorias (ambos casos)
+
+- `WEB_UI_PUBLIC_URL` es la URL a la que `/` y `/dashboard` redirigen. Sin configurar, el
+  backend sirve el dashboard HTML legacy como fallback transicional.
 - `WEB_UI_ALLOW_MISSING_ORIGIN` debe permanecer `false`. Solo se usa en pruebas
   controladas; nunca habilitarlo en una sesion con red real.
+- Nunca usar wildcard `"*"` en `ROBOT_MODE=real`.
 
 ## 5. Variables de entorno — frontend (notebook)
 
@@ -120,7 +141,7 @@ uvicorn main:create_app --factory --host 0.0.0.0 --port 8000
 ```bash
 cd ottoguide_web_app/frontend
 cp .env.example .env   # si no existe; luego editar segun seccion 5
-npm install
+npm ci
 npm run dev
 ```
 
@@ -230,8 +251,31 @@ fisico del robot antes de continuar la sesion.
 2. Detener el frontend (`Ctrl+C` en la terminal de `npm run dev`).
 3. Detener el backend (`Ctrl+C` en la terminal de `python main.py` / `uvicorn`); el
    `lifespan` ejecuta la secuencia de apagado HIL-safe (`EventBus -> FSM EMERGENCY ->
-   MotionCommand(0) -> damp()`) de forma garantizada.
-4. Verificar en logs que `[SHUTDOWN] === SECUENCIA HIL-SAFE COMPLETADA ===` se emitio.
+   MotionCommand(0) -> damp()`). La secuencia siempre se ejecuta (esta en el `finally` del
+   lifespan), pero **ejecutarse no es lo mismo que tener exito**: cada paso interno puede
+   fallar o hacer timeout sin que eso interrumpa el procedimiento (ver paso 4).
+4. Revisar los logs y distinguir explicitamente dos cosas distintas:
+
+   - **El procedimiento termino.** El log
+     `[SHUTDOWN] === SECUENCIA HIL-SAFE COMPLETADA ===` confirma **unicamente** que la
+     funcion `_run_shutdown_sequence()` llego al final de su ejecucion. **Por si solo NO
+     confirma que `damp()` haya tenido exito ni que el robot este fisicamente seguro.**
+   - **La seguridad terminal fue confirmada.** Esto requiere ver en los logs **alguna** de
+     estas dos confirmaciones explicitas:
+     - `ORCHESTRATOR_EMERGENCY_COMPLETED` (el `TourOrchestrator` confirmo
+       `terminal_safe=True`, lo cual implica `damp_succeeded=True`), o
+     - el log `[SHUTDOWN] STEP 4: damp() ejecutado correctamente.` (fallback directo de
+       hardware cuando no hubo orquestador activo).
+
+   Si en su lugar aparece `DIRECT_HARDWARE_FALLBACK_USED`, un `TIMEOUT en damp()`, o
+   `Fallo CRITICO en damp()`, la seguridad terminal **no esta confirmada** aunque el log
+   `SECUENCIA HIL-SAFE COMPLETADA` se haya emitido igual. Ante esto:
+
+   1. Verificar el estado fisico del robot antes de alejarse o dar la sesion por cerrada.
+   2. Si el robot sigue activo o en una postura no segura, activar **L1+A** en el mando
+      fisico para forzar el corte de motores.
+   3. No continuar la sesion ni reiniciar el backend hasta confirmar visualmente que el
+      robot quedo en un estado seguro.
 
 ## 12. Troubleshooting
 

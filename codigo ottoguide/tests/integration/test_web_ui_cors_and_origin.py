@@ -355,12 +355,62 @@ def test_cors_and_websocket_share_same_effective_origins_list():
 # Evidencia documental (cierre operativo web-ui)
 # ---------------------------------------------------------------------------
 
-def test_env_example_contains_web_ui_react_variables():
+def _parse_active_env_assignments(content: str) -> dict[str, str]:
+    """Parse only active (non-commented) KEY=VALUE lines, dotenv-style.
+
+    A line is active if, ignoring leading whitespace, it does not start with
+    "#". Inline comments after a value are not stripped (none are used in
+    .env.example), so this stays a straightforward, dependency-free parser
+    sufficient for this fixed-format file.
+    """
+    active: dict[str, str] = {}
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        active[key.strip()] = value.strip()
+    return active
+
+
+def test_env_example_active_assignments_are_fail_closed_for_real_mode():
+    """Copying .env.example and only flipping ROBOT_MODE=real must not inherit
+    a non-empty WEB_UI_ALLOWED_ORIGINS from the example: the active assignment
+    must be empty, not merely "the variable name appears somewhere in the file"."""
     env_example = PROJECT_ROOT / ".env.example"
     content = env_example.read_text(encoding="utf-8")
-    assert "WEB_UI_ALLOWED_ORIGINS" in content
-    assert "WEB_UI_PUBLIC_URL" in content
-    assert "WEB_UI_ALLOW_MISSING_ORIGIN" in content
+    active = _parse_active_env_assignments(content)
+
+    assert "WEB_UI_ALLOWED_ORIGINS" in active
+    assert active["WEB_UI_ALLOWED_ORIGINS"] == ""
+
+    assert "WEB_UI_PUBLIC_URL" in active
+    assert active["WEB_UI_PUBLIC_URL"] == ""
+
+    assert "WEB_UI_ALLOW_MISSING_ORIGIN" in active
+    assert active["WEB_UI_ALLOW_MISSING_ORIGIN"] == "false"
+
+
+def test_env_example_non_empty_origin_examples_are_only_commented():
+    """The non-empty example values (dev localhost, real notebook IP) must
+    appear exclusively in commented-out lines, never as active assignments."""
+    env_example = PROJECT_ROOT / ".env.example"
+    content = env_example.read_text(encoding="utf-8")
+    active = _parse_active_env_assignments(content)
+
+    assert active["WEB_UI_ALLOWED_ORIGINS"] != "http://localhost:3001,http://127.0.0.1:3001"
+    assert active["WEB_UI_PUBLIC_URL"] != "http://localhost:3001"
+    assert active.get("WEB_UI_ALLOWED_ORIGINS", "").find("192.168") == -1
+    assert active.get("WEB_UI_PUBLIC_URL", "").find("192.168") == -1
+
+    commented_lines = [
+        line.strip() for line in content.splitlines() if line.strip().startswith("#")
+    ]
+    commented_text = "\n".join(commented_lines)
+    assert "WEB_UI_ALLOWED_ORIGINS=http://localhost:3001,http://127.0.0.1:3001" in commented_text
+    assert "WEB_UI_PUBLIC_URL=http://localhost:3001" in commented_text
+    assert "WEB_UI_ALLOWED_ORIGINS=http://192.168.123.101:3001" in commented_text
+    assert "WEB_UI_PUBLIC_URL=http://192.168.123.101:3001" in commented_text
 
 
 def test_runbook_contains_critical_ports_and_endpoints():
@@ -373,6 +423,36 @@ def test_runbook_contains_critical_ports_and_endpoints():
     assert "/ws/telemetry" in content
     assert "/emergency" in content
     assert "/tour/start" in content
+
+
+def test_runbook_uses_npm_ci_not_npm_install():
+    runbook = PROJECT_ROOT.parent / "docs" / "Operaciones_HIL" / "WEB_UI_NOTEBOOK_COMPANION_RUNBOOK.md"
+    content = runbook.read_text(encoding="utf-8")
+    assert "npm ci" in content
+    assert "npm install" not in content
+
+
+def test_runbook_distinguishes_shutdown_completed_from_terminal_safety_confirmed():
+    """The runbook must never let the operator read 'SECUENCIA HIL-SAFE COMPLETADA' as
+    proof that damp() succeeded: it must explicitly name the two real confirmations
+    (ORCHESTRATOR_EMERGENCY_COMPLETED or the damp() success log) and the physical
+    fallback (L1+A) for when neither is present."""
+    runbook = PROJECT_ROOT.parent / "docs" / "Operaciones_HIL" / "WEB_UI_NOTEBOOK_COMPANION_RUNBOOK.md"
+    content = runbook.read_text(encoding="utf-8")
+
+    assert "ORCHESTRATOR_EMERGENCY_COMPLETED" in content
+    assert "damp() ejecutado correctamente" in content
+    assert "L1+A" in content
+
+    # The warning must sit next to the literal log marker, not just exist somewhere
+    # disconnected from it.
+    marker_index = content.find("SECUENCIA HIL-SAFE COMPLETADA")
+    assert marker_index != -1
+    warning_window = content[marker_index : marker_index + 400]
+    assert "NO" in warning_window
+    assert "damp()" in warning_window
+
+    assert "de forma garantizada" not in content
 
 
 def test_dashboard_serves_legacy_fallback_when_no_public_url_configured():
