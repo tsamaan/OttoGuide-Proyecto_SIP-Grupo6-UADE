@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-06-29T00:49:09Z",
+  "updated_at": "2026-06-29T01:45:00Z",
   "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "remote_authority": "mirror",
@@ -90,8 +90,9 @@
     "playback_completed_before_navigation_resume": "required",
     "selected_u3_architecture": "PYTHON_CONTROL_PLANE_PLUS_DEDICATED_SUPERVISED_INTERACTION_WORKER",
     "selected_ipc": "STDIN_STDOUT_JSONL_SUPERVISED_PROCESS",
-    "real_worker_language_candidate": "CXX17",
-    "event_consumption_api_candidate": "ASYNC_NEXT_EVENT"
+    "real_worker_language": "CXX17",
+    "event_consumption_api": "ASYNC_NEXT_EVENT",
+    "wire_protocol_version": 1
   },
   "completed_commits": {
     "ARCHITECTURE_BASELINE": {
@@ -129,7 +130,20 @@
     },
     "U2R4A_LITE": {
       "result": "READ_ONLY_BASELINE_CONFIRMED_NO_COMMIT"
+    },
+    "U3_AUDIT_V2": {
+      "result": "U3_INTERACTION_WORKER_OFFLINE_ADAPTATION_PLAN_READY",
+      "selected_architecture": "PYTHON_CONTROL_PLANE_PLUS_DEDICATED_SUPERVISED_INTERACTION_WORKER",
+      "selected_ipc": "STDIN_STDOUT_JSONL_SUPERVISED_PROCESS",
+      "selected_worker_language": "CXX17",
+      "event_consumption_api": "ASYNC_NEXT_EVENT",
+      "wire_protocol_version": 1
     }
+  },
+  "current_write_stage": {
+    "stage": "U3A",
+    "status": "COMPLETED_AT_DYNAMIC_CHECKPOINT",
+    "commit_message": "feat(interaction): add strict loopback worker supervisor"
   },
   "known_test_baseline": {
     "python": "3.10.11",
@@ -164,7 +178,9 @@
     "ORDER_DEPENDENT_SYS_MODULES_IDENTITY",
     "QR_ONLY_STILL_INITIALIZES_ARUCO_AND_U2R1_CAPTURE_LOOP_TEST_IS_PARTIALLY_STRUCTURAL",
     "REAL_CAMERA_AND_QR_RELIABILITY_PENDING",
-    "U3_INTERACTION_WORKER_AUDIT_PENDING"
+    "U3A_NOT_WIRED_TO_ORCHESTRATOR",
+    "REAL_CXX17_WORKER_NOT_IMPLEMENTED",
+    "REAL_AUDIO_AND_HIL_PENDING"
   ],
   "claims_prohibited": [
     "ROBOT_READY",
@@ -179,5 +195,5 @@
     "U3_IMPLEMENTED",
     "UNIFICATION_COMPLETE"
   ],
-  "next_action": "AUDIT_AND_PLAN_U3_INTERACTION_WORKER_OFFLINE_ADAPTATION_V1"
+  "next_action": "IMPLEMENT_U3B_ORCHESTRATOR_INTERACTION_LIFECYCLE_V1"
 }

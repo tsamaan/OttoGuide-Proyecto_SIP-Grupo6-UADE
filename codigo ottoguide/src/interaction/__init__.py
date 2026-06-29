@@ -43,6 +43,9 @@ _SYMBOL_MODULE_MAP: dict[str, str] = {
     "WorkerCommandType": ".runtime_port",
     "WorkerEventEnvelope": ".runtime_port",
     "WorkerEventType": ".runtime_port",
+    # Supervisor JSONL concreto (U3A, stdlib-only)
+    "JsonlInteractionWorkerSupervisor": ".jsonl_worker_supervisor",
+    "JsonlWorkerSupervisorConfig": ".jsonl_worker_supervisor",
     # Contrato canonico del supervisor del worker real (U1)
     "InteractionWorkerSupervisor": ".worker_supervisor",
     "WorkerTermination": ".worker_supervisor",
@@ -104,6 +107,9 @@ __all__ = [
     "WorkerCommandType",
     "WorkerEventEnvelope",
     "WorkerEventType",
+    # Supervisor JSONL concreto (U3A, stdlib-only)
+    "JsonlInteractionWorkerSupervisor",
+    "JsonlWorkerSupervisorConfig",
     # Contrato canonico del supervisor del worker real (U1)
     "InteractionWorkerSupervisor",
     "WorkerTermination",

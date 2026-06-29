@@ -23,6 +23,7 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -35,12 +36,37 @@ class WorkerTermination:
     reason: str
     unexpected: bool
     occurred_at_monotonic_s: float
+    protocol_error_code: str | None = None
+    stderr_tail: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.reason:
+        if self.exit_code is not None and type(self.exit_code) is not int:
+            raise ValueError("exit_code must be int or None")
+        if type(self.unexpected) is not bool:
+            raise ValueError("unexpected must be bool")
+        if type(self.reason) is not str or not self.reason:
             raise ValueError("reason must not be empty")
-        if self.occurred_at_monotonic_s < 0:
+        if len(self.reason) > 512:
+            raise ValueError("reason is too long")
+        if (
+            type(self.occurred_at_monotonic_s) not in (int, float)
+            or not math.isfinite(float(self.occurred_at_monotonic_s))
+            or self.occurred_at_monotonic_s < 0
+        ):
             raise ValueError("occurred_at_monotonic_s must not be negative")
+        if self.protocol_error_code is not None and (
+            type(self.protocol_error_code) is not str or not self.protocol_error_code
+        ):
+            raise ValueError("protocol_error_code must be a non-empty string when provided")
+        if type(self.stderr_tail) is not tuple:
+            object.__setattr__(self, "stderr_tail", tuple(self.stderr_tail))
+        if len(self.stderr_tail) > 50:
+            raise ValueError("stderr_tail has too many lines")
+        for line in self.stderr_tail:
+            if type(line) is not str:
+                raise ValueError("stderr_tail lines must be strings")
+            if len(line) > 4096:
+                raise ValueError("stderr_tail line is too long")
 
 
 @runtime_checkable

@@ -94,6 +94,18 @@ class FakeInteractionRuntime:
     async def emergency_stop(self) -> None:
         self.calls.append("emergency_stop")
 
+    async def next_event(self):
+        self.calls.append("next_event")
+        return WorkerEventEnvelope(
+            protocol_version=INTERACTION_PROTOCOL_VERSION,
+            message_id="evt:fake",
+            interaction_id=None,
+            event=WorkerEventType.HEARTBEAT,
+            sequence=0,
+            emitted_at_monotonic_s=0.0,
+            payload={},
+        )
+
     async def close(self) -> None:
         self.calls.append("close")
 
@@ -223,8 +235,10 @@ def test_interaction_context_is_frozen() -> None:
 
 
 def test_interaction_context_metadata_is_immutable_mapping() -> None:
-    ctx = InteractionContext(interaction_id="i-1", metadata={"k": "v"})
+    ctx = InteractionContext(interaction_id="i-1", metadata={"k": {"nested": [1]}})
     assert isinstance(ctx.metadata, MappingProxyType)
+    assert isinstance(ctx.metadata["k"], MappingProxyType)
+    assert ctx.metadata["k"]["nested"] == (1,)  # type: ignore[index]
     with pytest.raises(TypeError):
         ctx.metadata["k"] = "other"  # type: ignore[index]
 
@@ -234,12 +248,13 @@ def test_command_envelope_payload_is_immutable_mapping() -> None:
         protocol_version=INTERACTION_PROTOCOL_VERSION,
         message_id="m-1",
         interaction_id="i-1",
-        command=WorkerCommandType.START,
+        command=WorkerCommandType.ACTIVATE,
         sequence=0,
         emitted_at_monotonic_s=0.0,
-        payload={"a": 1},
+        payload={"a": {"b": [1]}},
     )
     assert isinstance(env.payload, MappingProxyType)
+    assert isinstance(env.payload["a"], MappingProxyType)
     with pytest.raises(TypeError):
         env.payload["a"] = 2  # type: ignore[index]
     with pytest.raises(FrozenInstanceError):
@@ -297,7 +312,7 @@ def test_envelope_rejects_negative_timestamp() -> None:
             protocol_version=INTERACTION_PROTOCOL_VERSION,
             message_id="m-1",
             interaction_id="i-1",
-            event=WorkerEventType.READY,
+        event=WorkerEventType.PLAYBACK_COMPLETED,
             sequence=0,
             emitted_at_monotonic_s=-1.0,
             payload={},
@@ -406,8 +421,8 @@ def test_from_wire_dict_rejects_unknown_key() -> None:
     wire = {
         "protocol_version": INTERACTION_PROTOCOL_VERSION,
         "message_id": "m-1",
-        "interaction_id": "i-1",
-        "command": WorkerCommandType.START.value,
+            "interaction_id": None,
+            "command": WorkerCommandType.START.value,
         "sequence": 0,
         "emitted_at_monotonic_s": 0.0,
         "payload": {},
@@ -421,8 +436,8 @@ def test_from_wire_dict_rejects_missing_required_key() -> None:
     wire = {
         "protocol_version": INTERACTION_PROTOCOL_VERSION,
         "message_id": "m-1",
-        "interaction_id": "i-1",
-        "command": WorkerCommandType.START.value,
+            "interaction_id": None,
+            "command": WorkerCommandType.START.value,
         "sequence": 0,
         "payload": {},
     }
@@ -434,8 +449,8 @@ def test_from_wire_dict_rejects_invalid_enum() -> None:
     wire = {
         "protocol_version": INTERACTION_PROTOCOL_VERSION,
         "message_id": "m-1",
-        "interaction_id": "i-1",
-        "command": "not_a_real_command",
+            "interaction_id": None,
+            "command": "not_a_real_command",
         "sequence": 0,
         "emitted_at_monotonic_s": 0.0,
         "payload": {},
@@ -448,8 +463,8 @@ def test_from_wire_dict_rejects_invalid_protocol_version() -> None:
     wire = {
         "protocol_version": 99,
         "message_id": "m-1",
-        "interaction_id": "i-1",
-        "command": WorkerCommandType.START.value,
+            "interaction_id": None,
+            "command": WorkerCommandType.START.value,
         "sequence": 0,
         "emitted_at_monotonic_s": 0.0,
         "payload": {},
@@ -642,7 +657,7 @@ def test_import_src_vision_does_not_open_camera_or_import_cv2() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_interaction_runtime_port_has_exactly_eight_operations() -> None:
+def test_interaction_runtime_port_has_exactly_nine_operations() -> None:
     expected = {
         "start",
         "health",
@@ -651,6 +666,7 @@ def test_interaction_runtime_port_has_exactly_eight_operations() -> None:
         "resume",
         "stop",
         "emergency_stop",
+        "next_event",
         "close",
     }
     actual = {

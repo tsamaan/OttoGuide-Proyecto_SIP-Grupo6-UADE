@@ -145,6 +145,8 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U2R3` | N/A | `BLOCKED_NO_COMMIT_NOT_ATTRIBUTABLE_TO_U2R2` |
 | `U2R4A_LITE` | N/A | `READ_ONLY_BASELINE_CONFIRMED_NO_COMMIT` |
 | `U3P0` | `bf1829d8a7313ec3820f093f460a8b20a823f90a` | `docs(unification): add portable branch handoff` |
+| `U3_AUDIT_V2` | N/A | `U3_INTERACTION_WORKER_OFFLINE_ADAPTATION_PLAN_READY` |
+| `U3A` | `DYNAMIC_HANDOFF_CHECKPOINT` | `feat(interaction): add strict loopback worker supervisor` |
 
 El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.
 
@@ -178,11 +180,31 @@ Brechas U3 conocidas:
 ```text
 SELECTED_ARCHITECTURE = PYTHON_CONTROL_PLANE_PLUS_DEDICATED_SUPERVISED_INTERACTION_WORKER
 SELECTED_IPC = STDIN_STDOUT_JSONL_SUPERVISED_PROCESS
-REAL_WORKER_LANGUAGE_CANDIDATE = CXX17
-EVENT_CONSUMPTION_API_CANDIDATE = ASYNC_NEXT_EVENT
+REAL_WORKER_LANGUAGE = CXX17
+EVENT_CONSUMPTION_API = ASYNC_NEXT_EVENT
+WIRE_PROTOCOL_VERSION = 1
 ```
 
-El lenguaje final del worker y la interfaz final se cierran formalmente en la auditoria U3. Este handoff no ejecuta ni implementa U3.
+La auditoria read-only `U3_AUDIT_V2` cerro la decision: el control plane Python supervisa un worker dedicado; el worker real futuro sera CXX17 salvo evidencia bloqueante posterior; la API de consumo de eventos es `async next_event(...)`; el transporte baseline es JSONL por stdin/stdout.
+
+### 12.1 Estado U3A
+
+`U3A` implementa infraestructura Python offline para el contrato de interaccion:
+
+- validacion wire estricta version 1;
+- `async next_event(...)` en `InteractionRuntimePort`;
+- supervisor concreto `src/interaction/jsonl_worker_supervisor.py`;
+- worker loopback falso `tests/support/u3a_loopback_worker.py`;
+- readiness por `READY`, heartbeat local, backpressure, crash/protocol failure detection y cierre escalonado;
+- tests offline deterministas.
+
+Restricciones vigentes:
+
+- Solo existe worker loopback falso.
+- No existe worker real CXX17 implementado.
+- No existe audio real implementado.
+- No existe validacion HIL.
+- U3A no esta conectada a `TourOrchestrator`; esa integracion corresponde a U3B.
 
 ## 13. Baseline de pruebas
 
@@ -335,4 +357,10 @@ No afirmar:
 NEXT_ACTION = AUDIT_AND_PLAN_U3_INTERACTION_WORKER_OFFLINE_ADAPTATION_V1
 ```
 
-No ejecutar U3 desde este handoff. La siguiente etapa debe auditar y planificar U3 antes de implementar.
+NEXT_ACTION actualizado tras U3A:
+
+```text
+NEXT_ACTION = IMPLEMENT_U3B_ORCHESTRATOR_INTERACTION_LIFECYCLE_V1
+```
+
+No ejecutar U3B desde este handoff. La siguiente etapa debe conectar el lifecycle de interaccion al `TourOrchestrator` usando el contrato U3A, sin introducir audio real ni HIL salvo autorizacion explicita.
