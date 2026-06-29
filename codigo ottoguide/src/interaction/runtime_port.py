@@ -47,6 +47,7 @@ ERR_FRAMING: Final[str] = "ERR_FRAMING"
 ERR_MESSAGE_LIMIT: Final[str] = "ERR_MESSAGE_LIMIT"
 ERR_STATE: Final[str] = "ERR_STATE"
 ERR_CORRELATION: Final[str] = "ERR_CORRELATION"
+ERR_PENDING_COMMAND_LIMIT: Final[str] = "ERR_PENDING_COMMAND_LIMIT"
 
 _IDENTIFIER_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9._:-]+$")
 _ENVELOPE_REQUIRED_KEYS: Final[frozenset[str]] = frozenset(
@@ -604,6 +605,7 @@ __all__ = [
     "ERR_MESSAGE_LIMIT",
     "ERR_MISSING_KEY",
     "ERR_NON_FINITE",
+    "ERR_PENDING_COMMAND_LIMIT",
     "ERR_RANGE",
     "ERR_SEQUENCE",
     "ERR_SIZE",

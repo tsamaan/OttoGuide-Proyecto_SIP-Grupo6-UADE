@@ -101,22 +101,22 @@ La genealogia explica procedencia y contexto, pero no autoriza merges completos.
 `ahead` y `behind` se expresan como `HEAD...mirror/<branch>` desde `review/orchestrator-unification`: `ahead` = commits solo en la rama autoritativa; `behind` = commits solo en la rama comparada. Para `main`, no hay ancestro comun.
 
 ```text
-RELATIONS_SNAPSHOT_AS_OF_HEAD = fa877e5693f66086731d849383072e0b16f22931
+RELATIONS_SNAPSHOT_AS_OF_HEAD = 6d5594601603edba4b069261357a5838921da1b0
 ```
 
 Los conteos son un snapshot asociado a `RELATIONS_SNAPSHOT_AS_OF_HEAD`; deben recalcularse antes de una nueva decision de integracion.
 
 | branch | head | ahead | behind | domain | status | disposition | integrated_scope | residual_scope | next_review_stage |
 |---|---|---:|---:|---|---|---|---|---|---|
-| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1, U3AR2 | U3B-U6 | U3B |
+| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1, U3AR2, U3AR3 | U3B-U6 | U3B |
 | `main` | `3a1f13574e4a27d9aff2bfd38b3659951e8cb264` | N/A | N/A | Snapshot publico huerfano | Sin ancestro comun | `DO_NOT_USE_AS_INTEGRATION_BASE` | Ninguno para continuidad | Solo referencia historica | Ninguno |
-| `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 172 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
-| `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 31 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
-| `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 126 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
-| `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 172 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3B |
-| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 55 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
-| `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 172 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3B |
-| `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 217 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
+| `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 173 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
+| `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 32 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
+| `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 127 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
+| `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 173 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3B |
+| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 56 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
+| `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 173 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3B |
+| `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 218 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
 
 ## 8. DAG de integracion
 
@@ -148,7 +148,8 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U3_AUDIT_V2` | N/A | `U3_INTERACTION_WORKER_OFFLINE_ADAPTATION_PLAN_READY` |
 | `U3A` | `3ecc93f1a31ecc8e5e5de32414db0fcb0c37b2ae` | `feat(interaction): add strict loopback worker supervisor` |
 | `U3AR1` | `fa877e5693f66086731d849383072e0b16f22931` | `fix(interaction): preserve supervisor terminal invariants` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
-| `U3AR2` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(interaction): close supervisor lifecycle gaps` |
+| `U3AR2` | `6d5594601603edba4b069261357a5838921da1b0` | `fix(interaction): close supervisor lifecycle gaps` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
+| `U3AR3` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(interaction): bound command ledger and own cleanup` |
 
 El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.
 
@@ -194,6 +195,18 @@ RESUELTO_EN_U3AR2 (no estaba realmente resuelto en `U3AR1` a pesar de lo documen
 - `asyncio.LimitOverrunError` se captura explicitamente y se reporta como `ERR_LINE_TOO_LARGE`.
 - Un fallo de arranque (`start()`) limpia el child y las tareas propias sin requerir que el caller invoque `close()`.
 - Las transiciones de `asyncio.subprocess` en Windows ya no producen `PytestUnraisableExceptionWarning`/`ResourceWarning` nuevos.
+
+Una auditoria posterior (`U3AR2_AUDIT`) encontro que, igual que con `U3AR1`, varios de estos puntos seguian incompletos en la implementacion real a pesar de presentarse aqui como resueltos. `U3AR3` (seccion 12.4) cierra esas brechas residuales.
+
+RESUELTO_EN_U3AR3 (no estaba realmente resuelto en `U3AR2` a pesar de lo documentado anteriormente en esta seccion):
+
+- El ledger `_pending_commands` esta acotado por un limite explicito `max_pending_commands` (independiente de `command_queue_size`), aplicado atomicamente junto con la asignacion de secuencia y el enqueue bajo el mismo lock; un worker que drena `_command_queue` pero retiene sus ACKs falla cerrado con `ERR_PENDING_COMMAND_LIMIT` y categoria de terminacion `COMMAND_ACK_BACKPRESSURE`, sin que el limite anterior (`command_queue_size + 1` implicito) fuera realmente alcanzable en ese escenario.
+- Un `COMMAND_ACCEPTED` con `interaction_id` incorrecto pero `message_id`/`command` correctos ahora falla con `ERR_CORRELATION`; antes el chequeo generico de `ERR_STALE_INTERACTION` se ejecutaba primero y preemptaba la correlacion especifica.
+- La tarea de limpieza tras un fallo (`_self_clean_after_failure`) tiene ownership explicito (`self._cleanup_task`, nombrada, una sola instancia activa a la vez) en vez de ser un `asyncio.ensure_future(...)` sin referencia; `close()` y el camino de fallo de `start()` la esperan antes de continuar, y sus excepciones se recuperan y registran en vez de quedar sin retrieve.
+- `close()` ya no sobreescribe una causa de terminacion primaria (`PROCESS_FAILED_EVENT`, `PROTOCOL_FAILURE`, `HEARTBEAT_TIMEOUT`, `COMMAND_ACK_BACKPRESSURE`, etc.) con `CLOSE_TERMINATE`/`CLOSE_KILL`; esas categorias mecanicas solo se aplican cuando el propio `close()` establece la terminacion desde un estado no fallido.
+- El workaround de finalizacion de transporte de `asyncio.subprocess` esta centralizado en un unico helper, gateado explicitamente a CPython+Windows; en cualquier otra plataforma/runtime no se ejecuta ningun paso adicional ni `gc.collect()` global.
+- El ledger de comandos pendientes se limpia deterministicamente al entrar en FAILED, EMERGENCY o CLOSED; al drenar `_command_queue` durante `emergency_stop()` tambien se eliminan del ledger los IDs de los envelopes descartados.
+- `_enqueue_command` rechaza inmediatamente con `ERR_TERMINAL_STATE` cualquier intento de encolar un comando una vez que el supervisor ya esta en FAILED o CLOSED, evitando que un caller siga re-llenando `_command_queue` despues de que `_command_writer` ya fue cancelado por la limpieza de fallo.
 
 PENDIENTE:
 
@@ -258,7 +271,7 @@ Restricciones vigentes (no modificadas por `U3AR1`):
 
 ### 12.3 Estado U3AR2
 
-`U3AR2` cierra los once defectos que `U3AR1_AUDIT` encontro pendientes a pesar de la documentacion previa. Ver seccion 11 (`RESUELTO_EN_U3AR2`) para el detalle tecnico de cada cierre. En particular, `U3AR2` agrega:
+`U3AR2` cerro once defectos que `U3AR1_AUDIT` encontro pendientes a pesar de la documentacion previa. Ver seccion 11 (`RESUELTO_EN_U3AR2`) para el detalle tecnico de cada cierre. En particular, `U3AR2` agrego:
 
 - el codigo de error estable `ERR_CORRELATION` para fallos de correlacion de `COMMAND_ACCEPTED`;
 - una estructura acotada de comandos pendientes (`_pending_commands`) en el supervisor, del tamano de `command_queue_size + 1` como maximo;
@@ -266,9 +279,11 @@ Restricciones vigentes (no modificadas por `U3AR1`):
 - cierre explicito y deterministico del transporte de `asyncio.subprocess` en `close()` y en el self-clean de fallo de arranque, en vez de depender del timing del recolector de basura;
 - un proceso fake deterministico (usado solo en tests) para probar la escalada `terminate()` -> `kill()` sin depender de un proceso real cooperativo.
 
-Gate obligatorio verificado para esta etapa: tres corridas independientes de
+Gate obligatorio verificado en esa etapa: tres corridas independientes de
 `pytest tests/integration/test_u3a_jsonl_worker_supervisor.py -W error::pytest.PytestUnraisableExceptionWarning`
 con exit code 0 y cero warnings, mas una corrida adicional con `python -X dev` sin coincidencias de `unraisable`, `unclosed transport`, `event loop is closed`, `task was destroyed` o `never awaited`.
+
+**Auditoria posterior (`U3AR2_AUDIT`): `REJECTED_PARTIAL_REMEDIATION`.** Igual que con `U3AR1`, una revision real de la implementacion de `U3AR2` encontro defectos residuales no detectados por sus propios tests: el ledger `_pending_commands` quedaba acotado solo de forma indirecta por `command_queue_size`, no por un limite explicito sobre el dict, y un worker que drenaba la cola de comandos pero retenia sus ACKs podia hacer crecer el ledger sin tope real; un mismatch de `interaction_id` en `COMMAND_ACCEPTED` disparaba `ERR_STALE_INTERACTION` (el chequeo generico) en vez de `ERR_CORRELATION`, porque ese chequeo corria antes de llegar a la rama de correlacion especifica; la tarea de limpieza de fallo seguia siendo un `asyncio.ensure_future(...)` sin referencia ni nombre, no contabilizada en las metricas de "tareas restantes"; `close()` podia sobreescribir una causa de terminacion primaria (p. ej. `PROCESS_FAILED_EVENT`) con la categoria mecanica `CLOSE_TERMINATE`/`CLOSE_KILL` si la escalada de cierre se disparaba sobre un supervisor ya fallido; y el workaround de finalizacion de transporte de Windows accedia a `_transport` desde un metodo no centralizado y ejecutaba `gc.collect()` de forma global e incondicional, sin gating de plataforma. Estos seis puntos quedaron registrados como `outstanding_defects_carried_to_u3ar3` en `unification-state.json` y se cerraron en `U3AR3` (seccion 12.4).
 
 Restricciones vigentes (no modificadas por `U3AR2`):
 
@@ -278,9 +293,33 @@ Restricciones vigentes (no modificadas por `U3AR2`):
 - No existe validacion HIL.
 - `U3A`/`U3AR1`/`U3AR2` no estan conectados a `TourOrchestrator`; esa integracion corresponde a `U3B`.
 
+### 12.4 Estado U3AR3
+
+`U3AR3` cierra los seis defectos que `U3AR2_AUDIT` encontro pendientes a pesar de la documentacion previa. Ver seccion 11 (`RESUELTO_EN_U3AR3`) para el detalle tecnico de cada cierre. En particular, `U3AR3` agrega:
+
+- `max_pending_commands` como limite explicito y configurable del ledger de comandos pendientes, aplicado atomicamente bajo el mismo lock que la asignacion de secuencia y el enqueue; codigo de error `ERR_PENDING_COMMAND_LIMIT` y categoria de terminacion `COMMAND_ACK_BACKPRESSURE`;
+- correlacion de `COMMAND_ACCEPTED` que se evalua antes del chequeo generico de interaccion obsoleta, de modo que un mismatch de `interaction_id` siempre produce `ERR_CORRELATION`, nunca `ERR_STALE_INTERACTION`;
+- ownership explicito de la tarea de limpieza de fallo (`self._cleanup_task`, nombrada, unica instancia activa, esperada por `close()` y por el camino de fallo de `start()`, con sus excepciones recuperadas y registradas);
+- preservacion de la causa de terminacion primaria en `close()` ante cualquier escalada mecanica posterior (`CLOSE_TERMINATE`/`CLOSE_KILL`);
+- centralizacion y gating de plataforma (CPython+Windows) del workaround de finalizacion de transporte, sin `gc.collect()` global en otras plataformas;
+- limpieza deterministica del ledger de comandos pendientes al entrar en FAILED, EMERGENCY o CLOSED, incluyendo los envelopes descartados durante `emergency_stop()`;
+- rechazo inmediato (`ERR_TERMINAL_STATE`) de nuevos comandos una vez que el supervisor ya esta en un estado terminal.
+
+Gate obligatorio verificado para esta etapa: tres corridas independientes de
+`pytest tests/integration/test_u3a_jsonl_worker_supervisor.py -W error::pytest.PytestUnraisableExceptionWarning`
+con exit code 0 y cero warnings, una corrida adicional con `python -X dev` sin coincidencias de `unraisable`, `unclosed transport`, `event loop is closed`, `task was destroyed`, `never awaited` ni `exception was never retrieved`, y una matriz de concurrencia (5 corridas con filtro sobre los tests de ledger/correlacion/cleanup/cierre inmediato/transporte).
+
+Restricciones vigentes (no modificadas por `U3AR3`):
+
+- Solo existe worker loopback falso.
+- No existe worker real CXX17 implementado.
+- No existe audio real implementado.
+- No existe validacion HIL.
+- `U3A`/`U3AR1`/`U3AR2`/`U3AR3` no estan conectados a `TourOrchestrator`; esa integracion corresponde a `U3B`.
+
 ## 13. Baseline de pruebas
 
-Proveniencia: `U3AR2`, ejecucion real posterior al cierre de los gaps de lifecycle, correlacion y recursos del supervisor JSONL (dos corridas completas de `tests/` con el `PINNED_PYTHON` de la etapa). Sustituye el baseline previo de `U3AR1`, que documentaba gaps como cerrados sin evidencia real.
+Proveniencia: `U3AR3`, ejecucion real posterior al cierre de los gaps residuales de ledger de comandos y ownership del cleanup del supervisor JSONL (dos corridas completas de `tests/` con el `PINNED_PYTHON` de la etapa). Sustituye el baseline previo de `U3AR2`, que documentaba gaps como cerrados sin evidencia real.
 
 ```text
 Python = 3.10.11
@@ -290,7 +329,7 @@ FastAPI = 0.118.2
 httpx = 0.28.1
 NumPy = 2.2.6
 WITNESS = 34 passed
-FULL_SUITE = 1098 passed, 7 failed, 109 skipped, 67 subtests passed
+FULL_SUITE = 1112 passed, 7 failed, 109 skipped, 67 subtests passed
 KNOWN_TEST_DEBT = ORDER_DEPENDENT_SYS_MODULES_IDENTITY
 FULL_SUITE_GREEN = NO
 FULL_SUITE_RESULT = FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS

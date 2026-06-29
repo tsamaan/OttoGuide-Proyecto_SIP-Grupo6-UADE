@@ -111,6 +111,14 @@ class Worker:
                     self.emit("ready", payload=CAPABILITIES, sequence_delta=2)
                 else:
                     self.emit("ready", payload=CAPABILITIES)
+                if self.scenario == "withhold_command_acks":
+                    # Confirms only START, then keeps draining stdin and
+                    # emitting heartbeats without ever ACKing further
+                    # commands -- exercising the case where the writer keeps
+                    # the command queue moving but the pending-command ledger
+                    # is never relieved by a COMMAND_ACCEPTED.
+                    self.heartbeat_enabled = True
+                    continue
                 if self.scenario == "crash_after_ready":
                     time.sleep(0.05)
                     return 9

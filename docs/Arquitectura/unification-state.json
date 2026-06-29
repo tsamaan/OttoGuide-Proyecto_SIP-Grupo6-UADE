@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-06-29T19:23:45Z",
+  "updated_at": "2026-06-29T20:52:18Z",
   "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "remote_authority": "mirror",
@@ -33,44 +33,44 @@
     "echezuria": "28c1220325ac94a342d55788eb0f02e40dece941"
   },
   "branch_relations_snapshot": {
-    "as_of_head": "fa877e5693f66086731d849383072e0b16f22931",
+    "as_of_head": "6d5594601603edba4b069261357a5838921da1b0",
     "relations": {
       "main": {
         "merge_base": "NO_COMMON_ANCESTOR",
         "disposition": "DO_NOT_USE_AS_INTEGRATION_BASE"
       },
       "desarrollo": {
-        "ahead": 172,
+        "ahead": 173,
         "behind": 0,
         "disposition": "ANCESTOR_NO_PENDING_DELTA"
       },
       "robot": {
-        "ahead": 31,
+        "ahead": 32,
         "behind": 9,
         "disposition": "U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED"
       },
       "feature/erirobot": {
-        "ahead": 126,
+        "ahead": 127,
         "behind": 4,
         "disposition": "U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED"
       },
       "InteraccionIA": {
-        "ahead": 172,
+        "ahead": 173,
         "behind": 6,
         "disposition": "U3_SELECTIVE_TECHNICAL_SOURCE"
       },
       "pilar-web": {
-        "ahead": 55,
+        "ahead": 56,
         "behind": 1,
         "disposition": "FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED"
       },
       "teo": {
-        "ahead": 172,
+        "ahead": 173,
         "behind": 4,
         "disposition": "HISTORICAL_INTERACTION_REFERENCE"
       },
       "echezuria": {
-        "ahead": 217,
+        "ahead": 218,
         "behind": 10,
         "disposition": "HISTORICAL_PHYSICAL_REFERENCE"
       }
@@ -130,6 +130,10 @@
     "U3AR1": {
       "commit": "fa877e5693f66086731d849383072e0b16f22931",
       "message": "fix(interaction): preserve supervisor terminal invariants"
+    },
+    "U3AR2": {
+      "commit": "6d5594601603edba4b069261357a5838921da1b0",
+      "message": "fix(interaction): close supervisor lifecycle gaps"
     }
   },
   "read_only_gates": {
@@ -188,12 +192,44 @@
         "STARTUP_FAILURE_RELIES_ON_CALLER_CLOSE_FOR_COMPLETE_RESOURCE_CLEANUP",
         "DOCUMENTATION_DECLARES_THESE_GAPS_RESOLVED"
       ]
+    },
+    "U3AR2_AUDIT": {
+      "result": "REJECTED_PARTIAL_REMEDIATION",
+      "remediated_defects": [
+        "PROCESS_LEVEL_FAILED_EVENT_DOES_NOT_TERMINATE_CHILD_OR_CLOSE_EVENT_STREAM",
+        "READY_EVENT_IS_ACCEPTED_OUTSIDE_STARTING",
+        "ASYNCIO_SUBPROCESS_TRANSPORTS_PRODUCE_NEW_UNRAISABLE_WARNINGS_ON_WINDOWS",
+        "COMMAND_ACCEPTED_MESSAGE_ID_IS_NOT_VALIDATED_AS_WIRE_IDENTIFIER",
+        "EXTERNAL_MAPPINGPROXYTYPE_PAYLOAD_IS_ACCEPTED",
+        "KILL_FALLBACK_CLAIM_IS_NOT_EXERCISED",
+        "OVERSIZED_STDOUT_LIMIT_EXCEPTION_IS_NOT_EXPLICITLY_HANDLED_AND_CODE_IS_NOT_ASSERTED"
+      ],
+      "outstanding_defects_carried_to_u3ar3": [
+        "PENDING_COMMAND_LEDGER_NOT_BOUNDED",
+        "COMMAND_ACCEPTED_INTERACTION_MISMATCH_WRONG_ERROR_CODE",
+        "FAILURE_CLEANUP_TASK_NOT_OWNED",
+        "TERMINATION_ROOT_CAUSE_CAN_BE_OVERWRITTEN",
+        "TRANSPORT_WORKAROUND_NOT_PLATFORM_SCOPED",
+        "DOCUMENTATION_OVERSTATES_U3AR2_COMPLETION"
+      ]
+    },
+    "U3AR3_REMEDIATION": {
+      "result": "U3AR3_COMMAND_LEDGER_AND_CLEANUP_OWNERSHIP_CLOSED",
+      "closed_defects": [
+        "PENDING_COMMAND_LEDGER_NOT_BOUNDED",
+        "COMMAND_ACCEPTED_INTERACTION_MISMATCH_WRONG_ERROR_CODE",
+        "FAILURE_CLEANUP_TASK_NOT_OWNED",
+        "TASKS_REMAINING_METRICS_EXCLUDE_THE_CLEANUP_TASK",
+        "TERMINATION_ROOT_CAUSE_CAN_BE_OVERWRITTEN",
+        "TRANSPORT_WORKAROUND_NOT_PLATFORM_SCOPED",
+        "DOCUMENTATION_OVERSTATES_U3AR2_COMPLETION"
+      ]
     }
   },
   "current_write_stage": {
-    "stage": "U3AR2",
+    "stage": "U3AR3",
     "status": "COMPLETED_AT_DYNAMIC_CHECKPOINT",
-    "commit_message": "fix(interaction): close supervisor lifecycle gaps"
+    "commit_message": "fix(interaction): bound command ledger and own cleanup"
   },
   "known_test_baseline": {
     "python": "3.10.11",
@@ -208,7 +244,7 @@
       "failed": 0
     },
     "full_suite": {
-      "passed": 1098,
+      "passed": 1112,
       "failed": 7,
       "skipped": 109,
       "subtests_passed": 67,
@@ -229,7 +265,7 @@
     "ORDER_DEPENDENT_SYS_MODULES_IDENTITY",
     "QR_ONLY_STILL_INITIALIZES_ARUCO_AND_U2R1_CAPTURE_LOOP_TEST_IS_PARTIALLY_STRUCTURAL",
     "REAL_CAMERA_AND_QR_RELIABILITY_PENDING",
-    "U3A_U3AR1_U3AR2_NOT_WIRED_TO_ORCHESTRATOR",
+    "U3A_U3AR1_U3AR2_U3AR3_NOT_WIRED_TO_ORCHESTRATOR",
     "REAL_CXX17_WORKER_NOT_IMPLEMENTED",
     "REAL_AUDIO_AND_HIL_PENDING"
   ],

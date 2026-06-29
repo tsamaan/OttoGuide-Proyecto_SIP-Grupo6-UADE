@@ -7,9 +7,10 @@ only; stderr is drained as logs.
 from __future__ import annotations
 
 import asyncio
-import gc
 import json
 import math
+import platform
+import sys
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ from src.interaction.runtime_port import (
     ERR_JSON,
     ERR_LINE_TOO_LARGE,
     ERR_MESSAGE_LIMIT,
+    ERR_PENDING_COMMAND_LIMIT,
     ERR_SEQUENCE,
     ERR_STALE_INTERACTION,
     ERR_STATE,
@@ -59,6 +61,7 @@ class JsonlWorkerSupervisorConfig:
     stderr_tail_lines: int = 50
     stderr_tail_max_chars: int = 16384
     max_seen_message_ids: int = 4096
+    max_pending_commands: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.argv, tuple):
@@ -90,6 +93,10 @@ class JsonlWorkerSupervisorConfig:
             value = getattr(self, name)
             if type(value) is not int or value <= 0:
                 raise ValueError(f"{name} must be a positive int")
+        if self.max_pending_commands is None:
+            object.__setattr__(self, "max_pending_commands", self.command_queue_size + 1)
+        elif type(self.max_pending_commands) is not int or self.max_pending_commands <= 0:
+            raise ValueError("max_pending_commands must be a positive int")
 
 
 class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
@@ -121,6 +128,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         self._event_stream_terminal = asyncio.Event()
         self._event_stream_terminal_error: str | None = None
         self._pending_commands: dict[str, tuple[WorkerCommandType, str | None]] = {}
+        self._cleanup_task: asyncio.Task[None] | None = None
 
     @property
     def termination(self) -> WorkerTermination | None:
@@ -169,6 +177,14 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                     unexpected=True,
                     termination_reason="STARTUP_TIMEOUT",
                 )
+            # _fail() (above, or already triggered by one of the owned
+            # tasks racing with this except block) schedules an owned
+            # cleanup task. start() must not return/raise until that
+            # cleanup has actually finished, so a caller that never invokes
+            # close() still observes a fully reaped child and zero owned
+            # tasks the instant start() raises.
+            if self._cleanup_task is not None:
+                await asyncio.gather(self._cleanup_task, return_exceptions=True)
             raise
 
     async def health(self) -> InteractionRuntimeHealth:
@@ -236,10 +252,16 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         if queue is not None:
             while True:
                 try:
-                    queue.get_nowait()
+                    discarded = queue.get_nowait()
                     queue.task_done()
                 except asyncio.QueueEmpty:
                     break
+                if discarded is not None:
+                    # This envelope was queued but never written by
+                    # _command_writer (it is being discarded here instead),
+                    # so it must not remain in the pending-command ledger as
+                    # an acknowledgement the worker will never send.
+                    self._pending_commands.pop(discarded.message_id, None)
         try:
             await self._enqueue_command(
                 WorkerCommandType.EMERGENCY_STOP,
@@ -327,18 +349,32 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             return
         self._closing = True
         self._ready = False
+        # If a failure-path cleanup is already in flight, let it finish first
+        # instead of racing two independent terminate()/kill() escalations
+        # against the same child process.
+        if self._cleanup_task is not None:
+            await asyncio.gather(self._cleanup_task, return_exceptions=True)
         if self._process is None:
             self._state = InteractionRuntimeState.CLOSED
-            self._record_termination(
-                reason="GRACEFUL_CLOSE",
-                unexpected=False,
-                exit_code=None,
-            )
+            if self._termination is None:
+                self._record_termination(
+                    reason="GRACEFUL_CLOSE",
+                    unexpected=False,
+                    exit_code=None,
+                )
+            self._pending_commands.clear()
             await self._signal_event_queue_closed("worker closed")
             return
+        # A primary failure reason already recorded before close() was
+        # invoked (e.g. PROCESS_FAILED_EVENT, PROTOCOL_FAILURE,
+        # HEARTBEAT_TIMEOUT, COMMAND_ACK_BACKPRESSURE) must never be
+        # overwritten by the mechanical CLOSE_TERMINATE/CLOSE_KILL escalation
+        # below. CLOSE_TERMINATE/CLOSE_KILL only apply when close() itself is
+        # the one establishing the termination from a non-failed state.
+        had_primary_failure_reason = self._termination is not None and self._termination.unexpected
         escalation: str | None = None
         try:
-            if self._process.returncode is None and not self._emergency_latched:
+            if self._process.returncode is None and not self._emergency_latched and not had_primary_failure_reason:
                 try:
                     await self._enqueue_command(WorkerCommandType.CLOSE, interaction_id=None, payload={}, allow_when_closing=True)
                     if self._closed_event is not None:
@@ -366,7 +402,19 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         finally:
             self._state = InteractionRuntimeState.CLOSED
             final_exit_code = self._process.returncode if self._process is not None else None
-            if escalation is not None:
+            if had_primary_failure_reason:
+                # Only backfill exit_code/protocol_error_code; the primary
+                # reason and its unexpected/protocol_error_code metadata are
+                # preserved verbatim, regardless of whether close() also had
+                # to terminate/kill the child afterwards.
+                if self._termination is not None and self._termination.exit_code is None:
+                    self._record_termination(
+                        reason=self._termination.reason,
+                        unexpected=self._termination.unexpected,
+                        exit_code=final_exit_code,
+                        protocol_error_code=self._termination.protocol_error_code,
+                    )
+            elif escalation is not None:
                 self._record_termination(reason=escalation, unexpected=False, exit_code=final_exit_code)
             elif self._termination is None:
                 reason = "EMERGENCY_STOP" if self._emergency_latched else "GRACEFUL_CLOSE"
@@ -378,43 +426,55 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                     exit_code=final_exit_code,
                     protocol_error_code=self._termination.protocol_error_code,
                 )
+            self._pending_commands.clear()
             await self._cancel_tasks()
             await self._signal_event_queue_closed("worker closed")
             await self._let_event_loop_close_subprocess_transports()
 
     async def _let_event_loop_close_subprocess_transports(self) -> None:
-        """On Windows' ProactorEventLoop, asyncio.subprocess transports
-        schedule their connection_lost callback via call_soon once the
-        underlying process has exited; that callback is what actually drops
-        the last strong reference to the pipe transport. If the test's event
-        loop closes before that callback runs, the transport's __del__ fires
-        later (during GC, possibly after the loop is closed) and raises an
-        unraisable RuntimeError/ResourceWarning. Yielding the loop a couple of
-        times after the process is known to have exited gives those
-        call_soon-scheduled callbacks a chance to run deterministically
-        before close() returns, instead of depending on GC timing."""
+        """Idempotent, centralized hook for deterministic subprocess
+        transport finalization once the child process is known to have
+        exited. On CPython/Windows this applies a documented compatibility
+        workaround (see _close_subprocess_transport_windows_workaround);
+        every other platform/runtime simply relies on asyncio's normal
+        public transport lifecycle and does nothing extra here."""
         if self._process is None or self._process.returncode is None:
             return
-        # Explicitly close the underlying subprocess transport now, while
-        # this supervisor's event loop is still the running/current loop.
-        # asyncio.subprocess.Process normally relies on its transport's
-        # __del__ (BaseSubprocessTransport / _ProactorBasePipeTransport) to
-        # release its pipe handles, but __del__ runs at GC time -- which, in
-        # a test suite where every test gets its own event loop, can happen
-        # *after* this test's loop is closed (or worse, inside a different
-        # test's loop). That manifests as an unraisable
-        # "Event loop is closed" / "I/O operation on closed pipe" warning
-        # attributed to whichever test happens to trigger the collection.
-        # Calling close() on the transport here makes the cleanup
-        # deterministic instead of GC-timing-dependent.
+        if self._is_cpython_windows_subprocess_workaround_applicable():
+            self._close_subprocess_transport_windows_workaround()
+            await asyncio.sleep(0.01)
+
+    @staticmethod
+    def _is_cpython_windows_subprocess_workaround_applicable() -> bool:
+        return sys.platform == "win32" and platform.python_implementation() == "CPython"
+
+    def _close_subprocess_transport_windows_workaround(self) -> None:
+        """On Windows' ProactorEventLoop (CPython 3.10), asyncio.subprocess
+        transports schedule their connection_lost callback via call_soon
+        once the underlying process has exited; that callback is what
+        actually drops the last strong reference to the pipe transport. If
+        the test's event loop closes before that callback runs, the
+        transport's __del__ fires later (during GC, possibly after the loop
+        is closed) and raises an unraisable RuntimeError/ResourceWarning.
+
+        This is a documented, version/platform-scoped compatibility
+        workaround, not a general-purpose lifecycle step: it deliberately
+        reaches into the private `_transport` attribute of
+        asyncio.subprocess.Process (CPython implementation detail, not part
+        of the public API) to close the underlying pipe transport
+        explicitly and deterministically, instead of depending on
+        GC timing. It must stay centralized here and gated to
+        CPython+Windows so it is never reached on platforms/runtimes where
+        it is unnecessary or where `_transport` may not exist at all."""
+        if self._process is None:
+            return
         transport = getattr(self._process, "_transport", None)
-        if transport is not None:
-            try:
-                transport.close()
-            except Exception:
-                pass
-        await asyncio.sleep(0.01)
-        gc.collect()
+        if transport is None:
+            return
+        try:
+            transport.close()
+        except Exception:
+            pass
 
     def _require_active_interaction(self) -> str:
         if self._active_interaction_id is None:
@@ -439,26 +499,50 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             raise InteractionRuntimeUnavailableError("worker is closing")
         if self._emergency_latched and not allow_when_emergency:
             raise InteractionRuntimeUnavailableError("worker is in emergency")
+        if self._state in (InteractionRuntimeState.FAILED, InteractionRuntimeState.CLOSED):
+            # A terminal state must fail closed immediately: continuing to
+            # enqueue commands here would keep refilling _command_queue
+            # after _command_writer has already been cancelled by the
+            # failure-path cleanup, making that cancellation never able to
+            # observe an empty/quiescent queue.
+            raise InteractionRuntimeUnavailableError(
+                "worker is in a terminal state", code="ERR_TERMINAL_STATE"
+            )
         queue = self._command_queue
         if queue is None:
             raise InteractionRuntimeUnavailableError("worker not started")
+        # The limit check, sequence assignment, queue enqueue, and ledger
+        # registration are a single atomic unit under _command_lock: a
+        # rejected command must not consume a sequence number, and two
+        # concurrent callers racing to fill the last ledger slot must not
+        # both succeed.
         async with self._command_lock:
+            if len(self._pending_commands) >= self._config.max_pending_commands:
+                await self._fail(
+                    "pending command ledger limit exceeded; worker is withholding acknowledgements",
+                    unexpected=True,
+                    protocol_error_code=ERR_PENDING_COMMAND_LIMIT,
+                    termination_reason="COMMAND_ACK_BACKPRESSURE",
+                )
+                raise InteractionRuntimeUnavailableError(
+                    "pending command ledger limit exceeded", code=ERR_PENDING_COMMAND_LIMIT
+                )
             sequence = self._outgoing_sequence
             self._outgoing_sequence += 1
-        envelope = WorkerCommandEnvelope(
-            protocol_version=INTERACTION_PROTOCOL_VERSION,
-            message_id=f"py:{sequence}",
-            interaction_id=interaction_id,
-            command=command,
-            sequence=sequence,
-            emitted_at_monotonic_s=time.monotonic(),
-            payload=payload,
-        )
-        try:
-            queue.put_nowait(envelope)
-        except asyncio.QueueFull as exc:
-            raise InteractionRuntimeUnavailableError("command queue full", code="ERR_QUEUE_FULL") from exc
-        self._pending_commands[envelope.message_id] = (command, interaction_id)
+            envelope = WorkerCommandEnvelope(
+                protocol_version=INTERACTION_PROTOCOL_VERSION,
+                message_id=f"py:{sequence}",
+                interaction_id=interaction_id,
+                command=command,
+                sequence=sequence,
+                emitted_at_monotonic_s=time.monotonic(),
+                payload=payload,
+            )
+            try:
+                queue.put_nowait(envelope)
+            except asyncio.QueueFull as exc:
+                raise InteractionRuntimeUnavailableError("command queue full", code="ERR_QUEUE_FULL") from exc
+            self._pending_commands[envelope.message_id] = (command, interaction_id)
 
     async def _command_writer(self) -> None:
         assert self._process is not None
@@ -600,7 +684,18 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         if event.sequence != self._incoming_sequence:
             raise InteractionRuntimeProtocolError(ERR_SEQUENCE, "incoming event sequence mismatch")
         self._incoming_sequence += 1
-        if event.interaction_id is not None and event.interaction_id != self._active_interaction_id:
+        # COMMAND_ACCEPTED is correlated against the interaction_id recorded
+        # in the pending-command ledger at enqueue time, not against
+        # _active_interaction_id -- a PAUSE/RESUME/STOP accepted while
+        # _active_interaction_id is still populated is legitimate. Letting
+        # the generic stale-interaction check run first would preempt that
+        # correlation with the wrong error code, so it is skipped here and
+        # COMMAND_ACCEPTED does its own interaction_id comparison below.
+        if (
+            event.event is not WorkerEventType.COMMAND_ACCEPTED
+            and event.interaction_id is not None
+            and event.interaction_id != self._active_interaction_id
+        ):
             raise InteractionRuntimeProtocolError(ERR_STALE_INTERACTION, "stale interaction_id")
         if event.event == WorkerEventType.READY:
             if not (
@@ -790,6 +885,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             protocol_error_code=protocol_error_code,
             error_message=reason,
         )
+        self._pending_commands.clear()
         if self._ready_event is not None:
             self._ready_event.set()
         await self._signal_event_queue_closed(reason)
@@ -798,29 +894,46 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                 self._process.terminate()
             except ProcessLookupError:
                 pass
+        self._schedule_cleanup_task()
+
+    def _schedule_cleanup_task(self) -> None:
         # Best-effort self-clean so a caller of start() that never invokes
         # close() does not leak a running child process or owned tasks. This
-        # runs as a detached task (not added to self._tasks) because _fail()
-        # itself may be running inside one of those owned tasks (e.g.
-        # _stdout_reader, _heartbeat_monitor) — cancelling the current task
-        # from within itself would abort this cleanup before it finishes.
-        asyncio.ensure_future(self._self_clean_after_failure())
+        # is an explicitly owned task (referenced via self._cleanup_task,
+        # named, and not added to self._tasks) because _fail() itself may be
+        # running inside one of those owned tasks (e.g. _stdout_reader,
+        # _heartbeat_monitor) -- cancelling the current task from within
+        # itself would abort this cleanup before it finishes. Only one
+        # cleanup task may be active at a time: concurrent/repeated calls to
+        # _fail() (from _fail() itself returning early once FAILED, from
+        # close(), and from _process_watcher()) must converge on the same
+        # cleanup rather than racing multiple independent ones.
+        if self._cleanup_task is not None and not self._cleanup_task.done():
+            return
+        self._cleanup_task = asyncio.create_task(
+            self._self_clean_after_failure(), name="interaction-jsonl-failure-cleanup"
+        )
 
     async def _self_clean_after_failure(self) -> None:
-        if self._process is not None and self._process.returncode is None:
-            try:
-                await asyncio.wait_for(self._process.wait(), timeout=self._config.terminate_timeout_s)
-            except asyncio.TimeoutError:
-                try:
-                    self._process.kill()
-                except ProcessLookupError:
-                    pass
+        try:
+            if self._process is not None and self._process.returncode is None:
                 try:
                     await asyncio.wait_for(self._process.wait(), timeout=self._config.terminate_timeout_s)
                 except asyncio.TimeoutError:
-                    pass
-        await self._cancel_tasks()
-        await self._let_event_loop_close_subprocess_transports()
+                    try:
+                        self._process.kill()
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        await asyncio.wait_for(self._process.wait(), timeout=self._config.terminate_timeout_s)
+                    except asyncio.TimeoutError:
+                        pass
+            await self._cancel_tasks()
+            await self._let_event_loop_close_subprocess_transports()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - recovered and recorded, never left unretrieved
+            self._last_error = f"failure cleanup raised: {exc!r}"
 
     def _record_termination(
         self,
@@ -872,8 +985,26 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         tasks = [task for task in self._tasks if task is not current]
         for task in tasks:
             task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        if not tasks:
+            return
+        deadline = asyncio.get_running_loop().time() + 2.0
+        pending = {task for task in tasks if not task.done()}
+        while pending and asyncio.get_running_loop().time() < deadline:
+            done, pending = await asyncio.wait(pending, timeout=0.05)
+            for task in done:
+                if task.cancelled():
+                    continue
+                exc = task.exception()
+                if exc is not None:
+                    # Recovered, never left as an unretrieved task exception.
+                    self._last_error = f"owned task {task.get_name()} raised during cancellation: {exc!r}"
+        for task in pending:
+            # A task that still refuses to settle within the deadline is a
+            # bug elsewhere (e.g. an await point that swallows
+            # CancelledError), not something close()/the failure-path
+            # cleanup should block on indefinitely; record it instead of
+            # hanging forever.
+            self._last_error = f"owned task {task.get_name()} did not settle after cancellation"
 
 
 __all__ = [
