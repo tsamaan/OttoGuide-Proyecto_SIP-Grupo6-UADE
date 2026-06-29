@@ -46,6 +46,7 @@ ERR_LINE_TOO_LARGE: Final[str] = "ERR_LINE_TOO_LARGE"
 ERR_FRAMING: Final[str] = "ERR_FRAMING"
 ERR_MESSAGE_LIMIT: Final[str] = "ERR_MESSAGE_LIMIT"
 ERR_STATE: Final[str] = "ERR_STATE"
+ERR_CORRELATION: Final[str] = "ERR_CORRELATION"
 
 _IDENTIFIER_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9._:-]+$")
 _ENVELOPE_REQUIRED_KEYS: Final[frozenset[str]] = frozenset(
@@ -278,7 +279,7 @@ def _validate_payload_size(payload: Mapping[str, object]) -> None:
 
 
 def _freeze_payload(payload: object) -> Mapping[str, object]:
-    if type(payload) is not dict and type(payload) is not MappingProxyType:
+    if type(payload) is not dict:
         raise _protocol_error(ERR_TYPE, "payload must be a dict")
     frozen = _freeze_json_value(payload, depth=0, seen=set())
     if not isinstance(frozen, MappingProxyType):
@@ -328,9 +329,9 @@ def _validate_event_payload(event: WorkerEventType, payload: Mapping[str, object
         command = payload.get("command")
         if type(command) is not str or command not in {item.value for item in WorkerCommandType}:
             raise _protocol_error(ERR_MISSING_KEY, "command_accepted payload requires a valid command")
-        message_id = payload.get("message_id")
-        if type(message_id) is not str or not message_id:
+        if "message_id" not in payload:
             raise _protocol_error(ERR_MISSING_KEY, "command_accepted payload requires message_id")
+        _ensure_identifier(payload.get("message_id"), field_name="command_accepted.message_id")
     elif event is WorkerEventType.FAILED:
         code = payload.get("code")
         if type(code) is not str or not code or len(code) > MAX_IDENTIFIER_LENGTH:
@@ -592,6 +593,7 @@ class InteractionRuntimePort(Protocol):
 
 __all__ = [
     "ERR_CONTAINER_ITEMS",
+    "ERR_CORRELATION",
     "ERR_DEPTH",
     "ERR_DUPLICATE_MESSAGE_ID",
     "ERR_FRAMING",

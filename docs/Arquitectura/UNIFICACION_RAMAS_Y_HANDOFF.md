@@ -101,22 +101,22 @@ La genealogia explica procedencia y contexto, pero no autoriza merges completos.
 `ahead` y `behind` se expresan como `HEAD...mirror/<branch>` desde `review/orchestrator-unification`: `ahead` = commits solo en la rama autoritativa; `behind` = commits solo en la rama comparada. Para `main`, no hay ancestro comun.
 
 ```text
-RELATIONS_SNAPSHOT_AS_OF_HEAD = 3ecc93f1a31ecc8e5e5de32414db0fcb0c37b2ae
+RELATIONS_SNAPSHOT_AS_OF_HEAD = fa877e5693f66086731d849383072e0b16f22931
 ```
 
 Los conteos son un snapshot asociado a `RELATIONS_SNAPSHOT_AS_OF_HEAD`; deben recalcularse antes de una nueva decision de integracion.
 
 | branch | head | ahead | behind | domain | status | disposition | integrated_scope | residual_scope | next_review_stage |
 |---|---|---:|---:|---|---|---|---|---|---|
-| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1 | U3B-U6 | U3B |
+| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1, U3AR2 | U3B-U6 | U3B |
 | `main` | `3a1f13574e4a27d9aff2bfd38b3659951e8cb264` | N/A | N/A | Snapshot publico huerfano | Sin ancestro comun | `DO_NOT_USE_AS_INTEGRATION_BASE` | Ninguno para continuidad | Solo referencia historica | Ninguno |
-| `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 171 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
-| `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 30 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
-| `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 125 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
-| `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 171 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3B |
-| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 54 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
-| `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 171 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3B |
-| `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 216 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
+| `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 172 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
+| `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 31 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
+| `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 126 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
+| `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 172 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3B |
+| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 55 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
+| `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 172 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3B |
+| `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 217 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
 
 ## 8. DAG de integracion
 
@@ -147,7 +147,8 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U3P0` | `bf1829d8a7313ec3820f093f460a8b20a823f90a` | `docs(unification): add portable branch handoff` |
 | `U3_AUDIT_V2` | N/A | `U3_INTERACTION_WORKER_OFFLINE_ADAPTATION_PLAN_READY` |
 | `U3A` | `3ecc93f1a31ecc8e5e5de32414db0fcb0c37b2ae` | `feat(interaction): add strict loopback worker supervisor` |
-| `U3AR1` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(interaction): preserve supervisor terminal invariants` |
+| `U3AR1` | `fa877e5693f66086731d849383072e0b16f22931` | `fix(interaction): preserve supervisor terminal invariants` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
+| `U3AR2` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(interaction): close supervisor lifecycle gaps` |
 
 El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.
 
@@ -173,12 +174,26 @@ RESUELTO_EN_U3A_U3AR1:
 - Lifecycle terminal del subprocess: EMERGENCY latcheado de forma persistente ante exit/heartbeat timeout/process watcher/transporte posterior; sin auto-respawn.
 - Senal terminal independiente del event stream (`_event_stream_terminal`), desacoplada de insertar `None` en una cola que puede estar llena; consumidor bloqueado se desbloquea ante close/crash/protocolo invalido.
 - Deduplicacion acotada de `message_id` (`max_seen_message_ids`) con fail-closed (`ERR_MESSAGE_LIMIT`).
-- Registro unificado de terminacion (`_record_termination`) para cierre normal, emergencia, crash espontaneo, terminate/kill y fallos de protocolo; preserva `protocol_error_code` al actualizar `exit_code`.
-- Drenaje de stderr por chunks, sin deadlock ante lineas mayores que `max_line_bytes`, con tail y conteo de caracteres acotados.
-- Tratamiento de evento `FAILED` diferenciado por proceso (`interaction_id=None`, falla el runtime) vs interaccion (`interaction_id` presente, retorna a READY).
+- Registro unificado de terminacion (`_record_termination`) para cierre normal, emergencia, crash espontaneo, terminate/kill y fallos de protocolo.
+- Drenaje de stderr por chunks sin deadlock ante lineas mayores que `max_line_bytes`.
+- Tratamiento de evento `FAILED` diferenciado por proceso (`interaction_id=None`) vs interaccion (`interaction_id` presente, retorna a READY).
 - Validacion de payload de correlacion obligatoria en `COMMAND_ACCEPTED` (`command`, `message_id`) y `FAILED` (`code`, `message`).
-- Rechazo de `Mapping` personalizados como payload sin invocar sus metodos (`type(payload) is dict` estricto).
 - Validacion de comandos por estado (`ACTIVATE`/`PAUSE`/`RESUME`/`STOP` exigen el estado previo correspondiente) con rollback si el enqueue falla.
+
+Una auditoria posterior (`U3AR1_AUDIT`) encontro que varias de estas garantias estaban incompletas en la implementacion real de `U3AR1`, aunque la documentacion de esa etapa las presentaba como resueltas. `U3AR2` (seccion 12.3) cierra esas brechas; ver esa seccion para el detalle de que se corrigio realmente y con que evidencia.
+
+RESUELTO_EN_U3AR2 (no estaba realmente resuelto en `U3AR1` a pesar de lo documentado entonces):
+
+- El evento `FAILED` a nivel de proceso ahora termina el child y cierra el event stream de forma determinista tras publicarse, en vez de quedar publicado sin lifecycle terminal.
+- `READY` solo se acepta durante `STARTING` con precondiciones estrictas; en cualquier otro estado (incluida `EMERGENCY`) se rechaza con `ERR_STATE` antes de mutar estado.
+- El buffer parcial de stderr sin newline esta acotado a `stderr_tail_max_chars`, ya no crece sin limite ante un flood sin terminadores de linea.
+- `COMMAND_ACCEPTED` correlaciona realmente contra los comandos pendientes enviados (`message_id`, `command`, `interaction_id`); `message_id` se valida como identificador wire estricto.
+- Un `MappingProxyType` externo ya no se acepta como payload valido (`_freeze_payload` exige `dict` exacto).
+- `WorkerTermination.reason` es siempre una categoria estable (`GRACEFUL_CLOSE`, `EMERGENCY_STOP`, `PROCESS_FAILED_EVENT`, `UNEXPECTED_EXIT`, `PROTOCOL_FAILURE`, `HEARTBEAT_TIMEOUT`, `STARTUP_TIMEOUT`, `WRITE_FAILURE`, `EVENT_QUEUE_OVERFLOW`, `CLOSE_TERMINATE`, `CLOSE_KILL`), nunca el mensaje humano.
+- La escalada `terminate()` -> `kill()` en `close()` esta probada de forma deterministica contra un proceso fake, no solo inferida de un escenario real no concluyente en Windows.
+- `asyncio.LimitOverrunError` se captura explicitamente y se reporta como `ERR_LINE_TOO_LARGE`.
+- Un fallo de arranque (`start()`) limpia el child y las tareas propias sin requerir que el caller invoque `close()`.
+- Las transiciones de `asyncio.subprocess` en Windows ya no producen `PytestUnraisableExceptionWarning`/`ResourceWarning` nuevos.
 
 PENDIENTE:
 
@@ -222,18 +237,16 @@ Restricciones vigentes:
 
 ### 12.2 Estado U3AR1
 
-`U3AR1` es una correccion focalizada sobre `U3A` que remedia diez invariantes terminales del supervisor JSONL antes de habilitar el wiring con `TourOrchestrator`. Una auditoria previa habia rechazado `U3A` con el resultado `U3A_REJECTED_PENDING_TERMINAL_INVARIANT_REMEDIATION`. `U3AR1` corrige:
+`U3AR1` fue una correccion focalizada sobre `U3A` que intento remediar invariantes terminales del supervisor JSONL antes de habilitar el wiring con `TourOrchestrator`. Una auditoria previa habia rechazado `U3A` con el resultado `U3A_REJECTED_PENDING_TERMINAL_INVARIANT_REMEDIATION`. `U3AR1` corrigio efectivamente:
 
-- el latch de EMERGENCY, que ahora persiste ante exit del worker, heartbeat timeout, process watcher y errores de transporte posteriores, sin transicionar a FAILED y sin respawn;
+- el latch de EMERGENCY, que persiste ante exit del worker, heartbeat timeout, process watcher y errores de transporte posteriores, sin transicionar a FAILED y sin respawn;
 - el registro de toda terminacion (graceful, emergencia, crash espontaneo, terminate, kill) en una unica ruta interna;
 - una senal terminal independiente del event stream que no depende exclusivamente de insertar `None` en una cola que puede estar llena;
 - el framing JSONL estricto, exigiendo terminador LF y rechazando frames incompletos con `ERR_FRAMING`;
 - la deduplicacion acotada de `message_id` con limite configurable y fallo cerrado al agotarse;
-- el drenaje de stderr por chunks, robusto ante lineas mayores que `max_line_bytes`;
-- el tratamiento diferenciado del evento `FAILED` a nivel de proceso vs interaccion;
-- la validacion de payload de correlacion obligatoria en `COMMAND_ACCEPTED` y `FAILED`;
-- el rechazo estricto de payloads `Mapping` personalizados sin invocar sus metodos;
-- la actualizacion de la documentacion de brechas y baseline de pruebas, que estaba desactualizada.
+- el drenaje de stderr por chunks, evitando deadlock ante lineas mayores que `max_line_bytes`.
+
+**Auditoria posterior (`U3AR1_AUDIT`): `REJECTED_PARTIAL_REMEDIATION`.** A pesar de que la version anterior de este documento declaraba resueltos otros diez puntos, una revision real de la implementacion encontro que NO lo estaban: el evento `FAILED` a nivel de proceso no terminaba el child ni cerraba el event stream; `READY` se aceptaba fuera de `STARTING`; el buffer parcial de stderr sin newline podia crecer sin limite; `COMMAND_ACCEPTED` no correlacionaba contra comandos pendientes reales ni validaba `message_id` como identificador estricto; un `MappingProxyType` externo se aceptaba como payload valido; `WorkerTermination.reason` almacenaba el mensaje humano en vez de una categoria estable; el fallback a `kill()` no estaba probado de forma deterministica; `asyncio.LimitOverrunError` no se capturaba explicitamente; un fallo de `start()` dejaba recursos sin limpiar sin un `close()` explicito del caller; y las transiciones de `asyncio.subprocess` en Windows producian `PytestUnraisableExceptionWarning` nuevos. Estos once puntos quedaron registrados como `outstanding_defects_carried_to_u3ar2` en `unification-state.json` y se cerraron en `U3AR2` (seccion 12.3).
 
 Restricciones vigentes (no modificadas por `U3AR1`):
 
@@ -243,9 +256,31 @@ Restricciones vigentes (no modificadas por `U3AR1`):
 - No existe validacion HIL.
 - `U3A`/`U3AR1` no estan conectados a `TourOrchestrator`; esa integracion corresponde a `U3B`.
 
+### 12.3 Estado U3AR2
+
+`U3AR2` cierra los once defectos que `U3AR1_AUDIT` encontro pendientes a pesar de la documentacion previa. Ver seccion 11 (`RESUELTO_EN_U3AR2`) para el detalle tecnico de cada cierre. En particular, `U3AR2` agrega:
+
+- el codigo de error estable `ERR_CORRELATION` para fallos de correlacion de `COMMAND_ACCEPTED`;
+- una estructura acotada de comandos pendientes (`_pending_commands`) en el supervisor, del tamano de `command_queue_size + 1` como maximo;
+- un buffer de cola de stderr (`_stderr_partial_tail`) acotado a `stderr_tail_max_chars`, en vez de una variable local sin limite;
+- cierre explicito y deterministico del transporte de `asyncio.subprocess` en `close()` y en el self-clean de fallo de arranque, en vez de depender del timing del recolector de basura;
+- un proceso fake deterministico (usado solo en tests) para probar la escalada `terminate()` -> `kill()` sin depender de un proceso real cooperativo.
+
+Gate obligatorio verificado para esta etapa: tres corridas independientes de
+`pytest tests/integration/test_u3a_jsonl_worker_supervisor.py -W error::pytest.PytestUnraisableExceptionWarning`
+con exit code 0 y cero warnings, mas una corrida adicional con `python -X dev` sin coincidencias de `unraisable`, `unclosed transport`, `event loop is closed`, `task was destroyed` o `never awaited`.
+
+Restricciones vigentes (no modificadas por `U3AR2`):
+
+- Solo existe worker loopback falso.
+- No existe worker real CXX17 implementado.
+- No existe audio real implementado.
+- No existe validacion HIL.
+- `U3A`/`U3AR1`/`U3AR2` no estan conectados a `TourOrchestrator`; esa integracion corresponde a `U3B`.
+
 ## 13. Baseline de pruebas
 
-Proveniencia: `U3AR1`, ejecucion real posterior a la remediacion de invariantes terminales del supervisor JSONL (dos corridas completas de `tests/` con el `PINNED_PYTHON` de la etapa). Sustituye el baseline previo de `U2R4A_LITE`, que ya no refleja la suite mas reciente.
+Proveniencia: `U3AR2`, ejecucion real posterior al cierre de los gaps de lifecycle, correlacion y recursos del supervisor JSONL (dos corridas completas de `tests/` con el `PINNED_PYTHON` de la etapa). Sustituye el baseline previo de `U3AR1`, que documentaba gaps como cerrados sin evidencia real.
 
 ```text
 Python = 3.10.11
@@ -255,7 +290,7 @@ FastAPI = 0.118.2
 httpx = 0.28.1
 NumPy = 2.2.6
 WITNESS = 34 passed
-FULL_SUITE = 1079 passed, 7 failed, 109 skipped, 67 subtests passed
+FULL_SUITE = 1098 passed, 7 failed, 109 skipped, 67 subtests passed
 KNOWN_TEST_DEBT = ORDER_DEPENDENT_SYS_MODULES_IDENTITY
 FULL_SUITE_GREEN = NO
 FULL_SUITE_RESULT = FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS

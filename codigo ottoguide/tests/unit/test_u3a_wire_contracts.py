@@ -181,3 +181,28 @@ def test_event_interaction_id_rules_and_no_worker_completed_event() -> None:
 def test_command_and_event_values_must_be_strings() -> None:
     _raises_code(ERR_TYPE, WorkerCommandEnvelope.from_wire_dict, _command_wire(command=WorkerCommandType.ACTIVATE))
     _raises_code(ERR_TYPE, WorkerEventEnvelope.from_wire_dict, _event_wire(event=WorkerEventType.READY))
+
+
+def test_external_mappingproxy_payload_is_rejected() -> None:
+    frozen_payload = MappingProxyType({"nested": {"items": [1, True, None]}})
+    _raises_code(ERR_TYPE, WorkerCommandEnvelope.from_wire_dict, _command_wire(payload=frozen_payload))
+    _raises_code(ERR_TYPE, WorkerEventEnvelope.from_wire_dict, _event_wire(event="heartbeat", payload=frozen_payload))
+
+
+def test_custom_mapping_payload_is_rejected_without_invoking_its_methods() -> None:
+    class ExplodingMapping(dict):
+        def __iter__(self):
+            raise AssertionError("custom mapping methods must not be invoked")
+
+        def items(self):
+            raise AssertionError("custom mapping methods must not be invoked")
+
+        def keys(self):
+            raise AssertionError("custom mapping methods must not be invoked")
+
+        def __len__(self):
+            raise AssertionError("custom mapping methods must not be invoked")
+
+    exploding = ExplodingMapping({"x": 1})
+    _raises_code(ERR_TYPE, WorkerCommandEnvelope.from_wire_dict, _command_wire(payload=exploding))
+    _raises_code(ERR_TYPE, WorkerEventEnvelope.from_wire_dict, _event_wire(event="heartbeat", payload=exploding))

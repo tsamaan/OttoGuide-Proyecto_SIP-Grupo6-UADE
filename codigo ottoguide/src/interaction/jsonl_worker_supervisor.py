@@ -7,6 +7,7 @@ only; stderr is drained as logs.
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 import math
 import time
@@ -15,6 +16,7 @@ from dataclasses import dataclass
 from typing import Deque
 
 from src.interaction.runtime_port import (
+    ERR_CORRELATION,
     ERR_DUPLICATE_MESSAGE_ID,
     ERR_FRAMING,
     ERR_JSON,
@@ -22,6 +24,7 @@ from src.interaction.runtime_port import (
     ERR_MESSAGE_LIMIT,
     ERR_SEQUENCE,
     ERR_STALE_INTERACTION,
+    ERR_STATE,
     ERR_TYPE,
     ERR_UTF8,
     INTERACTION_PROTOCOL_VERSION,
@@ -113,9 +116,11 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         self._seen_message_ids: set[str] = set()
         self._stderr_tail: Deque[str] = deque()
         self._stderr_chars = 0
+        self._stderr_partial_tail: bytes = b""
         self._command_lock = asyncio.Lock()
         self._event_stream_terminal = asyncio.Event()
         self._event_stream_terminal_error: str | None = None
+        self._pending_commands: dict[str, tuple[WorkerCommandType, str | None]] = {}
 
     @property
     def termination(self) -> WorkerTermination | None:
@@ -124,6 +129,18 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
     @property
     def active_interaction_id(self) -> str | None:
         return self._active_interaction_id
+
+    async def _create_process(self) -> asyncio.subprocess.Process:
+        """Spawn the child process. Overridable by tests to inject a fake
+        process object without going through a real OS process, e.g. to
+        deterministically exercise the terminate -> kill escalation path."""
+        return await asyncio.create_subprocess_exec(
+            *self._config.argv,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            limit=self._config.max_line_bytes + 1024,
+        )
 
     async def start(self) -> None:
         if self._process is not None:
@@ -135,13 +152,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         self._command_queue = asyncio.Queue(maxsize=self._config.command_queue_size)
         self._event_queue = asyncio.Queue(maxsize=self._config.event_queue_size)
         try:
-            self._process = await asyncio.create_subprocess_exec(
-                *self._config.argv,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                limit=self._config.max_line_bytes + 1024,
-            )
+            self._process = await self._create_process()
             self._spawn_task(self._command_writer(), "interaction-jsonl-command-writer")
             self._spawn_task(self._stdout_reader(), "interaction-jsonl-stdout-reader")
             self._spawn_task(self._stderr_drain(), "interaction-jsonl-stderr-drain")
@@ -369,6 +380,41 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                 )
             await self._cancel_tasks()
             await self._signal_event_queue_closed("worker closed")
+            await self._let_event_loop_close_subprocess_transports()
+
+    async def _let_event_loop_close_subprocess_transports(self) -> None:
+        """On Windows' ProactorEventLoop, asyncio.subprocess transports
+        schedule their connection_lost callback via call_soon once the
+        underlying process has exited; that callback is what actually drops
+        the last strong reference to the pipe transport. If the test's event
+        loop closes before that callback runs, the transport's __del__ fires
+        later (during GC, possibly after the loop is closed) and raises an
+        unraisable RuntimeError/ResourceWarning. Yielding the loop a couple of
+        times after the process is known to have exited gives those
+        call_soon-scheduled callbacks a chance to run deterministically
+        before close() returns, instead of depending on GC timing."""
+        if self._process is None or self._process.returncode is None:
+            return
+        # Explicitly close the underlying subprocess transport now, while
+        # this supervisor's event loop is still the running/current loop.
+        # asyncio.subprocess.Process normally relies on its transport's
+        # __del__ (BaseSubprocessTransport / _ProactorBasePipeTransport) to
+        # release its pipe handles, but __del__ runs at GC time -- which, in
+        # a test suite where every test gets its own event loop, can happen
+        # *after* this test's loop is closed (or worse, inside a different
+        # test's loop). That manifests as an unraisable
+        # "Event loop is closed" / "I/O operation on closed pipe" warning
+        # attributed to whichever test happens to trigger the collection.
+        # Calling close() on the transport here makes the cleanup
+        # deterministic instead of GC-timing-dependent.
+        transport = getattr(self._process, "_transport", None)
+        if transport is not None:
+            try:
+                transport.close()
+            except Exception:
+                pass
+        await asyncio.sleep(0.01)
+        gc.collect()
 
     def _require_active_interaction(self) -> str:
         if self._active_interaction_id is None:
@@ -412,6 +458,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             queue.put_nowait(envelope)
         except asyncio.QueueFull as exc:
             raise InteractionRuntimeUnavailableError("command queue full", code="ERR_QUEUE_FULL") from exc
+        self._pending_commands[envelope.message_id] = (command, interaction_id)
 
     async def _command_writer(self) -> None:
         assert self._process is not None
@@ -468,6 +515,14 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                         exit_code=self._process.returncode if self._process is not None else None,
                     )
                 return
+            except asyncio.LimitOverrunError:
+                await self._fail(
+                    "line too large",
+                    unexpected=True,
+                    protocol_error_code=ERR_LINE_TOO_LARGE,
+                    termination_reason="PROTOCOL_FAILURE",
+                )
+                return
             except ValueError:
                 await self._fail(
                     "line too large",
@@ -519,8 +574,20 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             except InteractionRuntimeProtocolError as exc:
                 await self._fail(str(exc), unexpected=True, protocol_error_code=exc.code, termination_reason="PROTOCOL_FAILURE")
                 return
+            is_process_failed_event = (
+                event.event == WorkerEventType.FAILED and event.interaction_id is None
+            )
             if should_publish:
                 await self._publish_event(event)
+            if is_process_failed_event and not self._emergency_latched:
+                code = event.payload.get("code")
+                message = event.payload.get("message")
+                await self._fail(
+                    f"{code}: {message}",
+                    unexpected=True,
+                    termination_reason="PROCESS_FAILED_EVENT",
+                )
+                return
             if self._state is InteractionRuntimeState.FAILED:
                 return
 
@@ -535,16 +602,37 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         self._incoming_sequence += 1
         if event.interaction_id is not None and event.interaction_id != self._active_interaction_id:
             raise InteractionRuntimeProtocolError(ERR_STALE_INTERACTION, "stale interaction_id")
-        if event.event in (WorkerEventType.READY, WorkerEventType.HEARTBEAT):
-            self._last_heartbeat_monotonic_s = time.monotonic()
         if event.event == WorkerEventType.READY:
-            if self._emergency_latched:
-                return True
+            if not (
+                self._state == InteractionRuntimeState.STARTING
+                and self._ready is False
+                and self._active_interaction_id is None
+                and not self._emergency_latched
+                and not self._closing
+            ):
+                raise InteractionRuntimeProtocolError(ERR_STATE, "ready event received outside STARTING")
+            self._last_heartbeat_monotonic_s = time.monotonic()
             self._capabilities = InteractionRuntimeCapabilities.from_payload(event.payload)
             self._state = InteractionRuntimeState.READY
             self._ready = True
             if self._ready_event is not None:
                 self._ready_event.set()
+        elif event.event == WorkerEventType.HEARTBEAT:
+            self._last_heartbeat_monotonic_s = time.monotonic()
+        elif event.event == WorkerEventType.COMMAND_ACCEPTED:
+            payload_message_id = event.payload.get("message_id")
+            payload_command = event.payload.get("command")
+            pending = self._pending_commands.get(payload_message_id)  # type: ignore[arg-type]
+            if pending is None:
+                raise InteractionRuntimeProtocolError(
+                    ERR_CORRELATION, "command_accepted references unknown message_id"
+                )
+            expected_command, expected_interaction_id = pending
+            if payload_command != expected_command.value:
+                raise InteractionRuntimeProtocolError(ERR_CORRELATION, "command_accepted command mismatch")
+            if event.interaction_id != expected_interaction_id:
+                raise InteractionRuntimeProtocolError(ERR_CORRELATION, "command_accepted interaction_id mismatch")
+            del self._pending_commands[payload_message_id]  # type: ignore[arg-type]
         elif event.event == WorkerEventType.PLAYBACK_COMPLETED:
             self._active_interaction_id = None
             if not self._emergency_latched:
@@ -564,19 +652,10 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                     self._state = InteractionRuntimeState.EMERGENCY
             else:
                 if not self._emergency_latched:
-                    code = event.payload.get("code")
-                    message = event.payload.get("message")
-                    self._state = InteractionRuntimeState.FAILED
-                    self._ready = False
-                    self._active_interaction_id = None
-                    self._last_error = f"{code}: {message}"
-                    self._record_termination(
-                        reason="PROCESS_FAILED_EVENT",
-                        unexpected=True,
-                        exit_code=None,
-                    )
-                    if self._ready_event is not None:
-                        self._ready_event.set()
+                    # Process-level FAILED: leave state mutation and child
+                    # termination to _stdout_reader, which calls _fail(...)
+                    # AFTER this event has been published, so the consumer can
+                    # still drain it via next_event() before the stream closes.
                     return True
         elif event.event == WorkerEventType.CLOSED:
             if self._closed_event is not None:
@@ -591,7 +670,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         try:
             self._event_queue.put_nowait(event)
         except asyncio.QueueFull:
-            await self._fail("event queue full", unexpected=True, termination_reason="PROTOCOL_FAILURE")
+            await self._fail("event queue full", unexpected=True, termination_reason="EVENT_QUEUE_OVERFLOW")
             if self._process is not None and self._process.returncode is None:
                 try:
                     self._process.terminate()
@@ -603,20 +682,25 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         reader = self._process.stderr
         if reader is None:
             return
-        buffer = b""
+        self._stderr_partial_tail = b""
         while True:
             try:
                 chunk = await reader.read(_STDOUT_READ_CHUNK_BYTES)
             except Exception:
                 return
             if chunk == b"":
-                if buffer:
-                    self._append_stderr_line(buffer.decode("utf-8", errors="replace"))
+                if self._stderr_partial_tail:
+                    self._append_stderr_line(self._stderr_partial_tail.decode("utf-8", errors="replace"))
+                    self._stderr_partial_tail = b""
                 return
-            buffer += chunk
+            buffer = self._stderr_partial_tail + chunk
             while b"\n" in buffer:
                 line_bytes, buffer = buffer.split(b"\n", 1)
                 self._append_stderr_line(line_bytes.decode("utf-8", errors="replace").rstrip("\r"))
+            max_tail_bytes = self._config.stderr_tail_max_chars
+            if len(buffer) > max_tail_bytes:
+                buffer = buffer[-max_tail_bytes:]
+            self._stderr_partial_tail = buffer
 
     def _append_stderr_line(self, line: str) -> None:
         self._stderr_tail.append(line)
@@ -714,6 +798,29 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                 self._process.terminate()
             except ProcessLookupError:
                 pass
+        # Best-effort self-clean so a caller of start() that never invokes
+        # close() does not leak a running child process or owned tasks. This
+        # runs as a detached task (not added to self._tasks) because _fail()
+        # itself may be running inside one of those owned tasks (e.g.
+        # _stdout_reader, _heartbeat_monitor) — cancelling the current task
+        # from within itself would abort this cleanup before it finishes.
+        asyncio.ensure_future(self._self_clean_after_failure())
+
+    async def _self_clean_after_failure(self) -> None:
+        if self._process is not None and self._process.returncode is None:
+            try:
+                await asyncio.wait_for(self._process.wait(), timeout=self._config.terminate_timeout_s)
+            except asyncio.TimeoutError:
+                try:
+                    self._process.kill()
+                except ProcessLookupError:
+                    pass
+                try:
+                    await asyncio.wait_for(self._process.wait(), timeout=self._config.terminate_timeout_s)
+                except asyncio.TimeoutError:
+                    pass
+        await self._cancel_tasks()
+        await self._let_event_loop_close_subprocess_transports()
 
     def _record_termination(
         self,
@@ -731,10 +838,18 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         resolved_exit_code = exit_code
         if resolved_exit_code is None and existing is not None:
             resolved_exit_code = existing.exit_code
-        message = error_message if error_message is not None else (existing.reason if existing is not None else reason)
+        # `reason` is always a stable category (e.g. "GRACEFUL_CLOSE",
+        # "PROTOCOL_FAILURE", "UNEXPECTED_EXIT"). When a caller only intends
+        # to refill exit_code/protocol_error_code on an existing termination,
+        # it re-passes the existing category instead of inventing a new one,
+        # so this never overwrites a more specific category with a generic
+        # one. The human-readable message goes to self._last_error, never
+        # into WorkerTermination.reason.
+        if error_message is not None:
+            self._last_error = error_message
         self._termination = WorkerTermination(
             exit_code=resolved_exit_code,
-            reason=message,
+            reason=reason,
             unexpected=unexpected,
             occurred_at_monotonic_s=time.monotonic(),
             protocol_error_code=preserved_code,

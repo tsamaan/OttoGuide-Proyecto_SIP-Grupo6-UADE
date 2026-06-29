@@ -120,6 +120,14 @@ class Worker:
                 if self.scenario == "stderr_long_line":
                     print("x" * 200000, file=sys.stderr, flush=True)
                     print("after-long-line", file=sys.stderr, flush=True)
+                if self.scenario == "stderr_unterminated_flood":
+                    chunk = "z" * 65536
+                    written = 0
+                    target = 2 * 1024 * 1024 + 1
+                    while written < target:
+                        sys.stderr.write(chunk)
+                        sys.stderr.flush()
+                        written += len(chunk)
                 if self.scenario == "process_failed":
                     self.emit(
                         "failed",
