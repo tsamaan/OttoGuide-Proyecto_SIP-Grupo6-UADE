@@ -27,3 +27,12 @@ Cualquier cambio de arquitectura de software (orquestador, event bus, módulos r
 
 La rama activa de integración es `review/orchestrator-unification` en el remote `mirror`.
 El análisis de funcionalidades integradas, wiring del orquestador y tests pendientes se realiza sobre esa rama publicada.
+
+## Continuidad de unificación
+
+- Leer `docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md` antes de cualquier tarea de unificación.
+- Validar `docs/Arquitectura/unification-state.json` contra el `HEAD` activo antes de continuar una etapa.
+- Actualizar el handoff Markdown y `unification-state.json` en cada etapa de unificación con escritura.
+- No depender de carpetas locales de ramas para reconstruir contexto; usar refs de `mirror`.
+- Inspeccionar ramas laterales mediante `git show`, `git diff` o `git log` contra refs `mirror/<branch>`.
+- No convertir `audit-reports/` externos en fuente autoritativa sin resumir sus resultados en documentación versionada.

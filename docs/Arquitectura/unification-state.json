@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-06-29T00:23:22Z",
+  "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
+  "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
+  "remote_authority": "mirror",
+  "canonical_access": "prohibited",
+  "active_branch": "review/orchestrator-unification",
+  "active_head": "99186ea545f50361556504d0418b68b117b88a2f",
+  "active_message": "test(core): stabilize event module identity",
+  "source_heads": {
+    "main": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
+    "desarrollo": "aafb7ad1565caced974b98bfdd6b5320901f49c8",
+    "robot": "f35ee544dac1afd64c04b949ed952fc6e6a9b6bc",
+    "feature/erirobot": "a93226b450bd384686dc9f009e96677910af936e",
+    "InteraccionIA": "bf2148d4ad6fc766694842573452b740e0886385",
+    "pilar-web": "80051eed9dfab20c982147b8a1d8bb6bebac0982",
+    "teo": "b67d16624f703885f604993fef0d2920227daeba",
+    "echezuria": "28c1220325ac94a342d55788eb0f02e40dece941"
+  },
+  "branch_relations": {
+    "main": {
+      "merge_base": "NO_COMMON_ANCESTOR",
+      "disposition": "DO_NOT_USE_AS_INTEGRATION_BASE"
+    },
+    "robot": {
+      "ahead": 27,
+      "behind": 9,
+      "disposition": "U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED"
+    },
+    "feature/erirobot": {
+      "ahead": 122,
+      "behind": 4,
+      "disposition": "U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED"
+    },
+    "InteraccionIA": {
+      "ahead": 168,
+      "behind": 6,
+      "disposition": "U3_SELECTIVE_TECHNICAL_SOURCE"
+    },
+    "pilar-web": {
+      "ahead": 51,
+      "behind": 1,
+      "disposition": "FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED"
+    },
+    "desarrollo": {
+      "ahead": 168,
+      "behind": 0,
+      "disposition": "ANCESTOR_NO_PENDING_DELTA"
+    },
+    "teo": {
+      "ahead": 168,
+      "behind": 4,
+      "disposition": "HISTORICAL_INTERACTION_REFERENCE"
+    },
+    "echezuria": {
+      "ahead": 213,
+      "behind": 10,
+      "disposition": "HISTORICAL_PHYSICAL_REFERENCE"
+    }
+  },
+  "architecture": {
+    "one_fastapi": true,
+    "one_tour_orchestrator": true,
+    "one_mission_fsm": true,
+    "one_motion_authority": true,
+    "one_camera_authority_per_device": true,
+    "one_real_audio_authority": true,
+    "wholesale_branch_merges": "prohibited",
+    "cloud_in_real_mode": "prohibited",
+    "silent_real_fallback": "prohibited",
+    "worker_motion_authority": "prohibited",
+    "playback_completed_before_navigation_resume": "required",
+    "selected_u3_architecture": "PYTHON_CONTROL_PLANE_PLUS_DEDICATED_SUPERVISED_INTERACTION_WORKER",
+    "selected_ipc": "STDIN_STDOUT_JSONL_SUPERVISED_PROCESS",
+    "real_worker_language_candidate": "CXX17",
+    "event_consumption_api_candidate": "ASYNC_NEXT_EVENT"
+  },
+  "completed_commits": {
+    "ARCHITECTURE_BASELINE": {
+      "commit": "d0211c8039e87a547a40c39c017e229fdcd51c77",
+      "message": "architecture baseline"
+    },
+    "U0": {
+      "commit": "56936d804d448e983a4634c1456f5de2a41cc4f5",
+      "message": "build(sitl): integrate WSL foundation"
+    },
+    "U1": {
+      "commit": "7c45752b9b56f2b3fe22c92f84f6fbd52248186e",
+      "message": "feat(runtime): add canonical integration contracts"
+    },
+    "U2": {
+      "commit": "12cebbfd92ef80199b00f2e4ee8bbbd3f4d660ef",
+      "message": "feat(vision): integrate QR station trigger"
+    },
+    "U2R1": {
+      "commit": "b63acf66124df9bcc241cb63d4249c02673bae82",
+      "message": "fix(vision): isolate QR from visual odometry"
+    },
+    "U2R2": {
+      "commit": "99186ea545f50361556504d0418b68b117b88a2f",
+      "message": "test(core): stabilize event module identity"
+    }
+  },
+  "read_only_gates": {
+    "U2R3": {
+      "result": "BLOCKED_NO_COMMIT_NOT_ATTRIBUTABLE_TO_U2R2"
+    },
+    "U2R4A_LITE": {
+      "result": "READ_ONLY_BASELINE_CONFIRMED_NO_COMMIT"
+    }
+  },
+  "known_test_baseline": {
+    "python": "3.10.11",
+    "pytest": "9.0.2",
+    "pytest_asyncio": "1.3.0",
+    "fastapi": "0.118.2",
+    "httpx": "0.28.1",
+    "numpy": "2.2.6",
+    "requirements_prod_numpy": "2.3.3",
+    "witness": {
+      "passed": 34,
+      "failed": 0
+    },
+    "full_suite": {
+      "passed": 1030,
+      "failed": 7,
+      "skipped": 109,
+      "subtests_passed": 67,
+      "green": false,
+      "failure_nodeids": [
+        "tests/integration/test_web_ui_cors_and_origin.py::test_dashboard_redirects_to_web_ui_public_url_when_configured",
+        "tests/unit/test_conversation_playback_lifecycle.py::test_t01_local_synthesize_no_type_error",
+        "tests/unit/test_conversation_playback_lifecycle.py::test_t03_local_task_registered",
+        "tests/unit/test_conversation_playback_lifecycle.py::test_t04_local_task_removed_after_completion",
+        "tests/unit/test_conversation_playback_lifecycle.py::test_t06_alsa_exception_logged",
+        "tests/unit/test_conversation_playback_lifecycle.py::test_t07_cancelled_task_no_error_log",
+        "tests/unit/test_conversation_playback_lifecycle.py::test_t08_local_close_cancels_pending"
+      ]
+    }
+  },
+  "known_debts": [
+    "ORDER_DEPENDENT_SYS_MODULES_IDENTITY",
+    "QR_ONLY_STILL_INITIALIZES_ARUCO_AND_U2R1_CAPTURE_LOOP_TEST_IS_PARTIALLY_STRUCTURAL",
+    "REAL_CAMERA_AND_QR_RELIABILITY_PENDING",
+    "U3_INTERACTION_WORKER_AUDIT_PENDING"
+  ],
+  "claims_prohibited": [
+    "ROBOT_READY",
+    "HIL_VALIDATED",
+    "REAL_CAMERA_VALIDATED",
+    "QR_RELIABILITY_VALIDATED",
+    "VISUAL_ODOMETRY_VALIDATED",
+    "REAL_AUDIO_VALIDATED",
+    "PLAYSTREAM_VALIDATED_IN_CURRENT_HEAD",
+    "PLAYSTOP_VALIDATED_IN_CURRENT_HEAD",
+    "FULL_SUITE_GREEN",
+    "U3_IMPLEMENTED",
+    "UNIFICATION_COMPLETE"
+  ],
+  "next_action": "AUDIT_AND_PLAN_U3_INTERACTION_WORKER_OFFLINE_ADAPTATION_V1"
+}

@@ -134,6 +134,7 @@ Pendiente:
 | Recurso | Ruta |
 |---|---|
 | Documentación técnica | [docs/README.md](<docs/README.md>) |
+| Unificación de ramas y handoff operativo | [UNIFICACION_RAMAS_Y_HANDOFF.md](<docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md>) |
 | Backlog | [TODO.md](<TODO.md>) |
 | Arquitectura operativa | [ARQUITECTURA_OPERATIVA_RC1.md](<docs/Arquitectura/ARQUITECTURA_OPERATIVA_RC1.md>) |
 | `ROS 2` / `DDS` | [ROS2_INTEGRATION.md](<docs/Arquitectura/ROS2_INTEGRATION.md>) |
@@ -145,3 +146,5 @@ Pendiente:
 | Quickstart de mapeo | [OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md](<docs/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md>) |
 | Auditorias HIL | [Auditorias](<docs/Auditorias/>) |
 | AppPhone / APK | [README_AppPhone.md](<docs/AppPhone/README_AppPhone.md>) |
+
+Nota de continuidad: la rama activa de integración es `review/orchestrator-unification`; `main` no es la base de continuidad.

@@ -54,6 +54,7 @@ El README maestro público del proyecto vive en `../README.md` desde la raíz de
 
 | Documento | Uso |
 |---|---|
+| `Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md` | Handoff canónico y portable para continuar la unificación de ramas desde `review/orchestrator-unification`. |
 | `Arquitectura/ARQUITECTURA_OPERATIVA_RC1.md` | Contrato operativo RC1 y flujo E2E. |
 | `Arquitectura/ROS2_INTEGRATION.md` | Frontera entre Capa 4 Python, `ROS 2`, `DDS` y `SDK2`. |
 | `Arquitectura/MEMORIA_ARQUITECTONICA_MVP.md` | Memoria academica y decisiones de diseno del MVP. |
