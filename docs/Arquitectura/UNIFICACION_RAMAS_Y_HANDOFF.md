@@ -101,22 +101,22 @@ La genealogia explica procedencia y contexto, pero no autoriza merges completos.
 `ahead` y `behind` se expresan como `HEAD...mirror/<branch>` desde `review/orchestrator-unification`: `ahead` = commits solo en la rama autoritativa; `behind` = commits solo en la rama comparada. Para `main`, no hay ancestro comun.
 
 ```text
-RELATIONS_SNAPSHOT_AS_OF_HEAD = bf1829d8a7313ec3820f093f460a8b20a823f90a
+RELATIONS_SNAPSHOT_AS_OF_HEAD = 3ecc93f1a31ecc8e5e5de32414db0fcb0c37b2ae
 ```
 
 Los conteos son un snapshot asociado a `RELATIONS_SNAPSHOT_AS_OF_HEAD`; deben recalcularse antes de una nueva decision de integracion.
 
 | branch | head | ahead | behind | domain | status | disposition | integrated_scope | residual_scope | next_review_stage |
 |---|---|---:|---:|---|---|---|---|---|---|
-| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0 | U3-U6 | U3 |
+| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1 | U3B-U6 | U3B |
 | `main` | `3a1f13574e4a27d9aff2bfd38b3659951e8cb264` | N/A | N/A | Snapshot publico huerfano | Sin ancestro comun | `DO_NOT_USE_AS_INTEGRATION_BASE` | Ninguno para continuidad | Solo referencia historica | Ninguno |
-| `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 169 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
-| `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 28 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
-| `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 123 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
-| `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 169 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3 |
-| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 52 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
-| `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 169 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3 |
-| `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 214 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
+| `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 171 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
+| `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 30 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
+| `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 125 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
+| `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 171 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3B |
+| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 54 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
+| `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 171 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3B |
+| `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 216 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
 
 ## 8. DAG de integracion
 
@@ -146,7 +146,8 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U2R4A_LITE` | N/A | `READ_ONLY_BASELINE_CONFIRMED_NO_COMMIT` |
 | `U3P0` | `bf1829d8a7313ec3820f093f460a8b20a823f90a` | `docs(unification): add portable branch handoff` |
 | `U3_AUDIT_V2` | N/A | `U3_INTERACTION_WORKER_OFFLINE_ADAPTATION_PLAN_READY` |
-| `U3A` | `DYNAMIC_HANDOFF_CHECKPOINT` | `feat(interaction): add strict loopback worker supervisor` |
+| `U3A` | `3ecc93f1a31ecc8e5e5de32414db0fcb0c37b2ae` | `feat(interaction): add strict loopback worker supervisor` |
+| `U3AR1` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(interaction): preserve supervisor terminal invariants` |
 
 El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.
 
@@ -163,17 +164,30 @@ El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOI
 
 ## 11. Estado de interaccion
 
-Brechas U3 conocidas:
+RESUELTO_EN_U3A_U3AR1:
 
-- Ausencia de `next_event` como API canonica de consumo.
-- Wire coercion permisiva que debe endurecerse.
-- Supervisor todavia conceptual.
-- Playback actual fire-and-forget.
-- `audio_stream_ready` no equivale a completion.
-- Reanudacion de navegacion potencialmente prematura.
-- Fallback real a stub no permitido en modo real.
-- Autoridades de audio divididas.
-- Lifecycle de emergencia incompleto.
+- `next_event` como API canonica de consumo (`async next_event(...)`).
+- Wire coercion estricta (version 1) en `runtime_port.py`.
+- Supervisor concreto `src/interaction/jsonl_worker_supervisor.py` con readiness, heartbeat, backpressure y cierre escalonado.
+- Framing JSONL estricto (`ERR_FRAMING`); CRLF aceptado, frame sin LF rechazado.
+- Lifecycle terminal del subprocess: EMERGENCY latcheado de forma persistente ante exit/heartbeat timeout/process watcher/transporte posterior; sin auto-respawn.
+- Senal terminal independiente del event stream (`_event_stream_terminal`), desacoplada de insertar `None` en una cola que puede estar llena; consumidor bloqueado se desbloquea ante close/crash/protocolo invalido.
+- Deduplicacion acotada de `message_id` (`max_seen_message_ids`) con fail-closed (`ERR_MESSAGE_LIMIT`).
+- Registro unificado de terminacion (`_record_termination`) para cierre normal, emergencia, crash espontaneo, terminate/kill y fallos de protocolo; preserva `protocol_error_code` al actualizar `exit_code`.
+- Drenaje de stderr por chunks, sin deadlock ante lineas mayores que `max_line_bytes`, con tail y conteo de caracteres acotados.
+- Tratamiento de evento `FAILED` diferenciado por proceso (`interaction_id=None`, falla el runtime) vs interaccion (`interaction_id` presente, retorna a READY).
+- Validacion de payload de correlacion obligatoria en `COMMAND_ACCEPTED` (`command`, `message_id`) y `FAILED` (`code`, `message`).
+- Rechazo de `Mapping` personalizados como payload sin invocar sus metodos (`type(payload) is dict` estricto).
+- Validacion de comandos por estado (`ACTIVATE`/`PAUSE`/`RESUME`/`STOP` exigen el estado previo correspondiente) con rollback si el enqueue falla.
+
+PENDIENTE:
+
+- Wiring con `TourOrchestrator` (corresponde a U3B).
+- Playback real (worker CXX17 aun no implementado).
+- Fail-closed de composicion en el orquestador.
+- Worker real CXX17.
+- Benchmark.
+- HIL.
 
 ## 12. Arquitectura U3 seleccionada
 
@@ -206,9 +220,32 @@ Restricciones vigentes:
 - No existe validacion HIL.
 - U3A no esta conectada a `TourOrchestrator`; esa integracion corresponde a U3B.
 
+### 12.2 Estado U3AR1
+
+`U3AR1` es una correccion focalizada sobre `U3A` que remedia diez invariantes terminales del supervisor JSONL antes de habilitar el wiring con `TourOrchestrator`. Una auditoria previa habia rechazado `U3A` con el resultado `U3A_REJECTED_PENDING_TERMINAL_INVARIANT_REMEDIATION`. `U3AR1` corrige:
+
+- el latch de EMERGENCY, que ahora persiste ante exit del worker, heartbeat timeout, process watcher y errores de transporte posteriores, sin transicionar a FAILED y sin respawn;
+- el registro de toda terminacion (graceful, emergencia, crash espontaneo, terminate, kill) en una unica ruta interna;
+- una senal terminal independiente del event stream que no depende exclusivamente de insertar `None` en una cola que puede estar llena;
+- el framing JSONL estricto, exigiendo terminador LF y rechazando frames incompletos con `ERR_FRAMING`;
+- la deduplicacion acotada de `message_id` con limite configurable y fallo cerrado al agotarse;
+- el drenaje de stderr por chunks, robusto ante lineas mayores que `max_line_bytes`;
+- el tratamiento diferenciado del evento `FAILED` a nivel de proceso vs interaccion;
+- la validacion de payload de correlacion obligatoria en `COMMAND_ACCEPTED` y `FAILED`;
+- el rechazo estricto de payloads `Mapping` personalizados sin invocar sus metodos;
+- la actualizacion de la documentacion de brechas y baseline de pruebas, que estaba desactualizada.
+
+Restricciones vigentes (no modificadas por `U3AR1`):
+
+- Solo existe worker loopback falso.
+- No existe worker real CXX17 implementado.
+- No existe audio real implementado.
+- No existe validacion HIL.
+- `U3A`/`U3AR1` no estan conectados a `TourOrchestrator`; esa integracion corresponde a `U3B`.
+
 ## 13. Baseline de pruebas
 
-Proveniencia: `U2R4A_LITE`, registrado en evidencia local previa y resumido aqui para convertirlo en estado versionado.
+Proveniencia: `U3AR1`, ejecucion real posterior a la remediacion de invariantes terminales del supervisor JSONL (dos corridas completas de `tests/` con el `PINNED_PYTHON` de la etapa). Sustituye el baseline previo de `U2R4A_LITE`, que ya no refleja la suite mas reciente.
 
 ```text
 Python = 3.10.11
@@ -218,10 +255,13 @@ FastAPI = 0.118.2
 httpx = 0.28.1
 NumPy = 2.2.6
 WITNESS = 34 passed
-FULL_SUITE = 1030 passed, 7 failed, 109 skipped, 67 subtests passed
+FULL_SUITE = 1079 passed, 7 failed, 109 skipped, 67 subtests passed
 KNOWN_TEST_DEBT = ORDER_DEPENDENT_SYS_MODULES_IDENTITY
 FULL_SUITE_GREEN = NO
+FULL_SUITE_RESULT = FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS
 ```
+
+`FULL_SUITE_RESULT = FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS` indica que ambas corridas terminaron con exit code distinto de cero, y que los unicos nodeids en fallo son los siete heredados y conocidos abajo; ningun nodeid nuevo aparecio. No se afirma `FULL_SUITE_GREEN`.
 
 Los siete fallos conocidos son:
 

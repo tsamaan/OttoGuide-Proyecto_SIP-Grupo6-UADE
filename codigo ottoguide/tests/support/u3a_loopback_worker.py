@@ -90,6 +90,20 @@ class Worker:
                     sys.stdout.flush()
                     time.sleep(1)
                     return 8
+                if self.scenario == "missing_newline":
+                    frame = {
+                        "protocol_version": PROTOCOL_VERSION,
+                        "message_id": "worker:missing-newline",
+                        "interaction_id": None,
+                        "event": "command_accepted",
+                        "sequence": self.sequence,
+                        "emitted_at_monotonic_s": time.monotonic(),
+                        "payload": {"command": name, "message_id": command.get("message_id")},
+                    }
+                    sys.stdout.write(json.dumps(frame, allow_nan=False, separators=(",", ":")))
+                    sys.stdout.flush()
+                    sys.stdout.close()
+                    return 10
                 self.command_accepted(command)
                 if self.scenario == "duplicate_message_id":
                     self.emit("ready", payload=CAPABILITIES, duplicate=True)
@@ -103,6 +117,15 @@ class Worker:
                 if self.scenario == "stderr_flood":
                     for idx in range(500):
                         print(f"log-line-{idx}", file=sys.stderr, flush=True)
+                if self.scenario == "stderr_long_line":
+                    print("x" * 200000, file=sys.stderr, flush=True)
+                    print("after-long-line", file=sys.stderr, flush=True)
+                if self.scenario == "process_failed":
+                    self.emit(
+                        "failed",
+                        interaction_id=None,
+                        payload={"code": "ERR_WORKER_FATAL", "message": "process-level failure"},
+                    )
                 if self.scenario not in {"heartbeat_stops", "ignore_close"}:
                     self.heartbeat_enabled = True
             elif name == "activate":
@@ -113,6 +136,18 @@ class Worker:
                     interaction_id = "stale-id"
                 self.emit("capture_started", interaction_id=interaction_id)
                 if self.scenario == "activation_waits":
+                    continue
+                if self.scenario == "interaction_failed":
+                    self.emit(
+                        "failed",
+                        interaction_id=interaction_id,
+                        payload={"code": "ERR_INTERACTION_FAILED", "message": "interaction failure"},
+                    )
+                    self.active_interaction_id = None
+                    continue
+                if self.scenario == "message_limit":
+                    for idx in range(64):
+                        self.emit("heartbeat")
                     continue
                 self.emit("transcript_ready", interaction_id=interaction_id, payload={"text": "hola"})
                 self.emit("response_ready", interaction_id=interaction_id, payload={"text": "respuesta"})

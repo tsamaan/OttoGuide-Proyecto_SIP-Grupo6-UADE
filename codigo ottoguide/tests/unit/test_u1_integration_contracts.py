@@ -694,3 +694,36 @@ def test_station_trigger_port_has_exactly_five_operations() -> None:
         if not name.startswith("_") and name in expected
     }
     assert actual == expected, f"expected exactly {expected}, got {actual}"
+
+
+def test_custom_mapping_payload_is_rejected_without_invoking_items() -> None:
+    from collections.abc import Mapping as ABCMapping
+
+    invoked = {"items": False}
+
+    class SideEffectMapping(ABCMapping):
+        def __getitem__(self, key: object) -> object:
+            return None
+
+        def __iter__(self):
+            return iter(())
+
+        def __len__(self) -> int:
+            return 0
+
+        def items(self):  # type: ignore[override]
+            invoked["items"] = True
+            return ()
+
+    wire = {
+        "protocol_version": INTERACTION_PROTOCOL_VERSION,
+        "message_id": "cmd:custom-mapping",
+        "interaction_id": None,
+        "command": "start",
+        "sequence": 0,
+        "emitted_at_monotonic_s": 1.0,
+        "payload": SideEffectMapping(),
+    }
+    with pytest.raises(InteractionRuntimeProtocolError):
+        WorkerCommandEnvelope.from_wire_dict(wire)
+    assert invoked["items"] is False

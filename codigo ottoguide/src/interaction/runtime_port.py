@@ -43,6 +43,9 @@ ERR_DUPLICATE_MESSAGE_ID: Final[str] = "ERR_DUPLICATE_MESSAGE_ID"
 ERR_SEQUENCE: Final[str] = "ERR_SEQUENCE"
 ERR_STALE_INTERACTION: Final[str] = "ERR_STALE_INTERACTION"
 ERR_LINE_TOO_LARGE: Final[str] = "ERR_LINE_TOO_LARGE"
+ERR_FRAMING: Final[str] = "ERR_FRAMING"
+ERR_MESSAGE_LIMIT: Final[str] = "ERR_MESSAGE_LIMIT"
+ERR_STATE: Final[str] = "ERR_STATE"
 
 _IDENTIFIER_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9._:-]+$")
 _ENVELOPE_REQUIRED_KEYS: Final[frozenset[str]] = frozenset(
@@ -220,7 +223,7 @@ def _freeze_json_value(value: object, *, depth: int, seen: set[int]) -> object:
         if len(value) > MAX_PAYLOAD_STRING_LENGTH:
             raise _protocol_error(ERR_SIZE, "payload string too large")
         return value
-    if isinstance(value, Mapping):
+    if type(value) is dict or type(value) is MappingProxyType:
         marker = id(value)
         if marker in seen:
             raise _protocol_error(ERR_JSON_UNSAFE, "payload contains a cycle")
@@ -275,8 +278,8 @@ def _validate_payload_size(payload: Mapping[str, object]) -> None:
 
 
 def _freeze_payload(payload: object) -> Mapping[str, object]:
-    if not isinstance(payload, Mapping):
-        raise _protocol_error(ERR_TYPE, "payload must be a mapping")
+    if type(payload) is not dict and type(payload) is not MappingProxyType:
+        raise _protocol_error(ERR_TYPE, "payload must be a dict")
     frozen = _freeze_json_value(payload, depth=0, seen=set())
     if not isinstance(frozen, MappingProxyType):
         raise _protocol_error(ERR_TYPE, "payload must freeze to a mapping")
@@ -318,6 +321,23 @@ def _validate_event_interaction_id(event: WorkerEventType, interaction_id: str |
         raise _protocol_error(ERR_IDENTIFIER, f"{event.value} requires interaction_id")
     if event not in _PROCESS_EVENTS and event not in _INTERACTION_EVENTS and event not in _FLEXIBLE_EVENTS:
         raise _protocol_error(ERR_IDENTIFIER, f"unknown event interaction_id policy: {event.value}")
+
+
+def _validate_event_payload(event: WorkerEventType, payload: Mapping[str, object]) -> None:
+    if event is WorkerEventType.COMMAND_ACCEPTED:
+        command = payload.get("command")
+        if type(command) is not str or command not in {item.value for item in WorkerCommandType}:
+            raise _protocol_error(ERR_MISSING_KEY, "command_accepted payload requires a valid command")
+        message_id = payload.get("message_id")
+        if type(message_id) is not str or not message_id:
+            raise _protocol_error(ERR_MISSING_KEY, "command_accepted payload requires message_id")
+    elif event is WorkerEventType.FAILED:
+        code = payload.get("code")
+        if type(code) is not str or not code or len(code) > MAX_IDENTIFIER_LENGTH:
+            raise _protocol_error(ERR_MISSING_KEY, "failed payload requires a bounded non-empty code")
+        message = payload.get("message")
+        if type(message) is not str or not message or len(message) > MAX_PAYLOAD_STRING_LENGTH:
+            raise _protocol_error(ERR_MISSING_KEY, "failed payload requires a bounded non-empty message")
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,12 +507,14 @@ class WorkerEventEnvelope:
             emitted_at_monotonic_s=self.emitted_at_monotonic_s,
         )
         _validate_event_interaction_id(self.event, interaction_id)
+        frozen_payload = _freeze_payload(self.payload)
+        _validate_event_payload(self.event, frozen_payload)
         object.__setattr__(self, "protocol_version", version)
         object.__setattr__(self, "message_id", message_id)
         object.__setattr__(self, "interaction_id", interaction_id)
         object.__setattr__(self, "sequence", sequence)
         object.__setattr__(self, "emitted_at_monotonic_s", emitted_at)
-        object.__setattr__(self, "payload", _freeze_payload(self.payload))
+        object.__setattr__(self, "payload", frozen_payload)
 
     def to_wire_dict(self) -> dict[str, object]:
         return {
@@ -572,16 +594,19 @@ __all__ = [
     "ERR_CONTAINER_ITEMS",
     "ERR_DEPTH",
     "ERR_DUPLICATE_MESSAGE_ID",
+    "ERR_FRAMING",
     "ERR_IDENTIFIER",
     "ERR_JSON",
     "ERR_JSON_UNSAFE",
     "ERR_LINE_TOO_LARGE",
+    "ERR_MESSAGE_LIMIT",
     "ERR_MISSING_KEY",
     "ERR_NON_FINITE",
     "ERR_RANGE",
     "ERR_SEQUENCE",
     "ERR_SIZE",
     "ERR_STALE_INTERACTION",
+    "ERR_STATE",
     "ERR_TYPE",
     "ERR_UNKNOWN_KEY",
     "ERR_UTF8",

@@ -11,6 +11,7 @@ from src.interaction.jsonl_worker_supervisor import (
     JsonlWorkerSupervisorConfig,
 )
 from src.interaction.runtime_port import (
+    ERR_FRAMING,
     InteractionContext,
     InteractionRuntimeState,
     InteractionRuntimeUnavailableError,
@@ -28,6 +29,7 @@ def _config(
     heartbeat_timeout_s: float = 0.3,
     shutdown_timeout_s: float = 0.15,
     terminate_timeout_s: float = 0.1,
+    max_seen_message_ids: int = 4096,
 ) -> JsonlWorkerSupervisorConfig:
     return JsonlWorkerSupervisorConfig(
         argv=(sys.executable, str(WORKER), scenario),
@@ -41,6 +43,7 @@ def _config(
         max_line_bytes=2048,
         stderr_tail_lines=10,
         stderr_tail_max_chars=2048,
+        max_seen_message_ids=max_seen_message_ids,
     )
 
 
@@ -243,3 +246,173 @@ async def test_close_unblocks_waiting_consumer_and_leaves_no_owned_tasks() -> No
     with pytest.raises(InteractionRuntimeUnavailableError):
         await waiter
     assert not supervisor._tasks  # noqa: SLF001 - ownership invariant under test
+
+
+@pytest.mark.asyncio
+async def test_emergency_remains_latched_after_worker_exit_and_heartbeat_deadline() -> None:
+    supervisor = JsonlInteractionWorkerSupervisor(_config(heartbeat_timeout_s=0.15))
+    await supervisor.start()
+    try:
+        await supervisor.emergency_stop()
+        await asyncio.sleep(0.35)
+        health = await supervisor.health()
+        assert health.state is InteractionRuntimeState.EMERGENCY
+        assert health.ready is False
+        assert supervisor.active_interaction_id is None
+        assert supervisor.termination is not None
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.activate(InteractionContext(interaction_id="interaction:after-emergency"))
+        assert not any(task.get_name() == "interaction-jsonl-heartbeat-monitor" and not task.done() for task in supervisor._tasks)  # noqa: SLF001
+    finally:
+        await supervisor.close()
+        assert (await supervisor.health()).state is InteractionRuntimeState.CLOSED
+
+
+@pytest.mark.asyncio
+async def test_missing_newline_is_rejected_with_stable_framing_code() -> None:
+    supervisor = JsonlInteractionWorkerSupervisor(_config("missing_newline"))
+    with pytest.raises(Exception):
+        await supervisor.start()
+    try:
+        assert supervisor.termination is not None
+        assert supervisor.termination.protocol_error_code == ERR_FRAMING
+    finally:
+        await supervisor.close()
+
+
+@pytest.mark.asyncio
+async def test_event_queue_overflow_closes_stream_after_pending_events() -> None:
+    supervisor = JsonlInteractionWorkerSupervisor(_config(event_queue_size=1))
+    with pytest.raises(Exception):
+        await supervisor.start()
+    try:
+        drained: list[WorkerEventType] = []
+        for _ in range(5):
+            try:
+                item = await supervisor.next_event(timeout_s=0.2)
+            except InteractionRuntimeUnavailableError:
+                break
+            drained.append(item.event)
+        assert drained
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.next_event(timeout_s=0.1)
+    finally:
+        await supervisor.close()
+
+
+@pytest.mark.asyncio
+async def test_graceful_emergency_and_forced_terminations_are_recorded() -> None:
+    graceful = JsonlInteractionWorkerSupervisor(_config())
+    await graceful.start()
+    await graceful.close()
+    assert graceful.termination is not None
+    assert graceful.termination.unexpected is False
+
+    emergency = JsonlInteractionWorkerSupervisor(_config())
+    await emergency.start()
+    try:
+        await emergency.emergency_stop()
+        await asyncio.sleep(0.1)
+        assert emergency.termination is not None
+        assert emergency.termination.unexpected is False
+    finally:
+        await emergency.close()
+
+    stubborn = JsonlInteractionWorkerSupervisor(_config("ignore_close"))
+    await stubborn.start()
+    await stubborn.close()
+    assert stubborn.termination is not None
+    assert stubborn.termination.unexpected is False
+
+
+@pytest.mark.asyncio
+async def test_seen_message_id_limit_is_bounded_and_fail_closed() -> None:
+    supervisor = JsonlInteractionWorkerSupervisor(_config("message_limit", max_seen_message_ids=8))
+    await supervisor.start()
+    try:
+        await supervisor.activate(InteractionContext(interaction_id="interaction:1"))
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            for _ in range(40):
+                await supervisor.next_event(timeout_s=0.3)
+        health = await supervisor.health()
+        assert health.state is InteractionRuntimeState.FAILED
+    finally:
+        await supervisor.close()
+
+
+@pytest.mark.asyncio
+async def test_process_level_failed_event_fails_runtime() -> None:
+    supervisor = JsonlInteractionWorkerSupervisor(_config("process_failed"))
+    with pytest.raises(Exception):
+        await supervisor.start()
+    try:
+        health = await supervisor.health()
+        assert health.state is InteractionRuntimeState.FAILED
+        assert supervisor.termination is not None
+    finally:
+        await supervisor.close()
+
+
+@pytest.mark.asyncio
+async def test_interaction_failed_returns_to_ready() -> None:
+    supervisor = JsonlInteractionWorkerSupervisor(_config("interaction_failed"))
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.activate(InteractionContext(interaction_id="interaction:1"))
+        seen = await _collect_until(supervisor, WorkerEventType.FAILED)
+        assert WorkerEventType.FAILED in seen
+        assert supervisor.active_interaction_id is None
+        health = await supervisor.health()
+        assert health.state is InteractionRuntimeState.READY
+    finally:
+        await supervisor.close()
+
+
+@pytest.mark.asyncio
+async def test_oversized_stderr_line_is_drained_without_deadlock() -> None:
+    supervisor = JsonlInteractionWorkerSupervisor(_config("stderr_long_line"))
+    await supervisor.start()
+    try:
+        await asyncio.sleep(0.2)
+        health = await supervisor.health()
+        assert health.ready is True
+    finally:
+        await supervisor.close()
+
+
+@pytest.mark.asyncio
+async def test_command_accepted_requires_correlation_payload() -> None:
+    from src.interaction.runtime_port import WorkerEventEnvelope
+
+    base = dict(
+        protocol_version=1,
+        message_id="evt:bad",
+        interaction_id=None,
+        event="command_accepted",
+        sequence=0,
+        emitted_at_monotonic_s=1.0,
+    )
+    with pytest.raises(Exception):
+        WorkerEventEnvelope.from_wire_dict({**base, "payload": {}})
+    with pytest.raises(Exception):
+        WorkerEventEnvelope.from_wire_dict({**base, "payload": {"command": "start"}})
+
+
+@pytest.mark.asyncio
+async def test_failed_requires_error_payload() -> None:
+    from src.interaction.runtime_port import WorkerEventEnvelope
+
+    base = dict(
+        protocol_version=1,
+        message_id="evt:bad-failed",
+        interaction_id=None,
+        event="failed",
+        sequence=0,
+        emitted_at_monotonic_s=1.0,
+    )
+    with pytest.raises(Exception):
+        WorkerEventEnvelope.from_wire_dict({**base, "payload": {}})
+    with pytest.raises(Exception):
+        WorkerEventEnvelope.from_wire_dict({**base, "payload": {"code": "X"}})
