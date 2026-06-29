@@ -2021,3 +2021,232 @@ async def test_start_failure_reports_incomplete_owned_task_settlement() -> None:
         task.get_name() == "interaction-jsonl-stubborn-start" and not task.done()
         for task in asyncio.all_tasks()
     )
+# ---------------------------------------------------------------------------
+# U3AR6 — DEFECT_1: EMERGENCY_STOP must not be overwritten by CLOSE_TERMINATE
+# or CLOSE_KILL when the child is still alive during close().
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_emergency_reason_survives_close_terminate_escalation() -> None:
+    fake = _FakeKillProcess()
+    class _FakeProcessSupervisor(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+    
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeProcessSupervisor(config)
+    await supervisor.start()
+    try:
+        await supervisor.emergency_stop()
+        await asyncio.sleep(0.1)
+        await asyncio.wait_for(supervisor.close(), timeout=2.0)
+    finally:
+        if (await supervisor.health()).state is not InteractionRuntimeState.CLOSED:
+            await supervisor.close()
+    
+    assert fake.terminate_calls == 1
+    assert fake.kill_calls == 1
+    assert supervisor.termination is not None
+    assert supervisor.termination.reason == "EMERGENCY_STOP"
+    assert supervisor.termination.unexpected is False
+
+
+@pytest.mark.asyncio
+async def test_emergency_reason_survives_close_kill_escalation() -> None:
+    fake = _FakeKillProcess()
+    class _FakeProcessSupervisor(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+    
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeProcessSupervisor(config)
+    await supervisor.start()
+    try:
+        await supervisor.emergency_stop()
+        await asyncio.sleep(0.1)
+        await asyncio.wait_for(supervisor.close(), timeout=2.0)
+    finally:
+        if (await supervisor.health()).state is not InteractionRuntimeState.CLOSED:
+            await supervisor.close()
+            
+    assert fake.terminate_calls == 1
+    assert fake.kill_calls >= 1
+    assert supervisor.termination is not None
+    assert supervisor.termination.reason == "EMERGENCY_STOP"
+    assert supervisor.termination.unexpected is False
+
+
+# ---------------------------------------------------------------------------
+# U3AR6 — DEFECT_2: UNEXPECTED_EXIT is a real primary termination reason and
+# must not be overwritten by TASK_SETTLEMENT_TIMEOUT.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_unexpected_exit_survives_task_settlement_timeout() -> None:
+    supervisor, _process, release = _supervisor_with_stubborn_close_task(
+        state=InteractionRuntimeState.FAILED,
+        task_name="interaction-jsonl-stubborn-unexpected-exit",
+    )
+    supervisor._record_termination(  # noqa: SLF001
+        reason="UNEXPECTED_EXIT",
+        unexpected=True,
+        exit_code=1,
+    )
+    await asyncio.sleep(0)
+    try:
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.close()
+        assert supervisor.termination is not None
+        assert supervisor.termination.reason == "UNEXPECTED_EXIT"
+        assert supervisor.termination.unexpected is True
+        assert supervisor.termination.protocol_error_code == ERR_TASK_SETTLEMENT_TIMEOUT
+        release.set()
+        await supervisor.close()
+        assert (await supervisor.health()).state is InteractionRuntimeState.CLOSED
+    finally:
+        await _cleanup_stubborn_supervisor(supervisor, release)
+
+
+@pytest.mark.asyncio
+async def test_real_primary_reason_predicate_includes_unexpected_exit() -> None:
+    from src.interaction.jsonl_worker_supervisor import _is_real_primary_termination
+    from src.interaction.worker_supervisor import WorkerTermination
+    
+    term = WorkerTermination(
+        exit_code=1,
+        reason="UNEXPECTED_EXIT",
+        unexpected=True,
+        occurred_at_monotonic_s=0.0,
+        protocol_error_code=None,
+        stderr_tail=(),
+    )
+    assert _is_real_primary_termination(term) is True
+
+
+@pytest.mark.asyncio
+async def test_real_primary_reason_predicate_includes_emergency_stop_even_when_not_unexpected() -> None:
+    from src.interaction.jsonl_worker_supervisor import _is_real_primary_termination
+    from src.interaction.worker_supervisor import WorkerTermination
+    
+    term = WorkerTermination(
+        exit_code=None,
+        reason="EMERGENCY_STOP",
+        unexpected=False,
+        occurred_at_monotonic_s=0.0,
+        protocol_error_code=None,
+        stderr_tail=(),
+    )
+    assert _is_real_primary_termination(term) is True
+
+
+# ---------------------------------------------------------------------------
+# U3AR6 — DEFECT_3: close() must serialize concurrent callers.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_two_concurrent_close_callers_use_single_process_shutdown() -> None:
+    fake = _FakeKillProcess()
+    class _FakeProcessSupervisor(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+            
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeProcessSupervisor(config)
+    await supervisor.start()
+    
+    caller1 = asyncio.create_task(supervisor.close())
+    caller2 = asyncio.create_task(supervisor.close())
+    await asyncio.gather(caller1, caller2)
+    
+    assert fake.terminate_calls <= 1
+    assert fake.kill_calls <= 1
+    assert (await supervisor.health()).state is InteractionRuntimeState.CLOSED
+
+
+@pytest.mark.asyncio
+async def test_two_concurrent_close_callers_do_not_duplicate_close_command() -> None:
+    fake = _FakeKillProcess()
+    class _FakeProcessSupervisor(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+            
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeProcessSupervisor(config)
+    await supervisor.start()
+    
+    caller1 = asyncio.create_task(supervisor.close())
+    caller2 = asyncio.create_task(supervisor.close())
+    await asyncio.gather(caller1, caller2)
+    
+    assert (await supervisor.health()).state is InteractionRuntimeState.CLOSED
+    close_commands = [
+        item for item in fake.stdin.written
+        if b'"command":"close"' in item
+    ]
+    assert len(close_commands) <= 1
+
+
+@pytest.mark.asyncio
+async def test_two_concurrent_close_callers_preserve_same_termination() -> None:
+    fake = _FakeKillProcess()
+    class _FakeProcessSupervisor(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+            
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeProcessSupervisor(config)
+    await supervisor.start()
+    
+    caller1 = asyncio.create_task(supervisor.close())
+    caller2 = asyncio.create_task(supervisor.close())
+    await asyncio.gather(caller1, caller2)
+    
+    assert supervisor.termination is not None
+    assert supervisor.termination.reason in {"CLOSE_TERMINATE", "CLOSE_KILL", "GRACEFUL_CLOSE"}
+
+
+@pytest.mark.asyncio
+async def test_concurrent_close_with_settlement_timeout_is_retryable() -> None:
+    supervisor, _process, release = _supervisor_with_stubborn_close_task(
+        task_name="interaction-jsonl-stubborn-concurrent"
+    )
+    await asyncio.sleep(0)
+    
+    caller1 = asyncio.create_task(supervisor.close())
+    caller2 = asyncio.create_task(supervisor.close())
+    
+    results = await asyncio.gather(caller1, caller2, return_exceptions=True)
+    assert len(results) == 2
+    for r in results:
+        assert isinstance(r, InteractionRuntimeUnavailableError)
+        assert r.code == ERR_TASK_SETTLEMENT_TIMEOUT
+        
+    release.set()
+    await supervisor.close()
+    assert (await supervisor.health()).state is InteractionRuntimeState.CLOSED
+
+
+@pytest.mark.asyncio
+async def test_cancelled_close_caller_does_not_cancel_shared_close() -> None:
+    fake = _FakeKillProcess()
+    class _FakeProcessSupervisor(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+            
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeProcessSupervisor(config)
+    await supervisor.start()
+    
+    caller1 = asyncio.create_task(supervisor.close())
+    caller2 = asyncio.create_task(supervisor.close())
+    
+    await asyncio.sleep(0)
+    caller1.cancel()
+    
+    with pytest.raises(asyncio.CancelledError):
+        await caller1
+        
+    await caller2
+    
+    assert (await supervisor.health()).state is InteractionRuntimeState.CLOSED
+    assert not any(not t.done() for t in supervisor._tasks)  # noqa: SLF001

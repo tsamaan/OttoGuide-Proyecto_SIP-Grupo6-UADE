@@ -264,12 +264,28 @@
         "NORMAL_CLOSE_SETTLEMENT_TIMEOUT_RETAINS_MECHANICAL_TERMINATION",
         "CLOSE_SETTLEMENT_TIMEOUT_MARKS_CLOSED_AND_PREVENTS_RETRY"
       ]
+    },
+    "U3AR5_AUDIT": {
+      "result": "REJECTED_PARTIAL_REMEDIATION",
+      "outstanding_defects_carried_to_u3ar6": [
+        "EMERGENCY_STOP_CAN_BE_OVERWRITTEN_BY_CLOSE_TERMINATE_OR_CLOSE_KILL",
+        "UNEXPECTED_EXIT_IS_NOT_CLASSIFIED_AS_A_REAL_PRIMARY_TERMINATION_REASON",
+        "CONCURRENT_CLOSE_CALLERS_ARE_NOT_SERIALIZED"
+      ]
+    },
+    "U3AR6_REMEDIATION": {
+      "result": "U3AR6_PRIMARY_REASON_AND_CLOSE_SERIALIZATION_CLOSED",
+      "closed_defects": [
+        "EMERGENCY_STOP_CAN_BE_OVERWRITTEN_BY_CLOSE_TERMINATE_OR_CLOSE_KILL",
+        "UNEXPECTED_EXIT_IS_NOT_CLASSIFIED_AS_A_REAL_PRIMARY_TERMINATION_REASON",
+        "CONCURRENT_CLOSE_CALLERS_ARE_NOT_SERIALIZED"
+      ]
     }
   },
   "current_write_stage": {
-    "stage": "U3AR5",
+    "stage": "U3AR6",
     "status": "COMPLETED_AT_DYNAMIC_CHECKPOINT",
-    "commit_message": "fix(interaction): make close settlement retryable"
+    "commit_message": "fix(interaction): serialize close and preserve primary termination reasons"
   },
   "known_test_baseline": {
     "python": "3.10.11",

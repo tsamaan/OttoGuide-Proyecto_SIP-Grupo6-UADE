@@ -61,8 +61,14 @@ _REAL_PRIMARY_TERMINATION_REASONS = frozenset(
         "EVENT_QUEUE_OVERFLOW",
         "COMMAND_ACK_BACKPRESSURE",
         "EMERGENCY_STOP",
+        "UNEXPECTED_EXIT",
     }
 )
+
+def _is_real_primary_termination(termination: WorkerTermination | None) -> bool:
+    if termination is None:
+        return False
+    return termination.reason in _REAL_PRIMARY_TERMINATION_REASONS
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +162,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         self._pending_commands: dict[str, tuple[WorkerCommandType, str | None]] = {}
         self._cleanup_task: asyncio.Task[None] | None = None
         self._owned_task_cancel_timeout_s = 2.0
+        self._close_task: asyncio.Task[None] | None = None
 
     @property
     def termination(self) -> WorkerTermination | None:
@@ -380,6 +387,17 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
     async def close(self) -> None:
         if self._state == InteractionRuntimeState.CLOSED:
             return
+        if self._close_task is not None and self._close_task.done():
+            exc = self._close_task.exception()
+            if isinstance(exc, InteractionRuntimeUnavailableError) and exc.code == ERR_TASK_SETTLEMENT_TIMEOUT:
+                self._close_task = None
+
+        if self._close_task is None:
+            self._close_task = asyncio.create_task(self._close_impl(), name="interaction-jsonl-close")
+
+        await asyncio.shield(self._close_task)
+
+    async def _close_impl(self) -> None:
         self._closing = True
         self._ready = False
         # If a failure-path cleanup is already in flight, let it finish first
@@ -411,7 +429,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         # overwritten by the mechanical CLOSE_TERMINATE/CLOSE_KILL escalation
         # below. CLOSE_TERMINATE/CLOSE_KILL only apply when close() itself is
         # the one establishing the termination from a non-failed state.
-        had_primary_failure_reason = self._termination is not None and self._termination.unexpected
+        had_primary_failure_reason = _is_real_primary_termination(self._termination)
         escalation: str | None = None
         try:
             if self._process.returncode is None and not self._emergency_latched and not had_primary_failure_reason:
@@ -454,7 +472,8 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                         protocol_error_code=self._termination.protocol_error_code,
                     )
             elif escalation is not None:
-                self._record_termination(reason=escalation, unexpected=False, exit_code=final_exit_code)
+                reason_to_record = "EMERGENCY_STOP" if self._emergency_latched else escalation
+                self._record_termination(reason=reason_to_record, unexpected=False, exit_code=final_exit_code)
             elif self._termination is None:
                 reason = "EMERGENCY_STOP" if self._emergency_latched else "GRACEFUL_CLOSE"
                 self._record_termination(reason=reason, unexpected=False, exit_code=final_exit_code)
@@ -1044,10 +1063,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         pending = ", ".join(settlement.pending_task_names)
         message = f"owned task settlement timed out; pending tasks: {pending}"
         self._last_error = message
-        if (
-            self._termination is None
-            or self._termination.reason not in _REAL_PRIMARY_TERMINATION_REASONS
-        ):
+        if not _is_real_primary_termination(self._termination):
             self._record_termination(
                 reason=TASK_SETTLEMENT_TIMEOUT,
                 unexpected=True,
