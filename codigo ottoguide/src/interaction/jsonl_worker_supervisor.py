@@ -51,6 +51,18 @@ from src.interaction.worker_supervisor import InteractionWorkerSupervisor, Worke
 
 _STDOUT_READ_CHUNK_BYTES = 65536
 TASK_SETTLEMENT_TIMEOUT = "TASK_SETTLEMENT_TIMEOUT"
+_REAL_PRIMARY_TERMINATION_REASONS = frozenset(
+    {
+        "PROCESS_FAILED_EVENT",
+        "PROTOCOL_FAILURE",
+        "HEARTBEAT_TIMEOUT",
+        "STARTUP_TIMEOUT",
+        "WRITE_FAILURE",
+        "EVENT_QUEUE_OVERFLOW",
+        "COMMAND_ACK_BACKPRESSURE",
+        "EMERGENCY_STOP",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -428,7 +440,6 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                         self._process.kill()
                         await self._process.wait()
         finally:
-            self._state = InteractionRuntimeState.CLOSED
             final_exit_code = self._process.returncode if self._process is not None else None
             if had_primary_failure_reason:
                 # Only backfill exit_code/protocol_error_code; the primary
@@ -460,6 +471,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             await self._let_event_loop_close_subprocess_transports()
             if task_settlement.timed_out:
                 self._raise_task_settlement_timeout(task_settlement)
+            self._state = InteractionRuntimeState.CLOSED
 
     async def _let_event_loop_close_subprocess_transports(self) -> None:
         """Idempotent, centralized hook for deterministic subprocess
@@ -1032,7 +1044,10 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         pending = ", ".join(settlement.pending_task_names)
         message = f"owned task settlement timed out; pending tasks: {pending}"
         self._last_error = message
-        if self._termination is None:
+        if (
+            self._termination is None
+            or self._termination.reason not in _REAL_PRIMARY_TERMINATION_REASONS
+        ):
             self._record_termination(
                 reason=TASK_SETTLEMENT_TIMEOUT,
                 unexpected=True,

@@ -150,7 +150,8 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U3AR1` | `fa877e5693f66086731d849383072e0b16f22931` | `fix(interaction): preserve supervisor terminal invariants` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
 | `U3AR2` | `6d5594601603edba4b069261357a5838921da1b0` | `fix(interaction): close supervisor lifecycle gaps` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
 | `U3AR3` | `ce0d69b2a8e4aa1026e71bb20a4dcd504e543074` | `fix(interaction): bound command ledger and own cleanup` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
-| `U3AR4` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(interaction): enforce terminal enqueue and task settlement` |
+| `U3AR4` | `3b1d9d4e39e5bbc5fea56b52d1d3a483b5ef8e78` | `fix(interaction): enforce terminal enqueue and task settlement` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
+| `U3AR5` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(interaction): make close settlement retryable` |
 
 El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.
 
@@ -338,9 +339,28 @@ Restricciones vigentes (no modificadas por `U3AR4`):
 - No existe validacion HIL.
 - `U3A`/`U3AR1`/`U3AR2`/`U3AR3`/`U3AR4` no estan conectados a `TourOrchestrator`; esa integracion corresponde a `U3B`.
 
+**Auditoria posterior (`U3AR4_AUDIT`): `REJECTED_PARTIAL_REMEDIATION`.** Una revision focal posterior encontro dos defectos residuales en `close()`: un timeout de settlement durante cierre normal conservaba una terminacion mecanica (`GRACEFUL_CLOSE`, `CLOSE_TERMINATE` o `CLOSE_KILL`) en vez de promover `TASK_SETTLEMENT_TIMEOUT` como causa primaria; y el supervisor marcaba `CLOSED` antes de confirmar que todas las tareas propias se habian asentado, impidiendo un reintento publico de `close()` tras liberar una tarea no cooperativa.
+
+### 12.6 Estado U3AR5
+
+`U3AR5` cierra los defectos residuales de clasificacion y retry del settlement de cierre:
+
+- Un timeout de settlement en cierre normal ahora registra `TASK_SETTLEMENT_TIMEOUT`, `unexpected=True` y `ERR_TASK_SETTLEMENT_TIMEOUT` como causa primaria, preservando el exit code.
+- Las causas primarias reales previas (`PROCESS_FAILED_EVENT`, `PROTOCOL_FAILURE`, `HEARTBEAT_TIMEOUT`, `STARTUP_TIMEOUT`, `WRITE_FAILURE`, `EVENT_QUEUE_OVERFLOW`, `COMMAND_ACK_BACKPRESSURE` y `EMERGENCY_STOP`) se preservan ante un settlement incompleto posterior.
+- `close()` solo marca `CLOSED` despues de que el child termino, el event stream fue senalizado, el transporte se finalizo y las tareas propias se asentaron.
+- Si quedan tareas propias vivas, `close()` lanza `ERR_TASK_SETTLEMENT_TIMEOUT`, deja el runtime no cerrado y permite que una segunda llamada publica a `close()` complete el settlement tras liberar la tarea no cooperativa, sin respawn ni escaladas de proceso innecesarias.
+
+Restricciones vigentes (no modificadas por `U3AR5`):
+
+- Solo existe worker loopback falso.
+- No existe worker real CXX17 implementado.
+- No existe audio real implementado.
+- No existe validacion HIL.
+- `U3A`/`U3AR1`/`U3AR2`/`U3AR3`/`U3AR4`/`U3AR5` no estan conectados a `TourOrchestrator`; esa integracion corresponde a `U3B`.
+
 ## 13. Baseline de pruebas
 
-Proveniencia: `U3AR4`, ejecucion real posterior al cierre de la atomicidad terminal de enqueue y el settlement formal de tareas propias del supervisor JSONL (dos corridas completas de `tests/` con el `PINNED_PYTHON` de la etapa). Sustituye el baseline previo de `U3AR3`, que dejaba defectos residuales de atomicidad y settlement.
+Proveniencia: `U3AR5`, ejecucion real posterior al cierre de la clasificacion y retry de settlement de `close()` del supervisor JSONL (una corrida completa de `tests/` con el `PINNED_PYTHON` de la etapa). Sustituye el baseline previo de `U3AR4`, que dejaba defectos residuales de cierre reintentable.
 
 ```text
 Python = 3.10.11
@@ -349,8 +369,8 @@ pytest-asyncio = 1.3.0
 FastAPI = 0.118.2
 httpx = 0.28.1
 NumPy = 2.2.6
-WITNESS = 42 passed
-FULL_SUITE = 1120 passed, 7 failed, 109 skipped, 67 subtests passed
+WITNESS = 50 passed
+FULL_SUITE = 1128 passed, 7 failed, 109 skipped, 67 subtests passed
 KNOWN_TEST_DEBT = ORDER_DEPENDENT_SYS_MODULES_IDENTITY
 FULL_SUITE_GREEN = NO
 FULL_SUITE_RESULT = FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS

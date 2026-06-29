@@ -17,6 +17,7 @@ from src.interaction.runtime_port import (
     ERR_FRAMING,
     ERR_LINE_TOO_LARGE,
     ERR_STATE,
+    ERR_TASK_SETTLEMENT_TIMEOUT,
     INTERACTION_PROTOCOL_VERSION,
     InteractionContext,
     InteractionRuntimeProtocolError,
@@ -1704,12 +1705,225 @@ class _AlreadyExitedProcess:
         pass
 
 
+class _CountingExitedProcess(_AlreadyExitedProcess):
+    def __init__(self, *, returncode: int = 0) -> None:
+        super().__init__()
+        self.returncode = returncode
+        self.terminate_calls = 0
+        self.kill_calls = 0
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+
+
 async def _stubborn_owned_task(release: asyncio.Event) -> None:
     try:
         await asyncio.Future()
     except asyncio.CancelledError:
         await release.wait()
         raise
+
+
+def _supervisor_with_stubborn_close_task(
+    *,
+    state: InteractionRuntimeState = InteractionRuntimeState.READY,
+    task_name: str = "interaction-jsonl-stubborn-retry",
+    returncode: int = 0,
+) -> tuple[JsonlInteractionWorkerSupervisor, _CountingExitedProcess, asyncio.Event]:
+    supervisor = _bare_supervisor_for_enqueue(state=state)
+    process = _CountingExitedProcess(returncode=returncode)
+    supervisor._process = process  # type: ignore[assignment]  # noqa: SLF001
+    supervisor._owned_task_cancel_timeout_s = 0.05  # noqa: SLF001
+    release = asyncio.Event()
+    stubborn = asyncio.create_task(_stubborn_owned_task(release), name=task_name)
+    supervisor._tasks.add(stubborn)  # noqa: SLF001
+    stubborn.add_done_callback(supervisor._tasks.discard)  # noqa: SLF001
+    return supervisor, process, release
+
+
+async def _cleanup_stubborn_supervisor(
+    supervisor: JsonlInteractionWorkerSupervisor,
+    release: asyncio.Event,
+) -> None:
+    release.set()
+    for task in list(supervisor._tasks):  # noqa: SLF001
+        task.cancel()
+    await asyncio.gather(*list(supervisor._tasks), return_exceptions=True)  # noqa: SLF001
+    if (await supervisor.health()).state is not InteractionRuntimeState.CLOSED:
+        try:
+            await supervisor.close()
+        except InteractionRuntimeUnavailableError:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_normal_close_settlement_timeout_becomes_primary_termination() -> None:
+    supervisor, _process, release = _supervisor_with_stubborn_close_task(
+        task_name="interaction-jsonl-stubborn-primary"
+    )
+    await asyncio.sleep(0)
+    try:
+        with pytest.raises(InteractionRuntimeUnavailableError) as excinfo:
+            await supervisor.close()
+        assert excinfo.value.code == ERR_TASK_SETTLEMENT_TIMEOUT
+        assert supervisor.termination is not None
+        assert supervisor.termination.reason == "TASK_SETTLEMENT_TIMEOUT"
+        assert supervisor.termination.unexpected is True
+        assert supervisor.termination.protocol_error_code == ERR_TASK_SETTLEMENT_TIMEOUT
+    finally:
+        await _cleanup_stubborn_supervisor(supervisor, release)
+
+
+@pytest.mark.asyncio
+async def test_close_settlement_timeout_does_not_mark_runtime_closed() -> None:
+    supervisor, _process, release = _supervisor_with_stubborn_close_task(
+        task_name="interaction-jsonl-stubborn-not-closed"
+    )
+    await asyncio.sleep(0)
+    try:
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.close()
+        health = await supervisor.health()
+        assert health.state is not InteractionRuntimeState.CLOSED
+        assert health.ready is False
+        assert supervisor._event_stream_terminal.is_set()  # noqa: SLF001
+    finally:
+        await _cleanup_stubborn_supervisor(supervisor, release)
+
+
+@pytest.mark.asyncio
+async def test_close_settlement_timeout_is_retryable_after_task_release() -> None:
+    supervisor, _process, release = _supervisor_with_stubborn_close_task(
+        task_name="interaction-jsonl-stubborn-retry-public"
+    )
+    await asyncio.sleep(0)
+    try:
+        with pytest.raises(InteractionRuntimeUnavailableError) as excinfo:
+            await supervisor.close()
+        assert excinfo.value.code == ERR_TASK_SETTLEMENT_TIMEOUT
+        release.set()
+        await supervisor.close()
+        assert (await supervisor.health()).state is InteractionRuntimeState.CLOSED
+        assert not supervisor._tasks  # noqa: SLF001
+    finally:
+        await _cleanup_stubborn_supervisor(supervisor, release)
+
+
+@pytest.mark.asyncio
+async def test_second_close_retries_settlement_without_manual_task_discard() -> None:
+    supervisor, _process, release = _supervisor_with_stubborn_close_task(
+        task_name="interaction-jsonl-stubborn-auto-discard"
+    )
+    await asyncio.sleep(0)
+    try:
+        with pytest.raises(InteractionRuntimeUnavailableError) as excinfo:
+            await supervisor.close()
+        assert "interaction-jsonl-stubborn-auto-discard" in str(excinfo.value)
+        assert any(
+            task.get_name() == "interaction-jsonl-stubborn-auto-discard"
+            for task in supervisor._tasks  # noqa: SLF001
+        )
+        release.set()
+        await supervisor.close()
+        assert not supervisor._tasks  # noqa: SLF001
+    finally:
+        await _cleanup_stubborn_supervisor(supervisor, release)
+
+
+@pytest.mark.asyncio
+async def test_second_close_does_not_repeat_process_escalation() -> None:
+    supervisor, process, release = _supervisor_with_stubborn_close_task(
+        task_name="interaction-jsonl-stubborn-no-extra-escalation",
+        returncode=23,
+    )
+    process_id = id(process)
+    await asyncio.sleep(0)
+    try:
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.close()
+        terminate_after_first = process.terminate_calls
+        kill_after_first = process.kill_calls
+        release.set()
+        await supervisor.close()
+        assert id(supervisor._process) == process_id  # noqa: SLF001
+        assert process.terminate_calls == terminate_after_first
+        assert process.kill_calls == kill_after_first
+        assert supervisor.termination is not None
+        assert supervisor.termination.exit_code == 23
+        assert not supervisor._tasks  # noqa: SLF001
+    finally:
+        await _cleanup_stubborn_supervisor(supervisor, release)
+
+
+@pytest.mark.asyncio
+async def test_prior_process_failure_reason_survives_close_settlement_timeout() -> None:
+    supervisor, _process, release = _supervisor_with_stubborn_close_task(
+        state=InteractionRuntimeState.FAILED,
+        task_name="interaction-jsonl-stubborn-process-failure",
+    )
+    supervisor._record_termination(  # noqa: SLF001
+        reason="PROCESS_FAILED_EVENT",
+        unexpected=True,
+        exit_code=7,
+    )
+    await asyncio.sleep(0)
+    try:
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.close()
+        assert supervisor.termination is not None
+        assert supervisor.termination.reason == "PROCESS_FAILED_EVENT"
+        assert supervisor.termination.unexpected is True
+    finally:
+        await _cleanup_stubborn_supervisor(supervisor, release)
+
+
+@pytest.mark.asyncio
+async def test_protocol_failure_reason_survives_close_settlement_timeout() -> None:
+    supervisor, _process, release = _supervisor_with_stubborn_close_task(
+        state=InteractionRuntimeState.FAILED,
+        task_name="interaction-jsonl-stubborn-protocol-failure",
+    )
+    supervisor._record_termination(  # noqa: SLF001
+        reason="PROTOCOL_FAILURE",
+        unexpected=True,
+        exit_code=8,
+        protocol_error_code=ERR_FRAMING,
+    )
+    await asyncio.sleep(0)
+    try:
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.close()
+        assert supervisor.termination is not None
+        assert supervisor.termination.reason == "PROTOCOL_FAILURE"
+        assert supervisor.termination.protocol_error_code == ERR_FRAMING
+    finally:
+        await _cleanup_stubborn_supervisor(supervisor, release)
+
+
+@pytest.mark.asyncio
+async def test_emergency_reason_survives_close_settlement_timeout() -> None:
+    supervisor, _process, release = _supervisor_with_stubborn_close_task(
+        state=InteractionRuntimeState.EMERGENCY,
+        task_name="interaction-jsonl-stubborn-emergency",
+    )
+    supervisor._emergency_latched = True  # noqa: SLF001
+    supervisor._record_termination(  # noqa: SLF001
+        reason="EMERGENCY_STOP",
+        unexpected=False,
+        exit_code=9,
+    )
+    await asyncio.sleep(0)
+    try:
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.close()
+        assert supervisor.termination is not None
+        assert supervisor.termination.reason == "EMERGENCY_STOP"
+        assert supervisor.termination.unexpected is False
+    finally:
+        await _cleanup_stubborn_supervisor(supervisor, release)
 
 
 @pytest.mark.asyncio
