@@ -28,7 +28,8 @@ Reglas de lectura:
 ## 3. Repositorio y remotos
 
 - Repositorio mirror: `LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU`.
-- URL mirror publica: `https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git`.
+- URL HTTPS del mirror: `https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git`.
+- El clon requiere autenticacion GitHub cuando el repositorio no sea accesible de forma anonima.
 - Remote permitido para continuidad: `mirror`.
 - Remote prohibido para esta linea de trabajo: `canonical`.
 - Rama autoritativa: `review/orchestrator-unification`.
@@ -36,13 +37,20 @@ Reglas de lectura:
 
 No registrar credenciales, tokens ni secretos en este documento.
 
-## 4. Baseline autoritativo
+## 4. Baseline autoritativo y checkpoint dinamico
 
 ```text
 ACTIVE_BRANCH = review/orchestrator-unification
-ACTIVE_HEAD = 99186ea545f50361556504d0418b68b117b88a2f
-ACTIVE_MESSAGE = test(core): stabilize event module identity
+ACTIVE_REF = mirror/review/orchestrator-unification
+CURRENT_HEAD = DYNAMIC_FROM_ACTIVE_REF
+CURRENT_HEAD_COMMAND = git rev-parse mirror/review/orchestrator-unification
+HANDOFF_CHECKPOINT = DYNAMIC_FROM_FILE_HISTORY
+HANDOFF_CHECKPOINT_COMMAND = git log -1 --format=%H -- docs/Arquitectura/unification-state.json
+GENERATION_BASE_HEAD = bf1829d8a7313ec3820f093f460a8b20a823f90a
+GENERATION_BASE_MESSAGE = docs(unification): add portable branch handoff
 ```
+
+`GENERATION_BASE_HEAD` es el HEAD desde el cual se preparo esta correccion, no el SHA del commit que contiene la correccion. El HEAD actual y el checkpoint vigente se resuelven con Git; no se almacena dentro del archivo el SHA del commit que lo contiene.
 
 ## 5. Invariantes arquitectonicos
 
@@ -92,17 +100,23 @@ La genealogia explica procedencia y contexto, pero no autoriza merges completos.
 
 `ahead` y `behind` se expresan como `HEAD...mirror/<branch>` desde `review/orchestrator-unification`: `ahead` = commits solo en la rama autoritativa; `behind` = commits solo en la rama comparada. Para `main`, no hay ancestro comun.
 
+```text
+RELATIONS_SNAPSHOT_AS_OF_HEAD = bf1829d8a7313ec3820f093f460a8b20a823f90a
+```
+
+Los conteos son un snapshot asociado a `RELATIONS_SNAPSHOT_AS_OF_HEAD`; deben recalcularse antes de una nueva decision de integracion.
+
 | branch | head | ahead | behind | domain | status | disposition | integrated_scope | residual_scope | next_review_stage |
 |---|---|---:|---:|---|---|---|---|---|---|
-| `review/orchestrator-unification` | `99186ea545f50361556504d0418b68b117b88a2f` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2 | U3-U6 | U3 |
+| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0 | U3-U6 | U3 |
 | `main` | `3a1f13574e4a27d9aff2bfd38b3659951e8cb264` | N/A | N/A | Snapshot publico huerfano | Sin ancestro comun | `DO_NOT_USE_AS_INTEGRATION_BASE` | Ninguno para continuidad | Solo referencia historica | Ninguno |
-| `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 168 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
-| `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 27 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
-| `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 122 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
-| `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 168 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3 |
-| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 51 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
-| `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 168 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3 |
-| `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 213 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
+| `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 169 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
+| `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 28 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
+| `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 123 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
+| `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 169 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3 |
+| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 52 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
+| `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 169 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3 |
+| `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 214 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
 
 ## 8. DAG de integracion
 
@@ -130,6 +144,9 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U2R2` | `99186ea545f50361556504d0418b68b117b88a2f` | `test(core): stabilize event module identity` |
 | `U2R3` | N/A | `BLOCKED_NO_COMMIT_NOT_ATTRIBUTABLE_TO_U2R2` |
 | `U2R4A_LITE` | N/A | `READ_ONLY_BASELINE_CONFIRMED_NO_COMMIT` |
+| `U3P0` | `bf1829d8a7313ec3820f093f460a8b20a823f90a` | `docs(unification): add portable branch handoff` |
+
+El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.
 
 ## 10. Estado QR
 
@@ -294,7 +311,7 @@ Toda etapa con commit debe actualizar:
 - Claims prohibidos.
 - `NEXT_ACTION`.
 
-Una auditoria read-only no modifica el documento por si misma; la siguiente etapa con escritura incorpora su resultado al handoff y al JSON.
+Despues del commit, el checkpoint dinamico debe coincidir con el HEAD remoto. No almacenar el HEAD actual dentro del propio archivo; el SHA del commit se obtiene mediante Git. Los commits anteriores si pueden incorporarse al ledger porque sus SHA ya son estables. Una auditoria read-only no modifica el documento por si misma ni crea checkpoint nuevo; la siguiente etapa con escritura incorpora su resultado al handoff y al JSON.
 
 ## 20. Claims prohibidos
 

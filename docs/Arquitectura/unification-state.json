@@ -1,13 +1,27 @@
 {
-  "schema_version": 1,
-  "updated_at": "2026-06-29T00:23:22Z",
+  "schema_version": 2,
+  "updated_at": "2026-06-29T00:49:09Z",
   "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "remote_authority": "mirror",
   "canonical_access": "prohibited",
   "active_branch": "review/orchestrator-unification",
-  "active_head": "99186ea545f50361556504d0418b68b117b88a2f",
-  "active_message": "test(core): stabilize event module identity",
+  "active_ref": "mirror/review/orchestrator-unification",
+  "head_resolution": {
+    "mode": "dynamic_git_ref",
+    "command": "git rev-parse mirror/review/orchestrator-unification",
+    "embedded_current_head_prohibited": true
+  },
+  "checkpoint_resolution": {
+    "mode": "latest_commit_touching_state_file",
+    "command": "git log -1 --format=%H -- docs/Arquitectura/unification-state.json",
+    "must_equal_active_head_at_completed_write_stage": true,
+    "must_be_ancestor_of_active_head": true
+  },
+  "generation_base": {
+    "head": "bf1829d8a7313ec3820f093f460a8b20a823f90a",
+    "message": "docs(unification): add portable branch handoff"
+  },
   "source_heads": {
     "main": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
     "desarrollo": "aafb7ad1565caced974b98bfdd6b5320901f49c8",
@@ -18,45 +32,48 @@
     "teo": "b67d16624f703885f604993fef0d2920227daeba",
     "echezuria": "28c1220325ac94a342d55788eb0f02e40dece941"
   },
-  "branch_relations": {
-    "main": {
-      "merge_base": "NO_COMMON_ANCESTOR",
-      "disposition": "DO_NOT_USE_AS_INTEGRATION_BASE"
-    },
-    "robot": {
-      "ahead": 27,
-      "behind": 9,
-      "disposition": "U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED"
-    },
-    "feature/erirobot": {
-      "ahead": 122,
-      "behind": 4,
-      "disposition": "U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED"
-    },
-    "InteraccionIA": {
-      "ahead": 168,
-      "behind": 6,
-      "disposition": "U3_SELECTIVE_TECHNICAL_SOURCE"
-    },
-    "pilar-web": {
-      "ahead": 51,
-      "behind": 1,
-      "disposition": "FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED"
-    },
-    "desarrollo": {
-      "ahead": 168,
-      "behind": 0,
-      "disposition": "ANCESTOR_NO_PENDING_DELTA"
-    },
-    "teo": {
-      "ahead": 168,
-      "behind": 4,
-      "disposition": "HISTORICAL_INTERACTION_REFERENCE"
-    },
-    "echezuria": {
-      "ahead": 213,
-      "behind": 10,
-      "disposition": "HISTORICAL_PHYSICAL_REFERENCE"
+  "branch_relations_snapshot": {
+    "as_of_head": "bf1829d8a7313ec3820f093f460a8b20a823f90a",
+    "relations": {
+      "main": {
+        "merge_base": "NO_COMMON_ANCESTOR",
+        "disposition": "DO_NOT_USE_AS_INTEGRATION_BASE"
+      },
+      "desarrollo": {
+        "ahead": 169,
+        "behind": 0,
+        "disposition": "ANCESTOR_NO_PENDING_DELTA"
+      },
+      "robot": {
+        "ahead": 28,
+        "behind": 9,
+        "disposition": "U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED"
+      },
+      "feature/erirobot": {
+        "ahead": 123,
+        "behind": 4,
+        "disposition": "U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED"
+      },
+      "InteraccionIA": {
+        "ahead": 169,
+        "behind": 6,
+        "disposition": "U3_SELECTIVE_TECHNICAL_SOURCE"
+      },
+      "pilar-web": {
+        "ahead": 52,
+        "behind": 1,
+        "disposition": "FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED"
+      },
+      "teo": {
+        "ahead": 169,
+        "behind": 4,
+        "disposition": "HISTORICAL_INTERACTION_REFERENCE"
+      },
+      "echezuria": {
+        "ahead": 214,
+        "behind": 10,
+        "disposition": "HISTORICAL_PHYSICAL_REFERENCE"
+      }
     }
   },
   "architecture": {
@@ -100,6 +117,10 @@
     "U2R2": {
       "commit": "99186ea545f50361556504d0418b68b117b88a2f",
       "message": "test(core): stabilize event module identity"
+    },
+    "U3P0": {
+      "commit": "bf1829d8a7313ec3820f093f460a8b20a823f90a",
+      "message": "docs(unification): add portable branch handoff"
     }
   },
   "read_only_gates": {

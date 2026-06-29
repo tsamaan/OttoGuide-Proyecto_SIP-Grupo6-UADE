@@ -31,8 +31,12 @@ El análisis de funcionalidades integradas, wiring del orquestador y tests pendi
 ## Continuidad de unificación
 
 - Leer `docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md` antes de cualquier tarea de unificación.
-- Validar `docs/Arquitectura/unification-state.json` contra el `HEAD` activo antes de continuar una etapa.
+- Resolver el HEAD activo con `git rev-parse mirror/review/orchestrator-unification`.
+- Resolver el checkpoint del handoff con `git log -1 --format=%H -- docs/Arquitectura/unification-state.json`.
+- Al cierre de una etapa con escritura correctamente documentada, el checkpoint del handoff debe coincidir con el HEAD activo.
+- Nunca exigir que `unification-state.json` contenga el SHA del mismo commit que contiene el JSON.
 - Actualizar el handoff Markdown y `unification-state.json` en cada etapa de unificación con escritura.
+- Una auditoría read-only no modifica el handoff.
 - No depender de carpetas locales de ramas para reconstruir contexto; usar refs de `mirror`.
 - Inspeccionar ramas laterales mediante `git show`, `git diff` o `git log` contra refs `mirror/<branch>`.
 - No convertir `audit-reports/` externos en fuente autoritativa sin resumir sus resultados en documentación versionada.
