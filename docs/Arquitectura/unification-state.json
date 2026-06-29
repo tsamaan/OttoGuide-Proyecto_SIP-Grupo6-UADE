@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-06-29T20:52:18Z",
+  "updated_at": "2026-06-29T21:30:00Z",
   "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "remote_authority": "mirror",
@@ -33,44 +33,44 @@
     "echezuria": "28c1220325ac94a342d55788eb0f02e40dece941"
   },
   "branch_relations_snapshot": {
-    "as_of_head": "6d5594601603edba4b069261357a5838921da1b0",
+    "as_of_head": "ce0d69b2a8e4aa1026e71bb20a4dcd504e543074",
     "relations": {
       "main": {
         "merge_base": "NO_COMMON_ANCESTOR",
         "disposition": "DO_NOT_USE_AS_INTEGRATION_BASE"
       },
       "desarrollo": {
-        "ahead": 173,
+        "ahead": 174,
         "behind": 0,
         "disposition": "ANCESTOR_NO_PENDING_DELTA"
       },
       "robot": {
-        "ahead": 32,
+        "ahead": 33,
         "behind": 9,
         "disposition": "U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED"
       },
       "feature/erirobot": {
-        "ahead": 127,
+        "ahead": 128,
         "behind": 4,
         "disposition": "U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED"
       },
       "InteraccionIA": {
-        "ahead": 173,
+        "ahead": 174,
         "behind": 6,
         "disposition": "U3_SELECTIVE_TECHNICAL_SOURCE"
       },
       "pilar-web": {
-        "ahead": 56,
+        "ahead": 57,
         "behind": 1,
         "disposition": "FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED"
       },
       "teo": {
-        "ahead": 173,
+        "ahead": 174,
         "behind": 4,
         "disposition": "HISTORICAL_INTERACTION_REFERENCE"
       },
       "echezuria": {
-        "ahead": 218,
+        "ahead": 219,
         "behind": 10,
         "disposition": "HISTORICAL_PHYSICAL_REFERENCE"
       }
@@ -134,6 +134,10 @@
     "U3AR2": {
       "commit": "6d5594601603edba4b069261357a5838921da1b0",
       "message": "fix(interaction): close supervisor lifecycle gaps"
+    },
+    "U3AR3": {
+      "commit": "ce0d69b2a8e4aa1026e71bb20a4dcd504e543074",
+      "message": "fix(interaction): bound command ledger and own cleanup"
     }
   },
   "read_only_gates": {
@@ -224,12 +228,30 @@
         "TRANSPORT_WORKAROUND_NOT_PLATFORM_SCOPED",
         "DOCUMENTATION_OVERSTATES_U3AR2_COMPLETION"
       ]
+    },
+    "U3AR3_AUDIT": {
+      "result": "REJECTED_PARTIAL_REMEDIATION",
+      "outstanding_defects_carried_to_u3ar4": [
+        "TERMINAL_STATE_NOT_RECHECKED_UNDER_COMMAND_LOCK",
+        "QUEUE_FULL_CONSUMES_OUTGOING_SEQUENCE",
+        "OWNED_TASK_SETTLEMENT_TIMEOUT_RETURNS_AS_SUCCESS",
+        "ERR_TERMINAL_STATE_NOT_CANONICAL"
+      ]
+    },
+    "U3AR4_REMEDIATION": {
+      "result": "U3AR4_TERMINAL_ATOMICITY_AND_TASK_SETTLEMENT_CLOSED",
+      "closed_defects": [
+        "TERMINAL_STATE_NOT_RECHECKED_UNDER_COMMAND_LOCK",
+        "QUEUE_FULL_CONSUMES_OUTGOING_SEQUENCE",
+        "OWNED_TASK_SETTLEMENT_TIMEOUT_RETURNS_AS_SUCCESS",
+        "ERR_TERMINAL_STATE_NOT_CANONICAL"
+      ]
     }
   },
   "current_write_stage": {
-    "stage": "U3AR3",
+    "stage": "U3AR4",
     "status": "COMPLETED_AT_DYNAMIC_CHECKPOINT",
-    "commit_message": "fix(interaction): bound command ledger and own cleanup"
+    "commit_message": "fix(interaction): enforce terminal enqueue and task settlement"
   },
   "known_test_baseline": {
     "python": "3.10.11",
@@ -240,11 +262,11 @@
     "numpy": "2.2.6",
     "requirements_prod_numpy": "2.3.3",
     "witness": {
-      "passed": 34,
+      "passed": 42,
       "failed": 0
     },
     "full_suite": {
-      "passed": 1112,
+      "passed": 1120,
       "failed": 7,
       "skipped": 109,
       "subtests_passed": 67,
@@ -265,7 +287,7 @@
     "ORDER_DEPENDENT_SYS_MODULES_IDENTITY",
     "QR_ONLY_STILL_INITIALIZES_ARUCO_AND_U2R1_CAPTURE_LOOP_TEST_IS_PARTIALLY_STRUCTURAL",
     "REAL_CAMERA_AND_QR_RELIABILITY_PENDING",
-    "U3A_U3AR1_U3AR2_U3AR3_NOT_WIRED_TO_ORCHESTRATOR",
+    "U3A_U3AR1_U3AR2_U3AR3_U3AR4_NOT_WIRED_TO_ORCHESTRATOR",
     "REAL_CXX17_WORKER_NOT_IMPLEMENTED",
     "REAL_AUDIO_AND_HIL_PENDING"
   ],
@@ -280,6 +302,7 @@
     "PLAYSTOP_VALIDATED_IN_CURRENT_HEAD",
     "FULL_SUITE_GREEN",
     "U3_IMPLEMENTED",
+    "U3B_IMPLEMENTED",
     "UNIFICATION_COMPLETE"
   ],
   "next_action": "IMPLEMENT_U3B_ORCHESTRATOR_INTERACTION_LIFECYCLE_V1"

@@ -101,22 +101,22 @@ La genealogia explica procedencia y contexto, pero no autoriza merges completos.
 `ahead` y `behind` se expresan como `HEAD...mirror/<branch>` desde `review/orchestrator-unification`: `ahead` = commits solo en la rama autoritativa; `behind` = commits solo en la rama comparada. Para `main`, no hay ancestro comun.
 
 ```text
-RELATIONS_SNAPSHOT_AS_OF_HEAD = 6d5594601603edba4b069261357a5838921da1b0
+RELATIONS_SNAPSHOT_AS_OF_HEAD = ce0d69b2a8e4aa1026e71bb20a4dcd504e543074
 ```
 
 Los conteos son un snapshot asociado a `RELATIONS_SNAPSHOT_AS_OF_HEAD`; deben recalcularse antes de una nueva decision de integracion.
 
 | branch | head | ahead | behind | domain | status | disposition | integrated_scope | residual_scope | next_review_stage |
 |---|---|---:|---:|---|---|---|---|---|---|
-| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1, U3AR2, U3AR3 | U3B-U6 | U3B |
+| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1, U3AR2, U3AR3, U3AR4 | U3B-U6 | U3B |
 | `main` | `3a1f13574e4a27d9aff2bfd38b3659951e8cb264` | N/A | N/A | Snapshot publico huerfano | Sin ancestro comun | `DO_NOT_USE_AS_INTEGRATION_BASE` | Ninguno para continuidad | Solo referencia historica | Ninguno |
-| `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 173 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
-| `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 32 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
-| `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 127 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
-| `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 173 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3B |
-| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 56 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
-| `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 173 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3B |
-| `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 218 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
+| `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 174 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
+| `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 33 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
+| `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 128 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
+| `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 174 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3B |
+| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 57 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
+| `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 174 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3B |
+| `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 219 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
 
 ## 8. DAG de integracion
 
@@ -149,7 +149,8 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U3A` | `3ecc93f1a31ecc8e5e5de32414db0fcb0c37b2ae` | `feat(interaction): add strict loopback worker supervisor` |
 | `U3AR1` | `fa877e5693f66086731d849383072e0b16f22931` | `fix(interaction): preserve supervisor terminal invariants` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
 | `U3AR2` | `6d5594601603edba4b069261357a5838921da1b0` | `fix(interaction): close supervisor lifecycle gaps` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
-| `U3AR3` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(interaction): bound command ledger and own cleanup` |
+| `U3AR3` | `ce0d69b2a8e4aa1026e71bb20a4dcd504e543074` | `fix(interaction): bound command ledger and own cleanup` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
+| `U3AR4` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(interaction): enforce terminal enqueue and task settlement` |
 
 El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.
 
@@ -317,9 +318,29 @@ Restricciones vigentes (no modificadas por `U3AR3`):
 - No existe validacion HIL.
 - `U3A`/`U3AR1`/`U3AR2`/`U3AR3` no estan conectados a `TourOrchestrator`; esa integracion corresponde a `U3B`.
 
+**Auditoria posterior (`U3AR3_AUDIT`): `REJECTED_PARTIAL_REMEDIATION`.** Una revision focal posterior encontro cuatro defectos residuales en la implementacion real de `U3AR3`: `_enqueue_command()` no revalidaba FAILED/CLOSED/EMERGENCY/CLOSING despues de adquirir `_command_lock`; un rechazo por `ERR_QUEUE_FULL` consumia `_outgoing_sequence`; `_cancel_tasks()` podia agotar su deadline, registrar `_last_error` y retornar como si el settlement fuera completo; y `ERR_TERMINAL_STATE` se exponia como literal no canonico. Estos defectos quedaron registrados como `outstanding_defects_carried_to_u3ar4` en `unification-state.json`.
+
+### 12.5 Estado U3AR4
+
+`U3AR4` cierra la atomicidad terminal residual de enqueue y el settlement formal de tareas propias del supervisor JSONL. En particular:
+
+- `_enqueue_command()` revalida `CLOSED`, `FAILED`, `EMERGENCY` y `CLOSING` dentro de `_command_lock`, inmediatamente antes de mutar cola, secuencia o ledger.
+- La secuencia saliente solo avanza despues de un `queue.put_nowait()` exitoso; rechazos por cola llena, limite de pendientes, cierre, emergencia o terminalidad no consumen secuencia ni registran pending commands.
+- `ERR_TERMINAL_STATE`, `ERR_QUEUE_FULL`, `ERR_CLOSING`, `ERR_EMERGENCY` y `ERR_TASK_SETTLEMENT_TIMEOUT` forman parte del contrato canonico en `runtime_port.py`.
+- `_cancel_tasks()` devuelve un settlement explicito con nombres asentados, cancelados y pendientes; `start()` y `close()` no reportan exito limpio si quedan tareas propias vivas tras el deadline.
+- La categoria estable `TASK_SETTLEMENT_TIMEOUT` solo se usa como razon primaria cuando no hay una causa primaria previa; fallos como `PROCESS_FAILED_EVENT`, `PROTOCOL_FAILURE`, `HEARTBEAT_TIMEOUT` o `STARTUP_TIMEOUT` se preservan y el settlement incompleto queda como error secundario.
+
+Restricciones vigentes (no modificadas por `U3AR4`):
+
+- Solo existe worker loopback falso.
+- No existe worker real CXX17 implementado.
+- No existe audio real implementado.
+- No existe validacion HIL.
+- `U3A`/`U3AR1`/`U3AR2`/`U3AR3`/`U3AR4` no estan conectados a `TourOrchestrator`; esa integracion corresponde a `U3B`.
+
 ## 13. Baseline de pruebas
 
-Proveniencia: `U3AR3`, ejecucion real posterior al cierre de los gaps residuales de ledger de comandos y ownership del cleanup del supervisor JSONL (dos corridas completas de `tests/` con el `PINNED_PYTHON` de la etapa). Sustituye el baseline previo de `U3AR2`, que documentaba gaps como cerrados sin evidencia real.
+Proveniencia: `U3AR4`, ejecucion real posterior al cierre de la atomicidad terminal de enqueue y el settlement formal de tareas propias del supervisor JSONL (dos corridas completas de `tests/` con el `PINNED_PYTHON` de la etapa). Sustituye el baseline previo de `U3AR3`, que dejaba defectos residuales de atomicidad y settlement.
 
 ```text
 Python = 3.10.11
@@ -328,8 +349,8 @@ pytest-asyncio = 1.3.0
 FastAPI = 0.118.2
 httpx = 0.28.1
 NumPy = 2.2.6
-WITNESS = 34 passed
-FULL_SUITE = 1112 passed, 7 failed, 109 skipped, 67 subtests passed
+WITNESS = 42 passed
+FULL_SUITE = 1120 passed, 7 failed, 109 skipped, 67 subtests passed
 KNOWN_TEST_DEBT = ORDER_DEPENDENT_SYS_MODULES_IDENTITY
 FULL_SUITE_GREEN = NO
 FULL_SUITE_RESULT = FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS
@@ -463,6 +484,7 @@ No afirmar:
 - `PLAYSTOP_VALIDATED_IN_CURRENT_HEAD`
 - `FULL_SUITE_GREEN`
 - `U3_IMPLEMENTED`
+- `U3B_IMPLEMENTED`
 - `UNIFICATION_COMPLETE`
 
 ## 21. Siguiente accion

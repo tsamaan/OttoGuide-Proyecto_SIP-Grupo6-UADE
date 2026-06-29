@@ -206,3 +206,10 @@ def test_custom_mapping_payload_is_rejected_without_invoking_its_methods() -> No
     exploding = ExplodingMapping({"x": 1})
     _raises_code(ERR_TYPE, WorkerCommandEnvelope.from_wire_dict, _command_wire(payload=exploding))
     _raises_code(ERR_TYPE, WorkerEventEnvelope.from_wire_dict, _event_wire(event="heartbeat", payload=exploding))
+
+
+def test_err_terminal_state_is_canonical_constant() -> None:
+    from src.interaction import runtime_port
+
+    assert runtime_port.ERR_TERMINAL_STATE == "ERR_TERMINAL_STATE"
+    assert "ERR_TERMINAL_STATE" in runtime_port.__all__

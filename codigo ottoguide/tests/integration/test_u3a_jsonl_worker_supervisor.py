@@ -56,6 +56,45 @@ def _config(
     )
 
 
+def _bare_supervisor_for_enqueue(
+    *,
+    command_queue_size: int = 4,
+    state: InteractionRuntimeState = InteractionRuntimeState.READY,
+) -> JsonlInteractionWorkerSupervisor:
+    supervisor = JsonlInteractionWorkerSupervisor(
+        _config_with_pending_limit(
+            "normal",
+            max_pending_commands=16,
+            command_queue_size=command_queue_size,
+        )
+    )
+    supervisor._state = state  # noqa: SLF001
+    supervisor._ready = state is InteractionRuntimeState.READY  # noqa: SLF001
+    supervisor._command_queue = asyncio.Queue(maxsize=command_queue_size)  # noqa: SLF001
+    supervisor._event_queue = asyncio.Queue(maxsize=4)  # noqa: SLF001
+    return supervisor
+
+
+async def _enqueue_waiting_on_command_lock(
+    supervisor: JsonlInteractionWorkerSupervisor,
+    command: WorkerCommandType = WorkerCommandType.HEALTH,
+    *,
+    allow_when_emergency: bool = False,
+) -> asyncio.Task[None]:
+    await supervisor._command_lock.acquire()  # noqa: SLF001
+    task = asyncio.create_task(
+        supervisor._enqueue_command(  # noqa: SLF001
+            command,
+            interaction_id=None,
+            payload={},
+            allow_when_emergency=allow_when_emergency,
+        )
+    )
+    await asyncio.sleep(0)
+    assert not task.done()
+    return task
+
+
 async def _collect_until(supervisor: JsonlInteractionWorkerSupervisor, event: WorkerEventType, *, limit: int = 20) -> list[WorkerEventType]:
     seen: list[WorkerEventType] = []
     for _ in range(limit):
@@ -1565,3 +1604,206 @@ async def test_emergency_while_commands_are_pending_without_ack_clears_ledger() 
     finally:
         await supervisor.close()
     assert not supervisor._pending_commands  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_enqueue_rechecks_failed_state_after_waiting_for_command_lock() -> None:
+    supervisor = _bare_supervisor_for_enqueue()
+    task = await _enqueue_waiting_on_command_lock(supervisor)
+    supervisor._state = InteractionRuntimeState.FAILED  # noqa: SLF001
+    supervisor._command_lock.release()  # noqa: SLF001
+    with pytest.raises(InteractionRuntimeUnavailableError) as excinfo:
+        await task
+    assert excinfo.value.code == "ERR_TERMINAL_STATE"
+    assert supervisor._command_queue.empty()  # noqa: SLF001
+    assert not supervisor._pending_commands  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_enqueue_rechecks_closed_state_after_waiting_for_command_lock() -> None:
+    supervisor = _bare_supervisor_for_enqueue()
+    task = await _enqueue_waiting_on_command_lock(supervisor)
+    supervisor._state = InteractionRuntimeState.CLOSED  # noqa: SLF001
+    supervisor._command_lock.release()  # noqa: SLF001
+    with pytest.raises(InteractionRuntimeUnavailableError) as excinfo:
+        await task
+    assert excinfo.value.code == "ERR_TERMINAL_STATE"
+    assert supervisor._command_queue.empty()  # noqa: SLF001
+    assert not supervisor._pending_commands  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_enqueue_rechecks_emergency_policy_after_waiting_for_command_lock() -> None:
+    ordinary = _bare_supervisor_for_enqueue()
+    task = await _enqueue_waiting_on_command_lock(ordinary)
+    ordinary._emergency_latched = True  # noqa: SLF001
+    ordinary._state = InteractionRuntimeState.EMERGENCY  # noqa: SLF001
+    ordinary._command_lock.release()  # noqa: SLF001
+    with pytest.raises(InteractionRuntimeUnavailableError) as excinfo:
+        await task
+    assert excinfo.value.code == "ERR_EMERGENCY"
+    assert ordinary._command_queue.empty()  # noqa: SLF001
+    assert not ordinary._pending_commands  # noqa: SLF001
+
+    emergency = _bare_supervisor_for_enqueue(state=InteractionRuntimeState.EMERGENCY)
+    emergency._emergency_latched = True  # noqa: SLF001
+    await emergency._enqueue_command(  # noqa: SLF001
+        WorkerCommandType.EMERGENCY_STOP,
+        interaction_id=None,
+        payload={},
+        allow_when_emergency=True,
+    )
+    queued = emergency._command_queue.get_nowait()  # noqa: SLF001
+    assert queued.command is WorkerCommandType.EMERGENCY_STOP
+
+
+@pytest.mark.asyncio
+async def test_queue_full_does_not_consume_outgoing_sequence() -> None:
+    supervisor = _bare_supervisor_for_enqueue(command_queue_size=1)
+    await supervisor._enqueue_command(WorkerCommandType.HEALTH, interaction_id=None, payload={})  # noqa: SLF001
+    sequence_before_rejection = supervisor._outgoing_sequence  # noqa: SLF001
+    with pytest.raises(InteractionRuntimeUnavailableError) as excinfo:
+        await supervisor._enqueue_command(WorkerCommandType.HEALTH, interaction_id=None, payload={})  # noqa: SLF001
+    assert excinfo.value.code == "ERR_QUEUE_FULL"
+    assert supervisor._outgoing_sequence == sequence_before_rejection  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_next_successful_command_after_queue_full_has_contiguous_sequence() -> None:
+    supervisor = _bare_supervisor_for_enqueue(command_queue_size=1)
+    await supervisor._enqueue_command(WorkerCommandType.HEALTH, interaction_id=None, payload={})  # noqa: SLF001
+    first = supervisor._command_queue.get_nowait()  # noqa: SLF001
+    supervisor._pending_commands.pop(first.message_id)  # noqa: SLF001
+    await supervisor._enqueue_command(WorkerCommandType.HEALTH, interaction_id=None, payload={})  # noqa: SLF001
+    with pytest.raises(InteractionRuntimeUnavailableError) as excinfo:
+        await supervisor._enqueue_command(WorkerCommandType.HEALTH, interaction_id=None, payload={})  # noqa: SLF001
+    assert excinfo.value.code == "ERR_QUEUE_FULL"
+    queued = supervisor._command_queue.get_nowait()  # noqa: SLF001
+    supervisor._pending_commands.pop(queued.message_id)  # noqa: SLF001
+    await supervisor._enqueue_command(WorkerCommandType.HEALTH, interaction_id=None, payload={})  # noqa: SLF001
+    next_envelope = supervisor._command_queue.get_nowait()  # noqa: SLF001
+    assert next_envelope.sequence == queued.sequence + 1
+
+
+class _AlreadyExitedProcess:
+    def __init__(self) -> None:
+        self.stdin = _FakeStdin()
+        self.stdout = asyncio.StreamReader()
+        self.stderr = asyncio.StreamReader()
+        self.stdout.feed_eof()
+        self.stderr.feed_eof()
+        self.returncode = 0
+
+    async def wait(self) -> int:
+        return self.returncode
+
+    def terminate(self) -> None:
+        pass
+
+    def kill(self) -> None:
+        pass
+
+
+async def _stubborn_owned_task(release: asyncio.Event) -> None:
+    try:
+        await asyncio.Future()
+    except asyncio.CancelledError:
+        await release.wait()
+        raise
+
+
+@pytest.mark.asyncio
+async def test_uncooperative_owned_task_does_not_allow_clean_close_claim() -> None:
+    supervisor = _bare_supervisor_for_enqueue()
+    supervisor._owned_task_cancel_timeout_s = 0.05  # noqa: SLF001
+    supervisor._process = _AlreadyExitedProcess()  # type: ignore[assignment]  # noqa: SLF001
+    release = asyncio.Event()
+    stubborn = asyncio.create_task(_stubborn_owned_task(release), name="interaction-jsonl-stubborn-close")
+    supervisor._tasks.add(stubborn)  # noqa: SLF001
+    await asyncio.sleep(0)
+    try:
+        with pytest.raises(InteractionRuntimeUnavailableError) as excinfo:
+            await supervisor.close()
+        assert excinfo.value.code == "ERR_TASK_SETTLEMENT_TIMEOUT"
+        assert "interaction-jsonl-stubborn-close" in str(excinfo.value)
+    finally:
+        release.set()
+        stubborn.cancel()
+        await asyncio.gather(stubborn, return_exceptions=True)
+        supervisor._tasks.discard(stubborn)  # noqa: SLF001
+    assert not any(
+        task.get_name() == "interaction-jsonl-stubborn-close" and not task.done()
+        for task in asyncio.all_tasks()
+    )
+
+
+class _StartupNeverReadyProcess(_AlreadyExitedProcess):
+    def __init__(self) -> None:
+        super().__init__()
+        self.returncode = None
+        self.stdout = asyncio.StreamReader()
+        self.stderr = asyncio.StreamReader()
+        self.stderr.feed_eof()
+        self._exited = asyncio.Event()
+
+    async def wait(self) -> int:
+        await self._exited.wait()
+        assert self.returncode is not None
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.returncode = -15
+        self._exited.set()
+
+    def kill(self) -> None:
+        self.returncode = -9
+        self._exited.set()
+
+
+@pytest.mark.asyncio
+async def test_start_failure_reports_incomplete_owned_task_settlement() -> None:
+    release = asyncio.Event()
+
+    class _StartupSettlementSupervisor(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            task = asyncio.create_task(
+                _stubborn_owned_task(release),
+                name="interaction-jsonl-stubborn-start",
+            )
+            self._tasks.add(task)  # noqa: SLF001
+            task.add_done_callback(self._tasks.discard)  # noqa: SLF001
+            return _StartupNeverReadyProcess()  # type: ignore[return-value]
+
+    supervisor = _StartupSettlementSupervisor(
+        JsonlWorkerSupervisorConfig(
+            argv=(sys.executable, str(WORKER), "normal"),
+            startup_timeout_s=0.05,
+            heartbeat_timeout_s=0.3,
+            write_timeout_s=0.2,
+            shutdown_timeout_s=0.05,
+            terminate_timeout_s=0.05,
+            command_queue_size=4,
+            event_queue_size=64,
+            max_line_bytes=2048,
+            stderr_tail_lines=10,
+            stderr_tail_max_chars=2048,
+            max_seen_message_ids=4096,
+        )
+    )
+    supervisor._owned_task_cancel_timeout_s = 0.05  # noqa: SLF001
+    try:
+        with pytest.raises(InteractionRuntimeUnavailableError) as excinfo:
+            await supervisor.start()
+        assert excinfo.value.code == "ERR_TASK_SETTLEMENT_TIMEOUT"
+        assert supervisor.termination is not None
+        assert supervisor.termination.reason == "STARTUP_TIMEOUT"
+    finally:
+        release.set()
+        for task in list(supervisor._tasks):  # noqa: SLF001
+            task.cancel()
+        await asyncio.gather(*list(supervisor._tasks), return_exceptions=True)  # noqa: SLF001
+        await supervisor.close()
+    assert not any(
+        task.get_name() == "interaction-jsonl-stubborn-start" and not task.done()
+        for task in asyncio.all_tasks()
+    )

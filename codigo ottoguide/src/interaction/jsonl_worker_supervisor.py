@@ -17,16 +17,21 @@ from dataclasses import dataclass
 from typing import Deque
 
 from src.interaction.runtime_port import (
+    ERR_CLOSING,
     ERR_CORRELATION,
     ERR_DUPLICATE_MESSAGE_ID,
+    ERR_EMERGENCY,
     ERR_FRAMING,
     ERR_JSON,
     ERR_LINE_TOO_LARGE,
     ERR_MESSAGE_LIMIT,
     ERR_PENDING_COMMAND_LIMIT,
+    ERR_QUEUE_FULL,
     ERR_SEQUENCE,
     ERR_STALE_INTERACTION,
     ERR_STATE,
+    ERR_TASK_SETTLEMENT_TIMEOUT,
+    ERR_TERMINAL_STATE,
     ERR_TYPE,
     ERR_UTF8,
     INTERACTION_PROTOCOL_VERSION,
@@ -45,6 +50,15 @@ from src.interaction.worker_supervisor import InteractionWorkerSupervisor, Worke
 
 
 _STDOUT_READ_CHUNK_BYTES = 65536
+TASK_SETTLEMENT_TIMEOUT = "TASK_SETTLEMENT_TIMEOUT"
+
+
+@dataclass(frozen=True, slots=True)
+class OwnedTaskSettlement:
+    settled_task_names: tuple[str, ...]
+    cancelled_task_names: tuple[str, ...]
+    pending_task_names: tuple[str, ...]
+    timed_out: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +143,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         self._event_stream_terminal_error: str | None = None
         self._pending_commands: dict[str, tuple[WorkerCommandType, str | None]] = {}
         self._cleanup_task: asyncio.Task[None] | None = None
+        self._owned_task_cancel_timeout_s = 2.0
 
     @property
     def termination(self) -> WorkerTermination | None:
@@ -184,7 +199,13 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             # close() still observes a fully reaped child and zero owned
             # tasks the instant start() raises.
             if self._cleanup_task is not None:
-                await asyncio.gather(self._cleanup_task, return_exceptions=True)
+                cleanup_results = await asyncio.gather(self._cleanup_task, return_exceptions=True)
+                for cleanup_result in cleanup_results:
+                    if (
+                        isinstance(cleanup_result, InteractionRuntimeUnavailableError)
+                        and cleanup_result.code == ERR_TASK_SETTLEMENT_TIMEOUT
+                    ):
+                        raise cleanup_result
             raise
 
     async def health(self) -> InteractionRuntimeHealth:
@@ -353,7 +374,14 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         # instead of racing two independent terminate()/kill() escalations
         # against the same child process.
         if self._cleanup_task is not None:
-            await asyncio.gather(self._cleanup_task, return_exceptions=True)
+            cleanup_results = await asyncio.gather(self._cleanup_task, return_exceptions=True)
+            for cleanup_result in cleanup_results:
+                if (
+                    isinstance(cleanup_result, InteractionRuntimeUnavailableError)
+                    and cleanup_result.code == ERR_TASK_SETTLEMENT_TIMEOUT
+                    and any(not task.done() for task in self._tasks)
+                ):
+                    raise cleanup_result
         if self._process is None:
             self._state = InteractionRuntimeState.CLOSED
             if self._termination is None:
@@ -427,9 +455,11 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                     protocol_error_code=self._termination.protocol_error_code,
                 )
             self._pending_commands.clear()
-            await self._cancel_tasks()
+            task_settlement = await self._cancel_tasks()
             await self._signal_event_queue_closed("worker closed")
             await self._let_event_loop_close_subprocess_transports()
+            if task_settlement.timed_out:
+                self._raise_task_settlement_timeout(task_settlement)
 
     async def _let_event_loop_close_subprocess_transports(self) -> None:
         """Idempotent, centralized hook for deterministic subprocess
@@ -496,9 +526,9 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         allow_when_emergency: bool = False,
     ) -> None:
         if self._closing and not allow_when_closing:
-            raise InteractionRuntimeUnavailableError("worker is closing")
+            raise InteractionRuntimeUnavailableError("worker is closing", code=ERR_CLOSING)
         if self._emergency_latched and not allow_when_emergency:
-            raise InteractionRuntimeUnavailableError("worker is in emergency")
+            raise InteractionRuntimeUnavailableError("worker is in emergency", code=ERR_EMERGENCY)
         if self._state in (InteractionRuntimeState.FAILED, InteractionRuntimeState.CLOSED):
             # A terminal state must fail closed immediately: continuing to
             # enqueue commands here would keep refilling _command_queue
@@ -506,7 +536,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             # failure-path cleanup, making that cancellation never able to
             # observe an empty/quiescent queue.
             raise InteractionRuntimeUnavailableError(
-                "worker is in a terminal state", code="ERR_TERMINAL_STATE"
+                "worker is in a terminal state", code=ERR_TERMINAL_STATE
             )
         queue = self._command_queue
         if queue is None:
@@ -517,6 +547,20 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         # concurrent callers racing to fill the last ledger slot must not
         # both succeed.
         async with self._command_lock:
+            if self._closing and not allow_when_closing:
+                raise InteractionRuntimeUnavailableError("worker is closing", code=ERR_CLOSING)
+            if self._emergency_latched and not allow_when_emergency:
+                raise InteractionRuntimeUnavailableError("worker is in emergency", code=ERR_EMERGENCY)
+            if (
+                allow_when_emergency
+                and self._emergency_latched
+                and command is not WorkerCommandType.EMERGENCY_STOP
+            ):
+                raise InteractionRuntimeUnavailableError("worker is in emergency", code=ERR_EMERGENCY)
+            if self._state in (InteractionRuntimeState.FAILED, InteractionRuntimeState.CLOSED):
+                raise InteractionRuntimeUnavailableError(
+                    "worker is in a terminal state", code=ERR_TERMINAL_STATE
+                )
             if len(self._pending_commands) >= self._config.max_pending_commands:
                 await self._fail(
                     "pending command ledger limit exceeded; worker is withholding acknowledgements",
@@ -528,7 +572,6 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                     "pending command ledger limit exceeded", code=ERR_PENDING_COMMAND_LIMIT
                 )
             sequence = self._outgoing_sequence
-            self._outgoing_sequence += 1
             envelope = WorkerCommandEnvelope(
                 protocol_version=INTERACTION_PROTOCOL_VERSION,
                 message_id=f"py:{sequence}",
@@ -541,7 +584,8 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             try:
                 queue.put_nowait(envelope)
             except asyncio.QueueFull as exc:
-                raise InteractionRuntimeUnavailableError("command queue full", code="ERR_QUEUE_FULL") from exc
+                raise InteractionRuntimeUnavailableError("command queue full", code=ERR_QUEUE_FULL) from exc
+            self._outgoing_sequence = sequence + 1
             self._pending_commands[envelope.message_id] = (command, interaction_id)
 
     async def _command_writer(self) -> None:
@@ -928,9 +972,13 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                         await asyncio.wait_for(self._process.wait(), timeout=self._config.terminate_timeout_s)
                     except asyncio.TimeoutError:
                         pass
-            await self._cancel_tasks()
+            task_settlement = await self._cancel_tasks()
             await self._let_event_loop_close_subprocess_transports()
+            if task_settlement.timed_out:
+                self._raise_task_settlement_timeout(task_settlement)
         except asyncio.CancelledError:
+            raise
+        except InteractionRuntimeUnavailableError:
             raise
         except Exception as exc:  # noqa: BLE001 - recovered and recorded, never left unretrieved
             self._last_error = f"failure cleanup raised: {exc!r}"
@@ -980,24 +1028,60 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         except asyncio.QueueFull:
             pass
 
-    async def _cancel_tasks(self) -> None:
+    def _raise_task_settlement_timeout(self, settlement: OwnedTaskSettlement) -> None:
+        pending = ", ".join(settlement.pending_task_names)
+        message = f"owned task settlement timed out; pending tasks: {pending}"
+        self._last_error = message
+        if self._termination is None:
+            self._record_termination(
+                reason=TASK_SETTLEMENT_TIMEOUT,
+                unexpected=True,
+                exit_code=self._process.returncode if self._process is not None else None,
+                protocol_error_code=ERR_TASK_SETTLEMENT_TIMEOUT,
+                error_message=message,
+            )
+        elif self._termination.protocol_error_code is None:
+            self._record_termination(
+                reason=self._termination.reason,
+                unexpected=self._termination.unexpected,
+                exit_code=self._termination.exit_code,
+                protocol_error_code=ERR_TASK_SETTLEMENT_TIMEOUT,
+                error_message=message,
+            )
+        raise InteractionRuntimeUnavailableError(message, code=ERR_TASK_SETTLEMENT_TIMEOUT)
+
+    async def _cancel_tasks(self) -> OwnedTaskSettlement:
         current = asyncio.current_task()
         tasks = [task for task in self._tasks if task is not current]
         for task in tasks:
             task.cancel()
         if not tasks:
-            return
-        deadline = asyncio.get_running_loop().time() + 2.0
+            return OwnedTaskSettlement((), (), (), False)
+        deadline = asyncio.get_running_loop().time() + self._owned_task_cancel_timeout_s
         pending = {task for task in tasks if not task.done()}
+        settled_names: set[str] = set()
+        cancelled_names: set[str] = set()
         while pending and asyncio.get_running_loop().time() < deadline:
             done, pending = await asyncio.wait(pending, timeout=0.05)
             for task in done:
+                settled_names.add(task.get_name())
                 if task.cancelled():
+                    cancelled_names.add(task.get_name())
                     continue
                 exc = task.exception()
                 if exc is not None:
                     # Recovered, never left as an unretrieved task exception.
                     self._last_error = f"owned task {task.get_name()} raised during cancellation: {exc!r}"
+        for task in tasks:
+            if task.done() and task.get_name() not in settled_names:
+                settled_names.add(task.get_name())
+                if task.cancelled():
+                    cancelled_names.add(task.get_name())
+                else:
+                    exc = task.exception()
+                    if exc is not None:
+                        self._last_error = f"owned task {task.get_name()} raised during cancellation: {exc!r}"
+        pending_names = tuple(sorted(task.get_name() for task in pending if not task.done()))
         for task in pending:
             # A task that still refuses to settle within the deadline is a
             # bug elsewhere (e.g. an await point that swallows
@@ -1005,9 +1089,16 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             # cleanup should block on indefinitely; record it instead of
             # hanging forever.
             self._last_error = f"owned task {task.get_name()} did not settle after cancellation"
+        return OwnedTaskSettlement(
+            settled_task_names=tuple(sorted(settled_names)),
+            cancelled_task_names=tuple(sorted(cancelled_names)),
+            pending_task_names=pending_names,
+            timed_out=bool(pending_names),
+        )
 
 
 __all__ = [
     "JsonlInteractionWorkerSupervisor",
     "JsonlWorkerSupervisorConfig",
+    "OwnedTaskSettlement",
 ]
