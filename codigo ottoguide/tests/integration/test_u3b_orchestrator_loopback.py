@@ -84,6 +84,9 @@ async def test_loopback_runtime_completion_returns_to_navigating() -> None:
 
     try:
         await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+        task = orchestrator._interaction_task
+        if task is not None:
+            await task
 
         assert len(completions) == 1
         assert completions[0]["interaction_id"] == "interaction:1"

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-06-30T01:00:00Z",
+  "updated_at": "2026-06-30T03:00:00Z",
   "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "remote_authority": "mirror",
@@ -33,44 +33,44 @@
     "echezuria": "28c1220325ac94a342d55788eb0f02e40dece941"
   },
   "branch_relations_snapshot": {
-    "as_of_head": "9ab1e6305b4722b075790235c5f7902ba6a644f1",
+    "as_of_head": "fc42fa5bd3d32c57766350b422745fced97dc69a",
     "relations": {
       "main": {
         "merge_base": "NO_COMMON_ANCESTOR",
         "disposition": "DO_NOT_USE_AS_INTEGRATION_BASE"
       },
       "desarrollo": {
-        "ahead": 178,
+        "ahead": 181,
         "behind": 0,
         "disposition": "ANCESTOR_NO_PENDING_DELTA"
       },
       "robot": {
-        "ahead": 37,
+        "ahead": 40,
         "behind": 9,
         "disposition": "U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED"
       },
       "feature/erirobot": {
-        "ahead": 132,
+        "ahead": 135,
         "behind": 4,
         "disposition": "U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED"
       },
       "InteraccionIA": {
-        "ahead": 178,
+        "ahead": 181,
         "behind": 6,
         "disposition": "U3_SELECTIVE_TECHNICAL_SOURCE"
       },
       "pilar-web": {
-        "ahead": 61,
+        "ahead": 64,
         "behind": 1,
         "disposition": "FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED"
       },
       "teo": {
-        "ahead": 178,
+        "ahead": 181,
         "behind": 4,
         "disposition": "HISTORICAL_INTERACTION_REFERENCE"
       },
       "echezuria": {
-        "ahead": 223,
+        "ahead": 226,
         "behind": 10,
         "disposition": "HISTORICAL_PHYSICAL_REFERENCE"
       }
@@ -162,6 +162,10 @@
     "U3AR9": {
       "commit": "e094f7a9cf11848ea43ca74ce23a596d9bb38797",
       "message": "fix(interaction): enforce terminal runtime postconditions"
+    },
+    "U3B": {
+      "commit": "fc42fa5bd3d32c57766350b422745fced97dc69a",
+      "message": "feat(orchestrator): wire supervised interaction lifecycle"
     }
   },
   "read_only_gates": {
@@ -422,22 +426,59 @@
         "u3a_wire_contracts": "25 passed",
         "u3a_jsonl_worker_supervisor": "106 passed"
       }
+    },
+    "U3B_AUDIT": {
+      "result": "REJECTED_PARTIAL_IMPLEMENTATION",
+      "accepted_scope": [
+        "InteractionRuntimePort injection and supervised activation path",
+        "Python-owned INTERACTION_COMPLETED publication after matching PLAYBACK_COMPLETED",
+        "Fail-closed handling for wrong interaction_id and runtime failures"
+      ],
+      "findings": [
+        "PUBLIC_EMERGENCY_DURING_SUPERVISED_INTERACTION_COULD_DEADLOCK_OR_FORK_OWNERSHIP",
+        "INTERACTION_OWNER_TASK_ALLOWED_SUPERVISED_LIFECYCLE_TO_BE_CANCELLED_FROM_PUBLIC_EMERGENCY_PATH",
+        "EMERGENCY_STOP_TASK_HANDLE_COULD_BE_OVERWRITTEN_AND_DUPLICATE_RUNTIME_EMERGENCY_CALLS",
+        "CONSUMER_CANCELLED_ERROR_COULD_SEND_RUNTIME_STOP_AFTER_EMERGENCY_OR_CLOSE_ALREADY_CLAIMED_TERMINAL_OUTCOME",
+        "COMPLETION_EVENT_AFTER_EMERGENCY_LATCH_COULD_PUBLISH_OR_RESUME_NAVIGATION",
+        "CLOSE_SETTLEMENT_TIMEOUT_CLEARED_LIVE_INTERACTION_TASK_HANDLE_AND_MARKED_SHUTDOWN_NON_RETRYABLE"
+      ],
+      "outstanding_defects_carried_to_u3br1": [
+        "SERIALIZE_EMERGENCY_AND_INTERACTION_TASK_OWNERSHIP",
+        "PRESERVE_LIVE_TASK_HANDLES_ON_SETTLEMENT_TIMEOUT",
+        "DEDUPLICATE_RUNTIME_STOP_AND_EMERGENCY_TERMINAL_OUTCOMES"
+      ]
+    },
+    "U3BR1_EMERGENCY_AND_TASK_OWNERSHIP_CLOSED": {
+      "result": "U3BR1_EMERGENCY_AND_TASK_OWNERSHIP_CLOSED",
+      "closed_defects": [
+        "SERIALIZE_EMERGENCY_AND_INTERACTION_TASK_OWNERSHIP",
+        "PUBLIC_EMERGENCY_DURING_SUPERVISED_INTERACTION_DOES_NOT_DEADLOCK_FSM",
+        "EMERGENCY_TASK_HANDLE_IS_NOT_OVERWRITTEN",
+        "COMPLETION_AFTER_EMERGENCY_LATCH_DOES_NOT_PUBLISH_OR_RESUME",
+        "CLOSE_DOES_NOT_CLEAR_LIVE_INTERACTION_TASK_HANDLE_ON_TIMEOUT",
+        "SECOND_INTERACTION_USES_A_NEW_INTERACTION_ID"
+      ],
+      "focused_evidence": {
+        "compileall": "passed",
+        "u3b_unit_and_loopback_strict_unraisable": "3x 21 passed",
+        "focused_regression_matrix": "218 passed"
+      }
     }
   },
   "current_write_stage": {
-    "stage": "U3B",
+    "stage": "U3BR1",
     "status": "COMPLETED_AT_DYNAMIC_CHECKPOINT",
-    "commit_message": "feat(orchestrator): wire supervised interaction lifecycle"
+    "commit_message": "fix(orchestrator): serialize emergency and interaction shutdown"
   },
   "known_test_baseline": {
     "python": "3.10.11",
-    "pytest": "9.0.2",
-    "pytest_asyncio": "1.3.0",
-    "fastapi": "0.118.2",
+    "pytest": "9.1.1",
+    "pytest_asyncio": "1.4.0",
+    "fastapi": "0.138.0",
     "httpx": "0.28.1",
     "numpy": "2.2.6",
     "requirements_prod_numpy": "2.3.3",
-    "u3b_unit_tests": 15,
+    "u3b_unit_tests": 20,
     "u3b_loopback_tests": 1,
     "orchestrator_lifecycle_tests": 10,
     "shutdown_sequence_tests": 7,
@@ -446,16 +487,16 @@
     "u3a_wire_contracts": 25,
     "u3a_supervisor_tests": 106,
     "witness": {
-      "passed": 213,
+      "passed": 218,
       "failed": 0
     },
     "full_suite": {
-      "passed": null,
-      "failed": null,
-      "skipped": null,
-      "subtests_passed": null,
+      "passed": 1183,
+      "failed": 7,
+      "skipped": 109,
+      "subtests_passed": 67,
       "green": false,
-      "classification": "NOT_RUN_IN_U3B_CURRENT_SESSION",
+      "classification": "FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS",
       "failure_nodeids": [
         "tests/integration/test_web_ui_cors_and_origin.py::test_dashboard_redirects_to_web_ui_public_url_when_configured",
         "tests/unit/test_conversation_playback_lifecycle.py::test_t01_local_synthesize_no_type_error",
@@ -471,7 +512,7 @@
     "ORDER_DEPENDENT_SYS_MODULES_IDENTITY",
     "QR_ONLY_STILL_INITIALIZES_ARUCO_AND_U2R1_CAPTURE_LOOP_TEST_IS_PARTIALLY_STRUCTURAL",
     "REAL_CAMERA_AND_QR_RELIABILITY_PENDING",
-    "SUPERVISED_INTERACTION_RUNTIME_COMPOSITION_NOT_WIRED_IN_MAIN_THROUGH_U3B",
+    "SUPERVISED_INTERACTION_RUNTIME_COMPOSITION_NOT_WIRED_IN_MAIN_THROUGH_U3BR1",
     "REAL_CXX17_WORKER_NOT_IMPLEMENTED",
     "REAL_AUDIO_AND_HIL_PENDING"
   ],

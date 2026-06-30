@@ -101,22 +101,22 @@ La genealogia explica procedencia y contexto, pero no autoriza merges completos.
 `ahead` y `behind` se expresan como `HEAD...mirror/<branch>` desde `review/orchestrator-unification`: `ahead` = commits solo en la rama autoritativa; `behind` = commits solo en la rama comparada. Para `main`, no hay ancestro comun.
 
 ```text
-RELATIONS_SNAPSHOT_AS_OF_HEAD = 9ab1e6305b4722b075790235c5f7902ba6a644f1
+RELATIONS_SNAPSHOT_AS_OF_HEAD = fc42fa5bd3d32c57766350b422745fced97dc69a
 ```
 
 Los conteos son un snapshot asociado a `RELATIONS_SNAPSHOT_AS_OF_HEAD`; deben recalcularse antes de una nueva decision de integracion.
 
 | branch | head | ahead | behind | domain | status | disposition | integrated_scope | residual_scope | next_review_stage |
 |---|---|---:|---:|---|---|---|---|---|---|
-| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1, U3AR2, U3AR3, U3AR4, U3AR5, U3AR6, U3AR7, U3AR8, U3AR9, U3B | U3C-U6 | U3C |
+| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1, U3AR2, U3AR3, U3AR4, U3AR5, U3AR6, U3AR7, U3AR8, U3AR9, U3B, U3BR1 | U3C-U6 | U3C |
 | `main` | `3a1f13574e4a27d9aff2bfd38b3659951e8cb264` | N/A | N/A | Snapshot publico huerfano | Sin ancestro comun | `DO_NOT_USE_AS_INTEGRATION_BASE` | Ninguno para continuidad | Solo referencia historica | Ninguno |
-| `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 178 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
-| `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 37 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
-| `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 132 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
-| `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 178 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3B |
-| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 61 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
-| `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 178 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3B |
-| `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 223 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
+| `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 181 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
+| `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 40 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
+| `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 135 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
+| `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 181 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3B |
+| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 64 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
+| `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 181 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3B |
+| `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 226 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
 
 ## 8. DAG de integracion
 
@@ -156,7 +156,8 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U3AR7` | `9ab1e6305b4722b075790235c5f7902ba6a644f1` | `fix(interaction): preserve in-flight close failures` (auditoria posterior: `TARGET_DEFECT_ACCEPTED_RESIDUAL_RUNTIME_CONCURRENCY_GAPS_FOUND`) |
 | `U3AR8` | `b697f1d358338f4910a802386ad10bfb35e4439d` | `fix(interaction): preserve terminal state and converge cleanup` |
 | `U3AR9` | `e094f7a9cf11848ea43ca74ce23a596d9bb38797` | `fix(interaction): enforce terminal runtime postconditions` |
-| `U3B` | `DYNAMIC_HANDOFF_CHECKPOINT` | `feat(orchestrator): wire supervised interaction lifecycle` |
+| `U3B` | `fc42fa5bd3d32c57766350b422745fced97dc69a` | `feat(orchestrator): wire supervised interaction lifecycle` (auditoria posterior: `REJECTED_PARTIAL_IMPLEMENTATION`) |
+| `U3BR1` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(orchestrator): serialize emergency and interaction shutdown` |
 
 El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.
 
@@ -480,7 +481,7 @@ Restricciones vigentes (no modificadas por `U3AR9`):
 - EMERGENCY cancela el consumidor, dispara `runtime.emergency_stop()` como task separada y no espera al worker antes de `cancel_navigation`, velocidad cero y `Damp()`.
 - `close()` cancela tasks de interaccion, intenta `runtime.stop()` si habia interaccion activa y no llama `runtime.start()` ni `runtime.close()`.
 
-Evidencia focal preservada en la etapa:
+Evidencia focal preservada en la etapa U3B:
 
 ```text
 tests/unit/test_u3b_orchestrator_interaction_runtime.py = 15 passed
@@ -501,18 +502,54 @@ Restricciones vigentes:
 - No existe audio real validado.
 - No existe validacion HIL.
 
+**Auditoria posterior (`U3B_AUDIT`): `REJECTED_PARTIAL_IMPLEMENTATION`.** La integracion base de U3B quedo aceptada solo parcialmente. La revision encontro que el ownership de tasks de interaccion no estaba serializado de forma suficiente ante emergencia/cierre: la ruta publica `emergency_stop()` podia competir con el lifecycle supervisado; el handle de emergencia podia ser sobrescrito y duplicar `runtime.emergency_stop()`; una cancelacion del consumidor podia invocar `runtime.stop()` despues de que EMERGENCY o CLOSING ya hubieran reclamado el outcome terminal; una completion tardia despues del latch de emergencia podia publicar completion o reanudar navegacion; y un timeout de settlement en `close()` podia limpiar el handle vivo y volver el cierre no reintentable.
+
+### 12.12 Estado U3BR1
+
+`U3BR1` cierra la auditoria parcial de `U3B` sin tocar composicion global, `main.py`, settings, API, runtime protocol ni supervisor:
+
+- El camino supervisado de `on_enter_interacting()` crea una unica task lifecycle propia del runtime y ya no usa `_interaction_owner_task`.
+- El resultado terminal de interaccion queda latcheado (`ACTIVE`, `COMPLETED`, `FAILED`, `EMERGENCY`, `CLOSING`) para serializar completion, fail, emergency y close.
+- `emergency_stop()` publico y `on_enter_emergency()` reclaman `EMERGENCY`, cancelan la task de interaccion y aseguran una sola task de `runtime.emergency_stop()` sin bloquear velocidad cero ni `Damp()`.
+- El consumidor cancelado no envia `runtime.stop()` si EMERGENCY o CLOSING ya tomaron ownership.
+- `close()` reclama `CLOSING`, deduplica `runtime.stop()` por `interaction_id`, preserva handles vivos ante timeout de settlement y permite reintento.
+- Las completions tardias despues de EMERGENCY/CLOSING no publican `INTERACTION_COMPLETED` ni reanudan navegacion.
+- El camino legacy sin runtime sigue funcionando y ya no referencia el owner task eliminado.
+
+Evidencia focal preservada en la etapa U3BR1:
+
+```text
+compileall = passed
+tests/unit/test_u3b_orchestrator_interaction_runtime.py + tests/integration/test_u3b_orchestrator_loopback.py -W error::pytest.PytestUnraisableExceptionWarning = 3x 21 passed
+tests/unit/test_u3b_orchestrator_interaction_runtime.py = 20 passed
+tests/integration/test_u3b_orchestrator_loopback.py = 1 passed
+tests/unit/test_orchestrator_lifecycle.py = 10 passed
+tests/unit/test_shutdown_sequence.py = 7 passed
+tests/unit/test_u1_integration_contracts.py + tests/integration/test_u1_status_contracts.py = 49 passed
+tests/unit/test_u3a_wire_contracts.py + tests/integration/test_u3a_jsonl_worker_supervisor.py = 131 passed
+focused regression matrix = 218 passed
+```
+
+Restricciones vigentes:
+
+- La composicion global del runtime supervisado en `main.py` no esta implementada; corresponde a `U3C`.
+- Solo existe worker loopback falso.
+- No existe worker real CXX17 implementado.
+- No existe audio real validado.
+- No existe validacion HIL.
+
 ## 13. Baseline de pruebas
 
-Proveniencia: `U3B`, ejecucion focal posterior al wiring del lifecycle supervisado en `TourOrchestrator` con el `PINNED_PYTHON` de la etapa. Sustituye el baseline focal previo de `U3AR9`; la suite completa conserva los fallos heredados listados abajo si aparecen.
+Proveniencia: `U3BR1`, ejecucion focal posterior a serializar emergencia y ownership de tasks de interaccion en `TourOrchestrator` con Python 3.10 local. Sustituye el baseline focal previo de `U3B`; la suite completa conserva los fallos heredados listados abajo si aparecen.
 
 ```text
 Python = 3.10.11
-pytest = 9.0.2
-pytest-asyncio = 1.3.0
-FastAPI = 0.118.2
+pytest = 9.1.1
+pytest-asyncio = 1.4.0
+FastAPI = 0.138.0
 httpx = 0.28.1
 NumPy = 2.2.6
-U3B_UNIT = 15 passed
+U3B_UNIT = 20 passed
 U3B_LOOPBACK = 1 passed
 ORCHESTRATOR_LIFECYCLE = 10 passed
 SHUTDOWN_SEQUENCE = 7 passed
@@ -520,10 +557,12 @@ U1_CONTRACTS = 37 passed
 U1_STATUS_CONTRACTS = 12 passed
 U3A_WIRE_CONTRACTS = 25 passed
 SUPERVISOR_TESTS = 106 passed
-FULL_SUITE = NOT_RUN_IN_U3B_CURRENT_SESSION
+FOCUSED_REGRESSION_MATRIX = 218 passed
+STRICT_UNRAISABLE_U3B = 3x 21 passed
+FULL_SUITE = 1183 passed, 7 failed, 109 skipped, 67 subtests passed
 KNOWN_TEST_DEBT = ORDER_DEPENDENT_SYS_MODULES_IDENTITY
 FULL_SUITE_GREEN = NO
-FULL_SUITE_RESULT = NOT_CLAIMED
+FULL_SUITE_RESULT = FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS
 ```
 
 `FULL_SUITE_RESULT = FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS` indica que ambas corridas terminaron con exit code distinto de cero, y que los unicos nodeids en fallo son los siete heredados y conocidos abajo; ningun nodeid nuevo aparecio. No se afirma `FULL_SUITE_GREEN`.
@@ -688,6 +727,12 @@ NEXT_ACTION = IMPLEMENT_U3B_ORCHESTRATOR_INTERACTION_LIFECYCLE_V1
 ```
 
 NEXT_ACTION vigente tras U3B:
+
+```text
+NEXT_ACTION = IMPLEMENT_U3C_RUNTIME_COMPOSITION_AND_FAIL_CLOSED_MODE_SELECTION_V1
+```
+
+NEXT_ACTION vigente tras U3BR1 (sin cambio):
 
 ```text
 NEXT_ACTION = IMPLEMENT_U3C_RUNTIME_COMPOSITION_AND_FAIL_CLOSED_MODE_SELECTION_V1
