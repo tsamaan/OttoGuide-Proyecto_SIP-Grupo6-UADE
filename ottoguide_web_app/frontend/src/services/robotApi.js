@@ -21,7 +21,7 @@ export const robotApi = {
   // Boton "Iniciar recorrido"
   startTour: (baseUrl) => post(baseUrl, config.endpoints.tourStart),
   // Boton "Iniciar charla"
-  startChat: (baseUrl) => post(baseUrl, config.endpoints.chatStart),
+  startChat: (baseUrl) => get(baseUrl, config.endpoints.script),
   // Boton "Terminar ejecucion"
   stopAll: (baseUrl) => post(baseUrl, config.endpoints.stop),
   // Estado del sistema

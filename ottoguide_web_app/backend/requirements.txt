@@ -1,4 +1,0 @@
-fastapi==0.115.5
-uvicorn[standard]==0.32.1
-# unitree_sdk2py — NO esta en PyPI. Se instala desde source en el Dockerfile
-# (requiere compilar CycloneDDS 0.10.x). Ver Dockerfile para detalles.

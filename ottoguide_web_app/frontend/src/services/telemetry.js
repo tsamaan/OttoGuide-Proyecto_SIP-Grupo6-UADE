@@ -1,44 +1,24 @@
 // Conexion de telemetria con el backend del robot.
-// Intenta WebSocket; si falla, cae a polling por GET. Reintenta solo.
-import { config, wsUrl } from '../config.js'
+// Intenta WebSocket; si falla, reporta error y reintenta. No hay fallback HTTP por requerimiento de seguridad.
+import { wsUrl } from '../config.js'
 
 export function connectTelemetry(baseUrl, { onFrame, onState }) {
   let ws = null
-  let pollTimer = null
   let retryTimer = null
   let closed = false
 
   const setState = (s) => onState && onState(s)
 
-  function startPolling() {
-    setState('polling')
-    const tick = async () => {
-      try {
-        const res = await fetch(`${baseUrl}${config.endpoints.telemetry}`)
-        if (res.ok) {
-          onFrame(await res.json())
-          setState('polling')
-        } else {
-          setState('error')
-        }
-      } catch {
-        setState('error')
-      }
-    }
-    tick()
-    pollTimer = setInterval(tick, Math.round(1000 / config.dataHz))
-  }
-
   function startWs() {
     const url = wsUrl(baseUrl)
     if (!url) {
-      startPolling()
+      setState('error')
       return
     }
     try {
       ws = new WebSocket(url)
     } catch {
-      startPolling()
+      setState('error')
       return
     }
     setState('connecting')
@@ -51,18 +31,15 @@ export function connectTelemetry(baseUrl, { onFrame, onState }) {
       }
     }
     ws.onerror = () => {
-      // si el WS no levanta, probamos polling
+      // si el WS no levanta, cerramos para forzar onclose
       if (ws) { try { ws.close() } catch {} }
     }
     ws.onclose = () => {
       ws = null
       if (closed) return
-      // fallback: polling + reintento de WS mas adelante
-      if (!pollTimer) startPolling()
-      setState('reconnecting')
+      setState('error')
       retryTimer = setTimeout(() => {
         if (closed) return
-        if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
         startWs()
       }, 4000)
     }
@@ -74,7 +51,6 @@ export function connectTelemetry(baseUrl, { onFrame, onState }) {
   return function disconnect() {
     closed = true
     if (ws) { try { ws.close() } catch {} ws = null }
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
   }
 }

@@ -2,18 +2,20 @@
 const env = import.meta.env
 
 export const config = {
-  // URL del backend en el robot (puerto 3000). Editable tambien desde la UI.
-  robotBaseUrl: env.VITE_ROBOT_BASE_URL || 'http://192.168.123.164:3000',
+  // URL del backend en el robot (puerto 8000). Editable tambien desde la UI.
+  robotBaseUrl: env.VITE_ROBOT_BASE_URL || 'http://192.168.123.164:8000',
   // Arranca en modo simulacion (sin robot). Toggle en la UI.
   mockMode: (env.VITE_MOCK_MODE ?? 'true') !== 'false',
 
   // Endpoints del backend. Si en el robot cambian las rutas, se ajustan aca.
   endpoints: {
     tourStart: '/tour/start',
-    chatStart: '/chat/start',
+    tourPause: '/tour/pause',
+    script: '/content/script',
+    scriptReload: '/content/script/reload',
     stop: '/emergency',
     status: '/status',
-    telemetry: '/telemetry', // sirve para WS (ws://.../telemetry) y para GET de fallback
+    telemetry: '/ws/telemetry', // sirve para WS (ws://.../ws/telemetry)
   },
 
   // Frecuencias de actualizacion.

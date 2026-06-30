@@ -2,13 +2,13 @@
 
 Monorepo con dos partes que corren en máquinas distintas:
 
-- **`backend/`** → corre **dentro del robot** (Unitree G1-EDU), en **Docker**, puerto **3000**. Expone el control de los procesos (recorrido / charla / parada) y la telemetría del robot.
+- **`backend/`** → corre **dentro del robot** (Unitree G1-EDU), en **Docker**, puerto **8000**. Expone el control de los procesos (recorrido / charla / parada) y la telemetría del robot.
 - **`frontend/`** → corre en una **notebook**, con **`npm run dev`**, puerto **3001**. Le pega al backend del robot por el **cable RJ45**.
 
 ```
 robot (G1-EDU)                      notebook
 ┌───────────────────────┐  RJ45    ┌───────────────────────┐
-│ backend (Docker:3000) │◄────────►│ frontend (Vite:3001)  │
+│ backend (Docker:8000) │◄────────►│ frontend (Vite:3001)  │
 │  FastAPI + telemetría │  HTTP/WS │  React + dashboard     │
 └───────────────────────┘          └───────────────────────┘
 ```
@@ -19,10 +19,10 @@ El objetivo es **no tirar comandos por consola**: desde la web se inicia el reco
 
 ## Flujo de uso
 
-1. **En el robot**, levantar el backend una vez y que quede prendido siempre (ver abajo). Queda escuchando en el puerto 3000.
+1. **En el robot**, levantar el backend una vez y que quede prendido siempre (ver abajo). Queda escuchando en el puerto 8000.
 2. Conectar la **notebook al robot por RJ45** y configurar la IP de la notebook en la misma red del robot (`192.168.123.0/24`).
 3. **En la notebook**, levantar el frontend con `npm run dev` (puerto 3001).
-4. En el panel, desactivar **Modo simulación** y poner la URL del robot (ej. `http://192.168.123.164:3000`).
+4. En el panel, desactivar **Modo simulación** y poner la URL del robot (ej. `http://192.168.123.164:8000`).
 5. Usar los botones: **Iniciar recorrido**, **Iniciar charla**, **Terminar ejecución**.
 
 > El panel arranca en **Modo simulación** (datos falsos), así se puede desarrollar y mostrar sin el robot.
@@ -35,7 +35,7 @@ Requisitos: Docker + Docker Compose en el robot.
 
 ```bash
 cd backend
-docker compose up -d --build      # levanta el backend en el puerto 3000
+docker compose up -d --build      # levanta el backend en el puerto 8000
 docker compose logs -f            # ver logs
 ```
 
@@ -48,27 +48,30 @@ Para que **arranque solo al encender el robot**:
 
 Probar que responde:
 ```bash
-curl http://localhost:3000/health        # {"status":"ok"}
+curl http://localhost:8000/health        # {"status":"ok"}
 ```
 
-### Endpoints
+### Endpoints (backend canónico — FastAPI :8000)
 
 | Método | Ruta | Botón / uso |
 |---|---|---|
 | POST | `/tour/start` | Iniciar recorrido (orquestador: movimiento + recorrido) |
-| POST | `/chat/start` | Iniciar charla (pipeline de conversación / IA) |
-| POST | `/emergency` | Terminar ejecución |
-| GET | `/status` | Estado del sistema |
-| GET | `/telemetry` | Un frame de telemetría (fallback) |
-| WS | `/telemetry` | Telemetría en tiempo real (~10 Hz) |
+| POST | `/tour/pause` | Pausar recorrido |
+| GET | `/content/script` | Obtener script conversacional activo |
+| POST | `/content/script/reload` | Recargar contenido del script de IA |
+| POST | `/emergency` | Terminar ejecución (`terminal_safe`; responde 200, 503 o 504) |
+| GET | `/status` | Estado del sistema (`{mode, running, llm_enabled, conversation_state}`) |
+| WS | `/ws/telemetry` | Telemetría en tiempo real (~10 Hz) |
+
+> **Nota:** Los endpoints `/chat/start` y `GET /telemetry` (fallback HTTP) han sido descartados. La telemetría se obtiene exclusivamente por WebSocket. En modo real, `SILENT_REAL_FALLBACK = PROHIBITED`.
 
 ### Modo simulación del backend
-Por defecto `MOCK_MODE=true`: el backend genera telemetría simulada y acepta los comandos (los registra), para probar todo el flujo sin sensores. Cambiar a `MOCK_MODE=false` en `docker-compose.yaml` cuando se integre el robot real.
+Por defecto `MOCK_MODE=true`: el backend genera telemetría simulada y acepta los comandos (los registra), para probar todo el flujo sin sensores. Cambiar a `MOCK_MODE=false` en producción.
 
-### Integración real con el robot (pendiente, marcado con `TODO`)
-- **Control** (`app/services/process_manager.py`): lanzar el orquestador de movimiento (proxy a la API del robot o `subprocess` a `./tools/hil/ottoguide-map`) y el pipeline de IA (`otto_pipeline`).
-- **Telemetría** (`app/services/telemetry_source.py`): leer el `lowstate` por DDS (`unitree_sdk2py`) o topics ROS 2 (`rclpy`) y armar el frame.
-- Para acceso a ROS/DDS suele hacer falta `network_mode: host` (comentado en el compose).
+### Integración real con el robot
+- **Control**: El `TourOrchestrator` del backend canónico maneja los efectos (lanzar `ottoguide-map`, `otto_pipeline`, etc.).
+- **Telemetría**: El lector DDS (`unitree_sdk2py`) lee `rt/lowstate` y lo expone vía el WebSocket `/ws/telemetry`.
+- El contenedor usa `network_mode: host` para acceso a DDS.
 
 ---
 
@@ -84,7 +87,7 @@ npm run dev        # http://localhost:3001
 
 Configuración (opcional) en `frontend/.env` (copiar de `.env.example`):
 ```
-VITE_ROBOT_BASE_URL=http://192.168.123.164:3000
+VITE_ROBOT_BASE_URL=http://192.168.123.164:8000
 VITE_MOCK_MODE=true
 ```
 La URL del robot y el modo simulación también se cambian **desde la propia interfaz**.
@@ -102,7 +105,7 @@ La URL del robot y el modo simulación también se cambian **desde la propia int
 
 ```
 ottoguide-panel/
-├── backend/                 # corre en el robot (Docker, puerto 3000)
+├── backend/                 # corre en el robot (Docker, puerto 8000)
 │   ├── docker-compose.yaml
 │   ├── Dockerfile
 │   ├── requirements.txt

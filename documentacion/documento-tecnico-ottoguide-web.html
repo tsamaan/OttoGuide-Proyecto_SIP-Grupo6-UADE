@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Documento Técnico — OttoGuide Web</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fb;
+        --surface: #ffffff;
+        --text: #1d2433;
+        --muted: #5f6b7a;
+        --border: #d8dee8;
+        --accent: #146c94;
+        --accent-soft: #e7f5fb;
+        --success: #2f7d4f;
+        --warning: #9a6a12;
+        --shadow: 0 18px 45px rgba(21, 31, 46, 0.08);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.6;
+      }
+
+      a { color: var(--accent); }
+
+      .page {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 40px 0 64px;
+      }
+
+      .hero {
+        padding: 40px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--accent);
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      h1, h2, h3 { line-height: 1.2; }
+
+      h1 {
+        margin: 0;
+        max-width: 820px;
+        font-size: clamp(2rem, 4vw, 3.4rem);
+      }
+
+      .lead {
+        max-width: 760px;
+        margin: 18px 0 0;
+        color: var(--muted);
+        font-size: 1.1rem;
+      }
+
+      .pilares {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      .pilar {
+        padding: 16px 20px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fbfcfe;
+      }
+
+      .pilar.activo {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+
+      .pilar-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 4px;
+      }
+
+      .pilar.activo .pilar-label { color: var(--accent); }
+
+      .pilar h3 {
+        margin: 0;
+        font-size: 1rem;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 28px;
+        margin-top: 28px;
+      }
+
+      .toc {
+        position: sticky;
+        top: 20px;
+        align-self: start;
+        padding: 20px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .toc h2 { margin: 0 0 12px; font-size: 1rem; }
+
+      .toc ol {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding-left: 20px;
+      }
+
+      .content { display: grid; gap: 20px; }
+
+      section {
+        padding: 28px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      h2 { margin: 0 0 16px; font-size: 1.6rem; }
+
+      h3 { margin: 24px 0 10px; font-size: 1.1rem; }
+
+      p { margin: 0 0 14px; }
+
+      ul, ol { margin-top: 0; padding-left: 24px; }
+
+      li + li { margin-top: 5px; }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .grid-3 {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .card {
+        padding: 18px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fbfcfe;
+      }
+
+      .card h3 { margin-top: 0; }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        margin: 0 8px 8px 0;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.88rem;
+        font-weight: 700;
+      }
+
+      .tag.green {
+        background: #edf8f1;
+        color: var(--success);
+      }
+
+      .tag.gray {
+        background: #f0f2f5;
+        color: var(--muted);
+      }
+
+      .note {
+        margin-top: 16px;
+        padding: 14px 16px;
+        border-left: 4px solid var(--accent);
+        background: var(--accent-soft);
+      }
+
+      .note.success {
+        border-left-color: var(--success);
+        background: #edf8f1;
+      }
+
+      .note.warning {
+        border-left-color: var(--warning);
+        background: #fff7e6;
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 5px;
+        background: #eef1f6;
+        font-family: "Cascadia Code", Consolas, monospace;
+        font-size: 0.9em;
+      }
+
+      .pipeline-flow {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0;
+        margin: 20px 0;
+        padding: 20px;
+        background: #f7f8fb;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow-x: auto;
+      }
+
+      .flow-step {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: white;
+        min-width: 100px;
+        text-align: center;
+      }
+
+      .flow-step .step-icon {
+        font-size: 1.2rem;
+        margin-bottom: 4px;
+      }
+
+      .flow-step .step-name {
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .flow-step .step-tech {
+        font-size: 0.68rem;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+
+      .flow-arrow {
+        padding: 0 8px;
+        color: var(--muted);
+        font-size: 1.1rem;
+        flex-shrink: 0;
+      }
+
+      .state-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin: 16px 0;
+      }
+
+      .state-card {
+        padding: 18px;
+        border-radius: 8px;
+        border: 2px solid;
+      }
+
+      .state-card.hibernacion {
+        border-color: #d8dee8;
+        background: #f7f8fb;
+      }
+
+      .state-card.escuchando {
+        border-color: #2f7d4f;
+        background: #edf8f1;
+      }
+
+      .state-card.procesando {
+        border-color: #9a6a12;
+        background: #fff7e6;
+      }
+
+      .state-card h3 {
+        margin-top: 0;
+        font-size: 0.95rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .state-badge {
+        font-size: 0.7rem;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 999px;
+        text-transform: uppercase;
+      }
+
+      .state-badge.hibernacion { background: #d8dee8; color: var(--muted); }
+      .state-badge.escuchando { background: #2f7d4f; color: white; }
+      .state-badge.procesando { background: #9a6a12; color: white; }
+
+      .define-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+        margin: 16px 0;
+      }
+
+      .define-table th {
+        text-align: left;
+        padding: 8px 12px;
+        border-bottom: 2px solid var(--border);
+        color: var(--muted);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+
+      .define-table td {
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+
+      .define-table tr:last-child td { border-bottom: none; }
+
+      .define-table td code { font-size: 0.82em; }
+
+      @media (max-width: 860px) {
+        .page { width: min(100% - 20px, 720px); padding-top: 20px; }
+        .hero, section { padding: 22px; }
+        .layout, .grid, .grid-3, .state-grid, .pilares { grid-template-columns: 1fr; }
+        .toc { position: static; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+
+      <!-- HERO -->
+      <header class="hero">
+        <p class="eyebrow">Documentación técnica — Pilar Web</p>
+        <h1>OttoGuide — Panel de control y métricas</h1>
+        <p class="lead">
+          Aplicación web que actúa como el centro de control del robot Unitree G1-EDU. 
+          Permite visualizar telemetría en tiempo real, monitorear el estado del hardware y 
+          orquestar los flujos de inteligencia artificial y movimiento sin necesidad de 
+          ejecutar comandos por consola.
+        </p>
+
+        <div class="pilares">
+          <div class="pilar">
+            <p class="pilar-label">Se encuentra en otro documento</p>
+            <h3>Pilar IA — Interacción conversacional</h3>
+          </div>
+          <div class="pilar">
+            <p class="pilar-label">Se encuentra en otro documento</p>
+            <h3>Pilar Movimiento — Navegación autónoma</h3>
+          </div>
+          <div class="pilar activo">
+            <p class="pilar-label">Este documento</p>
+            <h3>Pilar Web — Panel de control y métricas</h3>
+          </div>
+        </div>
+      </header>
+
+      <div class="layout">
+
+        <!-- TOC -->
+        <nav class="toc" aria-label="Índice del documento">
+          <h2>Índice</h2>
+          <ol>
+            <li><a href="#objetivo">Objetivo</a></li>
+            <li><a href="#repositorio">Repositorio y estructura</a></li>
+            <li><a href="#arquitectura">Arquitectura general</a></li>
+            <li><a href="#flujo-datos">Flujo de datos (telemetría)</a></li>
+            <li><a href="#flujo-control">Flujo de control (botones)</a></li>
+            <li><a href="#api">Contrato de API</a></li>
+            <li><a href="#schema">Schema de telemetría</a></li>
+            <li><a href="#estados">Estados del sistema</a></li>
+            <li><a href="#componentes">Componentes del stack</a></li>
+            <li><a href="#mock">Modo mock vs. real</a></li>
+            <li><a href="#configuracion">Configuración</a></li>
+            <li><a href="#despliegue">Despliegue y arranque</a></li>
+          </ol>
+        </nav>
+
+        <div class="content">
+
+          <!-- SECCION 1 -->
+          <section id="objetivo">
+            <h2>1. Objetivo</h2>
+            <p>
+              El Panel de Control de OttoGuide elimina la necesidad de interactuar con el robot mediante consolas SSH,
+              proporcionando una interfaz gráfica intuitiva para el operador de la visita guiada. Sus objetivos principales son:
+            </p>
+            <ul>
+              <li><strong>Orquestación:</strong> Facilitar el inicio y fin de la navegación autónoma y el pipeline de IA con un solo clic.</li>
+              <li><strong>Monitoreo en vivo:</strong> Mostrar telemetría a 10 Hz para supervisar motores (temperatura, ángulo), batería (SOC, voltaje), e IMU.</li>
+              <li><strong>Manejo de emergencias:</strong> Proveer un punto centralizado para detener todos los procesos del robot instantáneamente.</li>
+              <li><strong>Simulabilidad:</strong> Poder desarrollarse y exhibirse sin requerir el hardware del robot mediante un modo "Mock".</li>
+            </ul>
+          </section>
+
+          <!-- SECCION 2 -->
+          <section id="repositorio">
+            <h2>2. Repositorio y estructura</h2>
+            <p>
+              El proyecto está organizado en un monorepo que separa la capa de captura y API (Backend, en el robot)
+              y la capa de presentación (Frontend, en la notebook del operador).
+            </p>
+            <table class="define-table">
+              <thead>
+                <tr><th>Ruta / Capa</th><th>Contenido y Ubicación de Ejecución</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>backend/</code> (Canónico)</td>
+                  <td><strong>Corre en: Robot (Docker :8000)</strong><br>Aplicación FastAPI principal del orquestador. Provee los endpoints de control unificados y el WebSocket de telemetría.</td>
+                </tr>
+                <tr>
+                  <td><code>frontend/src/</code></td>
+                  <td><strong>Corre en: Notebook (Node/Vite :3001)</strong><br>Aplicación React. Contiene <code>components/</code> (tarjetas, gráficos), <code>hooks/</code> (estado, WS), <code>services/</code> (HTTP API).</td>
+                </tr>
+                <tr>
+                  <td><code>frontend/src/config.js</code></td>
+                  <td>Único punto de configuración de la UI: URL del robot, frecuencias de actualización y endpoints.</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <!-- SECCION 3 -->
+          <section id="arquitectura">
+            <h2>3. Arquitectura general</h2>
+            <p>
+              El operador se conecta mediante un cable RJ45 directo desde su notebook (frontend) hacia la companion PC
+              del Unitree G1 (backend). El backend FastAPI sirve de puente entre las tecnologías web y los procesos de
+              robótica nativos (subprocesos de consola y DDS).
+            </p>
+
+            <div class="pipeline-flow">
+              <div class="flow-step">
+                <div class="step-icon">💻</div>
+                <div class="step-name">Notebook Front</div>
+                <div class="step-tech">React :3001</div>
+              </div>
+              <div class="flow-arrow">↔</div>
+              <div class="flow-step">
+                <div class="step-icon">🔌</div>
+                <div class="step-name">Cable RJ45</div>
+                <div class="step-tech">HTTP/WS LAN</div>
+              </div>
+              <div class="flow-arrow">↔</div>
+              <div class="flow-step">
+                <div class="step-icon">🤖</div>
+                <div class="step-name">Robot Back</div>
+                <div class="step-tech">FastAPI :8000</div>
+              </div>
+              <div class="flow-arrow">→</div>
+              <div class="flow-step">
+                <div class="step-icon">📡</div>
+                <div class="step-name">Locomotion</div>
+                <div class="step-tech">DDS / Subprocess</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- SECCION 4 -->
+          <section id="flujo-datos">
+            <h2>4. Flujo de datos (telemetría)</h2>
+            <p>
+              El flujo de lectura de métricas ocurre a alta frecuencia (10 Hz). La arquitectura evita
+              sobrecargar la red agrupando todo en un único WebSocket.
+            </p>
+            <ol>
+              <li>El <strong>robot (lowstate)</strong> publica su estado de articulaciones, batería e IMU en el bus local DDS (<code>rt/lowstate</code>).</li>
+              <li>El <strong>Lector DDS</strong> del backend canónico lee este tópico asíncronamente y mantiene el frame de estado más reciente en memoria caché.</li>
+              <li>El <strong>WebSocket</strong> de FastAPI (<code>/telemetry</code>) transmite a 10 Hz el caché del último frame hacia el frontend.</li>
+              <li>En React, el hook <strong><code>useTelemetry</code></strong> recibe el JSON, alimenta el estado global y empuja los datos al histórico para su representación gráfica (Recharts).</li>
+            </ol>
+            <div class="note warning">
+              <strong>Sin fallback silencioso:</strong> En el entorno de producción, está prohibido el fallback silencioso a telemetría simulada. Si falla la lectura DDS, el sistema fallará explícitamente para garantizar la seguridad operacional.
+            </div>
+          </section>
+
+          <!-- SECCION 5 -->
+          <section id="flujo-control">
+            <h2>5. Flujo de control (botones)</h2>
+            <p>
+              El panel provee acciones principales de orquestación, cuyos efectos son manejados por el <code>TourOrchestrator</code> en el backend canónico.
+            </p>
+            <div class="grid-3">
+              <article class="card">
+                <h3><span class="tag green">Iniciar recorrido</span></h3>
+                <p>Hace POST a <code>/tour/start</code>. El orquestador toma control del robot para la navegación autónoma. Actualiza estado a <code>tour</code>.</p>
+              </article>
+              <article class="card">
+                <h3><span class="tag green">Iniciar charla</span></h3>
+                <p>Hace GET a <code>/content/script</code> para iniciar la charla con el contenido conversacional de la IA.</p>
+              </article>
+              <article class="card">
+                <h3><span class="tag gray">Terminar ejecución</span></h3>
+                <p>Hace POST a <code>/emergency</code>. El orquestador ejecuta una parada segura de todos los subsistemas. El estado vuelve a <code>idle</code>.</p>
+              </article>
+            </div>
+          </section>
+
+          <!-- SECCION 6 -->
+          <section id="api">
+            <h2>6. Contrato de API</h2>
+            <table class="define-table">
+              <thead>
+                <tr><th>Método</th><th>Ruta</th><th>Propósito y Respuesta</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>POST</code></td>
+                  <td><code>/tour/start</code></td>
+                  <td>Inicia el recorrido autónomo. Devuelve el <em>snapshot</em> del estado actual.</td>
+                </tr>
+                <tr>
+                  <td><code>POST</code></td>
+                  <td><code>/tour/pause</code></td>
+                  <td>Pausa el recorrido autónomo actual.</td>
+                </tr>
+                <tr>
+                  <td><code>GET</code></td>
+                  <td><code>/content/script</code></td>
+                  <td>Obtiene el script conversacional activo.</td>
+                </tr>
+                <tr>
+                  <td><code>POST</code></td>
+                  <td><code>/content/script/reload</code></td>
+                  <td>Recarga el contenido del script de IA.</td>
+                </tr>
+                <tr>
+                  <td><code>POST</code></td>
+                  <td><code>/emergency</code></td>
+                  <td>Utiliza `terminal_safe` para detener los procesos de control de forma segura. Devuelve 200, 503 o 504.</td>
+                </tr>
+                <tr>
+                  <td><code>GET</code></td>
+                  <td><code>/status</code></td>
+                  <td>Retorna <code>{mode, running, llm_enabled, conversation_state}</code>.</td>
+                </tr>
+                <tr>
+                  <td><code>WS</code></td>
+                  <td><code>/ws/telemetry</code></td>
+                  <td>Conexión WebSocket que inyecta frames JSON cada 100 ms (~10 Hz).</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <!-- SECCION 7 -->
+          <section id="schema">
+            <h2>7. Schema de telemetría</h2>
+            <p>
+              El frame (tanto real como mock) sigue esta estructura fija, la cual nutre todos los indicadores visuales:
+            </p>
+            <pre><code>{
+  "robot": "G1",
+  "timestamp": 1718049182.2,
+  "power_v": 27.5,
+  "power_a": 3.5,
+  "motors": [
+    { "index": 0, "name": "L_Hip_Pitch", "group": "Pierna Izquierda", 
+      "q_rad": 0.1, "q_deg": 5.7, "dq": 0.0, "ddq": 0.0, "tau_est": 1.2, "temperature": 35 }
+    // ... 29 motores
+  ],
+  "imu": { "quaternion": [], "gyroscope": [], "accelerometer": [], "rpy_deg": [] },
+  "foot_force": [45, 48, 50, 42],
+  "bms": { "soc": 75, "cycle": 20, "current": -3500, "status": 0, "mcu_ntc": [], "bq_ntc": [], "cell_vol": [] }
+}</code></pre>
+            <p>
+              <strong>Impacto en Frontend:</strong> Recharts grafica las métricas, y la UI expone alertas si la temperatura de un motor sobrepasa los 60 °C (con un límite de atención amarillo entre 40 °C y 60 °C).
+            </p>
+          </section>
+
+          <!-- SECCION 8 -->
+          <section id="estados">
+            <h2>8. Estados del sistema</h2>
+            <p>
+              Gestionado por el backend canónico, el estado actual de los procesos es interrogado por el front para renderizar la UI condicionalmente.
+            </p>
+
+            <div class="state-grid">
+              <div class="state-card hibernacion">
+                <h3><span class="state-badge hibernacion">IDLE</span></h3>
+                <ul>
+                  <li>Estado base o tras un Paro de Emergencia.</li>
+                  <li>No hay navegación ni IA activa (<code>running: False</code>).</li>
+                </ul>
+              </div>
+              <div class="state-card procesando">
+                <h3><span class="state-badge procesando">TOUR</span></h3>
+                <ul>
+                  <li>Ejecutando recorrido (<code>ottoguide-map</code> corriendo).</li>
+                  <li><code>running: True</code>, <code>llm_enabled: False</code> (se habilitará al llegar a destino).</li>
+                </ul>
+              </div>
+              <div class="state-card escuchando">
+                <h3><span class="state-badge escuchando">CHAT</span></h3>
+                <ul>
+                  <li>Modo conversacional (<code>otto_pipeline</code> corriendo).</li>
+                  <li><code>running: True</code>, <code>llm_enabled: True</code>.</li>
+                  <li>Tiene un subestado asociado: <code>conversation_state</code> (hibernación, escuchando, procesando).</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+
+          <!-- SECCION 9 -->
+          <section id="componentes">
+            <h2>9. Componentes del stack</h2>
+            <div class="grid">
+              <article class="card">
+                <h3>React + Vite</h3>
+                <p>Frontend SPA renderizado vía Vite (server puerto 3001) para máximo rendimiento y HMR.</p>
+                <p><span class="tag">React 18.3.1</span><span class="tag">Vite 5.4.11</span></p>
+              </article>
+              <article class="card">
+                <h3>Recharts + Lucide</h3>
+                <p>Gráficos de series de tiempo de alto rendimiento mediante <code>recharts</code> y la suite de iconos moderna de <code>lucide-react</code>.</p>
+                <p><span class="tag">Recharts 2.13.3</span><span class="tag">lucide-react 0.456.0</span></p>
+              </article>
+              <article class="card">
+                <h3>FastAPI + Uvicorn</h3>
+                <p>Backend orquestador en el robot expuesto en el puerto 8000 con soporte nativo de asincronía y WebSockets.</p>
+                <p><span class="tag">FastAPI</span><span class="tag">Uvicorn</span></p>
+              </article>
+              <article class="card">
+                <h3>Docker + Compose</h3>
+                <p>El backend corre dentro de un contenedor en el robot con <code>network_mode: host</code> y <code>restart: always</code> para sobrevivir reinicios del Unitree G1.</p>
+                <p><span class="tag">Docker Multi-stage</span></p>
+              </article>
+              <article class="card">
+                <h3>CycloneDDS</h3>
+                <p>Implementación OpenSource de OMG DDS compilada desde fuente para comunicarse en capa de red directamente con los tópicos del robot.</p>
+                <p><span class="tag">CycloneDDS 0.10.x</span></p>
+              </article>
+              <article class="card">
+                <h3>Unitree SDK2 Python</h3>
+                <p>Bindings en Python oficiales sobre DDS para deserializar de manera eficiente los mensajes de telemetría lowstate del Unitree G1.</p>
+                <p><span class="tag">unitree_sdk2py</span></p>
+              </article>
+            </div>
+          </section>
+
+          <!-- SECCION 10 -->
+          <section id="mock">
+            <h2>10. Modo mock vs. real</h2>
+            <p>
+              Tanto el Front como el Back implementan "Mock Mode" para facilitar el desarrollo:
+            </p>
+            <ul>
+              <li><strong>Back</strong>: En producción, <code>SILENT_REAL_FALLBACK = PROHIBITED</code>. No hay fallback silencioso a stub; si falla la conexión real con el hardware, el sistema debe reportarlo explícitamente en lugar de enmascararlo con datos simulados.</li>
+              <li><strong>Front (<code>VITE_MOCK_MODE=true</code>)</strong>: Por defecto activado, ignora el websocket del backend y procesa las respuestas simuladas del mismo navegador, ideal para diseño de interfaz pura (aislamiento total de redes). Esto puede desactivarse desde la UI usando el toggle de <em>"Modo simulación"</em>.</li>
+            </ul>
+          </section>
+
+          <!-- SECCION 11 -->
+          <section id="configuracion">
+            <h2>11. Configuración y variables de entorno</h2>
+            <table class="define-table">
+              <thead>
+                <tr><th>Variable</th><th>Default</th><th>Ubicación</th><th>Propósito</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>VITE_ROBOT_BASE_URL</code></td>
+                  <td>(ip local)</td>
+                  <td><code>frontend/.env</code></td>
+                  <td>Dirección de base IP al servidor FastAPI canónico del robot (ej. <code>http://192.168.123.164:8000</code>).</td>
+                </tr>
+                <tr>
+                  <td><code>VITE_MOCK_MODE</code></td>
+                  <td><code>true</code></td>
+                  <td><code>frontend/.env</code></td>
+                  <td>Carga UI desconectada del Backend (simulación visual frontend).</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <!-- SECCION 12 -->
+          <section id="despliegue">
+            <h2>12. Despliegue y primer arranque</h2>
+            <p>
+              El flujo de despliegue en hardware real se realiza siguiendo <code>PRIMER_ARRANQUE.md</code>.
+            </p>
+            <ul>
+              <li><strong>Compilación Backend:</strong> Construir el Docker en la máquina ARM64 (robot) es mandatorio, porque se compila <code>CycloneDDS</code> de forma nativa. <code>docker compose up -d --build</code> debe ejecutarse en la Companion PC.</li>
+              <li><strong>Arranque Seguro:</strong> El contenedor Docker utiliza <code>restart: always</code> para reiniciarse si se cae, y levantar automáticamente con el Daemon del SO del robot.</li>
+              <li><strong>Red LAN:</strong> Configurar el IP de la notebook del usuario en <code>192.168.123.X/24</code> mediante RJ45 y setear la URL del host FastAPI en el Frontend.</li>
+            </ul>
+          </section>
+
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

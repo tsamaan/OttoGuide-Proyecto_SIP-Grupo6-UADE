@@ -80,7 +80,7 @@ export default function App() {
       />
 
       <footer className="app-foot">
-        OttoGuide · Unitree G1-EDU · backend en el robot (puerto 3000) · front en notebook (puerto 3001)
+        OttoGuide · Unitree G1-EDU · backend en el robot (puerto 8000) · front en notebook (puerto 3001)
       </footer>
     </div>
   )

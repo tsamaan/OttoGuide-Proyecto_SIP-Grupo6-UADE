@@ -34,7 +34,7 @@ export default function ConnectionBar({ mockMode, onToggleMock, baseUrl, onChang
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => onChangeBaseUrl(draft.trim())}
           onKeyDown={(e) => { if (e.key === 'Enter') onChangeBaseUrl(draft.trim()) }}
-          placeholder="http://192.168.123.164:3000"
+          placeholder="http://192.168.123.164:8000"
         />
       </div>
     </div>

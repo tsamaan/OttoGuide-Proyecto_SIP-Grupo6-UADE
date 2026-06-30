@@ -15,11 +15,11 @@ falla sabés exactamente dónde.
 | Equipo | IP | Rol |
 |---|---|---|
 | Notebook (front) | `192.168.123.101` | Corre el frontend con `npm run dev` (puerto 3001) |
-| Companion PC (robot) | `192.168.123.164` | Corre el backend con Docker (puerto 3000) |
+| Companion PC (robot) | `192.168.123.164` | Corre el backend con Docker (puerto 8000) |
 | Locomotion | `192.168.123.161` | — |
 
 Conexión notebook ↔ robot por **cable RJ45**. El front le pega al backend en
-`http://192.168.123.164:3000` (configurable en `frontend/.env` → `VITE_ROBOT_BASE_URL`).
+`http://192.168.123.164:8000` (configurable en `frontend/.env` → `VITE_ROBOT_BASE_URL`).
 
 ---
 
@@ -47,14 +47,14 @@ fricción. Guardá el log del error.
 docker compose logs -f
 ```
 
-- ✅ Tenés que ver el backend arrancando con uvicorn en el puerto 3000.
+- ✅ Tenés que ver el backend arrancando con uvicorn en el puerto 8000.
 - ❌ Si ves un error de `.so` no encontrado al arrancar → es el `LD_LIBRARY_PATH` /
   `CYCLONEDDS_HOME` del stage final del Dockerfile.
 
 Chequeo rápido de que responde:
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:8000/health
 ```
 
 ---
