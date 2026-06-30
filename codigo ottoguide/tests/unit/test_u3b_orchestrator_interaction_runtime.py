@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -105,6 +106,14 @@ class VisionStub:
         return None
 
 
+class RecordingVisionStub(VisionStub):
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
 class RuntimeFake:
     def __init__(self, events: list[WorkerEventEnvelope] | None = None, order: list[str] | None = None) -> None:
         self.events = asyncio.Queue()
@@ -121,6 +130,7 @@ class RuntimeFake:
         self.block_next_event = False
         self.block_emergency_stop = False
         self.activate_started = asyncio.Event()
+        self.next_event_started = asyncio.Event()
         self.emergency_started = asyncio.Event()
         self.stop_started = asyncio.Event()
         self.release_next_event = asyncio.Event()
@@ -166,6 +176,7 @@ class RuntimeFake:
             raise self.next_event_exception
         self.next_event_active += 1
         self.next_event_max_active = max(self.next_event_max_active, self.next_event_active)
+        self.next_event_started.set()
         try:
             if self.block_next_event:
                 await self.release_next_event.wait()
@@ -175,6 +186,40 @@ class RuntimeFake:
 
     async def close(self) -> None:
         self.close_calls += 1
+
+
+class StubbornStopRuntime(RuntimeFake):
+    def __init__(self) -> None:
+        super().__init__()
+        self.release_stop = asyncio.Event()
+        self.stop_cancelled = asyncio.Event()
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
+        self.order.append("stop")
+        self.stop_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.stop_cancelled.set()
+            await self.release_stop.wait()
+            raise
+
+
+class DoneTaskProbe:
+    def __init__(self, exc: BaseException) -> None:
+        self.exc = exc
+        self.result_called = False
+
+    def done(self) -> bool:
+        return True
+
+    def result(self):
+        self.result_called = True
+        raise self.exc
+
+    def cancel(self) -> None:
+        raise AssertionError("done task must not be cancelled")
 
 
 def _plan() -> TourPlan:
@@ -205,6 +250,38 @@ def _make_orchestrator(runtime: RuntimeFake, order: list[str] | None = None):
         nav_bridge=BlockingNav(order),
         conversation_manager=cm,
         vision_processor=VisionStub(),
+        event_bus=bus,
+        interaction_runtime=runtime,
+        audio_capture_timeout_s=0.2,
+    )
+    return orchestrator, cm, completion_payloads, order
+
+
+def _make_orchestrator_with_vision(
+    runtime: RuntimeFake,
+    vision: VisionStub,
+    order: list[str] | None = None,
+):
+    order = order if order is not None else []
+    local_strategy = MagicMock()
+    local_strategy.close = MagicMock()
+    cloud_strategy = MagicMock()
+    cloud_strategy.close = MagicMock()
+    cm = ConversationManager(local_strategy=local_strategy, cloud_strategy=cloud_strategy)
+    cm.process_interaction = MagicMock()
+    cm.process_scripted_interaction = MagicMock()
+    bus = OttoEventBus()
+    completion_payloads: list[object] = []
+
+    async def _capture_completion(_event_type, data):
+        completion_payloads.append(data)
+
+    bus.subscribe(EventType.INTERACTION_COMPLETED, _capture_completion)
+    orchestrator = TourOrchestrator(
+        hardware_api=RecordingHardware(order),
+        nav_bridge=BlockingNav(order),
+        conversation_manager=cm,
+        vision_processor=vision,
         event_bus=bus,
         interaction_runtime=runtime,
         audio_capture_timeout_s=0.2,
@@ -503,17 +580,25 @@ async def test_close_does_not_clear_live_interaction_task_handle_on_timeout() ->
 
 @pytest.mark.asyncio
 async def test_completion_after_emergency_latch_does_not_publish_or_resume() -> None:
-    runtime = RuntimeFake([
-        _event(WorkerEventType.PLAYBACK_COMPLETED, interaction_id="interaction:1", sequence=0),
-    ])
-    orchestrator, _, completions, _ = _make_orchestrator(runtime)
+    runtime = RuntimeFake()
+    runtime.block_next_event = True
+    orchestrator, cm, completions, _ = _make_orchestrator(runtime)
     await _start_navigating(orchestrator)
     await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
     await runtime.activate_started.wait()
+    await runtime.next_event_started.wait()
+    assert runtime.next_event_active == 1
+
     orchestrator._claim_interaction_terminal_outcome("EMERGENCY")
+    runtime.events.put_nowait(
+        _event(WorkerEventType.PLAYBACK_COMPLETED, interaction_id="interaction:1", sequence=0)
+    )
+    runtime.release_next_event.set()
     await _wait_interaction_done(orchestrator)
 
     assert completions == []
+    assert cm.process_interaction.call_count == 0
+    assert orchestrator._interaction_terminal_outcome == "EMERGENCY"
     assert orchestrator.state_id == "interacting"
 
 
@@ -1183,4 +1268,198 @@ async def test_no_interaction_runtime_tasks_remain_after_final_close() -> None:
     assert remaining == [], (
         f"No deben quedar tasks de interacción después de close(): "
         f"{[t.get_name() for t in remaining]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# U3BR3: self-settlement, runtime.stop ownership y recuperación de excepciones
+# ---------------------------------------------------------------------------
+
+async def _run_internal_resume_failure() -> tuple[TourOrchestrator, RuntimeFake, RecordingVisionStub, asyncio.Task | None]:
+    runtime = RuntimeFake([
+        _event(WorkerEventType.PLAYBACK_COMPLETED, interaction_id="interaction:1", sequence=0),
+    ])
+    vision = RecordingVisionStub()
+    orchestrator, _, _, _ = _make_orchestrator_with_vision(runtime, vision)
+    await _start_navigating(orchestrator)
+
+    async def _fail_resume() -> None:
+        raise RuntimeError("u3br3 resume failure")
+
+    orchestrator.resume_tour = _fail_resume
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+    task = orchestrator._interaction_task
+    assert task is not None
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+    except asyncio.CancelledError:
+        pass
+    return orchestrator, runtime, vision, task
+
+
+@pytest.mark.asyncio
+async def test_internal_resume_failure_does_not_cancel_current_interaction_task() -> None:
+    orchestrator, _, _, task = await _run_internal_resume_failure()
+    assert task is not None
+    assert not task.cancelled()
+    assert orchestrator.state_id == "emergency"
+
+
+@pytest.mark.asyncio
+async def test_internal_resume_failure_emergency_callback_completes() -> None:
+    orchestrator, _, _, _ = await _run_internal_resume_failure()
+    assert orchestrator._last_emergency_result is not None
+    assert orchestrator._last_emergency_result.terminal_safe is True
+
+
+@pytest.mark.asyncio
+async def test_internal_resume_failure_executes_vision_close() -> None:
+    _, _, vision, _ = await _run_internal_resume_failure()
+    assert vision.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_internal_resume_failure_has_no_self_settlement_timeout_error() -> None:
+    orchestrator, _, _, _ = await _run_internal_resume_failure()
+    assert orchestrator._last_emergency_result is not None
+    assert not any(
+        "interaction_task_settlement_timeout" in error
+        for error in orchestrator._last_emergency_result.errors
+    )
+
+
+@pytest.mark.asyncio
+async def test_on_enter_emergency_never_settles_current_interaction_task() -> None:
+    runtime = RuntimeFake()
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+
+    async def _settle_from_current_task() -> str:
+        orchestrator._interaction_task = asyncio.current_task()
+        await orchestrator._cancel_interaction_task_safe()
+        assert orchestrator._interaction_task is asyncio.current_task()
+        return "deferred"
+
+    task = asyncio.create_task(_settle_from_current_task(), name="u3br3-self-settlement")
+    result = await asyncio.wait_for(task, timeout=1.0)
+    assert result == "deferred"
+    assert not task.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_stubborn_runtime_stop_timeout_is_strictly_bounded() -> None:
+    runtime = StubbornStopRuntime()
+    runtime.block_next_event = True
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    close_task = asyncio.create_task(orchestrator.close())
+    try:
+        await runtime.stop_started.wait()
+        done, _ = await asyncio.wait({close_task}, timeout=0.85)
+        assert close_task in done
+        await close_task
+    finally:
+        runtime.release_stop.set()
+        if not close_task.done():
+            close_task.cancel()
+            await asyncio.gather(close_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_stubborn_runtime_stop_handle_is_preserved() -> None:
+    runtime = StubbornStopRuntime()
+    runtime.block_next_event = True
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    close_task = asyncio.create_task(orchestrator.close())
+    try:
+        await runtime.stop_started.wait()
+        done, _ = await asyncio.wait({close_task}, timeout=0.85)
+        assert close_task in done
+        assert getattr(orchestrator, "_interaction_stop_task", None) is not None
+        assert runtime.stop_cancelled.is_set()
+    finally:
+        runtime.release_stop.set()
+        if not close_task.done():
+            close_task.cancel()
+        await asyncio.gather(close_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_close_retry_succeeds_after_stubborn_runtime_stop_release() -> None:
+    runtime = StubbornStopRuntime()
+    runtime.block_next_event = True
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    first_close = asyncio.create_task(orchestrator.close())
+    await runtime.stop_started.wait()
+    done, _ = await asyncio.wait({first_close}, timeout=0.85)
+    assert first_close in done
+    assert not orchestrator._closed
+    runtime.release_stop.set()
+    await asyncio.gather(first_close, return_exceptions=True)
+    await orchestrator.close()
+    assert orchestrator._closed is True
+    assert getattr(orchestrator, "_interaction_stop_task", None) is None
+    assert runtime.stop_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_done_failed_interaction_task_exception_is_retrieved_before_handle_clear() -> None:
+    runtime = RuntimeFake()
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    probe = DoneTaskProbe(RuntimeError("done interaction failure"))
+    orchestrator._interaction_task = probe
+    await orchestrator._cancel_interaction_task_safe()
+    assert probe.result_called
+    assert orchestrator._interaction_task is None
+
+
+@pytest.mark.asyncio
+async def test_done_failed_emergency_task_exception_is_retrieved_before_handle_clear() -> None:
+    runtime = RuntimeFake()
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    probe = DoneTaskProbe(RuntimeError("done emergency failure"))
+    orchestrator._interaction_emergency_task = probe
+    await orchestrator._cancel_interaction_emergency_task_safe()
+    assert probe.result_called
+    assert orchestrator._interaction_emergency_task is None
+
+
+@pytest.mark.asyncio
+async def test_no_unretrieved_warning_after_done_task_cleanup() -> None:
+    loop = asyncio.get_running_loop()
+    captured: list[dict[str, object]] = []
+    previous_handler = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: captured.append(context))
+    runtime = RuntimeFake()
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+
+    async def _fail_done_task() -> None:
+        raise RuntimeError("u3br3 unretrieved probe")
+
+    task = asyncio.create_task(_fail_done_task())
+    await asyncio.sleep(0)
+    assert task.done()
+    orchestrator._interaction_task = task
+    try:
+        await orchestrator._cancel_interaction_task_safe()
+        del task
+        gc.collect()
+        await asyncio.sleep(0)
+    finally:
+        loop.set_exception_handler(previous_handler)
+
+    assert not any(
+        context.get("message") == "Task exception was never retrieved"
+        for context in captured
     )

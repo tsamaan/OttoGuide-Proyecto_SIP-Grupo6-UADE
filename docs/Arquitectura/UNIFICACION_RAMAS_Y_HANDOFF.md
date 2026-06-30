@@ -30,8 +30,9 @@ Reglas de lectura:
 - Repositorio mirror: `LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU`.
 - URL HTTPS del mirror: `https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git`.
 - El clon requiere autenticacion GitHub cuando el repositorio no sea accesible de forma anonima.
-- Remote permitido para continuidad: `mirror`.
-- Remote prohibido para esta linea de trabajo: `canonical`.
+- Remote autoritativo de desarrollo: `mirror`.
+- Remote de publicacion controlada: `canonical`.
+- Politica de `canonical`: `PUBLICATION_ONLY_FAST_FORWARD`; solo se permite actualizar `review/orchestrator-unification` despues del mirror, nunca ramas default.
 - Rama autoritativa: `review/orchestrator-unification`.
 - `main` es un snapshot huerfano sin ancestro comun con la rama de integracion; no es base de continuidad ni de integracion.
 
@@ -158,9 +159,31 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U3AR9` | `e094f7a9cf11848ea43ca74ce23a596d9bb38797` | `fix(interaction): enforce terminal runtime postconditions` |
 | `U3B` | `fc42fa5bd3d32c57766350b422745fced97dc69a` | `feat(orchestrator): wire supervised interaction lifecycle` (auditoria posterior: `REJECTED_PARTIAL_IMPLEMENTATION`) |
 | `U3BR1` | `664e0a3f8776a8861182bed364ae5be2a8a74e18` | `fix(orchestrator): serialize emergency and interaction shutdown` |
-| `U3BR2` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(orchestrator): bound settlement and preserve emergency` |
+| `U3BR2` | `728584290b9e19c8caf6a2c6f856c7f3eb20b7a3` | `fix(orchestrator): bound settlement and preserve emergency` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
+| `U3BR3` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(orchestrator): avoid self-settlement and bound runtime stop` |
 
 El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.
+
+### Runtime de validacion U3BR3
+
+```text
+NOTEBOOK_RUNTIME = CPYTHON_3_13_2_WINDOWS
+TARGET_RUNTIME = PENDING_SSH_DISCOVERY
+DEPENDENCY_MODE = FULL_REQUIREMENTS_PROD_EXCEPT_UNITREE_EDITABLE
+UNITREE_SDK_INSTALLATION = DEFERRED_TO_NATIVE_ROBOT_ENVIRONMENT
+ENVIRONMENT_PARITY_CLAIM = NOT_MADE
+PY313_U3A_COMPATIBILITY = SIX_PREEXISTING_FAILURES_NOT_MODIFIED_IN_U3BR3
+PY313_U3A_REQUIRED_BEFORE_U3C = YES
+```
+
+Los seis fallos U3A observados en la notebook Python 3.13 son baseline preexistente de compatibilidad y no fueron modificados en U3BR3:
+
+- `tests/integration/test_u3a_jsonl_worker_supervisor.py::test_duplicate_message_id_and_heartbeat_timeout`
+- `tests/integration/test_u3a_jsonl_worker_supervisor.py::test_stderr_flood_event_queue_overflow_and_crash_after_ready`
+- `tests/integration/test_u3a_jsonl_worker_supervisor.py::test_double_activation_pause_resume_stop_and_emergency_latch`
+- `tests/integration/test_u3a_jsonl_worker_supervisor.py::test_close_while_pending_command_ledger_is_full`
+- `tests/integration/test_u3a_jsonl_worker_supervisor.py::test_emergency_while_commands_are_pending_without_ack_clears_ledger`
+- `tests/integration/test_u3a_jsonl_worker_supervisor.py::test_protocol_failure_during_terminate_preserves_primary_reason`
 
 ## 10. Estado QR
 

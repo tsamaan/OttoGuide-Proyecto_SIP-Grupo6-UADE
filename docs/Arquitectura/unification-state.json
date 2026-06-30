@@ -4,7 +4,11 @@
   "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "remote_authority": "mirror",
-  "canonical_access": "prohibited",
+  "canonical_access": "publication_only",
+  "canonical_repository": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
+  "canonical_publish_branch": "review/orchestrator-unification",
+  "canonical_update_policy": "FAST_FORWARD_ONLY_AFTER_MIRROR",
+  "canonical_default_branches_write": "PROHIBITED",
   "active_branch": "review/orchestrator-unification",
   "active_ref": "mirror/review/orchestrator-unification",
   "head_resolution": {
@@ -170,6 +174,15 @@
     "U3BR1": {
       "commit": "664e0a3f8776a8861182bed364ae5be2a8a74e18",
       "message": "fix(orchestrator): serialize emergency and interaction shutdown"
+    },
+    "U3BR2": {
+      "commit": "728584290b9e19c8caf6a2c6f856c7f3eb20b7a3",
+      "message": "fix(orchestrator): bound settlement and preserve emergency",
+      "audit": "REJECTED_PARTIAL_REMEDIATION"
+    },
+    "U3BR3": {
+      "commit": "DYNAMIC_HANDOFF_CHECKPOINT",
+      "message": "fix(orchestrator): avoid self-settlement and bound runtime stop"
     }
   },
   "read_only_gates": {
@@ -516,12 +529,19 @@
     }
   },
   "current_write_stage": {
-    "stage": "U3BR2",
+    "stage": "U3BR3",
     "status": "COMPLETED_AT_DYNAMIC_CHECKPOINT",
-    "commit_message": "fix(orchestrator): bound settlement and preserve emergency"
+    "commit_message": "fix(orchestrator): avoid self-settlement and bound runtime stop"
   },
   "known_test_baseline": {
-    "python": "3.10.11",
+    "python": "3.13.2",
+    "notebook_runtime": "CPYTHON_3_13_2_WINDOWS",
+    "target_runtime": "PENDING_SSH_DISCOVERY",
+    "dependency_mode": "FULL_REQUIREMENTS_PROD_EXCEPT_UNITREE_EDITABLE",
+    "unitree_sdk_installation": "DEFERRED_TO_NATIVE_ROBOT_ENVIRONMENT",
+    "environment_parity_claim": "NOT_MADE",
+    "py313_u3a_compatibility": "SIX_PREEXISTING_FAILURES_NOT_MODIFIED_IN_U3BR3",
+    "py313_u3a_required_before_u3c": true,
     "pytest": "9.0.2",
     "pytest_asyncio": "1.3.0",
     "fastapi": "0.138.0",

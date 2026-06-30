@@ -274,6 +274,8 @@ class TourOrchestrator(StateMachine):
         self._interaction_sequence: int = 0
         self._interaction_task: Optional[asyncio.Task[None]] = None
         self._interaction_emergency_task: Optional[asyncio.Task[None]] = None
+        self._interaction_stop_task: Optional[asyncio.Task[None]] = None
+        self._deferred_current_interaction_task: Optional[asyncio.Task[None]] = None
         self._active_runtime_interaction_id: Optional[str] = None
         self._interaction_terminal_outcome: Optional[str] = None
         self._runtime_stop_sent_for_interaction_id: Optional[str] = None
@@ -610,10 +612,13 @@ class TourOrchestrator(StateMachine):
 
         self._claim_interaction_terminal_outcome("EMERGENCY")
         current_task = asyncio.current_task()
+        if self._interaction_task is current_task:
+            self._deferred_current_interaction_task = current_task
         if (
             self._interaction_task is not None
             and not self._interaction_task.done()
             and self._interaction_task is not current_task
+            and self._interaction_task is not self._deferred_current_interaction_task
         ):
             self._interaction_task.cancel()
         self._ensure_runtime_emergency_task()
@@ -929,11 +934,16 @@ class TourOrchestrator(StateMachine):
         except Exception as exc:
             self._context.last_error = f"runtime_lifecycle_failed:{type(exc).__name__}:{exc}"
             LOGGER.error("[Orchestrator] Excepcion inesperada en lifecycle de interaccion: %s", exc)
+            current = asyncio.current_task()
+            if self._interaction_task is current:
+                self._deferred_current_interaction_task = current
             await self.emergency_stop(reason=f"runtime_lifecycle_failed:{type(exc).__name__}:{exc}")
         finally:
             current = asyncio.current_task()
             if self._interaction_task is current:
                 self._interaction_task = None
+            if self._deferred_current_interaction_task is current:
+                self._deferred_current_interaction_task = None
 
     async def _consume_runtime_interaction_events(
         self,
@@ -1091,6 +1101,9 @@ class TourOrchestrator(StateMachine):
                 "[Orchestrator] Fallo en transicion resume_tour tras runtime: %s",
                 exc,
             )
+            current = asyncio.current_task()
+            if self._interaction_task is current:
+                self._deferred_current_interaction_task = current
             await self.emergency_stop(reason=f"resume_tour fallo: {exc}")
 
     async def _fail_runtime_interaction(self, reason: str, *, stop_runtime: bool) -> None:
@@ -1136,21 +1149,37 @@ class TourOrchestrator(StateMachine):
         )
         return self._interaction_emergency_task
 
-    async def _runtime_stop_best_effort(self) -> None:
+    async def _runtime_stop_best_effort(self) -> bool:
         runtime = self._interaction_runtime
         if runtime is None:
-            return
+            return True
         interaction_id = self._active_runtime_interaction_id
-        if interaction_id is not None and self._runtime_stop_sent_for_interaction_id == interaction_id:
-            return
-        if interaction_id is not None:
-            self._runtime_stop_sent_for_interaction_id = interaction_id
-        try:
-            await asyncio.wait_for(runtime.stop(), timeout=0.5)
-        except InteractionRuntimeUnavailableError:
-            return
-        except Exception as exc:
-            LOGGER.warning("[Orchestrator] runtime.stop() best-effort fallo: %s", exc)
+        task = self._interaction_stop_task
+        if task is not None and task.done():
+            self._retrieve_done_task_result(task, "runtime stop task")
+            self._interaction_stop_task = None
+            return True
+        if task is None:
+            if interaction_id is not None and self._runtime_stop_sent_for_interaction_id == interaction_id:
+                return True
+            if interaction_id is not None:
+                self._runtime_stop_sent_for_interaction_id = interaction_id
+            task = asyncio.create_task(
+                runtime.stop(),
+                name=f"interaction-runtime-stop:{interaction_id or 'unknown'}",
+            )
+            self._interaction_stop_task = task
+
+        done, _ = await asyncio.wait({task}, timeout=0.5)
+        if task in done:
+            self._retrieve_done_task_result(task, "runtime stop task")
+            self._interaction_stop_task = None
+            return True
+
+        task.cancel()
+        LOGGER.warning("[Orchestrator] runtime.stop() no asento en timeout; se preserva handle para reintento.")
+        self._context.last_error = "runtime stop settlement timeout"
+        return False
 
     async def _runtime_emergency_stop_best_effort(self) -> None:
         runtime = self._interaction_runtime
@@ -1163,41 +1192,59 @@ class TourOrchestrator(StateMachine):
         except Exception as exc:
             LOGGER.warning("[Orchestrator] runtime.emergency_stop() fallo: %s", exc)
 
-    async def _cancel_interaction_task_safe(self) -> None:
+    async def _cancel_interaction_task_safe(self) -> str:
         task = self._interaction_task
-        if task is None or task.done():
+        if task is None:
             self._interaction_task = None
-            return
+            return "NO_TASK"
+        if task.done():
+            self._retrieve_done_task_result(task, "interaction task")
+            self._interaction_task = None
+            return "DONE"
+        if task is asyncio.current_task() or task is self._deferred_current_interaction_task:
+            return "DEFERRED_CURRENT_TASK"
         task.cancel()
         done, _ = await asyncio.wait({task}, timeout=INTERACTION_TASK_SETTLE_S)
         if task in done:
-            try:
-                task.result()
-            except (asyncio.CancelledError, Exception):
-                pass
+            self._retrieve_done_task_result(task, "interaction task")
             self._interaction_task = None
+            return "SETTLED"
         else:
             LOGGER.warning("[Orchestrator] interaction runtime task no asento en timeout.")
             self._context.last_error = "interaction task settlement timeout"
             raise RuntimeError("interaction task settlement timeout")
 
-    async def _cancel_interaction_emergency_task_safe(self) -> None:
+    async def _cancel_interaction_emergency_task_safe(self) -> str:
         task = self._interaction_emergency_task
-        if task is None or task.done():
+        if task is None:
             self._interaction_emergency_task = None
-            return
+            return "NO_TASK"
+        if task.done():
+            self._retrieve_done_task_result(task, "interaction emergency task")
+            self._interaction_emergency_task = None
+            return "DONE"
+        if task is asyncio.current_task():
+            return "DEFERRED_CURRENT_TASK"
         task.cancel()
         done, _ = await asyncio.wait({task}, timeout=INTERACTION_TASK_SETTLE_S)
         if task in done:
-            try:
-                task.result()
-            except (asyncio.CancelledError, Exception):
-                pass
+            self._retrieve_done_task_result(task, "interaction emergency task")
             self._interaction_emergency_task = None
+            return "SETTLED"
         else:
             LOGGER.warning("[Orchestrator] runtime emergency task no asento en timeout.")
             self._context.last_error = "interaction emergency task settlement timeout"
             raise RuntimeError("interaction emergency task settlement timeout")
+
+    def _retrieve_done_task_result(self, task: asyncio.Task[Any], label: str) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except InteractionRuntimeUnavailableError:
+            return
+        except Exception as exc:
+            LOGGER.warning("[Orchestrator] %s finalizo con excepcion recuperada: %s", label, exc)
 
     async def on_enter_emergency(self) -> None:
         """
@@ -1265,6 +1312,7 @@ class TourOrchestrator(StateMachine):
             self._interaction_task is not None
             and not self._interaction_task.done()
             and self._interaction_task is not current_task
+            and self._interaction_task is not self._deferred_current_interaction_task
         ):
             self._interaction_task.cancel()
         self._ensure_runtime_emergency_task()
@@ -1539,11 +1587,23 @@ class TourOrchestrator(StateMachine):
         if self._closed:
             return
         self._claim_interaction_terminal_outcome("CLOSING")
-        active_before_cancel = self._active_runtime_interaction_id is not None
+        active_before_cancel = (
+            self._active_runtime_interaction_id is not None
+            and self._interaction_terminal_outcome != "EMERGENCY"
+        )
         if active_before_cancel:
-            await self._runtime_stop_best_effort()
+            stop_settled = await self._runtime_stop_best_effort()
+            if not stop_settled:
+                return
         await self._cancel_interaction_task_safe()
         await self._cancel_interaction_emergency_task_safe()
+        if self._interaction_stop_task is not None:
+            stop_task = self._interaction_stop_task
+            if stop_task.done():
+                self._retrieve_done_task_result(stop_task, "runtime stop task")
+                self._interaction_stop_task = None
+            else:
+                return
         self._active_runtime_interaction_id = None
         self._interaction_terminal_outcome = None
         self._runtime_stop_sent_for_interaction_id = None
