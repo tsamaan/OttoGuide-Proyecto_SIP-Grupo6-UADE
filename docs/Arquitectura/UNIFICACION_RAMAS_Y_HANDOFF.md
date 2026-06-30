@@ -108,7 +108,7 @@ Los conteos son un snapshot asociado a `RELATIONS_SNAPSHOT_AS_OF_HEAD`; deben re
 
 | branch | head | ahead | behind | domain | status | disposition | integrated_scope | residual_scope | next_review_stage |
 |---|---|---:|---:|---|---|---|---|---|---|
-| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1, U3AR2, U3AR3, U3AR4, U3AR5, U3AR6, U3AR7, U3AR8, U3AR9, U3B, U3BR1 | U3C-U6 | U3C |
+| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1, U3AR2, U3AR3, U3AR4, U3AR5, U3AR6, U3AR7, U3AR8, U3AR9, U3B, U3BR1, U3BR2 | U3C-U6 | U3C |
 | `main` | `3a1f13574e4a27d9aff2bfd38b3659951e8cb264` | N/A | N/A | Snapshot publico huerfano | Sin ancestro comun | `DO_NOT_USE_AS_INTEGRATION_BASE` | Ninguno para continuidad | Solo referencia historica | Ninguno |
 | `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 181 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
 | `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 40 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
@@ -157,7 +157,8 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U3AR8` | `b697f1d358338f4910a802386ad10bfb35e4439d` | `fix(interaction): preserve terminal state and converge cleanup` |
 | `U3AR9` | `e094f7a9cf11848ea43ca74ce23a596d9bb38797` | `fix(interaction): enforce terminal runtime postconditions` |
 | `U3B` | `fc42fa5bd3d32c57766350b422745fced97dc69a` | `feat(orchestrator): wire supervised interaction lifecycle` (auditoria posterior: `REJECTED_PARTIAL_IMPLEMENTATION`) |
-| `U3BR1` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(orchestrator): serialize emergency and interaction shutdown` |
+| `U3BR1` | `664e0a3f8776a8861182bed364ae5be2a8a74e18` | `fix(orchestrator): serialize emergency and interaction shutdown` |
+| `U3BR2` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(orchestrator): bound settlement and preserve emergency` |
 
 El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.
 
@@ -538,9 +539,59 @@ Restricciones vigentes:
 - No existe audio real validado.
 - No existe validacion HIL.
 
+**Auditoria posterior (`U3BR1_AUDIT`): `REJECTED_PARTIAL_IMPLEMENTATION`.** La revision encontro cinco defectos residuales en el ownership de tasks y en el settlement acotado: `_cancel_interaction_task_safe` usaba `asyncio.wait_for` que no acota tareas stubborn que capturan `CancelledError` en su `except` y bloquean en `release_event.wait()`; el mismo patron fallido aparecia en `_cancel_interaction_emergency_task_safe` y en `on_enter_emergency`; el consumidor era una segunda `asyncio.create_task` anidada dentro de la task lifecycle, creando dos duenos del lifecycle; `emergency_stop()` cancelaba incondicionalmente `_interaction_task` sin verificar si era la task actualmente en ejecucion, causando auto-cancelacion cuando el consumidor llamaba a `emergency_stop()` desde dentro de la propia task; y las excepciones no cancellation dentro del consumidor no disparaban una transicion de emergencia observable. Estos cinco defectos se cerraron en `U3BR2`.
+
+### 12.13 Estado U3BR2
+
+`U3BR2` cierra los cinco defectos de settlement acotado y emergencia interna detectados en `U3BR1_AUDIT`:
+
+**DEFECT_1 — Settlement no acotado en `_cancel_interaction_task_safe` y `_cancel_interaction_emergency_task_safe`:**
+
+- `asyncio.wait_for(task, timeout=X)` no acota una task stubborn que ya entro en `except asyncio.CancelledError:` y esta bloqueada en `release_event.wait()`.
+- Fix: se reemplaza por `asyncio.wait({task}, timeout=INTERACTION_TASK_SETTLE_S)` que siempre retorna `(done, pending)` despues del timeout. Si `task in pending`, se lanza `RuntimeError("interaction task settlement timeout")` sin limpiar el handle, permitiendo reintento. Solo si `task in done` se limpia `_interaction_task = None`.
+- Se introduce la constante modular `INTERACTION_TASK_SETTLE_S: float = 0.5` patcheable en tests.
+
+**DEFECT_2 — Settlement no acotado en `on_enter_emergency`:**
+
+- `asyncio.wait_for(self._interaction_emergency_task, timeout=0.5)` en `on_enter_emergency` tenia el mismo problema. Fix: se reemplaza por `asyncio.wait({emerg_task}, timeout=INTERACTION_TASK_SETTLE_S)`. Los `RuntimeError` del settlement se absorben en `result.errors` para no propagar excepciones desde `on_enter_emergency` (que reverteria la transicion FSM de AsyncEngine).
+
+**DEFECT_3 — Task lifecycle anidada (dos duenos de ciclo de vida):**
+
+- `on_enter_interacting` creaba una task `_run_supervised_runtime_interaction`, que internamente creaba otra `asyncio.create_task(_consume_runtime_interaction_events)`, resultando en dos tasks con lifecycle separados.
+- Fix: `_run_supervised_runtime_interaction` llama directamente `await self._consume_runtime_interaction_events(runtime, context)` sin crear una segunda task. El nombre de la task lifecycle cambia de `interaction-runtime-pending-{n+1}` a `interaction-runtime-interaction:{seq}` donde `seq` es el valor de `_interaction_sequence` al momento de crear la task.
+
+**DEFECT_4 — Auto-cancelacion en `emergency_stop()` y `on_enter_emergency`:**
+
+- Cuando el consumidor llama a `emergency_stop()` desde dentro de `_interaction_task` (p.ej. tras un fallo en `resume_tour()`), `emergency_stop()` cancela `self._interaction_task`, que es la task actualmente en ejecucion. Esto cancela el propio consumidor antes de que la FSM llegue a EMERGENCY.
+- Fix: se agrega `current_task = asyncio.current_task()` y la cancelacion solo se ejecuta si `self._interaction_task is not current_task`. El mismo guard se aplica en `on_enter_emergency`.
+
+**DEFECT_5 — Excepciones no cancellation en el consumidor no disparan emergencia:**
+
+- Una excepcion no `CancelledError` en `_consume_runtime_interaction_events` propagaba hacia arriba sin transicion de estado observable.
+- Fix: `_run_supervised_runtime_interaction` agrega `except asyncio.CancelledError: raise` seguido de `except Exception: emergency_stop()` en el camino del `await` directo. El bloque `finally` usa `current = asyncio.current_task()` para no cancelar la task actual.
+
+Evidencia focal preservada en la etapa U3BR2:
+
+```text
+compileall = passed
+tests/unit/test_u3b_orchestrator_interaction_runtime.py -W error::pytest.PytestUnraisableExceptionWarning = 3x 33 passed
+tests/unit/test_u3b_orchestrator_interaction_runtime.py -X dev = 33 passed, 0 ResourceWarning/unraisable
+concurrency matrix [asyncio_mode x workers] = 5x 33 passed
+tests/unit/test_u3b_orchestrator_interaction_runtime.py = 33 passed
+full suite = 2x 1196 passed, 7 failed (solo nodeids heredados conocidos), 109 skipped
+```
+
+Restricciones vigentes (no modificadas por `U3BR2`):
+
+- La composicion global del runtime supervisado en `main.py` no esta implementada; corresponde a `U3C`.
+- Solo existe worker loopback falso.
+- No existe worker real CXX17 implementado.
+- No existe audio real validado.
+- No existe validacion HIL.
+
 ## 13. Baseline de pruebas
 
-Proveniencia: `U3BR1`, ejecucion focal posterior a serializar emergencia y ownership de tasks de interaccion en `TourOrchestrator` con Python 3.10 local. Sustituye el baseline focal previo de `U3B`; la suite completa conserva los fallos heredados listados abajo si aparecen.
+Proveniencia: `U3BR2`, ejecucion focal posterior a cerrar settlement acotado y emergencia interna en `TourOrchestrator` con Python 3.10 local. Sustituye el baseline focal previo de `U3BR1`; la suite completa conserva los fallos heredados listados abajo si aparecen.
 
 ```text
 Python = 3.10.11
@@ -549,7 +600,7 @@ pytest-asyncio = 1.4.0
 FastAPI = 0.138.0
 httpx = 0.28.1
 NumPy = 2.2.6
-U3B_UNIT = 20 passed
+U3B_UNIT = 33 passed
 U3B_LOOPBACK = 1 passed
 ORCHESTRATOR_LIFECYCLE = 10 passed
 SHUTDOWN_SEQUENCE = 7 passed
@@ -558,8 +609,8 @@ U1_STATUS_CONTRACTS = 12 passed
 U3A_WIRE_CONTRACTS = 25 passed
 SUPERVISOR_TESTS = 106 passed
 FOCUSED_REGRESSION_MATRIX = 218 passed
-STRICT_UNRAISABLE_U3B = 3x 21 passed
-FULL_SUITE = 1183 passed, 7 failed, 109 skipped, 67 subtests passed
+STRICT_UNRAISABLE_U3B = 3x 33 passed
+FULL_SUITE = 1196 passed, 7 failed, 109 skipped
 KNOWN_TEST_DEBT = ORDER_DEPENDENT_SYS_MODULES_IDENTITY
 FULL_SUITE_GREEN = NO
 FULL_SUITE_RESULT = FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS

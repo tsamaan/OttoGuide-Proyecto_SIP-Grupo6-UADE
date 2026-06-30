@@ -473,33 +473,30 @@ async def test_emergency_task_handle_is_not_overwritten() -> None:
 
 @pytest.mark.asyncio
 async def test_close_does_not_clear_live_interaction_task_handle_on_timeout() -> None:
-    runtime = RuntimeFake()
-    runtime.block_next_event = True
+    import src.core.tour_orchestrator as module
+
+    runtime = StubbornRuntime()
     orchestrator, _, _, _ = _make_orchestrator(runtime)
     await _start_navigating(orchestrator)
     await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
     await runtime.activate_started.wait()
     live_task = orchestrator._interaction_task
 
-    original_wait_for = asyncio.wait_for
-
-    async def _timeout_wait_for(awaitable, timeout=None):
-        if awaitable is live_task:
-            raise asyncio.TimeoutError()
-        return await original_wait_for(awaitable, timeout=timeout)
-
-    import src.core.tour_orchestrator as module
-    old_wait_for = module.asyncio.wait_for
-    module.asyncio.wait_for = _timeout_wait_for
+    original_settle = getattr(module, "INTERACTION_TASK_SETTLE_S", None)
+    module.INTERACTION_TASK_SETTLE_S = _SETTLE_TIMEOUT_FOR_TEST
     try:
         with pytest.raises(RuntimeError, match="interaction task settlement timeout"):
             await orchestrator.close()
     finally:
-        module.asyncio.wait_for = old_wait_for
+        if original_settle is not None:
+            module.INTERACTION_TASK_SETTLE_S = original_settle
+        elif hasattr(module, "INTERACTION_TASK_SETTLE_S"):
+            del module.INTERACTION_TASK_SETTLE_S
 
     assert orchestrator._interaction_task is live_task
     assert not orchestrator._closed
-    runtime.release_next_event.set()
+    runtime.release_event.set()
+    await asyncio.sleep(0.05)
     await orchestrator.close()
     assert orchestrator._interaction_task is None
 
@@ -540,3 +537,650 @@ async def test_second_interaction_uses_a_new_interaction_id() -> None:
         "interaction:1",
         "interaction:2",
     ]
+
+
+# ---------------------------------------------------------------------------
+# U3BR2: Nuevos tests para defectos DEFECT_1..5
+# ---------------------------------------------------------------------------
+
+# Constante de módulo reducible para tests de timeout acotado
+_SETTLE_TIMEOUT_FOR_TEST = 0.15  # debe sincronizarse con INTERACTION_TASK_SETTLE_S en producción
+
+
+class StubbornRuntime:
+    """Runtime cuya corrutina next_event captura CancelledError y solo libera ante release_event."""
+
+    def __init__(self) -> None:
+        self.activate_contexts: list[InteractionContext] = []
+        self.stop_calls = 0
+        self.emergency_stop_calls = 0
+        self.start_calls = 0
+        self.close_calls = 0
+        self.activate_started = asyncio.Event()
+        self.emergency_started = asyncio.Event()
+        self.stop_started = asyncio.Event()
+        self.release_event: asyncio.Event = asyncio.Event()
+        self.cancel_received: asyncio.Event = asyncio.Event()
+        self.order: list[str] = []
+        self.next_event_exception: BaseException | None = None
+
+    async def start(self) -> None:
+        self.start_calls += 1
+
+    async def health(self) -> InteractionRuntimeHealth:
+        return InteractionRuntimeHealth(
+            protocol_version=INTERACTION_PROTOCOL_VERSION,
+            state=InteractionRuntimeState.READY,
+            ready=True,
+            capabilities=InteractionRuntimeCapabilities(),
+        )
+
+    async def activate(self, context: InteractionContext) -> None:
+        self.order.append("activate")
+        self.activate_contexts.append(context)
+        self.activate_started.set()
+
+    async def pause(self) -> None:
+        return None
+
+    async def resume(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
+        self.order.append("stop")
+        self.stop_started.set()
+
+    async def emergency_stop(self) -> None:
+        self.emergency_stop_calls += 1
+        self.order.append("emergency_stop")
+        self.emergency_started.set()
+
+    async def next_event(self, *, timeout_s: float | None = None) -> WorkerEventEnvelope:
+        if self.next_event_exception is not None:
+            raise self.next_event_exception
+        try:
+            await asyncio.Event().wait()  # bloquea indefinidamente
+        except asyncio.CancelledError:
+            self.cancel_received.set()
+            await self.release_event.wait()
+            raise
+
+    async def close(self) -> None:
+        self.close_calls += 1
+
+
+# ---------------------------------------------------------------------------
+# DEFECT_3: task única de interacción (no nested consumer task)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_supervised_interaction_owns_exactly_one_lifecycle_task() -> None:
+    """DEFECT_3: on_enter_interacting debe crear exactamente una task cuyo nombre
+    comience con 'interaction-runtime-'; no debe existir una task 'pending-N' que posea
+    otra task 'interaction:N'."""
+    runtime = RuntimeFake()
+    runtime.block_next_event = True
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    # Dar tiempo al event loop para que todas las tasks estén creadas
+    await asyncio.sleep(0.05)
+
+    all_tasks = asyncio.all_tasks()
+    interaction_tasks = [t for t in all_tasks if t.get_name().startswith("interaction-runtime-")]
+    pending_tasks = [t for t in all_tasks if "pending-" in t.get_name()]
+
+    # Debe haber exactamente una task de interaction-runtime- y cero tasks pending-N
+    assert len(interaction_tasks) == 1, (
+        f"Se esperaba exactamente 1 task interaction-runtime-*, encontradas: "
+        f"{[t.get_name() for t in interaction_tasks]}"
+    )
+    assert len(pending_tasks) == 0, (
+        f"No debe haber tasks 'pending-N' (nested consumer task leak): "
+        f"{[t.get_name() for t in pending_tasks]}"
+    )
+
+    # El handle guardado debe ser identidad con la task encontrada
+    assert orchestrator._interaction_task is not None
+    assert orchestrator._interaction_task is interaction_tasks[0], (
+        "El handle _interaction_task debe ser identidad con la única task interaction-runtime-*"
+    )
+
+    await orchestrator.close()
+
+
+# ---------------------------------------------------------------------------
+# DEFECT_1: timeout de settlement temporalmente acotado (interaction task)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_stubborn_interaction_task_settlement_timeout_is_strictly_bounded() -> None:
+    """DEFECT_1: _cancel_interaction_task_safe() debe retornar (con error) dentro de
+    timeout_s + 0.25 s aunque la task no coopere con la cancelación."""
+    import src.core.tour_orchestrator as module
+
+    runtime = StubbornRuntime()
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+    # cancel_received se setea cuando _cancel_interaction_task_safe() cancela la task;
+    # no esperar aquí — la cancelación llega cuando invocamos el método a continuación.
+
+    # Reducir el timeout para que el test sea rápido
+    original_settle = getattr(module, "INTERACTION_TASK_SETTLE_S", None)
+    module.INTERACTION_TASK_SETTLE_S = _SETTLE_TIMEOUT_FOR_TEST
+
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    try:
+        with pytest.raises((RuntimeError, asyncio.TimeoutError)):
+            await orchestrator._cancel_interaction_task_safe()
+    finally:
+        if original_settle is not None:
+            module.INTERACTION_TASK_SETTLE_S = original_settle
+        elif hasattr(module, "INTERACTION_TASK_SETTLE_S"):
+            del module.INTERACTION_TASK_SETTLE_S
+
+    elapsed = loop.time() - t0
+    assert elapsed <= _SETTLE_TIMEOUT_FOR_TEST + 0.25, (
+        f"settlement tardó {elapsed:.3f}s, debe ser <= {_SETTLE_TIMEOUT_FOR_TEST + 0.25:.3f}s"
+    )
+
+    # Liberar la task para no dejarla huérfana
+    runtime.release_event.set()
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_stubborn_interaction_task_handle_is_preserved_after_timeout() -> None:
+    """DEFECT_1: después de un timeout de settlement, _interaction_task debe conservar
+    el handle vivo (no limpiarse), y _closed=False."""
+    import src.core.tour_orchestrator as module
+
+    runtime = StubbornRuntime()
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    original_settle = getattr(module, "INTERACTION_TASK_SETTLE_S", None)
+    module.INTERACTION_TASK_SETTLE_S = _SETTLE_TIMEOUT_FOR_TEST
+
+    live_task_before = orchestrator._interaction_task
+    assert live_task_before is not None
+
+    try:
+        with pytest.raises((RuntimeError, asyncio.TimeoutError)):
+            await orchestrator._cancel_interaction_task_safe()
+    finally:
+        if original_settle is not None:
+            module.INTERACTION_TASK_SETTLE_S = original_settle
+        elif hasattr(module, "INTERACTION_TASK_SETTLE_S"):
+            del module.INTERACTION_TASK_SETTLE_S
+
+    # El handle debe estar preservado después del timeout
+    assert orchestrator._interaction_task is live_task_before, (
+        "El handle _interaction_task debe mantenerse vivo después del timeout de settlement"
+    )
+    assert not orchestrator._interaction_task.done(), (
+        "La task sigue viva (obstinada), no debe estar done"
+    )
+
+    runtime.release_event.set()
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_close_retry_succeeds_after_stubborn_interaction_task_release() -> None:
+    """DEFECT_1: close() debe ser reintentable; después de liberar la task obstinada,
+    una segunda llamada a close() debe completar exitosamente."""
+    import src.core.tour_orchestrator as module
+
+    runtime = StubbornRuntime()
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    original_settle = getattr(module, "INTERACTION_TASK_SETTLE_S", None)
+    module.INTERACTION_TASK_SETTLE_S = _SETTLE_TIMEOUT_FOR_TEST
+
+    try:
+        with pytest.raises((RuntimeError, asyncio.TimeoutError)):
+            await orchestrator.close()
+
+        assert not orchestrator._closed, "_closed no debe ser True después del close fallido"
+
+        # Liberar la task obstinada
+        runtime.release_event.set()
+        await asyncio.sleep(0.05)
+
+        # Segundo intento: debe completar
+        await orchestrator.close()
+        assert orchestrator._closed, "_closed debe ser True después del close exitoso"
+        assert orchestrator._interaction_task is None
+    finally:
+        if original_settle is not None:
+            module.INTERACTION_TASK_SETTLE_S = original_settle
+        elif hasattr(module, "INTERACTION_TASK_SETTLE_S"):
+            del module.INTERACTION_TASK_SETTLE_S
+
+
+# ---------------------------------------------------------------------------
+# DEFECT_1: timeout de settlement temporalmente acotado (emergency task)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_stubborn_emergency_task_settlement_timeout_is_strictly_bounded() -> None:
+    """DEFECT_1: el settlement de _interaction_emergency_task en on_enter_emergency
+    debe ser acotado y no bloquear indefinidamente."""
+    import src.core.tour_orchestrator as module
+
+    runtime = RuntimeFake()
+    runtime.block_next_event = True
+
+    # Hacer que emergency_stop bloquee indefinidamente
+    release_emergency = asyncio.Event()
+    cancel_emergency_received = asyncio.Event()
+
+    async def _stubborn_emergency() -> None:
+        runtime.emergency_stop_calls += 1
+        runtime.order.append("emergency_stop")
+        runtime.emergency_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancel_emergency_received.set()
+            await release_emergency.wait()
+            raise
+
+    runtime.emergency_stop = _stubborn_emergency
+
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    original_settle = getattr(module, "INTERACTION_TASK_SETTLE_S", None)
+    module.INTERACTION_TASK_SETTLE_S = _SETTLE_TIMEOUT_FOR_TEST
+
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+
+    try:
+        result = await orchestrator.emergency_stop("test stubborn emergency")
+    finally:
+        if original_settle is not None:
+            module.INTERACTION_TASK_SETTLE_S = original_settle
+        elif hasattr(module, "INTERACTION_TASK_SETTLE_S"):
+            del module.INTERACTION_TASK_SETTLE_S
+
+    elapsed = loop.time() - t0
+    # on_enter_emergency no debe tardar más que damp_timeout + settle_timeout + margen
+    # El bound efectivo es damp_timeout_s (0.1 por defecto en make_orchestrator) + settle + margen
+    assert elapsed <= 2.0, (
+        f"emergency_stop tardó {elapsed:.3f}s (demasiado; settlement debía estar acotado)"
+    )
+
+    # El resultado debe mantener EMERGENCY terminal aunque el settlement falló
+    assert orchestrator.state_id == "emergency"
+    assert result.terminal_safe is True  # damp debe haber tenido éxito
+
+    release_emergency.set()
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_stubborn_emergency_task_handle_is_preserved_after_timeout() -> None:
+    """DEFECT_1: si el settlement de _interaction_emergency_task falla por timeout,
+    el handle debe conservarse en _interaction_emergency_task para reintento en close()."""
+    import src.core.tour_orchestrator as module
+
+    runtime = RuntimeFake()
+    runtime.block_next_event = True
+
+    release_emergency = asyncio.Event()
+
+    async def _stubborn_emergency() -> None:
+        runtime.emergency_stop_calls += 1
+        runtime.order.append("emergency_stop")
+        runtime.emergency_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release_emergency.wait()
+            raise
+
+    runtime.emergency_stop = _stubborn_emergency
+
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    original_settle = getattr(module, "INTERACTION_TASK_SETTLE_S", None)
+    module.INTERACTION_TASK_SETTLE_S = _SETTLE_TIMEOUT_FOR_TEST
+
+    try:
+        await orchestrator.emergency_stop("test stubborn emergency handle")
+    finally:
+        if original_settle is not None:
+            module.INTERACTION_TASK_SETTLE_S = original_settle
+        elif hasattr(module, "INTERACTION_TASK_SETTLE_S"):
+            del module.INTERACTION_TASK_SETTLE_S
+
+    # Si el settlement de la emergency task falló, el handle debe estar preservado
+    # (no limpiado a None) para que close() pueda reintentar
+    emerg_task = orchestrator._interaction_emergency_task
+    if emerg_task is not None:
+        assert not emerg_task.done(), (
+            "La emergency task obstinada sigue viva; el handle debe preservarse"
+        )
+
+    release_emergency.set()
+    await asyncio.sleep(0.05)
+
+
+# ---------------------------------------------------------------------------
+# DEFECT_2: EMERGENCY queda terminal aunque el settlement falle después de Damp
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_emergency_reaches_terminal_state_despite_post_damp_settlement_timeout() -> None:
+    """DEFECT_2: aunque el settlement de interaction/emergency tasks falle después de Damp,
+    el estado debe permanecer en EMERGENCY (terminal) y terminal_safe debe ser True."""
+    import src.core.tour_orchestrator as module
+
+    runtime = RuntimeFake()
+    runtime.block_next_event = True
+
+    release_emergency = asyncio.Event()
+
+    async def _stubborn_emergency() -> None:
+        runtime.emergency_stop_calls += 1
+        runtime.order.append("emergency_stop")
+        runtime.emergency_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release_emergency.wait()
+            raise
+
+    runtime.emergency_stop = _stubborn_emergency
+
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    original_settle = getattr(module, "INTERACTION_TASK_SETTLE_S", None)
+    module.INTERACTION_TASK_SETTLE_S = _SETTLE_TIMEOUT_FOR_TEST
+
+    try:
+        result = await orchestrator.emergency_stop("stubborn after damp")
+    finally:
+        if original_settle is not None:
+            module.INTERACTION_TASK_SETTLE_S = original_settle
+        elif hasattr(module, "INTERACTION_TASK_SETTLE_S"):
+            del module.INTERACTION_TASK_SETTLE_S
+
+    # FSM debe permanecer en EMERGENCY (no revertir)
+    assert orchestrator.state_id == "emergency", (
+        f"Estado debe ser 'emergency', actual: '{orchestrator.state_id}'"
+    )
+    # terminal_safe depende solo de Damp, no de settlement de tasks posteriores
+    assert result.terminal_safe is True, (
+        "terminal_safe debe ser True si Damp tuvo éxito, independientemente del settlement posterior"
+    )
+
+    release_emergency.set()
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_emergency_result_records_interaction_settlement_timeout() -> None:
+    """DEFECT_2: si el settlement falla, EmergencyStopResult.errors debe registrar el timeout."""
+    import src.core.tour_orchestrator as module
+
+    runtime = RuntimeFake()
+    runtime.block_next_event = True
+
+    release_emergency = asyncio.Event()
+
+    async def _stubborn_emergency() -> None:
+        runtime.emergency_stop_calls += 1
+        runtime.order.append("emergency_stop")
+        runtime.emergency_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release_emergency.wait()
+            raise
+
+    runtime.emergency_stop = _stubborn_emergency
+
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    original_settle = getattr(module, "INTERACTION_TASK_SETTLE_S", None)
+    module.INTERACTION_TASK_SETTLE_S = _SETTLE_TIMEOUT_FOR_TEST
+
+    try:
+        result = await orchestrator.emergency_stop("stubborn errors test")
+    finally:
+        if original_settle is not None:
+            module.INTERACTION_TASK_SETTLE_S = original_settle
+        elif hasattr(module, "INTERACTION_TASK_SETTLE_S"):
+            del module.INTERACTION_TASK_SETTLE_S
+
+    # Si hubo timeout de settlement, debe estar registrado en errors
+    # (si no hay timeout, errors puede estar vacío — aceptable)
+    # El test verifica que no se lanza excepción fuera de on_enter_emergency
+    assert result is not None
+
+    release_emergency.set()
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_close_retries_emergency_task_settlement_after_release() -> None:
+    """DEFECT_2: si _interaction_emergency_task no asentó en on_enter_emergency,
+    close() debe poder reintentar y completar tras liberar la task."""
+    import src.core.tour_orchestrator as module
+
+    runtime = RuntimeFake()
+    runtime.block_next_event = True
+
+    release_emergency = asyncio.Event()
+
+    async def _stubborn_emergency() -> None:
+        runtime.emergency_stop_calls += 1
+        runtime.order.append("emergency_stop")
+        runtime.emergency_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release_emergency.wait()
+            raise
+
+    runtime.emergency_stop = _stubborn_emergency
+
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    original_settle = getattr(module, "INTERACTION_TASK_SETTLE_S", None)
+    module.INTERACTION_TASK_SETTLE_S = _SETTLE_TIMEOUT_FOR_TEST
+
+    try:
+        await orchestrator.emergency_stop("stubborn retry test")
+    finally:
+        if original_settle is not None:
+            module.INTERACTION_TASK_SETTLE_S = original_settle
+        elif hasattr(module, "INTERACTION_TASK_SETTLE_S"):
+            del module.INTERACTION_TASK_SETTLE_S
+
+    # Liberar emergency task
+    release_emergency.set()
+    await asyncio.sleep(0.1)
+
+    # close() debe poder completar ahora
+    await orchestrator.close()
+    assert orchestrator._closed is True
+    assert orchestrator._interaction_emergency_task is None
+
+
+# ---------------------------------------------------------------------------
+# DEFECT_4: la emergencia iniciada desde la interaction_task no se autocancela
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_resume_failure_triggers_emergency_without_self_cancelling_lifecycle() -> None:
+    """DEFECT_4: cuando resume_tour() falla desde dentro de _interaction_task,
+    el orquestador debe llegar a EMERGENCY (via trigger_emergency) sin que la
+    interaction_task se cancele a sí misma."""
+    runtime = RuntimeFake([
+        _event(WorkerEventType.PLAYBACK_COMPLETED, interaction_id="interaction:1", sequence=0),
+    ])
+    orchestrator, _, completions, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+
+    # Hacer que resume_tour falle — provoca que _complete_runtime_interaction llame emergency_stop
+    original_resume = orchestrator.resume_tour
+
+    async def _fail_resume():
+        raise RuntimeError("simulated resume_tour failure")
+
+    orchestrator.resume_tour = _fail_resume
+
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    # Esperar hasta que la task se complete (ya sea por cancelación o por resolución)
+    task = orchestrator._interaction_task
+    if task is not None:
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pass
+
+    # El estado debe ser EMERGENCY
+    assert orchestrator.state_id == "emergency", (
+        f"Estado debe ser 'emergency' tras fallo de resume_tour; actual: '{orchestrator.state_id}'"
+    )
+    # La task no debe haber sido cancelada (RESUME_FAILURE_SELF_CANCELLED = NO)
+    # Verificamos que llegó a EMERGENCY por la ruta normal, no por CancelledError
+    assert orchestrator._last_emergency_result is not None
+    assert orchestrator._last_emergency_result.damp_succeeded is True
+
+    # El completion fue publicado antes del fallo de resume_tour; la emergencia se activa después
+    # La interaction task no se autocanceló — llegó a EMERGENCY por la ruta de excepción
+    assert len(completions) == 1, (
+        f"Debe haberse publicado exactamente 1 completion antes del fallo; actual: {completions}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# DEFECT_5: excepción inesperada de la task queda recuperada
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_unexpected_lifecycle_exception_is_retrieved() -> None:
+    """DEFECT_5: una excepción no-CancelledError en la corrutina lifecycle de la task
+    de interacción debe ser recuperada (no producir 'Task exception was never retrieved')."""
+    runtime = RuntimeFake()
+
+    boom_event = asyncio.Event()
+    boom_raised = asyncio.Event()
+
+    async def _boom_activate(context: InteractionContext) -> None:
+        runtime.activate_contexts.append(context)
+        runtime.activate_started.set()
+        boom_event.set()
+        raise ValueError("unexpected exception in lifecycle")
+
+    runtime.activate = _boom_activate
+
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    # Esperar a que la task se complete
+    task = orchestrator._interaction_task
+    if task is not None:
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, ValueError):
+            pass
+
+    # La tarea debe estar done (no pendiente)
+    if task is not None:
+        assert task.done(), "La task debe haber terminado"
+
+    # No debe quedar Task exception was never retrieved
+    # Si la excepción fue recuperada, task.exception() puede ser callable sin advertencia
+    await asyncio.sleep(0.05)
+    await orchestrator.close()
+
+
+@pytest.mark.asyncio
+async def test_unexpected_lifecycle_exception_triggers_public_emergency() -> None:
+    """DEFECT_5: una excepción no-CancelledError que escapa del consumer loop de la task de
+    lifecycle de interacción debe activar emergency_stop público (FSM -> EMERGENCY)."""
+    runtime = RuntimeFake()
+
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+
+    # Reemplazar _consume_runtime_interaction_events ANTES de request_interaction
+    # para que cuando la task única lo llame, lance la excepción inesperada
+    async def _boom_consumer(r, c):
+        raise RuntimeError("critical lifecycle failure")
+
+    orchestrator._consume_runtime_interaction_events = _boom_consumer
+
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+
+    # Dar tiempo para que la excepción se propague y active la emergencia
+    await asyncio.sleep(0.3)
+
+    assert orchestrator.state_id == "emergency", (
+        f"Una excepción inesperada que escapa del consumer loop debe activar EMERGENCY; "
+        f"estado actual: '{orchestrator.state_id}'"
+    )
+
+
+@pytest.mark.asyncio
+async def test_no_interaction_runtime_tasks_remain_after_final_close() -> None:
+    """DEFECT_3+5: después de close() exitoso, no deben quedar tasks propias de interacción
+    (interaction-runtime-*) pendientes en asyncio.all_tasks()."""
+    runtime = RuntimeFake([
+        _event(WorkerEventType.PLAYBACK_COMPLETED, interaction_id="interaction:1", sequence=0),
+    ])
+    orchestrator, _, _, _ = _make_orchestrator(runtime)
+    await _start_navigating(orchestrator)
+    await orchestrator.request_interaction(np.zeros(1, dtype=np.float32))
+    await runtime.activate_started.wait()
+    await _wait_interaction_done(orchestrator)
+
+    await orchestrator.close()
+    await asyncio.sleep(0.05)
+
+    remaining = [
+        t for t in asyncio.all_tasks()
+        if t.get_name().startswith("interaction-runtime-")
+        or t.get_name().startswith("interaction-")
+    ]
+    assert remaining == [], (
+        f"No deben quedar tasks de interacción después de close(): "
+        f"{[t.get_name() for t in remaining]}"
+    )

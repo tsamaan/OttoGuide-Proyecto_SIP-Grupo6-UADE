@@ -166,6 +166,10 @@
     "U3B": {
       "commit": "fc42fa5bd3d32c57766350b422745fced97dc69a",
       "message": "feat(orchestrator): wire supervised interaction lifecycle"
+    },
+    "U3BR1": {
+      "commit": "664e0a3f8776a8861182bed364ae5be2a8a74e18",
+      "message": "fix(orchestrator): serialize emergency and interaction shutdown"
     }
   },
   "read_only_gates": {
@@ -462,36 +466,81 @@
         "compileall": "passed",
         "u3b_unit_and_loopback_strict_unraisable": "3x 21 passed",
         "focused_regression_matrix": "218 passed"
+      },
+      "commit": "664e0a3f8776a8861182bed364ae5be2a8a74e18",
+      "commit_message": "fix(orchestrator): serialize emergency and interaction shutdown"
+    },
+    "U3BR2_BOUNDED_SETTLEMENT_AND_INTERNAL_EMERGENCY": {
+      "result": "U3BR2_BOUNDED_SETTLEMENT_AND_INTERNAL_EMERGENCY_CLOSED",
+      "incident": {
+        "previous_execution": "HUNG_WITHOUT_RESPONSE",
+        "probable_cause": "REAL_STUBBORN_TASK_PLUS_UNBOUNDED_WAIT_FOR_CANCELLATION",
+        "remote_unchanged_after_interruption": true,
+        "recovery_category": "CATEGORY_B_TESTS_ONLY_PARTIAL_RED_WORK",
+        "stale_processes_found": [11640, 4676],
+        "stale_processes_terminated": true
+      },
+      "closed_defects": [
+        "TASK_SETTLEMENT_TIMEOUT_IS_NOT_STRICTLY_BOUNDED",
+        "EMERGENCY_CALLBACK_CAN_PROPAGATE_SETTLEMENT_TIMEOUT_AFTER_DAMP",
+        "SUPERVISED_INTERACTION_USES_AN_UNOWNED_NESTED_CONSUMER_TASK",
+        "RESUME_FAILURE_INTERNAL_EMERGENCY_CAN_CANCEL_ITS_OWN_EXECUTION_CHAIN",
+        "BACKGROUND_INTERACTION_TASK_EXCEPTION_CAN_REMAIN_UNRETRIEVED"
+      ],
+      "production_changes": [
+        "Added INTERACTION_TASK_SETTLE_S constant (0.5s) for acotamiento de settlement",
+        "_cancel_interaction_task_safe uses asyncio.wait instead of asyncio.wait_for; preserves handle on timeout",
+        "_cancel_interaction_emergency_task_safe same pattern",
+        "on_enter_interacting increments _interaction_sequence before creating task; task name is interaction-runtime-interaction:N",
+        "_run_supervised_runtime_interaction no longer creates nested consumer task; calls _consume_runtime_interaction_events directly; catches non-CancelledError exceptions and activates emergency_stop",
+        "emergency_stop and on_enter_emergency skip cancel of _interaction_task when current_task() is _interaction_task (DEFECT_4)",
+        "on_enter_emergency absorbs RuntimeError from _cancel_interaction_task_safe into errors; uses asyncio.wait for emergency task settlement"
+      ],
+      "test_changes": [
+        "13 new U3BR2 tests added to test_u3b_orchestrator_interaction_runtime.py",
+        "test_close_does_not_clear_live_interaction_task_handle_on_timeout updated to use StubbornRuntime instead of asyncio.wait_for monkey-patch",
+        "test_stubborn_interaction_task_settlement_timeout_is_strictly_bounded: removed premature cancel_received.wait()",
+        "test_resume_failure_triggers_emergency_without_self_cancelling_lifecycle: corrected assertion (completion is published before resume_tour fails)",
+        "test_unexpected_lifecycle_exception_triggers_public_emergency: now injects exception via _consume_runtime_interaction_events monkey-patch"
+      ],
+      "focused_evidence": {
+        "u3b_unit_strict_unraisable": "3x 33 passed",
+        "python_dev_warnings": "0",
+        "concurrency_matrix": "5x 33 passed",
+        "full_suite_run1": "7 failed (pre-existing), 1196 passed, 109 skipped",
+        "full_suite_run2": "7 failed (pre-existing), 1196 passed, 109 skipped",
+        "new_failure_nodeids": "none",
+        "interaction_task_max_concurrent": 1,
+        "nested_consumer_task_created": false
       }
     }
   },
   "current_write_stage": {
-    "stage": "U3BR1",
+    "stage": "U3BR2",
     "status": "COMPLETED_AT_DYNAMIC_CHECKPOINT",
-    "commit_message": "fix(orchestrator): serialize emergency and interaction shutdown"
+    "commit_message": "fix(orchestrator): bound settlement and preserve emergency"
   },
   "known_test_baseline": {
     "python": "3.10.11",
-    "pytest": "9.1.1",
-    "pytest_asyncio": "1.4.0",
+    "pytest": "9.0.2",
+    "pytest_asyncio": "1.3.0",
     "fastapi": "0.138.0",
     "httpx": "0.28.1",
     "numpy": "2.2.6",
     "requirements_prod_numpy": "2.3.3",
-    "u3b_unit_tests": 20,
+    "u3b_unit_tests": 33,
     "u3b_loopback_tests": 1,
     "orchestrator_lifecycle_tests": 10,
     "shutdown_sequence_tests": 7,
-    "u1_integration_contracts": 37,
-    "u1_status_contracts": 12,
-    "u3a_wire_contracts": 25,
-    "u3a_supervisor_tests": 106,
+    "u1_integration_contracts": 49,
+    "u3a_supervisor_tests": 131,
     "witness": {
-      "passed": 218,
-      "failed": 0
+      "passed": 41,
+      "failed": 0,
+      "scope": "u3b_unit + u3b_loopback + orchestrator_lifecycle + shutdown_sequence"
     },
     "full_suite": {
-      "passed": 1183,
+      "passed": 1196,
       "failed": 7,
       "skipped": 109,
       "subtests_passed": 67,
