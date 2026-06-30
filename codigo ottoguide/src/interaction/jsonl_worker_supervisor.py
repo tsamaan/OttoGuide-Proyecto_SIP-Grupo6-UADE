@@ -250,7 +250,9 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             )
         except Exception:
             self._active_interaction_id = None
-            self._state = InteractionRuntimeState.READY
+            self._restore_optimistic_state_if_unchanged(
+                InteractionRuntimeState.ACTIVE, InteractionRuntimeState.READY
+            )
             raise
 
     async def pause(self) -> None:
@@ -261,7 +263,9 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         try:
             await self._enqueue_command(WorkerCommandType.PAUSE, interaction_id=interaction_id, payload={})
         except Exception:
-            self._state = InteractionRuntimeState.ACTIVE
+            self._restore_optimistic_state_if_unchanged(
+                InteractionRuntimeState.PAUSED, InteractionRuntimeState.ACTIVE
+            )
             raise
 
     async def resume(self) -> None:
@@ -272,7 +276,9 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         try:
             await self._enqueue_command(WorkerCommandType.RESUME, interaction_id=interaction_id, payload={})
         except Exception:
-            self._state = InteractionRuntimeState.PAUSED
+            self._restore_optimistic_state_if_unchanged(
+                InteractionRuntimeState.ACTIVE, InteractionRuntimeState.PAUSED
+            )
             raise
 
     async def stop(self) -> None:
@@ -452,12 +458,18 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                     await asyncio.wait_for(self._process.wait(), timeout=self._config.shutdown_timeout_s)
                 except asyncio.TimeoutError:
                     escalation = "CLOSE_TERMINATE"
-                    self._process.terminate()
+                    try:
+                        self._process.terminate()
+                    except ProcessLookupError:
+                        pass
                     try:
                         await asyncio.wait_for(self._process.wait(), timeout=self._config.terminate_timeout_s)
                     except asyncio.TimeoutError:
                         escalation = "CLOSE_KILL"
-                        self._process.kill()
+                        try:
+                            self._process.kill()
+                        except ProcessLookupError:
+                            pass
                         await self._process.wait()
         finally:
             final_exit_code = self._process.returncode if self._process is not None else None
@@ -546,6 +558,35 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         if self._active_interaction_id is None:
             raise InteractionRuntimeUnavailableError("command requires active interaction")
         return self._active_interaction_id
+
+    def _restore_optimistic_state_if_unchanged(
+        self,
+        optimistic: InteractionRuntimeState,
+        previous: InteractionRuntimeState,
+    ) -> None:
+        # Only roll back when no concurrent terminal transition occurred.
+        # If _closing, _emergency_latched, or another task already moved state
+        # to FAILED/EMERGENCY/CLOSED, preserve that transition instead of
+        # blindly restoring the pre-optimistic state.
+        if (
+            self._state is optimistic
+            and not self._closing
+            and not self._emergency_latched
+            and self._state not in (
+                InteractionRuntimeState.FAILED,
+                InteractionRuntimeState.EMERGENCY,
+                InteractionRuntimeState.CLOSED,
+            )
+        ):
+            self._state = previous
+
+    def _close_owns_lifecycle(self) -> bool:
+        # True only when _close_impl() is actively running and has not yet finished.
+        return (
+            self._closing
+            and self._close_task is not None
+            and not self._close_task.done()
+        )
 
     def _spawn_task(self, coro: object, name: str) -> None:
         task = asyncio.create_task(coro, name=name)  # type: ignore[arg-type]
@@ -969,6 +1010,12 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         if self._ready_event is not None:
             self._ready_event.set()
         await self._signal_event_queue_closed(reason)
+        # When _close_impl() is the lifecycle owner, it is already responsible
+        # for wait/terminate/kill and task cancellation.  A concurrent _fail()
+        # must not duplicate those actions; doing so would race terminate()/kill()
+        # calls against the same child and create a competing cleanup task.
+        if self._close_owns_lifecycle():
+            return
         if self._process is not None and self._process.returncode is None:
             try:
                 self._process.terminate()

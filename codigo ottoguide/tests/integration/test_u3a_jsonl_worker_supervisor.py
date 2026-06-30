@@ -2643,3 +2643,758 @@ async def test_protocol_failure_during_terminate_preserves_primary_reason() -> N
     assert supervisor.termination.reason == "PROTOCOL_FAILURE", (
         f"Expected PROTOCOL_FAILURE but got {supervisor.termination.reason!r}"
     )
+# U3AR8 RED tests — append to end of test_u3a_jsonl_worker_supervisor.py
+#
+# DEFECT_GROUP_1: OPTIMISTIC_PUBLIC_TRANSITION_ROLLBACK_CAN_OVERWRITE_CONCURRENT_TERMINAL_OR_EMERGENCY_STATE
+# DEFECT_GROUP_2: FAILURE_ARRIVING_DURING_CLOSE_CAN_START_A_COMPETING_PROCESS_CLEANUP
+# DEFECT_GROUP_3: ProcessLookupError during terminate()/kill() in close()
+#
+# These tests MUST be RED (fail) against 9ab1e630 before the fix is applied.
+
+# ---------------------------------------------------------------------------
+# DEFECT_GROUP_1 — Rollback tests
+# ---------------------------------------------------------------------------
+
+class _FakeReadyProcess:
+    """Minimal fake that reaches READY and then silently blocks forever.
+    Used to test activate/pause/resume rollback without lifecycle side effects."""
+
+    _CAPS = {
+        "audio_capture": False,
+        "wake_word": False,
+        "vad": False,
+        "stt": False,
+        "local_llm": False,
+        "spanish_tts": False,
+        "physical_playback": False,
+        "physical_playback_stop": False,
+        "physical_playback_completion": False,
+    }
+
+    def __init__(self) -> None:
+        self.stdin = _FakeStdin()
+        self.stdout = asyncio.StreamReader()
+        self.stderr = asyncio.StreamReader()
+        self.stderr.feed_eof()
+        self.returncode: int | None = None
+        self.terminate_calls = 0
+        self.kill_calls = 0
+        self._exited = asyncio.Event()
+        self.stdout.feed_data(
+            _wire_line(message_id="worker:0", event="command_accepted", sequence=0, payload={"command": "start", "message_id": "py:0"})
+        )
+        self.stdout.feed_data(
+            _wire_line(message_id="worker:1", event="ready", sequence=1, payload=self._CAPS)
+        )
+
+    async def wait(self) -> int:
+        await self._exited.wait()
+        assert self.returncode is not None
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        self.returncode = -15
+        self._exited.set()
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+        self.returncode = -9
+        self._exited.set()
+
+
+@pytest.mark.asyncio
+async def test_activate_enqueue_failure_does_not_overwrite_failed_state() -> None:
+    """RED: activate() except-block rolls back state to READY even when _fail()
+    concurrently set state to FAILED during the enqueue call."""
+    fake = _FakeReadyProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)  # command_accepted
+        await supervisor.next_event(timeout_s=0.2)  # ready
+        assert (await supervisor.health()).state is InteractionRuntimeState.READY
+
+        fail_called = asyncio.Event()
+        original_enqueue = supervisor._enqueue_command  # noqa: SLF001
+
+        async def _enqueue_with_concurrent_fail(command, *, interaction_id, payload, **kw):
+            # Simulate: _fail() fires and moves state to FAILED *before* the
+            # enqueue raises.  The current code rolls back unconditionally, so
+            # state will end up READY — the bug.
+            await supervisor._fail(  # noqa: SLF001
+                "simulated concurrent failure",
+                unexpected=True,
+                termination_reason="PROCESS_FAILED_EVENT",
+            )
+            fail_called.set()
+            raise InteractionRuntimeUnavailableError("simulated enqueue failure")
+
+        supervisor._enqueue_command = _enqueue_with_concurrent_fail  # noqa: SLF001
+
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.activate(
+                InteractionContext(interaction_id="interaction:rollback-failed")
+            )
+
+        await fail_called.wait()
+
+        # PRIMARY ASSERTION — fails RED: state must be FAILED, not READY
+        assert supervisor._state is InteractionRuntimeState.FAILED, (  # noqa: SLF001
+            f"Expected FAILED but got {supervisor._state!r}; "
+            "activate() rollback overwrote the concurrent FAILED transition"
+        )
+        assert supervisor._active_interaction_id is None  # noqa: SLF001
+    finally:
+        supervisor._enqueue_command = original_enqueue  # noqa: SLF001
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_activate_enqueue_failure_does_not_overwrite_emergency_state() -> None:
+    """RED: activate() except-block rolls back state to READY even when
+    emergency_stop() ran concurrently and set state to EMERGENCY."""
+    fake = _FakeReadyProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    original_enqueue = supervisor._enqueue_command  # noqa: SLF001
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        async def _enqueue_with_concurrent_emergency(command, *, interaction_id, payload, **kw):
+            # Restore original before calling emergency_stop() to avoid
+            # recursion (emergency_stop also calls _enqueue_command internally)
+            supervisor._enqueue_command = original_enqueue  # noqa: SLF001
+            await supervisor.emergency_stop()
+            raise InteractionRuntimeUnavailableError("simulated enqueue failure")
+
+        supervisor._enqueue_command = _enqueue_with_concurrent_emergency  # noqa: SLF001
+
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.activate(
+                InteractionContext(interaction_id="interaction:rollback-emergency")
+            )
+
+        # PRIMARY ASSERTION — fails RED: state must be EMERGENCY, not READY
+        assert supervisor._state is InteractionRuntimeState.EMERGENCY, (  # noqa: SLF001
+            f"Expected EMERGENCY but got {supervisor._state!r}; "
+            "activate() rollback overwrote the concurrent EMERGENCY transition"
+        )
+        assert supervisor._active_interaction_id is None  # noqa: SLF001
+    finally:
+        supervisor._enqueue_command = original_enqueue  # noqa: SLF001
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_pause_enqueue_failure_does_not_overwrite_failed_state() -> None:
+    """RED: pause() except-block unconditionally restores ACTIVE state even
+    when a concurrent _fail() has moved state to FAILED."""
+    fake = _FakeReadyProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    original_enqueue = supervisor._enqueue_command  # noqa: SLF001
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        # Manually set ACTIVE state to enable pause() call
+        supervisor._state = InteractionRuntimeState.ACTIVE  # noqa: SLF001
+        supervisor._active_interaction_id = "interaction:pause-test"  # noqa: SLF001
+
+        async def _enqueue_with_concurrent_fail(command, *, interaction_id, payload, **kw):
+            await supervisor._fail(  # noqa: SLF001
+                "simulated concurrent failure during pause",
+                unexpected=True,
+                termination_reason="PROCESS_FAILED_EVENT",
+            )
+            raise InteractionRuntimeUnavailableError("simulated enqueue failure")
+
+        supervisor._enqueue_command = _enqueue_with_concurrent_fail  # noqa: SLF001
+
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.pause()
+
+        # PRIMARY ASSERTION — fails RED: state must be FAILED, not ACTIVE
+        assert supervisor._state is InteractionRuntimeState.FAILED, (  # noqa: SLF001
+            f"Expected FAILED but got {supervisor._state!r}; "
+            "pause() rollback overwrote the concurrent FAILED transition"
+        )
+    finally:
+        supervisor._enqueue_command = original_enqueue  # noqa: SLF001
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_pause_enqueue_failure_does_not_overwrite_emergency_state() -> None:
+    """RED: pause() except-block unconditionally restores ACTIVE state even
+    when emergency_stop() ran concurrently."""
+    fake = _FakeReadyProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    original_enqueue = supervisor._enqueue_command  # noqa: SLF001
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        supervisor._state = InteractionRuntimeState.ACTIVE  # noqa: SLF001
+        supervisor._active_interaction_id = "interaction:pause-emerg"  # noqa: SLF001
+
+        async def _enqueue_with_concurrent_emergency(command, *, interaction_id, payload, **kw):
+            supervisor._enqueue_command = original_enqueue  # noqa: SLF001
+            await supervisor.emergency_stop()
+            raise InteractionRuntimeUnavailableError("simulated enqueue failure")
+
+        supervisor._enqueue_command = _enqueue_with_concurrent_emergency  # noqa: SLF001
+
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.pause()
+
+        # PRIMARY ASSERTION — fails RED
+        assert supervisor._state is InteractionRuntimeState.EMERGENCY, (  # noqa: SLF001
+            f"Expected EMERGENCY but got {supervisor._state!r}; "
+            "pause() rollback overwrote the concurrent EMERGENCY transition"
+        )
+    finally:
+        supervisor._enqueue_command = original_enqueue  # noqa: SLF001
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_resume_enqueue_failure_does_not_overwrite_failed_state() -> None:
+    """RED: resume() except-block unconditionally restores PAUSED state even
+    when a concurrent _fail() has moved state to FAILED."""
+    fake = _FakeReadyProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    original_enqueue = supervisor._enqueue_command  # noqa: SLF001
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        supervisor._state = InteractionRuntimeState.PAUSED  # noqa: SLF001
+        supervisor._active_interaction_id = "interaction:resume-test"  # noqa: SLF001
+
+        async def _enqueue_with_concurrent_fail(command, *, interaction_id, payload, **kw):
+            await supervisor._fail(  # noqa: SLF001
+                "simulated concurrent failure during resume",
+                unexpected=True,
+                termination_reason="PROCESS_FAILED_EVENT",
+            )
+            raise InteractionRuntimeUnavailableError("simulated enqueue failure")
+
+        supervisor._enqueue_command = _enqueue_with_concurrent_fail  # noqa: SLF001
+
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.resume()
+
+        # PRIMARY ASSERTION — fails RED: state must be FAILED, not PAUSED
+        assert supervisor._state is InteractionRuntimeState.FAILED, (  # noqa: SLF001
+            f"Expected FAILED but got {supervisor._state!r}; "
+            "resume() rollback overwrote the concurrent FAILED transition"
+        )
+    finally:
+        supervisor._enqueue_command = original_enqueue  # noqa: SLF001
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_resume_enqueue_failure_does_not_overwrite_emergency_state() -> None:
+    """RED: resume() except-block unconditionally restores PAUSED state even
+    when emergency_stop() ran concurrently."""
+    fake = _FakeReadyProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    original_enqueue = supervisor._enqueue_command  # noqa: SLF001
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        supervisor._state = InteractionRuntimeState.PAUSED  # noqa: SLF001
+        supervisor._active_interaction_id = "interaction:resume-emerg"  # noqa: SLF001
+
+        async def _enqueue_with_concurrent_emergency(command, *, interaction_id, payload, **kw):
+            supervisor._enqueue_command = original_enqueue  # noqa: SLF001
+            await supervisor.emergency_stop()
+            raise InteractionRuntimeUnavailableError("simulated enqueue failure")
+
+        supervisor._enqueue_command = _enqueue_with_concurrent_emergency  # noqa: SLF001
+
+        with pytest.raises(InteractionRuntimeUnavailableError):
+            await supervisor.resume()
+
+        # PRIMARY ASSERTION — fails RED
+        assert supervisor._state is InteractionRuntimeState.EMERGENCY, (  # noqa: SLF001
+            f"Expected EMERGENCY but got {supervisor._state!r}; "
+            "resume() rollback overwrote the concurrent EMERGENCY transition"
+        )
+    finally:
+        supervisor._enqueue_command = original_enqueue  # noqa: SLF001
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# DEFECT_GROUP_2 — Competing cleanup tests
+# ---------------------------------------------------------------------------
+
+class _FakeProcessHoldsOpenForClose:
+    """Reaches READY. When close() is in progress (waiting shutdown_timeout_s),
+    injects a PROCESS_FAILED_EVENT from _inject_fail_during_close_wait().
+    The process only exits when kill() is called.
+    Used to test that _fail() during close does not schedule a _cleanup_task
+    or call terminate() a second time."""
+
+    _CAPS = {
+        "audio_capture": False,
+        "wake_word": False,
+        "vad": False,
+        "stt": False,
+        "local_llm": False,
+        "spanish_tts": False,
+        "physical_playback": False,
+        "physical_playback_stop": False,
+        "physical_playback_completion": False,
+    }
+
+    def __init__(self, close_started: asyncio.Event) -> None:
+        self.stdin = _FakeStdin()
+        self.stdout = asyncio.StreamReader()
+        self.stderr = asyncio.StreamReader()
+        self.stderr.feed_eof()
+        self.returncode: int | None = None
+        self.terminate_calls = 0
+        self.kill_calls = 0
+        self._exited = asyncio.Event()
+        self._close_started = close_started
+        self._seq = 2
+        self.stdout.feed_data(
+            _wire_line(message_id="worker:0", event="command_accepted", sequence=0, payload={"command": "start", "message_id": "py:0"})
+        )
+        self.stdout.feed_data(
+            _wire_line(message_id="worker:1", event="ready", sequence=1, payload=self._CAPS)
+        )
+
+    def inject_process_failed(self) -> None:
+        self.stdout.feed_data(
+            _wire_line(
+                message_id=f"worker:{self._seq}",
+                event="failed",
+                sequence=self._seq,
+                payload={"code": "ERR_WORKER_FATAL", "message": "failed while close was in progress"},
+            )
+        )
+        self._seq += 1
+
+    def inject_protocol_failure(self) -> None:
+        self.stdout.feed_data(b"\xff\xfe bad bytes during close\n")
+
+    async def wait(self) -> int:
+        await self._exited.wait()
+        assert self.returncode is not None
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        # Do NOT exit — let close() escalate to kill()
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+        self.returncode = -9
+        self._exited.set()
+
+
+@pytest.mark.asyncio
+async def test_process_failed_during_close_does_not_schedule_competing_cleanup() -> None:
+    """RED: _fail() called while _close_impl() is active must NOT call
+    _schedule_cleanup_task().  Currently it does, producing a competing
+    cleanup task that races with close's own wait/kill."""
+    fake = _FakeProcessHoldsOpenForClose(asyncio.Event())
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.08, terminate_timeout_s=0.12)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)  # command_accepted
+        await supervisor.next_event(timeout_s=0.2)  # ready
+
+        # Track whether _schedule_cleanup_task was called during close
+        cleanup_scheduled_during_close = False
+        original_schedule = supervisor._schedule_cleanup_task  # noqa: SLF001
+
+        def _tracking_schedule():
+            nonlocal cleanup_scheduled_during_close
+            if supervisor._closing:  # noqa: SLF001
+                cleanup_scheduled_during_close = True
+            original_schedule()
+
+        supervisor._schedule_cleanup_task = _tracking_schedule  # noqa: SLF001
+
+        # Start close FIRST, then inject failure during cooperative wait window
+        close_task = asyncio.create_task(supervisor.close())
+        # Yield to let close() start and set _closing = True
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        # Inject failure while close is in progress (cooperative wait window)
+        fake.inject_process_failed()
+        await asyncio.wait_for(close_task, timeout=3.0)
+
+        # PRIMARY ASSERTION — fails RED: _schedule_cleanup_task must NOT be
+        # called when _close_impl() owns the lifecycle
+        assert not cleanup_scheduled_during_close, (
+            "_fail() called _schedule_cleanup_task() while close was active; "
+            "close must be the sole lifecycle owner"
+        )
+        assert supervisor.termination is not None
+        assert supervisor.termination.reason == "PROCESS_FAILED_EVENT", (
+            f"Expected PROCESS_FAILED_EVENT but got {supervisor.termination.reason!r}"
+        )
+    finally:
+        supervisor._schedule_cleanup_task = original_schedule  # noqa: SLF001
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_protocol_failure_during_close_does_not_schedule_competing_cleanup() -> None:
+    """RED: PROTOCOL_FAILURE injected while _close_impl() is active must NOT
+    cause _fail() to call _schedule_cleanup_task()."""
+    fake = _FakeProcessHoldsOpenForClose(asyncio.Event())
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.08, terminate_timeout_s=0.12)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        cleanup_scheduled_during_close = False
+        original_schedule = supervisor._schedule_cleanup_task  # noqa: SLF001
+
+        def _tracking_schedule():
+            nonlocal cleanup_scheduled_during_close
+            if supervisor._closing:  # noqa: SLF001
+                cleanup_scheduled_during_close = True
+            original_schedule()
+
+        supervisor._schedule_cleanup_task = _tracking_schedule  # noqa: SLF001
+
+        close_task = asyncio.create_task(supervisor.close())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        fake.inject_protocol_failure()
+        await asyncio.wait_for(close_task, timeout=3.0)
+
+        # PRIMARY ASSERTION — fails RED
+        assert not cleanup_scheduled_during_close, (
+            "_fail() called _schedule_cleanup_task() while close was active"
+        )
+        assert supervisor.termination is not None
+        assert supervisor.termination.reason == "PROTOCOL_FAILURE", (
+            f"Expected PROTOCOL_FAILURE but got {supervisor.termination.reason!r}"
+        )
+    finally:
+        supervisor._schedule_cleanup_task = original_schedule  # noqa: SLF001
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_process_failed_during_close_calls_terminate_at_most_once() -> None:
+    """RED: _fail() calls process.terminate() during close, adding an extra
+    terminate before close's own terminate escalation.  After fix, terminate
+    must be called at most once (by close's escalation, never by _fail()
+    when close owns the lifecycle)."""
+    fake = _FakeProcessHoldsOpenForClose(asyncio.Event())
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.06, terminate_timeout_s=0.10)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        close_task = asyncio.create_task(supervisor.close())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        # Inject during cooperative close wait window (before shutdown_timeout_s elapses)
+        fake.inject_process_failed()
+        await asyncio.wait_for(close_task, timeout=3.0)
+
+        # PRIMARY ASSERTION — fails RED: _fail() called terminate once, then
+        # the cleanup task it created calls kill; close's escalation also called
+        # terminate (or saw kill already done). The key violation: terminate was
+        # called by _fail() when it should not have been.
+        # With fix: _fail() skips terminate when close owns lifecycle; close's
+        # cooperative-wait times out and calls terminate once. Total = 1.
+        # Without fix: _fail() calls terminate (count=1), cleanup task's kill
+        # exits process, close sees returncode != None and skips escalation.
+        # So terminate_calls = 1 either way — instead test that the cleanup
+        # task was NOT created at all when close is active.
+        assert supervisor._cleanup_task is None, (  # noqa: SLF001
+            f"_fail() created _cleanup_task ({supervisor._cleanup_task!r}) while "  # noqa: SLF001
+            "close was the lifecycle owner; _cleanup_task must remain None"
+        )
+    finally:
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_process_failed_during_close_calls_kill_at_most_once() -> None:
+    """RED: _fail() creates _cleanup_task which calls process.kill() — a
+    competing kill racing with close's own escalation.  After fix, kill must
+    be called at most once, by close's own escalation only."""
+    fake = _FakeProcessHoldsOpenForClose(asyncio.Event())
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.06, terminate_timeout_s=0.10)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        close_task = asyncio.create_task(supervisor.close())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        fake.inject_process_failed()
+        await asyncio.wait_for(close_task, timeout=3.0)
+
+        # After fix: cleanup_task must be None (never created during close)
+        assert supervisor._cleanup_task is None, (  # noqa: SLF001
+            f"_cleanup_task must be None after close but got {supervisor._cleanup_task!r}; "
+            "_fail() must not create competing cleanup when close owns the lifecycle"
+        )
+        # kill_calls should be exactly 1 from close() escalation only
+        assert fake.kill_calls <= 1, (
+            f"kill() called {fake.kill_calls} times; competing cleanup called it"
+        )
+    finally:
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# DEFECT_GROUP_3 — ProcessLookupError during close
+# ---------------------------------------------------------------------------
+
+class _FakeExitsBeforeSignal:
+    """Process that exits between returncode check and terminate()/kill() call,
+    causing terminate()/kill() to raise ProcessLookupError."""
+
+    _CAPS = {
+        "audio_capture": False,
+        "wake_word": False,
+        "vad": False,
+        "stt": False,
+        "local_llm": False,
+        "spanish_tts": False,
+        "physical_playback": False,
+        "physical_playback_stop": False,
+        "physical_playback_completion": False,
+    }
+
+    def __init__(self, *, raise_on: str = "terminate") -> None:
+        self.stdin = _FakeStdin()
+        self.stdout = asyncio.StreamReader()
+        self.stderr = asyncio.StreamReader()
+        self.stderr.feed_eof()
+        self.returncode: int | None = None
+        self.terminate_calls = 0
+        self.kill_calls = 0
+        self._raise_on = raise_on
+        self._exited = asyncio.Event()
+        self.stdout.feed_data(
+            _wire_line(message_id="worker:0", event="command_accepted", sequence=0, payload={"command": "start", "message_id": "py:0"})
+        )
+        self.stdout.feed_data(
+            _wire_line(message_id="worker:1", event="ready", sequence=1, payload=self._CAPS)
+        )
+
+    async def wait(self) -> int:
+        # Return immediately if already exited, otherwise wait
+        if self.returncode is not None:
+            return self.returncode
+        await self._exited.wait()
+        assert self.returncode is not None
+        return self.returncode
+
+    def _do_exit(self) -> None:
+        self.returncode = -15
+        self._exited.set()
+        # Also feed eof so _stdout_reader unblocks
+        self.stdout.feed_eof()
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        if self._raise_on == "terminate":
+            # Process already exited — update returncode so wait() returns
+            self._do_exit()
+            raise ProcessLookupError("no such process")
+        self._do_exit()
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+        if self._raise_on == "kill":
+            self._do_exit()
+            raise ProcessLookupError("no such process")
+        self._do_exit()
+
+
+@pytest.mark.asyncio
+async def test_close_tolerates_process_lookup_race_during_terminate() -> None:
+    """RED: ProcessLookupError raised by terminate() inside _close_impl() must
+    be absorbed.  Currently it propagates as an unhandled exception from close()."""
+    fake = _FakeExitsBeforeSignal(raise_on="terminate")
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        # PRIMARY ASSERTION — fails RED: close() must NOT raise ProcessLookupError
+        await asyncio.wait_for(supervisor.close(), timeout=3.0)
+
+        assert (await supervisor.health()).state is InteractionRuntimeState.CLOSED, (
+            "close() must reach CLOSED state even when terminate() raises ProcessLookupError"
+        )
+        assert supervisor.termination is not None
+        # Primary reason must NOT be reclassified to an error category
+        assert supervisor.termination.reason not in ("PROTOCOL_FAILURE", "PROCESS_FAILED_EVENT"), (
+            f"ProcessLookupError must not reclassify the termination reason; got {supervisor.termination.reason!r}"
+        )
+    finally:
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_close_tolerates_process_lookup_race_during_kill() -> None:
+    """RED: ProcessLookupError raised by kill() inside _close_impl() must be
+    absorbed. Currently it propagates as an unhandled exception."""
+
+    class _FakeHoldsThenKillLookupError(_FakeKillProcess):
+        """Survives terminate(), then raises ProcessLookupError on kill()."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.kill_error_raises = 0
+
+        def kill(self) -> None:
+            self.kill_calls += 1
+            self.returncode = -9
+            self._exited.set()
+            # Simulate process already gone when kill() is attempted
+            raise ProcessLookupError("no such process")
+
+    fake = _FakeHoldsThenKillLookupError()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        # PRIMARY ASSERTION — fails RED: close() must NOT raise ProcessLookupError
+        await asyncio.wait_for(supervisor.close(), timeout=3.0)
+
+        assert (await supervisor.health()).state is InteractionRuntimeState.CLOSED, (
+            "close() must reach CLOSED state even when kill() raises ProcessLookupError"
+        )
+        assert supervisor.termination is not None
+    finally:
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
