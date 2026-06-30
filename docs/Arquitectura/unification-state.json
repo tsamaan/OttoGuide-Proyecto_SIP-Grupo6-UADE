@@ -154,6 +154,14 @@
     "U3AR7": {
       "commit": "9ab1e6305b4722b075790235c5f7902ba6a644f1",
       "message": "fix(interaction): preserve in-flight close failures"
+    },
+    "U3AR8": {
+      "commit": "b697f1d358338f4910a802386ad10bfb35e4439d",
+      "message": "fix(interaction): preserve terminal state and converge cleanup"
+    },
+    "U3AR9": {
+      "commit": "e094f7a9cf11848ea43ca74ce23a596d9bb38797",
+      "message": "fix(interaction): enforce terminal runtime postconditions"
     }
   },
   "read_only_gates": {
@@ -377,12 +385,49 @@
         "_process_event() guards PLAYBACK_COMPLETED/INTERACTION_TIMEOUT/CANCELLED/FAILED-interaction with 'not self._closing' to prevent READY/ready=True restoration",
         "_publish_event() no longer calls terminate() directly after _fail(); _fail() is the single lifecycle owner"
       ]
+    },
+    "U3AR9_AUDIT": {
+      "result": "CODE_ACCEPTED_U3B_AUTHORIZED_WITH_EVIDENCE_QUALIFIERS",
+      "qualifiers": [
+        "SETTLEMENT_TIMEOUT_NAMED_TEST_DID_NOT_INDUCE_ERR_TASK_SETTLEMENT_TIMEOUT",
+        "SEPARATE_FOCUSED_WITNESS_MATRIX_NOT_PRESERVED",
+        "REQUESTED_U3AR8_EVIDENCE_INVENTORY_ARTIFACTS_NOT_CREATED"
+      ]
+    },
+    "U3AR8_EVIDENCE_CORRECTION": {
+      "original_red_total_failures": 12,
+      "original_red_valid_target_failures": 9,
+      "original_red_fixture_failures": 3,
+      "fixture_failure": "RecursionError en tres tests de emergencia",
+      "tests_changed_after_red": true,
+      "raw_gate_files_missing": true
+    },
+    "U3B_ORCHESTRATOR_INTERACTION_LIFECYCLE": {
+      "result": "U3B_ORCHESTRATOR_INTERACTION_LIFECYCLE_IMPLEMENTED",
+      "summary": [
+        "TourOrchestrator accepts optional keyword-only InteractionRuntimePort injection",
+        "Legacy ConversationManager path is preserved when interaction_runtime is None",
+        "Supervised path generates interaction IDs, builds InteractionContext, activates runtime after nav cancel and zero velocity, consumes exactly one next_event stream, publishes INTERACTION_COMPLETED from Python only after matching PLAYBACK_COMPLETED, then resumes navigation",
+        "Timeout, cancellation, failure, stream error, worker closed/stopped and wrong interaction_id fail closed without resume or ConversationManager fallback",
+        "Emergency cancels runtime consumer and starts runtime.emergency_stop without delaying cancel_navigation, zero velocity or Damp",
+        "close cancels runtime interaction tasks and uses stop best-effort without calling runtime.start or runtime.close"
+      ],
+      "focused_evidence": {
+        "u3b_unit": "15 passed",
+        "u3b_loopback": "1 passed",
+        "orchestrator_lifecycle": "10 passed",
+        "shutdown_sequence": "7 passed",
+        "u1_integration_contracts": "37 passed",
+        "u1_status_contracts": "12 passed",
+        "u3a_wire_contracts": "25 passed",
+        "u3a_jsonl_worker_supervisor": "106 passed"
+      }
     }
   },
   "current_write_stage": {
-    "stage": "U3AR9",
+    "stage": "U3B",
     "status": "COMPLETED_AT_DYNAMIC_CHECKPOINT",
-    "commit_message": "fix(interaction): enforce terminal runtime postconditions"
+    "commit_message": "feat(orchestrator): wire supervised interaction lifecycle"
   },
   "known_test_baseline": {
     "python": "3.10.11",
@@ -392,18 +437,25 @@
     "httpx": "0.28.1",
     "numpy": "2.2.6",
     "requirements_prod_numpy": "2.3.3",
-    "u3ar9_supervisor_tests": 106,
+    "u3b_unit_tests": 15,
+    "u3b_loopback_tests": 1,
+    "orchestrator_lifecycle_tests": 10,
+    "shutdown_sequence_tests": 7,
+    "u1_integration_contracts": 37,
+    "u1_status_contracts": 12,
+    "u3a_wire_contracts": 25,
+    "u3a_supervisor_tests": 106,
     "witness": {
-      "passed": 50,
+      "passed": 213,
       "failed": 0
     },
     "full_suite": {
-      "passed": 1154,
-      "failed": 7,
-      "skipped": 109,
-      "subtests_passed": 67,
+      "passed": null,
+      "failed": null,
+      "skipped": null,
+      "subtests_passed": null,
       "green": false,
-      "classification": "FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS",
+      "classification": "NOT_RUN_IN_U3B_CURRENT_SESSION",
       "failure_nodeids": [
         "tests/integration/test_web_ui_cors_and_origin.py::test_dashboard_redirects_to_web_ui_public_url_when_configured",
         "tests/unit/test_conversation_playback_lifecycle.py::test_t01_local_synthesize_no_type_error",
@@ -419,7 +471,7 @@
     "ORDER_DEPENDENT_SYS_MODULES_IDENTITY",
     "QR_ONLY_STILL_INITIALIZES_ARUCO_AND_U2R1_CAPTURE_LOOP_TEST_IS_PARTIALLY_STRUCTURAL",
     "REAL_CAMERA_AND_QR_RELIABILITY_PENDING",
-    "SUPERVISED_INTERACTION_RUNTIME_NOT_WIRED_TO_ORCHESTRATOR_THROUGH_U3AR9",
+    "SUPERVISED_INTERACTION_RUNTIME_COMPOSITION_NOT_WIRED_IN_MAIN_THROUGH_U3B",
     "REAL_CXX17_WORKER_NOT_IMPLEMENTED",
     "REAL_AUDIO_AND_HIL_PENDING"
   ],
@@ -434,8 +486,7 @@
     "PLAYSTOP_VALIDATED_IN_CURRENT_HEAD",
     "FULL_SUITE_GREEN",
     "U3_IMPLEMENTED",
-    "U3B_IMPLEMENTED",
     "UNIFICATION_COMPLETE"
   ],
-  "next_action": "IMPLEMENT_U3B_ORCHESTRATOR_INTERACTION_LIFECYCLE_V1"
+  "next_action": "IMPLEMENT_U3C_RUNTIME_COMPOSITION_AND_FAIL_CLOSED_MODE_SELECTION_V1"
 }

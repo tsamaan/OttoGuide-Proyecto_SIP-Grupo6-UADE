@@ -47,6 +47,13 @@ from src.core.mission_audit import MissionAuditLogger
 from src.core.events import EventType
 from src.core.event_bus import OttoEventBus
 from src.interaction import ConversationManager, ConversationRequest, ConversationResponse
+from src.interaction.runtime_port import (
+    InteractionContext,
+    InteractionRuntimePort,
+    InteractionRuntimeUnavailableError,
+    WorkerEventEnvelope,
+    WorkerEventType,
+)
 from src.navigation.models import NavWaypoint
 from src.navigation.port import NavigationPort
 from src.vision import OdometryVector, QRStationDetected, VisionProcessor
@@ -215,6 +222,7 @@ class TourOrchestrator(StateMachine):
         audio_capture_timeout_s: float = AUDIO_CAPTURE_TIMEOUT_S,
         robot_mode: str = "mock",
         event_bus: Optional[OttoEventBus] = None,
+        interaction_runtime: Optional[InteractionRuntimePort] = None,
     ) -> None:
         """
         @TASK: Inyectar dependencias de todos los subsistemas e inicializar el estado interno de la FSM
@@ -257,10 +265,16 @@ class TourOrchestrator(StateMachine):
         self._damp_timeout_s: float = damp_timeout_s
         self._audio_capture_timeout_s: float = audio_capture_timeout_s
         self._robot_mode: str = robot_mode.strip().lower()
+        self._interaction_runtime: Optional[InteractionRuntimePort] = interaction_runtime
 
         self._context: TourContext = TourContext()
         self._odometry_task: Optional[asyncio.Task[None]] = None
         self._nav_task: Optional[asyncio.Task[None]] = None
+        self._interaction_sequence: int = 0
+        self._interaction_task: Optional[asyncio.Task[None]] = None
+        self._interaction_owner_task: Optional[asyncio.Task[Any]] = None
+        self._interaction_emergency_task: Optional[asyncio.Task[None]] = None
+        self._active_runtime_interaction_id: Optional[str] = None
         self._interaction_done_event: asyncio.Event = asyncio.Event()
         self._pending_audio: np.ndarray = np.zeros(1, dtype=np.float32)
         self._pending_language: str = "es"
@@ -592,6 +606,18 @@ class TourOrchestrator(StateMachine):
         self._context.last_error = reason
         LOGGER.critical("[Orchestrator] EMERGENCY STOP solicitado. Razon: %s", reason)
 
+        owner_task = self._interaction_owner_task
+        current_task = asyncio.current_task()
+        if owner_task is not None and owner_task is not current_task and not owner_task.done():
+            owner_task.cancel()
+        if self._interaction_task is not None and not self._interaction_task.done():
+            self._interaction_task.cancel()
+            if self._interaction_runtime is not None:
+                self._interaction_emergency_task = asyncio.create_task(
+                    self._runtime_emergency_stop_best_effort(),
+                    name="interaction-runtime-emergency-stop",
+                )
+
         try:
             await self.trigger_emergency()
         except Exception as exc:
@@ -762,6 +788,7 @@ class TourOrchestrator(StateMachine):
         )
         language: str = getattr(self, "_pending_language", "es")
         waypoint_id = self._resolve_logical_waypoint_id()
+        self._interaction_owner_task = asyncio.current_task()
 
         self._schedule_telemetry_broadcast()
         LOGGER.info("[Orchestrator] on_enter_interacting: Iniciando secuencia de dialogo.")
@@ -777,6 +804,18 @@ class TourOrchestrator(StateMachine):
         except Exception as exc:
             LOGGER.warning("[Orchestrator] Fallo al enviar velocidad cero: %s", exc)
 
+        if self._interaction_runtime is not None:
+            await self._run_supervised_runtime_interaction(waypoint_id)
+            return
+
+        await self._run_legacy_conversation_interaction(audio_buffer, language, waypoint_id)
+
+    async def _run_legacy_conversation_interaction(
+        self,
+        audio_buffer: NDArray[np.float32],
+        language: str,
+        waypoint_id: str,
+    ) -> None:
         try:
             interaction_type = self._conversation_manager.get_waypoint_interaction_type(waypoint_id)
             self._conversation_manager.set_active_zone(waypoint_id)
@@ -839,6 +878,271 @@ class TourOrchestrator(StateMachine):
                 exc,
             )
             await self.emergency_stop(reason=f"resume_tour fallo: {exc}")
+        finally:
+            if self._interaction_owner_task is asyncio.current_task():
+                self._interaction_owner_task = None
+
+    async def _run_supervised_runtime_interaction(self, waypoint_id: str) -> None:
+        runtime = self._interaction_runtime
+        if runtime is None:
+            return
+
+        try:
+            self._interaction_sequence += 1
+            interaction_id = f"interaction:{self._interaction_sequence}"
+            context = InteractionContext(
+                interaction_id=interaction_id,
+                tour_id=self._context.tour_id,
+                waypoint_id=waypoint_id,
+                locale="es-AR",
+                timeout_s=self._audio_capture_timeout_s,
+                metadata={
+                    "source": "tour_orchestrator",
+                    "fsm_state": "interacting",
+                },
+            )
+        except Exception as exc:
+            self._context.last_error = f"runtime_context_invalid:{type(exc).__name__}:{exc}"
+            LOGGER.error("[Orchestrator] Contexto de runtime invalido: %s", exc)
+            return
+
+        self._active_runtime_interaction_id = context.interaction_id
+        try:
+            await runtime.activate(context)
+        except Exception as exc:
+            self._context.last_error = f"runtime_activate_failed:{type(exc).__name__}:{exc}"
+            self._active_runtime_interaction_id = None
+            LOGGER.error("[Orchestrator] Runtime activate() fallo: %s", exc)
+            return
+
+        task = asyncio.create_task(
+            self._consume_runtime_interaction_events(runtime, context),
+            name=f"interaction-runtime-{context.interaction_id}",
+        )
+        self._interaction_task = task
+        try:
+            await task
+        finally:
+            if self._interaction_task is task:
+                self._interaction_task = None
+            if self._interaction_owner_task is asyncio.current_task():
+                self._interaction_owner_task = None
+
+    async def _consume_runtime_interaction_events(
+        self,
+        runtime: InteractionRuntimePort,
+        context: InteractionContext,
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + context.timeout_s
+        transcript_text = ""
+        response_text = ""
+
+        try:
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    await self._fail_runtime_interaction(
+                        "runtime_deadline_expired",
+                        stop_runtime=True,
+                    )
+                    return
+                try:
+                    event = await runtime.next_event(timeout_s=remaining)
+                except asyncio.TimeoutError:
+                    await self._fail_runtime_interaction(
+                        "runtime_deadline_expired",
+                        stop_runtime=True,
+                    )
+                    return
+                except asyncio.CancelledError:
+                    await self._fail_runtime_interaction(
+                        "runtime_consumer_cancelled",
+                        stop_runtime=True,
+                    )
+                    raise
+                except Exception as exc:
+                    await self._fail_runtime_interaction(
+                        f"runtime_next_event_failed:{type(exc).__name__}:{exc}",
+                        stop_runtime=True,
+                    )
+                    return
+
+                if not self._runtime_event_matches_interaction(event, context.interaction_id):
+                    await self._fail_runtime_interaction(
+                        f"runtime_wrong_interaction_id:{event.interaction_id}",
+                        stop_runtime=True,
+                    )
+                    return
+
+                event_type = event.event
+                if event_type in (
+                    WorkerEventType.READY,
+                    WorkerEventType.HEARTBEAT,
+                    WorkerEventType.WAKE_WORD_CONFIRMED,
+                ):
+                    continue
+                if (
+                    event_type is WorkerEventType.COMMAND_ACCEPTED
+                    and event.interaction_id is None
+                ):
+                    continue
+                if event_type is WorkerEventType.TRANSCRIPT_READY:
+                    text = event.payload.get("text")
+                    if isinstance(text, str):
+                        transcript_text = text
+                    continue
+                if event_type is WorkerEventType.RESPONSE_READY:
+                    text = event.payload.get("text")
+                    if isinstance(text, str):
+                        response_text = text
+                    continue
+                if event_type in (
+                    WorkerEventType.CAPTURE_STARTED,
+                    WorkerEventType.PLAYBACK_STARTED,
+                    WorkerEventType.COMMAND_ACCEPTED,
+                ):
+                    continue
+                if event_type is WorkerEventType.PLAYBACK_COMPLETED:
+                    await self._complete_runtime_interaction(
+                        context=context,
+                        transcript_text=transcript_text,
+                        response_text=response_text,
+                    )
+                    return
+                if event_type in (
+                    WorkerEventType.INTERACTION_TIMEOUT,
+                    WorkerEventType.CANCELLED,
+                    WorkerEventType.FAILED,
+                    WorkerEventType.STOPPED,
+                    WorkerEventType.CLOSED,
+                ):
+                    await self._fail_runtime_interaction(
+                        f"runtime_terminal_event:{event_type.value}",
+                        stop_runtime=event_type not in (WorkerEventType.STOPPED, WorkerEventType.CLOSED),
+                    )
+                    return
+
+                await self._fail_runtime_interaction(
+                    f"runtime_unexpected_event:{event_type.value}",
+                    stop_runtime=True,
+                )
+                return
+        finally:
+            if self._active_runtime_interaction_id == context.interaction_id:
+                self._active_runtime_interaction_id = None
+
+    def _runtime_event_matches_interaction(
+        self,
+        event: WorkerEventEnvelope,
+        expected_interaction_id: str,
+    ) -> bool:
+        if event.interaction_id is None:
+            return True
+        return event.interaction_id == expected_interaction_id
+
+    async def _complete_runtime_interaction(
+        self,
+        *,
+        context: InteractionContext,
+        transcript_text: str,
+        response_text: str,
+    ) -> None:
+        response = ConversationResponse(
+            answer_text=response_text,
+            source_pipeline="supervised_runtime",
+            audio_stream_ready=True,
+        )
+        self._context.last_interaction = response
+        payload = {
+            "interaction_id": context.interaction_id,
+            "tour_id": context.tour_id,
+            "waypoint_id": context.waypoint_id,
+            "source_pipeline": response.source_pipeline,
+            "playback_completed": True,
+        }
+        if transcript_text:
+            payload["transcript_preview"] = transcript_text[:80]
+        await self._event_bus.publish(EventType.INTERACTION_COMPLETED, payload)
+        self._schedule_audit_event(
+            event_type="INTERACTION_COMPLETED",
+            node_id=context.waypoint_id or self._resolve_logical_waypoint_id(),
+            payload=payload,
+        )
+        self._active_runtime_interaction_id = None
+        try:
+            await self.resume_tour()
+        except Exception as exc:
+            LOGGER.error(
+                "[Orchestrator] Fallo en transicion resume_tour tras runtime: %s",
+                exc,
+            )
+            await self.emergency_stop(reason=f"resume_tour fallo: {exc}")
+
+    async def _fail_runtime_interaction(self, reason: str, *, stop_runtime: bool) -> None:
+        self._context.last_error = reason
+        LOGGER.error("[Orchestrator] Interaccion supervisada fallida: %s", reason)
+        self._schedule_audit_event(
+            event_type="INTERACTION_FAILED",
+            node_id=self._resolve_logical_waypoint_id(),
+            payload={
+                "reason": reason,
+                "interaction_id": self._active_runtime_interaction_id,
+                "source_pipeline": "supervised_runtime",
+            },
+        )
+        if stop_runtime:
+            await self._runtime_stop_best_effort()
+
+    async def _runtime_stop_best_effort(self) -> None:
+        runtime = self._interaction_runtime
+        if runtime is None:
+            return
+        try:
+            await asyncio.wait_for(runtime.stop(), timeout=0.5)
+        except InteractionRuntimeUnavailableError:
+            return
+        except Exception as exc:
+            LOGGER.warning("[Orchestrator] runtime.stop() best-effort fallo: %s", exc)
+
+    async def _runtime_emergency_stop_best_effort(self) -> None:
+        runtime = self._interaction_runtime
+        if runtime is None:
+            return
+        try:
+            await runtime.emergency_stop()
+        except InteractionRuntimeUnavailableError:
+            return
+        except Exception as exc:
+            LOGGER.warning("[Orchestrator] runtime.emergency_stop() fallo: %s", exc)
+
+    async def _cancel_interaction_task_safe(self) -> None:
+        task = self._interaction_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await asyncio.wait_for(task, timeout=0.5)
+            except asyncio.CancelledError:
+                pass
+            except asyncio.TimeoutError:
+                LOGGER.warning("[Orchestrator] interaction runtime task no asento en timeout.")
+            except Exception as exc:
+                LOGGER.warning("[Orchestrator] interaction runtime task fallo al cancelar: %s", exc)
+        self._interaction_task = None
+
+    async def _cancel_interaction_emergency_task_safe(self) -> None:
+        task = self._interaction_emergency_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await asyncio.wait_for(task, timeout=0.5)
+            except asyncio.CancelledError:
+                pass
+            except asyncio.TimeoutError:
+                LOGGER.warning("[Orchestrator] runtime emergency task no asento en timeout.")
+            except Exception as exc:
+                LOGGER.warning("[Orchestrator] runtime emergency task fallo al cancelar: %s", exc)
+        self._interaction_emergency_task = None
 
     async def on_enter_emergency(self) -> None:
         """
@@ -900,6 +1204,18 @@ class TourOrchestrator(StateMachine):
                 "[Orchestrator] MissionAuditLogger no configurado; EMERGENCY sin persistencia de auditoria."
             )
 
+        if self._interaction_task is not None and not self._interaction_task.done():
+            self._interaction_task.cancel()
+        owner_task = self._interaction_owner_task
+        current_task = asyncio.current_task()
+        if owner_task is not None and owner_task is not current_task and not owner_task.done():
+            owner_task.cancel()
+        if self._interaction_runtime is not None:
+            self._interaction_emergency_task = asyncio.create_task(
+                self._runtime_emergency_stop_best_effort(),
+                name="interaction-runtime-emergency-stop",
+            )
+
         await self._cancel_nav_task_safe()
         await self._cancel_odometry_task_safe()
 
@@ -954,6 +1270,22 @@ class TourOrchestrator(StateMachine):
         #            por fallos posteriores (logging, VisionProcessor). damp_succeeded=True es
         #            condicion necesaria; ninguna rama posterior ejecuta comandos de locomocion.
         result.terminal_safe = result.damp_succeeded
+
+        await self._cancel_interaction_task_safe()
+        if self._interaction_emergency_task is not None:
+            try:
+                await asyncio.wait_for(self._interaction_emergency_task, timeout=0.5)
+            except asyncio.TimeoutError:
+                self._interaction_emergency_task.cancel()
+                result.errors.append("runtime_emergency_stop_timeout")
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                result.errors.append(f"runtime_emergency_stop_failed:{type(exc).__name__}:{exc}")
+            if self._interaction_emergency_task.done():
+                self._interaction_emergency_task = None
+        self._active_runtime_interaction_id = None
+        self._interaction_owner_task = None
 
         try:
             self._vision_processor.close()
@@ -1150,6 +1482,12 @@ class TourOrchestrator(StateMachine):
         """
         if self._closed:
             return
+        active_before_cancel = self._active_runtime_interaction_id is not None
+        await self._cancel_interaction_task_safe()
+        if active_before_cancel:
+            await self._runtime_stop_best_effort()
+        await self._cancel_interaction_emergency_task_safe()
+        self._active_runtime_interaction_id = None
         await self._cancel_nav_task_safe()
         await self._cancel_odometry_task_safe()
         self._event_bus.unsubscribe(EventType.INTERACTION_STARTED, self._on_interaction_started)

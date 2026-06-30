@@ -108,7 +108,7 @@ Los conteos son un snapshot asociado a `RELATIONS_SNAPSHOT_AS_OF_HEAD`; deben re
 
 | branch | head | ahead | behind | domain | status | disposition | integrated_scope | residual_scope | next_review_stage |
 |---|---|---:|---:|---|---|---|---|---|---|
-| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1, U3AR2, U3AR3, U3AR4, U3AR5, U3AR6, U3AR7, U3AR8 | U3B-U6 | U3B |
+| `review/orchestrator-unification` | `DYNAMIC_FROM_ACTIVE_REF` | 0 | 0 | Integracion canonica | Activa | `PRIMARY_AUTHORITY` | U0, U1, U2, U2R1, U2R2, U3P0, U3A, U3AR1, U3AR2, U3AR3, U3AR4, U3AR5, U3AR6, U3AR7, U3AR8, U3AR9, U3B | U3C-U6 | U3C |
 | `main` | `3a1f13574e4a27d9aff2bfd38b3659951e8cb264` | N/A | N/A | Snapshot publico huerfano | Sin ancestro comun | `DO_NOT_USE_AS_INTEGRATION_BASE` | Ninguno para continuidad | Solo referencia historica | Ninguno |
 | `desarrollo` | `aafb7ad1565caced974b98bfdd6b5320901f49c8` | 178 | 0 | Base historica | Sin delta pendiente | `ANCESTOR_NO_PENDING_DELTA` | Arquitectura base heredada | Ninguno activo | Ninguno |
 | `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 37 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
@@ -154,7 +154,9 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U3AR5` | `df66ccc83a1e3ded3892cbc34ad349d1e3c48396` | `fix(interaction): make close settlement retryable` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
 | `U3AR6` | `657e1505eebc2b93f0e3408d248c59007c685f14` | `fix(interaction): serialize close and preserve primary termination reasons` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
 | `U3AR7` | `9ab1e6305b4722b075790235c5f7902ba6a644f1` | `fix(interaction): preserve in-flight close failures` (auditoria posterior: `TARGET_DEFECT_ACCEPTED_RESIDUAL_RUNTIME_CONCURRENCY_GAPS_FOUND`) |
-| `U3AR8` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(interaction): preserve terminal state and converge cleanup` |
+| `U3AR8` | `b697f1d358338f4910a802386ad10bfb35e4439d` | `fix(interaction): preserve terminal state and converge cleanup` |
+| `U3AR9` | `e094f7a9cf11848ea43ca74ce23a596d9bb38797` | `fix(interaction): enforce terminal runtime postconditions` |
+| `U3B` | `DYNAMIC_HANDOFF_CHECKPOINT` | `feat(orchestrator): wire supervised interaction lifecycle` |
 
 El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.
 
@@ -215,9 +217,8 @@ RESUELTO_EN_U3AR3 (no estaba realmente resuelto en `U3AR2` a pesar de lo documen
 
 PENDIENTE:
 
-- Wiring con `TourOrchestrator` (corresponde a U3B).
+- Composicion del runtime supervisado en `main.py` y seleccion fail-closed de modo real (corresponde a U3C).
 - Playback real (worker CXX17 aun no implementado).
-- Fail-closed de composicion en el orquestador.
 - Worker real CXX17.
 - Benchmark.
 - HIL.
@@ -467,9 +468,42 @@ Restricciones vigentes (no modificadas por `U3AR9`):
 - No existe validacion HIL.
 - `U3A` a `U3AR9` no estan conectados a `TourOrchestrator`; esa integracion corresponde a `U3B`.
 
+### 12.11 Estado U3B
+
+`U3B` conecta un `InteractionRuntimePort` inyectado al lifecycle de `TourOrchestrator` sin componer ni iniciar el runtime desde `main.py`.
+
+- `TourOrchestrator.__init__` acepta `interaction_runtime: Optional[InteractionRuntimePort] = None` como parametro keyword-only.
+- Cuando no hay runtime, el camino legacy de `ConversationManager` se conserva: scripted/libre, timeouts, auditoria y reanudacion existentes.
+- Cuando hay runtime, el orquestador genera IDs `interaction:1`, `interaction:2`, construye `InteractionContext`, detiene navegacion antes de activar, consume eventos con un unico `next_event()` activo y no usa fallback a `ConversationManager`.
+- La navegacion solo se reanuda despues de `PLAYBACK_COMPLETED` con el `interaction_id` esperado y despues de publicar `EventType.INTERACTION_COMPLETED` desde Python.
+- Timeout, cancelacion, failure, cierre del worker, error del stream o `interaction_id` incorrecto fallan cerrado: sin completion, sin resume y con `runtime.stop()` best-effort acotado.
+- EMERGENCY cancela el consumidor, dispara `runtime.emergency_stop()` como task separada y no espera al worker antes de `cancel_navigation`, velocidad cero y `Damp()`.
+- `close()` cancela tasks de interaccion, intenta `runtime.stop()` si habia interaccion activa y no llama `runtime.start()` ni `runtime.close()`.
+
+Evidencia focal preservada en la etapa:
+
+```text
+tests/unit/test_u3b_orchestrator_interaction_runtime.py = 15 passed
+tests/integration/test_u3b_orchestrator_loopback.py = 1 passed
+tests/unit/test_orchestrator_lifecycle.py = 10 passed
+tests/unit/test_shutdown_sequence.py = 7 passed
+tests/unit/test_u1_integration_contracts.py = 37 passed
+tests/integration/test_u1_status_contracts.py = 12 passed
+tests/unit/test_u3a_wire_contracts.py = 25 passed
+tests/integration/test_u3a_jsonl_worker_supervisor.py = 106 passed
+```
+
+Restricciones vigentes:
+
+- La composicion global del runtime supervisado en `main.py` no esta implementada; corresponde a `U3C`.
+- Solo existe worker loopback falso.
+- No existe worker real CXX17 implementado.
+- No existe audio real validado.
+- No existe validacion HIL.
+
 ## 13. Baseline de pruebas
 
-Proveniencia: `U3AR9`, ejecucion real posterior al cierre de los defectos de postcondiciones terminales (dos corridas completas de `tests/` con el `PINNED_PYTHON` de la etapa). Sustituye el baseline previo de `U3AR8`.
+Proveniencia: `U3B`, ejecucion focal posterior al wiring del lifecycle supervisado en `TourOrchestrator` con el `PINNED_PYTHON` de la etapa. Sustituye el baseline focal previo de `U3AR9`; la suite completa conserva los fallos heredados listados abajo si aparecen.
 
 ```text
 Python = 3.10.11
@@ -478,11 +512,18 @@ pytest-asyncio = 1.3.0
 FastAPI = 0.118.2
 httpx = 0.28.1
 NumPy = 2.2.6
+U3B_UNIT = 15 passed
+U3B_LOOPBACK = 1 passed
+ORCHESTRATOR_LIFECYCLE = 10 passed
+SHUTDOWN_SEQUENCE = 7 passed
+U1_CONTRACTS = 37 passed
+U1_STATUS_CONTRACTS = 12 passed
+U3A_WIRE_CONTRACTS = 25 passed
 SUPERVISOR_TESTS = 106 passed
-FULL_SUITE = 1162 passed, 7 failed, 109 skipped, 67 subtests passed
+FULL_SUITE = NOT_RUN_IN_U3B_CURRENT_SESSION
 KNOWN_TEST_DEBT = ORDER_DEPENDENT_SYS_MODULES_IDENTITY
 FULL_SUITE_GREEN = NO
-FULL_SUITE_RESULT = FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS
+FULL_SUITE_RESULT = NOT_CLAIMED
 ```
 
 `FULL_SUITE_RESULT = FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS` indica que ambas corridas terminaron con exit code distinto de cero, y que los unicos nodeids en fallo son los siete heredados y conocidos abajo; ningun nodeid nuevo aparecio. No se afirma `FULL_SUITE_GREEN`.
@@ -646,4 +687,10 @@ NEXT_ACTION vigente tras U3AR9 (sin cambio):
 NEXT_ACTION = IMPLEMENT_U3B_ORCHESTRATOR_INTERACTION_LIFECYCLE_V1
 ```
 
-No ejecutar U3B desde este handoff. La siguiente etapa debe conectar el lifecycle de interaccion al `TourOrchestrator` usando el contrato U3A-U3AR9, sin introducir audio real ni HIL salvo autorizacion explicita.
+NEXT_ACTION vigente tras U3B:
+
+```text
+NEXT_ACTION = IMPLEMENT_U3C_RUNTIME_COMPOSITION_AND_FAIL_CLOSED_MODE_SELECTION_V1
+```
+
+No ejecutar U3C desde este handoff. La siguiente etapa debe componer el runtime supervisado en el lifespan sin introducir worker real CXX17, audio real ni HIL salvo autorizacion explicita.
