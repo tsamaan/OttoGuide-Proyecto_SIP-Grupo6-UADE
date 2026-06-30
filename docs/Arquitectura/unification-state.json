@@ -341,12 +341,48 @@
         "_close_owns_lifecycle() predicate added; _fail() skips terminate() and _schedule_cleanup_task() when true",
         "ProcessLookupError absorbed on terminate() and kill() in _close_impl()"
       ]
+    },
+    "U3AR8_AUDIT": {
+      "result": "CODE_FIXES_ACCEPTED_EVIDENCE_PROTOCOL_PARTIALLY_NONCOMPLIANT",
+      "accepted_commit": "b697f1d358338f4910a802386ad10bfb35e4439d",
+      "accepted_defects": [
+        "PUBLIC_TRANSITION_ROLLBACK_CAN_OVERWRITE_TERMINAL_STATE",
+        "FAILURE_DURING_CLOSE_CAN_START_COMPETING_CLEANUP",
+        "PROCESS_SIGNAL_CAN_RACE_WITH_ALREADY_EXITED_CHILD"
+      ],
+      "noncompliant_findings": [
+        "STRICT_UNRAISABLE_GATE_FILES_MISSING",
+        "CONCURRENCY_REPEAT_MATRIX_FILE_MISSING",
+        "FULL_SUITE_RUN_FILES_MISSING"
+      ],
+      "residual_defects_carried_to_u3ar9": [
+        "PUBLIC_ACTIVE_INTERACTION_ID_REMAINS_VISIBLE_DURING_CLOSE",
+        "CLOSED_STATE_CAN_RETAIN_INTERNAL_ACTIVE_INTERACTION_ID",
+        "LATE_INTERACTION_EVENT_DURING_CLOSE_CAN_RESTORE_READY_STATE_OR_READY_FLAG",
+        "EVENT_QUEUE_OVERFLOW_DIRECTLY_TERMINATES_AFTER_FAIL_AND_BYPASSES_SINGLE_LIFECYCLE_OWNER"
+      ]
+    },
+    "U3AR9_REMEDIATION": {
+      "result": "U3AR9_TERMINAL_POSTCONDITIONS_AND_EVENT_QUEUE_OWNERSHIP_CLOSED",
+      "closed_defects": [
+        "PUBLIC_ACTIVE_INTERACTION_ID_REMAINS_VISIBLE_DURING_CLOSE",
+        "CLOSED_STATE_CAN_RETAIN_INTERNAL_ACTIVE_INTERACTION_ID",
+        "LATE_INTERACTION_EVENT_DURING_CLOSE_CAN_RESTORE_READY_STATE_OR_READY_FLAG",
+        "EVENT_QUEUE_OVERFLOW_DIRECTLY_TERMINATES_AFTER_FAIL_AND_BYPASSES_SINGLE_LIFECYCLE_OWNER"
+      ],
+      "fixes": [
+        "active_interaction_id property returns None when _closing or state in (STOPPING, FAILED, EMERGENCY, CLOSED)",
+        "_close_impl() sets _state=STOPPING at entry when not already in FAILED/EMERGENCY/CLOSED",
+        "_close_impl() clears _active_interaction_id=None on both CLOSED paths (no-process and main)",
+        "_process_event() guards PLAYBACK_COMPLETED/INTERACTION_TIMEOUT/CANCELLED/FAILED-interaction with 'not self._closing' to prevent READY/ready=True restoration",
+        "_publish_event() no longer calls terminate() directly after _fail(); _fail() is the single lifecycle owner"
+      ]
     }
   },
   "current_write_stage": {
-    "stage": "U3AR8",
+    "stage": "U3AR9",
     "status": "COMPLETED_AT_DYNAMIC_CHECKPOINT",
-    "commit_message": "fix(interaction): preserve terminal state and converge cleanup"
+    "commit_message": "fix(interaction): enforce terminal runtime postconditions"
   },
   "known_test_baseline": {
     "python": "3.10.11",
@@ -356,6 +392,7 @@
     "httpx": "0.28.1",
     "numpy": "2.2.6",
     "requirements_prod_numpy": "2.3.3",
+    "u3ar9_supervisor_tests": 106,
     "witness": {
       "passed": 50,
       "failed": 0
@@ -382,7 +419,7 @@
     "ORDER_DEPENDENT_SYS_MODULES_IDENTITY",
     "QR_ONLY_STILL_INITIALIZES_ARUCO_AND_U2R1_CAPTURE_LOOP_TEST_IS_PARTIALLY_STRUCTURAL",
     "REAL_CAMERA_AND_QR_RELIABILITY_PENDING",
-    "SUPERVISED_INTERACTION_RUNTIME_NOT_WIRED_TO_ORCHESTRATOR_THROUGH_U3AR8",
+    "SUPERVISED_INTERACTION_RUNTIME_NOT_WIRED_TO_ORCHESTRATOR_THROUGH_U3AR9",
     "REAL_CXX17_WORKER_NOT_IMPLEMENTED",
     "REAL_AUDIO_AND_HIL_PENDING"
   ],

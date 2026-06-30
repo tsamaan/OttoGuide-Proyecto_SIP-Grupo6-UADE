@@ -170,6 +170,18 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
 
     @property
     def active_interaction_id(self) -> str | None:
+        # Hide the internal ID once the supervisor is in any terminal or
+        # closing state; the internal field is preserved for wire correlation.
+        if (
+            self._closing
+            or self._state in (
+                InteractionRuntimeState.STOPPING,
+                InteractionRuntimeState.FAILED,
+                InteractionRuntimeState.EMERGENCY,
+                InteractionRuntimeState.CLOSED,
+            )
+        ):
+            return None
         return self._active_interaction_id
 
     async def _create_process(self) -> asyncio.subprocess.Process:
@@ -406,6 +418,12 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
     async def _close_impl(self) -> None:
         self._closing = True
         self._ready = False
+        if self._state not in (
+            InteractionRuntimeState.FAILED,
+            InteractionRuntimeState.EMERGENCY,
+            InteractionRuntimeState.CLOSED,
+        ):
+            self._state = InteractionRuntimeState.STOPPING
         # If a failure-path cleanup is already in flight, let it finish first
         # instead of racing two independent terminate()/kill() escalations
         # against the same child process.
@@ -419,6 +437,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                 ):
                     raise cleanup_result
         if self._process is None:
+            self._active_interaction_id = None
             self._state = InteractionRuntimeState.CLOSED
             if self._termination is None:
                 self._record_termination(
@@ -507,6 +526,7 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             await self._let_event_loop_close_subprocess_transports()
             if task_settlement.timed_out:
                 self._raise_task_settlement_timeout(task_settlement)
+            self._active_interaction_id = None
             self._state = InteractionRuntimeState.CLOSED
 
     async def _let_event_loop_close_subprocess_transports(self) -> None:
@@ -851,17 +871,19 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             del self._pending_commands[payload_message_id]  # type: ignore[arg-type]
         elif event.event == WorkerEventType.PLAYBACK_COMPLETED:
             self._active_interaction_id = None
-            if not self._emergency_latched:
+            if not self._emergency_latched and not self._closing:
                 self._state = InteractionRuntimeState.READY
                 self._ready = True
         elif event.event in (WorkerEventType.INTERACTION_TIMEOUT, WorkerEventType.CANCELLED):
             self._active_interaction_id = None
-            if not self._emergency_latched:
+            if not self._emergency_latched and not self._closing:
                 self._state = InteractionRuntimeState.READY
         elif event.event == WorkerEventType.FAILED:
             if event.interaction_id is not None:
                 self._active_interaction_id = None
-                if not self._emergency_latched:
+                if self._closing:
+                    pass
+                elif not self._emergency_latched:
                     self._state = InteractionRuntimeState.READY
                     self._ready = True
                 else:
@@ -886,12 +908,10 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
         try:
             self._event_queue.put_nowait(event)
         except asyncio.QueueFull:
+            # _fail() is now the single owner of terminate/cleanup decisions,
+            # including respecting _close_owns_lifecycle(). The prior direct
+            # terminate() call here was a duplicate that bypassed that ownership.
             await self._fail("event queue full", unexpected=True, termination_reason="EVENT_QUEUE_OVERFLOW")
-            if self._process is not None and self._process.returncode is None:
-                try:
-                    self._process.terminate()
-                except ProcessLookupError:
-                    pass
 
     async def _stderr_drain(self) -> None:
         assert self._process is not None

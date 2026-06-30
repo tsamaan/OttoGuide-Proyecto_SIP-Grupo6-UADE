@@ -429,9 +429,47 @@ Restricciones vigentes (no modificadas por `U3AR8`):
 - No existe validacion HIL.
 - `U3A` a `U3AR8` no estan conectados a `TourOrchestrator`; esa integracion corresponde a `U3B`.
 
+### 12.10 Estado U3AR9
+
+`U3AR9` cierra cuatro defectos de postcondiciones terminales identificados en la auditoria de `U3AR8`:
+
+**DEFECT_1 — Identidad publica visible durante close:**
+
+- La propiedad `active_interaction_id` retornaba el campo interno sin filtro, incluso cuando el supervisor estaba cerrando o en estado terminal.
+- Fix: la propiedad ahora retorna `None` cuando `_closing` es `True` o el estado es `STOPPING`, `FAILED`, `EMERGENCY` o `CLOSED`.
+- El campo interno `_active_interaction_id` se preserva para correlacion de wire; solo la vista publica se filtra.
+
+**DEFECT_2 — ID interno retenido al llegar a CLOSED:**
+
+- `_close_impl()` no limpiaba `_active_interaction_id` antes de asignar `_state = CLOSED`, en ninguna de las dos rutas (sin proceso, y ruta principal).
+- Fix: `_active_interaction_id = None` se asigna inmediatamente antes de `_state = InteractionRuntimeState.CLOSED` en ambas rutas.
+
+**DEFECT_3 — Evento tardio durante close restaura READY o ready=True:**
+
+- Los handlers de `PLAYBACK_COMPLETED`, `INTERACTION_TIMEOUT`, `CANCELLED` y `FAILED`-con-interaction_id en `_process_event()` asignaban `_state = READY` y/o `_ready = True` sin verificar `_closing`.
+- Fix: se agrego la guarda `and not self._closing` en cada handler. El ID interno puede limpiar y el evento puede publicarse; lo que no ocurre es la transicion a READY/ready.
+
+**DEFECT_4 — EVENT_QUEUE_OVERFLOW llama terminate() directamente despues de _fail():**
+
+- `_publish_event()` contenia un segundo bloque `if self._process is not None and self._process.returncode is None: self._process.terminate()` inmediatamente despues de `await self._fail(...)`.
+- Esto duplicaba la senalizacion y omitia la verificacion de `_close_owns_lifecycle()` que `_fail()` realiza internamente.
+- Fix: se elimino el bloque de terminate directo. `_fail()` es el unico dueno de la decision de terminar y de la creacion del cleanup task.
+
+Adicionalmente, `_close_impl()` ahora establece `_state = STOPPING` al inicio, cuando el estado actual no es ya `FAILED`, `EMERGENCY` o `CLOSED`. Esto materializa el estado de cierre intermedio que el contrato publico exigia.
+
+Gate de la fase roja verificado: ocho tests rojos contra `b697f1d` (4 identidad/STOPPING, 2 late-event, 2 overflow-owner), todos fallan con el codigo anterior y pasan despues del fix. `RED_TARGET_BEHAVIOR_REACHED_AND_FAILED_COUNT = 8 >= 5`.
+
+Restricciones vigentes (no modificadas por `U3AR9`):
+
+- Solo existe worker loopback falso.
+- No existe worker real CXX17 implementado.
+- No existe audio real implementado.
+- No existe validacion HIL.
+- `U3A` a `U3AR9` no estan conectados a `TourOrchestrator`; esa integracion corresponde a `U3B`.
+
 ## 13. Baseline de pruebas
 
-Proveniencia: `U3AR8`, ejecucion real posterior al cierre de los defectos de concurrencia de runtime (una corrida completa de `tests/` con el `PINNED_PYTHON` de la etapa). Sustituye el baseline previo de `U3AR7`.
+Proveniencia: `U3AR9`, ejecucion real posterior al cierre de los defectos de postcondiciones terminales (dos corridas completas de `tests/` con el `PINNED_PYTHON` de la etapa). Sustituye el baseline previo de `U3AR8`.
 
 ```text
 Python = 3.10.11
@@ -440,8 +478,8 @@ pytest-asyncio = 1.3.0
 FastAPI = 0.118.2
 httpx = 0.28.1
 NumPy = 2.2.6
-WITNESS = 50 passed
-FULL_SUITE = 1154 passed, 7 failed, 109 skipped, 67 subtests passed
+SUPERVISOR_TESTS = 106 passed
+FULL_SUITE = 1162 passed, 7 failed, 109 skipped, 67 subtests passed
 KNOWN_TEST_DEBT = ORDER_DEPENDENT_SYS_MODULES_IDENTITY
 FULL_SUITE_GREEN = NO
 FULL_SUITE_RESULT = FAILED_WITH_ONLY_KNOWN_INHERITED_NODEIDS
@@ -602,4 +640,10 @@ NEXT_ACTION vigente tras U3AR8 (sin cambio):
 NEXT_ACTION = IMPLEMENT_U3B_ORCHESTRATOR_INTERACTION_LIFECYCLE_V1
 ```
 
-No ejecutar U3B desde este handoff. La siguiente etapa debe conectar el lifecycle de interaccion al `TourOrchestrator` usando el contrato U3A-U3AR8, sin introducir audio real ni HIL salvo autorizacion explicita.
+NEXT_ACTION vigente tras U3AR9 (sin cambio):
+
+```text
+NEXT_ACTION = IMPLEMENT_U3B_ORCHESTRATOR_INTERACTION_LIFECYCLE_V1
+```
+
+No ejecutar U3B desde este handoff. La siguiente etapa debe conectar el lifecycle de interaccion al `TourOrchestrator` usando el contrato U3A-U3AR9, sin introducir audio real ni HIL salvo autorizacion explicita.

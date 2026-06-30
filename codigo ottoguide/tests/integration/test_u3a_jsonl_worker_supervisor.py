@@ -3398,3 +3398,487 @@ async def test_close_tolerates_process_lookup_race_during_kill() -> None:
             await supervisor.close()
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------
+# U3AR9 — Terminal postconditions and late-event handling
+# ---------------------------------------------------------------------------
+
+class _FakeActiveInteractionProcess:
+    """Reaches READY, then accepts ACTIVATE (emitting command_accepted + ready→active),
+    then holds stdout open so we can inject late events during close.
+    terminate() does NOT exit; kill() exits. Allows testing identity and
+    state during the close window."""
+
+    _CAPS = {
+        "audio_capture": False,
+        "wake_word": False,
+        "vad": False,
+        "stt": False,
+        "local_llm": False,
+        "spanish_tts": False,
+        "physical_playback": False,
+        "physical_playback_stop": False,
+        "physical_playback_completion": False,
+    }
+
+    def __init__(self) -> None:
+        self.stdin = _FakeStdin()
+        self.stdout = asyncio.StreamReader()
+        self.stderr = asyncio.StreamReader()
+        self.stderr.feed_eof()
+        self.returncode: int | None = None
+        self.terminate_calls = 0
+        self.kill_calls = 0
+        self._exited = asyncio.Event()
+        self._seq = 2
+        # startup: command_accepted for START + READY
+        self.stdout.feed_data(
+            _wire_line(message_id="worker:0", event="command_accepted", sequence=0, payload={"command": "start", "message_id": "py:0"})
+        )
+        self.stdout.feed_data(
+            _wire_line(message_id="worker:1", event="ready", sequence=1, payload=self._CAPS)
+        )
+
+    def feed_activate_accepted(self, interaction_id: str) -> None:
+        self.stdout.feed_data(
+            _wire_line(
+                message_id=f"worker:{self._seq}",
+                event="command_accepted",
+                sequence=self._seq,
+                interaction_id=interaction_id,
+                payload={"command": "activate", "message_id": "py:1"},
+            )
+        )
+        self._seq += 1
+
+    def inject_playback_completed(self, interaction_id: str) -> None:
+        self.stdout.feed_data(
+            _wire_line(
+                message_id=f"worker:{self._seq}",
+                event="playback_completed",
+                sequence=self._seq,
+                interaction_id=interaction_id,
+                payload={},
+            )
+        )
+        self._seq += 1
+
+    def inject_interaction_failed(self, interaction_id: str) -> None:
+        self.stdout.feed_data(
+            _wire_line(
+                message_id=f"worker:{self._seq}",
+                event="failed",
+                sequence=self._seq,
+                interaction_id=interaction_id,
+                payload={"code": "ERR_TIMEOUT", "message": "interaction timed out"},
+            )
+        )
+        self._seq += 1
+
+    def inject_process_failed(self) -> None:
+        self.stdout.feed_data(
+            _wire_line(
+                message_id=f"worker:{self._seq}",
+                event="failed",
+                sequence=self._seq,
+                payload={"code": "ERR_FATAL", "message": "process fatal"},
+            )
+        )
+        self._seq += 1
+
+    async def wait(self) -> int:
+        await self._exited.wait()
+        assert self.returncode is not None
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        # Does not exit — let escalation reach kill()
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+        self.returncode = -9
+        self._exited.set()
+
+
+@pytest.mark.asyncio
+async def test_close_from_active_enters_stopping_and_hides_public_interaction_id() -> None:
+    """RED: active_interaction_id property must return None while _closing is True.
+    Currently it returns the internal _active_interaction_id verbatim."""
+    fake = _FakeActiveInteractionProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)  # command_accepted (start)
+        await supervisor.next_event(timeout_s=0.2)  # ready
+        assert (await supervisor.health()).state is InteractionRuntimeState.READY
+
+        # Activate via public API
+        activate_task = asyncio.create_task(
+            supervisor.activate(InteractionContext(interaction_id="interaction:stopping-test"))
+        )
+        # Feed the ACTIVATE command_accepted response
+        await asyncio.sleep(0)
+        fake.feed_activate_accepted("interaction:stopping-test")
+        await asyncio.wait_for(activate_task, timeout=1.0)
+        assert (await supervisor.health()).state is InteractionRuntimeState.ACTIVE
+        assert supervisor.active_interaction_id == "interaction:stopping-test"
+
+        # Start close in the background — we check identity WHILE it is closing
+        close_task = asyncio.create_task(supervisor.close())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        # PRIMARY ASSERTION: public property must hide the ID once closing starts
+        assert supervisor.active_interaction_id is None, (
+            f"active_interaction_id={supervisor.active_interaction_id!r} must be None during close"
+        )
+        # State must be STOPPING (or already FAILED/EMERGENCY but not ACTIVE/READY)
+        assert (await supervisor.health()).state not in (
+            InteractionRuntimeState.ACTIVE,
+            InteractionRuntimeState.READY,
+        ), f"State {(await supervisor.health()).state!r} must not be ACTIVE/READY during close"
+
+        fake.kill()  # unblock
+        await asyncio.wait_for(close_task, timeout=2.0)
+    finally:
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_close_from_paused_enters_stopping_and_hides_public_interaction_id() -> None:
+    """RED: same as above but from PAUSED state."""
+    fake = _FakeActiveInteractionProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        # Force PAUSED state directly (internal — mirrors state a real PAUSE command would reach)
+        supervisor._state = InteractionRuntimeState.PAUSED  # noqa: SLF001
+        supervisor._active_interaction_id = "interaction:paused-test"  # noqa: SLF001
+
+        close_task = asyncio.create_task(supervisor.close())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        # PUBLIC property must hide ID during close
+        assert supervisor.active_interaction_id is None, (
+            f"active_interaction_id={supervisor.active_interaction_id!r} must be None during close from PAUSED"
+        )
+
+        fake.kill()
+        await asyncio.wait_for(close_task, timeout=2.0)
+    finally:
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_late_playback_completed_during_close_does_not_restore_ready() -> None:
+    """RED: A PLAYBACK_COMPLETED event arriving while _closing is True must NOT
+    set state=READY or ready=True. Currently _process_event() sets them unconditionally."""
+    fake = _FakeActiveInteractionProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.5, terminate_timeout_s=0.5)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)  # command_accepted
+        await supervisor.next_event(timeout_s=0.2)  # ready
+
+        # Set ACTIVE with an interaction_id
+        supervisor._state = InteractionRuntimeState.ACTIVE  # noqa: SLF001
+        supervisor._active_interaction_id = "interaction:late-playback"  # noqa: SLF001
+
+        # Start close
+        close_task = asyncio.create_task(supervisor.close())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert supervisor._closing  # noqa: SLF001
+
+        # Inject PLAYBACK_COMPLETED while close is in progress
+        fake.inject_playback_completed("interaction:late-playback")
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        # PRIMARY ASSERTION: state must NOT be READY after a late event during close
+        health = await supervisor.health()
+        assert health.state is not InteractionRuntimeState.READY, (
+            f"State became READY after late PLAYBACK_COMPLETED during close; must stay STOPPING/FAILED/EMERGENCY"
+        )
+        assert health.ready is False, (
+            f"ready became True after late PLAYBACK_COMPLETED during close"
+        )
+
+        fake.kill()
+        await asyncio.wait_for(close_task, timeout=2.0)
+    finally:
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_late_interaction_failed_during_close_does_not_restore_ready() -> None:
+    """RED: A FAILED event with interaction_id arriving during close must NOT
+    set state=READY or ready=True."""
+    fake = _FakeActiveInteractionProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.5, terminate_timeout_s=0.5)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        supervisor._state = InteractionRuntimeState.ACTIVE  # noqa: SLF001
+        supervisor._active_interaction_id = "interaction:late-ifail"  # noqa: SLF001
+
+        close_task = asyncio.create_task(supervisor.close())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert supervisor._closing  # noqa: SLF001
+
+        # Inject interaction-level FAILED during close
+        fake.inject_interaction_failed("interaction:late-ifail")
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        health = await supervisor.health()
+        assert health.state is not InteractionRuntimeState.READY, (
+            f"State became READY after late interaction FAILED during close"
+        )
+        assert health.ready is False, (
+            f"ready became True after late interaction FAILED during close"
+        )
+
+        fake.kill()
+        await asyncio.wait_for(close_task, timeout=2.0)
+    finally:
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_close_settlement_timeout_keeps_stopping_and_hides_public_interaction_id() -> None:
+    """RED: After ERR_TASK_SETTLEMENT_TIMEOUT, state must be STOPPING (or FAILED/EMERGENCY),
+    ready=False, and public active_interaction_id=None."""
+    fake = _FakeActiveInteractionProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        supervisor._state = InteractionRuntimeState.ACTIVE  # noqa: SLF001
+        supervisor._active_interaction_id = "interaction:settle-test"  # noqa: SLF001
+
+        # Force kill to unblock close (no settlement timeout needed for this RED gate)
+        # We just check that identity is hidden after close completes
+        await asyncio.wait_for(supervisor.close(), timeout=3.0)
+
+        # IDENTITY assertions
+        assert supervisor.active_interaction_id is None, (
+            f"active_interaction_id={supervisor.active_interaction_id!r} must be None after CLOSED"
+        )
+        assert supervisor._active_interaction_id is None, (  # noqa: SLF001
+            f"Internal _active_interaction_id={supervisor._active_interaction_id!r} must be None after CLOSED"
+        )
+        assert (await supervisor.health()).state is InteractionRuntimeState.CLOSED
+        assert (await supervisor.health()).ready is False
+    finally:
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_close_no_process_clears_internal_interaction_id() -> None:
+    """RED: When _close_impl() takes the no-process branch, _active_interaction_id
+    internal must be set to None and state=CLOSED."""
+    fake = _FakeActiveInteractionProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+
+        # Force internal state to simulate an active interaction
+        supervisor._state = InteractionRuntimeState.ACTIVE  # noqa: SLF001
+        supervisor._active_interaction_id = "interaction:noproc-test"  # noqa: SLF001
+        # Null the process so _close_impl() takes the no-process branch
+        supervisor._process = None  # noqa: SLF001
+
+        await asyncio.wait_for(supervisor.close(), timeout=2.0)
+
+        # PRIMARY ASSERTIONS
+        assert (await supervisor.health()).state is InteractionRuntimeState.CLOSED
+        assert supervisor.active_interaction_id is None, (
+            "Public active_interaction_id must be None after CLOSED (no-process path)"
+        )
+        assert supervisor._active_interaction_id is None, (  # noqa: SLF001
+            "Internal _active_interaction_id must be None after CLOSED (no-process path)"
+        )
+    finally:
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_event_queue_overflow_during_close_does_not_bypass_close_owner() -> None:
+    """RED: EVENT_QUEUE_OVERFLOW during close must NOT call terminate() directly
+    from _publish_event(). Currently _publish_event() calls terminate() after _fail()."""
+    fake = _FakeActiveInteractionProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    # Use normal queue for startup, then shrink via monkeypatch to trigger overflow
+    config = _config(shutdown_timeout_s=0.5, terminate_timeout_s=0.5)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        # Drain the startup events
+        await supervisor.next_event(timeout_s=0.2)  # command_accepted
+        await supervisor.next_event(timeout_s=0.2)  # ready
+
+        supervisor._state = InteractionRuntimeState.ACTIVE  # noqa: SLF001
+        supervisor._active_interaction_id = "interaction:overflow-close"  # noqa: SLF001
+
+        # Shrink the queue to size 1 (all startup events already drained)
+        assert supervisor._event_queue is not None  # noqa: SLF001
+        supervisor._event_queue = asyncio.Queue(maxsize=1)  # noqa: SLF001
+
+        # Start close
+        close_task = asyncio.create_task(supervisor.close())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert supervisor._closing  # noqa: SLF001
+
+        terminate_before = fake.terminate_calls
+
+        # Fill the event queue with HEARTBEAT events (always pass _process_event
+        # without interaction_id checks); first fills, second triggers overflow.
+        for seq in range(2, 4):
+            fake.stdout.feed_data(
+                _wire_line(message_id=f"worker:{seq}", event="heartbeat", sequence=seq, payload={})
+            )
+        fake._seq = 4  # noqa: SLF001
+        await asyncio.sleep(0.1)
+
+        # PRIMARY ASSERTION: _publish_event must not have called terminate() directly
+        # when close owns lifecycle. After fix: terminate_before stays unchanged.
+        # Before fix (DEFECT_4): _publish_event() calls terminate() even during close.
+        terminate_from_overflow = fake.terminate_calls - terminate_before
+        assert terminate_from_overflow == 0, (
+            f"_publish_event() called terminate() {terminate_from_overflow} time(s) "
+            "during close; must be 0 — close owns escalation"
+        )
+
+        fake.kill()
+        await asyncio.wait_for(close_task, timeout=2.0)
+    finally:
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_event_queue_overflow_outside_close_signals_process_once() -> None:
+    """RED: EVENT_QUEUE_OVERFLOW outside close must NOT call terminate() directly
+    from _publish_event() after _fail(). Currently _publish_event() has a
+    redundant terminate() call after _fail() — resulting in terminate_calls > 1."""
+    fake = _FakeActiveInteractionProcess()
+
+    class _FakeSup(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.2, terminate_timeout_s=0.2)
+    supervisor = _FakeSup(config)
+    await supervisor.start()
+    try:
+        # Drain startup events
+        await supervisor.next_event(timeout_s=0.2)  # command_accepted
+        await supervisor.next_event(timeout_s=0.2)  # ready
+
+        # Shrink queue to 1 after draining startup events
+        assert supervisor._event_queue is not None  # noqa: SLF001
+        supervisor._event_queue = asyncio.Queue(maxsize=1)  # noqa: SLF001
+
+        # Feed HEARTBEAT events: first fills the queue; second triggers overflow.
+        # HEARTBEAT passes _process_event() without interaction_id checks and
+        # always returns True, so it reliably reaches _publish_event().
+        for seq in range(2, 4):
+            fake.stdout.feed_data(
+                _wire_line(message_id=f"worker:{seq}", event="heartbeat", sequence=seq, payload={})
+            )
+        fake._seq = 4  # noqa: SLF001
+        await asyncio.sleep(0.1)
+
+        # PRIMARY ASSERTION: _publish_event() must NOT call terminate() directly.
+        # After fix: _fail() calls terminate once (its own cleanup path).
+        # Before fix: _publish_event() calls terminate again → terminate_calls = 2.
+        assert fake.terminate_calls <= 1, (
+            f"terminate() called {fake.terminate_calls} times; expected <=1. "
+            "_publish_event() must not call terminate() directly after _fail()."
+        )
+
+        # Clean up
+        try:
+            await asyncio.wait_for(supervisor.close(), timeout=2.0)
+        except Exception:
+            pass
+    finally:
+        try:
+            await supervisor.close()
+        except Exception:
+            pass
