@@ -2250,3 +2250,396 @@ async def test_cancelled_close_caller_does_not_cancel_shared_close() -> None:
     
     assert (await supervisor.health()).state is InteractionRuntimeState.CLOSED
     assert not any(not t.done() for t in supervisor._tasks)  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# U3AR7 — PRIMARY_TERMINATION_REASON_CAN_BE_OVERWRITTEN_WHEN_IT_APPEARS_DURING_CLOSE_ESCALATION
+#
+# The snapshot `had_primary_failure_reason` is taken before the cooperative
+# shutdown wait.  If a primary reason is recorded DURING the wait (i.e. after
+# the snapshot but before the finally block), the finally block observes
+# `had_primary_failure_reason = False` and overwrites the real cause with the
+# mechanical CLOSE_TERMINATE or CLOSE_KILL.
+#
+# These two tests prove that gap deterministically.  They must be RED against
+# HEAD (EXPECTED_HEAD = 657e1505).  The fix is to reevaluate
+# `_is_real_primary_termination(self._termination)` live inside the finally
+# block instead of relying on the stale snapshot.
+# ---------------------------------------------------------------------------
+
+
+class _FakeProcessFailedDuringTerminate:
+    """Reaches READY, never responds to CLOSE (forcing shutdown_timeout_s to
+    elapse and terminate() to be called), then — while close() is inside the
+    `await wait_for(process.wait(), terminate_timeout_s)` window — injects a
+    PROCESS_FAILED_EVENT into stdout so that _fail() records the primary reason
+    AFTER the `had_primary_failure_reason` snapshot was taken.
+
+    The process only exits on kill(), so close() must walk the full
+    terminate() → kill() escalation, giving the primary reason time to be
+    recorded between the snapshot and the finally block.
+    """
+
+    _CAPS = {
+        "audio_capture": False,
+        "wake_word": False,
+        "vad": False,
+        "stt": False,
+        "local_llm": False,
+        "spanish_tts": False,
+        "physical_playback": False,
+        "physical_playback_stop": False,
+        "physical_playback_completion": False,
+    }
+
+    def __init__(self, primary_reason_injected_event: asyncio.Event) -> None:
+        self.stdin = _FakeStdin()
+        self.stdout = asyncio.StreamReader()
+        self.stderr = asyncio.StreamReader()
+        self.stderr.feed_eof()
+        self.returncode: int | None = None
+        self.terminate_calls = 0
+        self.kill_calls = 0
+        self._exited = asyncio.Event()
+        self._primary_reason_injected_event = primary_reason_injected_event
+        # Feed startup frames immediately so start() can succeed.
+        self.stdout.feed_data(
+            _wire_line(
+                message_id="worker:0",
+                event="command_accepted",
+                sequence=0,
+                payload={"command": "start", "message_id": "py:0"},
+            )
+        )
+        self.stdout.feed_data(
+            _wire_line(
+                message_id="worker:1",
+                event="ready",
+                sequence=1,
+                payload=self._CAPS,
+            )
+        )
+        # stdout stays open; the FAILED frame is fed inside terminate().
+
+    async def wait(self) -> int:
+        await self._exited.wait()
+        assert self.returncode is not None
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        # Inject the primary reason NOW — i.e. after close()'s snapshot was
+        # taken and while close() is inside the terminate_timeout_s window.
+        # The supervisor's _stdout_reader task will pick it up and call _fail().
+        self.stdout.feed_data(
+            _wire_line(
+                message_id="worker:2",
+                event="failed",
+                sequence=2,
+                payload={"code": "ERR_WORKER_FATAL", "message": "failed during terminate"},
+            )
+        )
+        self._primary_reason_injected_event.set()
+        # Do NOT exit yet: keep the process alive so close() is forced to
+        # escalate to kill().
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+        self.returncode = -9
+        self._exited.set()
+
+
+class _FakeProtocolFailureDuringKill:
+    """Like the above but injects a PROTOCOL_FAILURE (invalid UTF-8 frame)
+    during the kill() window instead of PROCESS_FAILED_EVENT during terminate().
+
+    The process exits on terminate(), which forces close() to call wait()
+    — but before wait() resolves, the corrupted stdout frame triggers
+    _fail(PROTOCOL_FAILURE), again after the snapshot was taken.
+    """
+
+    _CAPS = {
+        "audio_capture": False,
+        "wake_word": False,
+        "vad": False,
+        "stt": False,
+        "local_llm": False,
+        "spanish_tts": False,
+        "physical_playback": False,
+        "physical_playback_stop": False,
+        "physical_playback_completion": False,
+    }
+
+    def __init__(self, primary_reason_injected_event: asyncio.Event) -> None:
+        self.stdin = _FakeStdin()
+        self.stdout = asyncio.StreamReader()
+        self.stderr = asyncio.StreamReader()
+        self.stderr.feed_eof()
+        self.returncode: int | None = None
+        self.terminate_calls = 0
+        self.kill_calls = 0
+        self._exited = asyncio.Event()
+        self._primary_reason_injected_event = primary_reason_injected_event
+        self.stdout.feed_data(
+            _wire_line(
+                message_id="worker:0",
+                event="command_accepted",
+                sequence=0,
+                payload={"command": "start", "message_id": "py:0"},
+            )
+        )
+        self.stdout.feed_data(
+            _wire_line(
+                message_id="worker:1",
+                event="ready",
+                sequence=1,
+                payload=self._CAPS,
+            )
+        )
+
+    async def wait(self) -> int:
+        await self._exited.wait()
+        assert self.returncode is not None
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        # Inject an invalid UTF-8 frame — this triggers PROTOCOL_FAILURE via
+        # _stdout_reader AFTER the `had_primary_failure_reason` snapshot.
+        self.stdout.feed_data(b"\xff\xfe invalid utf8 frame\n")
+        self._primary_reason_injected_event.set()
+        # Do NOT exit: force close() to escalate to kill().
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+        self.returncode = -9
+        self._exited.set()
+
+
+@pytest.mark.asyncio
+async def test_process_failed_event_during_terminate_preserves_primary_reason() -> None:
+    """RED against HEAD: PROCESS_FAILED_EVENT injected during terminate()
+    window must survive as the final termination reason, not be overwritten by
+    CLOSE_TERMINATE or CLOSE_KILL."""
+    primary_injected = asyncio.Event()
+    fake = _FakeProcessFailedDuringTerminate(primary_injected)
+
+    class _FakeProcessSupervisor(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.15)
+    supervisor = _FakeProcessSupervisor(config)
+    await supervisor.start()
+    try:
+        # Drain startup events.
+        await supervisor.next_event(timeout_s=0.2)  # command_accepted
+        await supervisor.next_event(timeout_s=0.2)  # ready
+        # close() will: wait shutdown_timeout_s for cooperative close (no
+        # response), then call terminate() which injects the FAILED frame,
+        # then wait terminate_timeout_s for the process to exit (it won't),
+        # then call kill() which exits the process.
+        await asyncio.wait_for(supervisor.close(), timeout=3.0)
+    finally:
+        if (await supervisor.health()).state is not InteractionRuntimeState.CLOSED:
+            await supervisor.close()
+    assert fake.terminate_calls >= 1
+    assert fake.kill_calls >= 1
+    assert supervisor.termination is not None
+    # PRIMARY ASSERTION — fails RED against HEAD because the snapshot
+    # `had_primary_failure_reason` was False when the FAILED frame arrived.
+    assert supervisor.termination.reason == "PROCESS_FAILED_EVENT", (
+        f"Expected PROCESS_FAILED_EVENT but got {supervisor.termination.reason!r}; "
+        "the in-flight FAILED frame was overwritten by the mechanical close escalation"
+    )
+
+
+@pytest.mark.asyncio
+async def test_protocol_failure_during_kill_preserves_primary_reason() -> None:
+    """RED against HEAD: PROTOCOL_FAILURE injected during kill() window must
+    survive as the final termination reason, not be overwritten by CLOSE_KILL."""
+    primary_injected = asyncio.Event()
+    fake = _FakeProtocolFailureDuringKill(primary_injected)
+
+    class _FakeProcessSupervisor(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.05)
+    supervisor = _FakeProcessSupervisor(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)  # command_accepted
+        await supervisor.next_event(timeout_s=0.2)  # ready
+        await asyncio.wait_for(supervisor.close(), timeout=3.0)
+    finally:
+        if (await supervisor.health()).state is not InteractionRuntimeState.CLOSED:
+            await supervisor.close()
+    assert fake.terminate_calls >= 1
+    assert fake.kill_calls >= 1
+    assert supervisor.termination is not None
+    # PRIMARY ASSERTION — fails RED against HEAD.
+    assert supervisor.termination.reason == "PROTOCOL_FAILURE", (
+        f"Expected PROTOCOL_FAILURE but got {supervisor.termination.reason!r}; "
+        "the in-flight protocol failure was overwritten by the mechanical close escalation"
+    )
+
+
+@pytest.mark.asyncio
+async def test_process_failed_event_during_kill_preserves_primary_reason() -> None:
+    """Coverage complement: PROCESS_FAILED_EVENT injected during terminate()
+    window (process stays alive so kill() is also reached).  This is the same
+    race path as test_process_failed_event_during_terminate_preserves_primary_reason
+    but uses a separate fake with both terminate_calls and kill_calls >= 1 to
+    prove the race affects the kill path too."""
+    primary_injected = asyncio.Event()
+
+    class _FakeProcessFailedDuringTerminateKillPath:
+        _CAPS = _FakeProcessFailedDuringTerminate._CAPS
+
+        def __init__(self) -> None:
+            self.stdin = _FakeStdin()
+            self.stdout = asyncio.StreamReader()
+            self.stderr = asyncio.StreamReader()
+            self.stderr.feed_eof()
+            self.returncode: int | None = None
+            self.terminate_calls = 0
+            self.kill_calls = 0
+            self._exited = asyncio.Event()
+            self.stdout.feed_data(
+                _wire_line(
+                    message_id="worker:0",
+                    event="command_accepted",
+                    sequence=0,
+                    payload={"command": "start", "message_id": "py:0"},
+                )
+            )
+            self.stdout.feed_data(
+                _wire_line(
+                    message_id="worker:1",
+                    event="ready",
+                    sequence=1,
+                    payload=self._CAPS,
+                )
+            )
+
+        async def wait(self) -> int:
+            await self._exited.wait()
+            assert self.returncode is not None
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.terminate_calls += 1
+            # Inject the FAILED frame during the terminate() window; the
+            # process stays alive so close() must escalate to kill().
+            self.stdout.feed_data(
+                _wire_line(
+                    message_id="worker:2",
+                    event="failed",
+                    sequence=2,
+                    payload={"code": "ERR_WORKER_FATAL", "message": "failed at terminate, kill needed"},
+                )
+            )
+            primary_injected.set()
+
+        def kill(self) -> None:
+            self.kill_calls += 1
+            self.returncode = -9
+            self._exited.set()
+
+    fake = _FakeProcessFailedDuringTerminateKillPath()
+
+    class _FakeProcessSupervisor(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.15)
+    supervisor = _FakeProcessSupervisor(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+        await asyncio.wait_for(supervisor.close(), timeout=3.0)
+    finally:
+        if (await supervisor.health()).state is not InteractionRuntimeState.CLOSED:
+            await supervisor.close()
+    assert fake.terminate_calls >= 1
+    assert fake.kill_calls >= 1
+    assert supervisor.termination is not None
+    assert supervisor.termination.reason == "PROCESS_FAILED_EVENT", (
+        f"Expected PROCESS_FAILED_EVENT but got {supervisor.termination.reason!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_protocol_failure_during_terminate_preserves_primary_reason() -> None:
+    """Coverage complement: PROTOCOL_FAILURE injected at terminate() time,
+    process exits on terminate() itself."""
+    primary_injected = asyncio.Event()
+
+    class _FakeProtocolFailureDuringTerminateExit:
+        _CAPS = _FakeProcessFailedDuringTerminate._CAPS
+
+        def __init__(self) -> None:
+            self.stdin = _FakeStdin()
+            self.stdout = asyncio.StreamReader()
+            self.stderr = asyncio.StreamReader()
+            self.stderr.feed_eof()
+            self.returncode: int | None = None
+            self.terminate_calls = 0
+            self.kill_calls = 0
+            self._exited = asyncio.Event()
+            self.stdout.feed_data(
+                _wire_line(
+                    message_id="worker:0",
+                    event="command_accepted",
+                    sequence=0,
+                    payload={"command": "start", "message_id": "py:0"},
+                )
+            )
+            self.stdout.feed_data(
+                _wire_line(
+                    message_id="worker:1",
+                    event="ready",
+                    sequence=1,
+                    payload=self._CAPS,
+                )
+            )
+
+        async def wait(self) -> int:
+            await self._exited.wait()
+            assert self.returncode is not None
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.terminate_calls += 1
+            self.stdout.feed_data(b"\xff\xfe bad utf8\n")
+            primary_injected.set()
+            self.returncode = -15
+            self._exited.set()
+
+        def kill(self) -> None:
+            self.kill_calls += 1
+            self.returncode = -9
+            self._exited.set()
+
+    fake = _FakeProtocolFailureDuringTerminateExit()
+
+    class _FakeProcessSupervisor(JsonlInteractionWorkerSupervisor):
+        async def _create_process(self) -> asyncio.subprocess.Process:
+            return fake  # type: ignore[return-value]
+
+    config = _config(shutdown_timeout_s=0.05, terminate_timeout_s=0.15)
+    supervisor = _FakeProcessSupervisor(config)
+    await supervisor.start()
+    try:
+        await supervisor.next_event(timeout_s=0.2)
+        await supervisor.next_event(timeout_s=0.2)
+        await asyncio.wait_for(supervisor.close(), timeout=3.0)
+    finally:
+        if (await supervisor.health()).state is not InteractionRuntimeState.CLOSED:
+            await supervisor.close()
+    assert supervisor.termination is not None
+    assert supervisor.termination.reason == "PROTOCOL_FAILURE", (
+        f"Expected PROTOCOL_FAILURE but got {supervisor.termination.reason!r}"
+    )

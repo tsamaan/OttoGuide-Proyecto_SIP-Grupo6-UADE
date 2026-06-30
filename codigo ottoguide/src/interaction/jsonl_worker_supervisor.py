@@ -423,12 +423,14 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             self._pending_commands.clear()
             await self._signal_event_queue_closed("worker closed")
             return
-        # A primary failure reason already recorded before close() was
-        # invoked (e.g. PROCESS_FAILED_EVENT, PROTOCOL_FAILURE,
-        # HEARTBEAT_TIMEOUT, COMMAND_ACK_BACKPRESSURE) must never be
-        # overwritten by the mechanical CLOSE_TERMINATE/CLOSE_KILL escalation
-        # below. CLOSE_TERMINATE/CLOSE_KILL only apply when close() itself is
-        # the one establishing the termination from a non-failed state.
+        # `had_primary_failure_reason` is only used to decide whether to attempt
+        # the cooperative CLOSE command: if a primary failure was already known
+        # before we started waiting, there is no point sending CLOSE.  The
+        # finally block must NOT use this snapshot to choose the termination
+        # reason, because a primary failure can be recorded DURING the
+        # cooperative-wait / terminate / kill windows (i.e. after the snapshot
+        # was taken).  The finally block reevaluates the live termination state
+        # via `_is_real_primary_termination(self._termination)` instead.
         had_primary_failure_reason = _is_real_primary_termination(self._termination)
         escalation: str | None = None
         try:
@@ -459,7 +461,10 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                         await self._process.wait()
         finally:
             final_exit_code = self._process.returncode if self._process is not None else None
-            if had_primary_failure_reason:
+            # Reevaluate live: a primary failure reason may have been recorded
+            # DURING the cooperative-wait / terminate / kill windows above,
+            # after the `had_primary_failure_reason` snapshot was taken.
+            if _is_real_primary_termination(self._termination):
                 # Only backfill exit_code/protocol_error_code; the primary
                 # reason and its unexpected/protocol_error_code metadata are
                 # preserved verbatim, regardless of whether close() also had

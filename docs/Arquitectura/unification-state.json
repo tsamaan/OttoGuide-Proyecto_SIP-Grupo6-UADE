@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-06-29T22:10:00Z",
+  "updated_at": "2026-06-29T23:45:00Z",
   "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "remote_authority": "mirror",
@@ -33,44 +33,44 @@
     "echezuria": "28c1220325ac94a342d55788eb0f02e40dece941"
   },
   "branch_relations_snapshot": {
-    "as_of_head": "ce0d69b2a8e4aa1026e71bb20a4dcd504e543074",
+    "as_of_head": "657e1505eebc2b93f0e3408d248c59007c685f14",
     "relations": {
       "main": {
         "merge_base": "NO_COMMON_ANCESTOR",
         "disposition": "DO_NOT_USE_AS_INTEGRATION_BASE"
       },
       "desarrollo": {
-        "ahead": 174,
+        "ahead": 177,
         "behind": 0,
         "disposition": "ANCESTOR_NO_PENDING_DELTA"
       },
       "robot": {
-        "ahead": 33,
+        "ahead": 36,
         "behind": 9,
         "disposition": "U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED"
       },
       "feature/erirobot": {
-        "ahead": 128,
+        "ahead": 131,
         "behind": 4,
         "disposition": "U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED"
       },
       "InteraccionIA": {
-        "ahead": 174,
+        "ahead": 177,
         "behind": 6,
         "disposition": "U3_SELECTIVE_TECHNICAL_SOURCE"
       },
       "pilar-web": {
-        "ahead": 57,
+        "ahead": 60,
         "behind": 1,
         "disposition": "FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED"
       },
       "teo": {
-        "ahead": 174,
+        "ahead": 177,
         "behind": 4,
         "disposition": "HISTORICAL_INTERACTION_REFERENCE"
       },
       "echezuria": {
-        "ahead": 219,
+        "ahead": 222,
         "behind": 10,
         "disposition": "HISTORICAL_PHYSICAL_REFERENCE"
       }
@@ -142,6 +142,14 @@
     "U3AR4": {
       "commit": "3b1d9d4e39e5bbc5fea56b52d1d3a483b5ef8e78",
       "message": "fix(interaction): enforce terminal enqueue and task settlement"
+    },
+    "U3AR5": {
+      "commit": "df66ccc83a1e3ded3892cbc34ad349d1e3c48396",
+      "message": "fix(interaction): make close settlement retryable"
+    },
+    "U3AR6": {
+      "commit": "657e1505eebc2b93f0e3408d248c59007c685f14",
+      "message": "fix(interaction): serialize close and preserve primary termination reasons"
     }
   },
   "read_only_gates": {
@@ -280,12 +288,39 @@
         "UNEXPECTED_EXIT_IS_NOT_CLASSIFIED_AS_A_REAL_PRIMARY_TERMINATION_REASON",
         "CONCURRENT_CLOSE_CALLERS_ARE_NOT_SERIALIZED"
       ]
+    },
+    "U3AR6_AUDIT": {
+      "result": "REJECTED_PARTIAL_REMEDIATION",
+      "findings": [
+        "PRIMARY_REASON_SNAPSHOT_CAN_BECOME_STALE_DURING_CLOSE",
+        "U3AR6_REQUIRED_VALIDATION_GATES_NOT_PRESERVED",
+        "U3AR6_RED_TESTS_DID_NOT_PROVE_ALL_CLAIMS",
+        "U3AR6_FULL_FILE_LINE_ENDING_CHURN"
+      ],
+      "outstanding_defects_carried_to_u3ar7": [
+        "PRIMARY_TERMINATION_REASON_CAN_BE_OVERWRITTEN_WHEN_IT_APPEARS_DURING_CLOSE_ESCALATION"
+      ]
+    },
+    "U3AR7_FIRST_ATTEMPT": {
+      "result": "INTERRUPTED",
+      "findings": [
+        "U3AR7_FIRST_ATTEMPT_INTERRUPTED_AFTER_PRODUCT_EDIT",
+        "U3AR7_FIRST_ATTEMPT_RED_GATE_VIOLATED",
+        "U3AR7_FIRST_ATTEMPT_TEMPORARY_HELPERS_BACKED_UP_AND_REMOVED"
+      ]
+    },
+    "U3AR7_REMEDIATION": {
+      "result": "U3AR7_CLOSE_FINALIZATION_RACE_CLOSED",
+      "closed_defects": [
+        "PRIMARY_TERMINATION_REASON_CAN_BE_OVERWRITTEN_WHEN_IT_APPEARS_DURING_CLOSE_ESCALATION"
+      ],
+      "fix": "Reevaluate _is_real_primary_termination(self._termination) live in the finally block instead of relying on the had_primary_failure_reason snapshot taken before cooperative waits"
     }
   },
   "current_write_stage": {
-    "stage": "U3AR6",
+    "stage": "U3AR7",
     "status": "COMPLETED_AT_DYNAMIC_CHECKPOINT",
-    "commit_message": "fix(interaction): serialize close and preserve primary termination reasons"
+    "commit_message": "fix(interaction): preserve in-flight close failures"
   },
   "known_test_baseline": {
     "python": "3.10.11",
@@ -300,7 +335,7 @@
       "failed": 0
     },
     "full_suite": {
-      "passed": 1128,
+      "passed": 1142,
       "failed": 7,
       "skipped": 109,
       "subtests_passed": 67,
