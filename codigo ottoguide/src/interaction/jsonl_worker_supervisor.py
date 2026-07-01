@@ -437,8 +437,14 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                 ):
                     raise cleanup_result
         if self._process is None:
-            self._active_interaction_id = None
-            self._state = InteractionRuntimeState.CLOSED
+            # No child process was ever created (or it was externally
+            # cleared). This must still converge on the same common
+            # finalization tail as the has-process branch below --
+            # otherwise any task spawned by a prior start() (command-writer,
+            # stdout-reader, process-watcher, heartbeat-monitor) is left
+            # alive and uncancelled, to be destroyed later by the event
+            # loop's own GC once it tears down (see
+            # docs/Arquitectura 01_evidence_forensics.md).
             if self._termination is None:
                 self._record_termination(
                     reason="GRACEFUL_CLOSE",
@@ -446,7 +452,13 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                     exit_code=None,
                 )
             self._pending_commands.clear()
+            task_settlement = await self._cancel_tasks()
             await self._signal_event_queue_closed("worker closed")
+            await self._let_event_loop_close_subprocess_transports()
+            if task_settlement.timed_out:
+                self._raise_task_settlement_timeout(task_settlement)
+            self._active_interaction_id = None
+            self._state = InteractionRuntimeState.CLOSED
             return
         # `had_primary_failure_reason` is only used to decide whether to attempt
         # the cooperative CLOSE command: if a primary failure was already known

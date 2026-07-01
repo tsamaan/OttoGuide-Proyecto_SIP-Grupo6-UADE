@@ -526,12 +526,56 @@
         "interaction_task_max_concurrent": 1,
         "nested_consumer_task_created": false
       }
+    },
+    "U3AR10_ASYNC_RESOURCE_AND_SUBPROCESS_LIFECYCLE_CLOSED": {
+      "result": "U3AR10_ASYNC_RESOURCE_AND_SUBPROCESS_LIFECYCLE_CLOSED",
+      "root_cause": "NO_PROCESS_CLOSE_PATH_BYPASSES_OWNED_TASK_SETTLEMENT",
+      "corrected_metrics": {
+        "pytest_warning_record_count": 9,
+        "pytest_unraisable_block_count": 6,
+        "task_destroyed_pending_count": 4,
+        "resource_warning_count": 1,
+        "attributed_nodeid_count": 8,
+        "note": "Pytest's nodeid attribution for the 4 task-destroyed-pending blocks was a reporting artifact of when the interpreter's GC/unraisablehook fired, not proof of origin. source_traceback for all 4 blocks traced to tests/integration/test_u3a_jsonl_worker_supervisor.py line 3745 inside test_close_no_process_clears_internal_interaction_id, not the pytest-displayed nodeid."
+      },
+      "closed_defects": [
+        "NO_PROCESS_CLOSE_PATH_BYPASSES_OWNED_TASK_SETTLEMENT"
+      ],
+      "fix": "_close_impl()'s 'self._process is None' branch now falls through to the same common finalization tail as the has-process branch (_cancel_tasks(), _signal_event_queue_closed(), _let_event_loop_close_subprocess_transports(), settlement-timeout check) instead of returning early after a partial inline finalization.",
+      "fixture_changes": "NONE (defect_classification=PRODUCT, not fixture/MIXED; all audited fakes already implement REALISTIC_PIPE_LIFECYCLE or documented INTENTIONALLY_OPEN_PIPE contracts)",
+      "posix_transport_workaround": "NOT_REQUIRED (natural convergence via _cancel_tasks() is sufficient once task cancellation happens; 30/30 clean sequential real-subprocess start/close cycles under asyncio.run(); no private-attribute fallback added on POSIX)",
+      "new_test_files": [
+        "tests/integration/test_u3a_async_resource_cleanup.py",
+        "tests/support/u3a_async_cleanup_probe.py"
+      ],
+      "focused_evidence": {
+        "linux_cpython_3_11_15_wsl_x86_64": {
+          "new_tests_strict": "13 passed (PYTHONDEVMODE=1, PYTHONASYNCIODEBUG=1, -W error::RuntimeWarning -W error::ResourceWarning)",
+          "attributed_8_nodeids_strict": "8 passed",
+          "n1_n5_repeat": "25/25 (5x each)",
+          "n6_repeat": "20/20, PROTOCOL_FAILURE preserved every iteration",
+          "probe_repeat_20x": "40/40 (no_process_close + real_close scenarios), zero forbidden patterns",
+          "full_u3a_run1": "144 passed, 0 failed",
+          "full_u3a_run2": "144 passed, 0 failed",
+          "task_destroyed_pending_post_patch": 0,
+          "resource_warning_post_patch": 0
+        },
+        "windows_cpython_3_13_2": {
+          "baseline_failures": ["test_failure_cleanup_task_is_owned_and_awaitable", "test_protocol_failure_during_terminate_preserves_primary_reason"],
+          "post_patch_failures": "one rotating member of the same pre-existing PY313_SUPERVISOR_CLOSE_READER_DRAIN_RACE family per run, never more than one, never a new nodeid class",
+          "new_regressions": "none"
+        },
+        "u3b_regression": "45 passed (tests/unit/test_u3b_orchestrator_interaction_runtime.py + tests/integration/test_u3b_orchestrator_loopback.py, Windows)",
+        "full_suite_baseline": "9 failed (8 pre-existing + this task's own new RED test failing correctly against unpatched code), 1218 passed, 109 skipped",
+        "full_suite_post_patch": "9 failed (8 pre-existing incl. exactly one rotating PY313 race member), 1218 passed, 109 skipped",
+        "new_failure_nodeids": "none"
+      }
     }
   },
   "current_write_stage": {
-    "stage": "U3BR3",
-    "status": "COMPLETED_AT_DYNAMIC_CHECKPOINT",
-    "commit_message": "fix(orchestrator): avoid self-settlement and bound runtime stop"
+    "stage": "U3AR10",
+    "status": "COMPLETED",
+    "commit_message": "fix(interaction): settle async resources before loop teardown"
   },
   "known_test_baseline": {
     "python": "3.13.2",
@@ -598,5 +642,5 @@
     "U3_IMPLEMENTED",
     "UNIFICATION_COMPLETE"
   ],
-  "next_action": "IMPLEMENT_U3C_RUNTIME_COMPOSITION_AND_FAIL_CLOSED_MODE_SELECTION_V1"
+  "next_action": "PREPARE_U3C_RUNTIME_COMPOSITION_AND_FAIL_CLOSED_MODE_SELECTION_V2"
 }

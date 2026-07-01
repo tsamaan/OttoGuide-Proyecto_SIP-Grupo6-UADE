@@ -161,6 +161,7 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U3BR1` | `664e0a3f8776a8861182bed364ae5be2a8a74e18` | `fix(orchestrator): serialize emergency and interaction shutdown` |
 | `U3BR2` | `728584290b9e19c8caf6a2c6f856c7f3eb20b7a3` | `fix(orchestrator): bound settlement and preserve emergency` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
 | `U3BR3` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(orchestrator): avoid self-settlement and bound runtime stop` |
+| `U3AR10` | `PENDING_COMMIT` | `fix(interaction): settle async resources before loop teardown` |
 
 El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.
 
@@ -612,6 +613,66 @@ Restricciones vigentes (no modificadas por `U3BR2`):
 - No existe audio real validado.
 - No existe validacion HIL.
 
+### 12.14 Estado U3AR10
+
+`U3AR10` corrige el defecto confirmado `NO_PROCESS_CLOSE_PATH_BYPASSES_OWNED_TASK_SETTLEMENT` en
+`JsonlInteractionWorkerSupervisor._close_impl()`, detectado en la auditoria forense de
+`U3A_NATIVE_HOST_GATE_V3_20260630T215323Z` (ejecucion nativa Linux CPython 3.11.15 aarch64 en el
+robot).
+
+**Causa confirmada:** la rama `self._process is None` de `_close_impl()` realizaba una
+finalizacion parcial propia (limpiaba `_active_interaction_id`, marcaba `CLOSED`, registraba
+terminacion, limpiaba comandos pendientes, senalizaba el event stream) y retornaba antes de
+llegar a la cola comun de finalizacion (`_cancel_tasks()`,
+`_let_event_loop_close_subprocess_transports()`, verificacion de settlement-timeout). Cualquier
+task creada por `start()` (`command-writer`, `stdout-reader`, `process-watcher`,
+`heartbeat-monitor`) quedaba viva sin cancelar hasta que el event loop de pytest-asyncio la
+destruia al finalizar el test, generando los mensajes `Task was destroyed but it is pending!`
+atribuidos incorrectamente por pytest a `test_process_failed_event_leaves_no_owned_tasks` cuando
+el `source_traceback` real apuntaba a la linea 3745 de
+`test_close_no_process_clears_internal_interaction_id`.
+
+**Fix minimo:** la rama sin proceso ahora converge en la misma cola de finalizacion que la rama
+con proceso, en vez de duplicar un subconjunto parcial y retornar antes de tiempo.
+
+**Clasificacion del defecto:** `PRODUCT` (no `FIXTURE` ni `MIXED`). Se auditaron todos los fakes
+de proceso usados por los ocho nodeids originalmente atribuidos por pytest; ninguno requirio
+cambios. El fallback privado de transporte de Windows/CPython no se extendio a POSIX: 30/30
+ciclos secuenciales reales de start/close bajo `asyncio.run()` no mostraron fugas, confirmando
+que la convergencia natural via `_cancel_tasks()` es suficiente.
+
+Nuevos archivos de test (no modifican tests existentes):
+
+- `tests/integration/test_u3a_async_resource_cleanup.py`
+- `tests/support/u3a_async_cleanup_probe.py`
+
+Evidencia focal:
+
+```text
+Linux CPython 3.11.15 (WSL Ubuntu-24.04, x86_64, uv-managed venv):
+  13 tests nuevos, estricto (PYTHONDEVMODE=1, PYTHONASYNCIODEBUG=1,
+    -W error::RuntimeWarning -W error::ResourceWarning) = 13 passed
+  8 nodeids originalmente atribuidos, estricto = 8 passed
+  N1-N5 x5 = 25/25 passed
+  N6 x20 = 20/20 passed, PROTOCOL_FAILURE preservado en las 20 iteraciones
+  probe outer-process x20 (no_process_close + real_close) = 40/40, cero patrones prohibidos
+  full U3A run1 = 144 passed, 0 failed
+  full U3A run2 = 144 passed, 0 failed
+  TASK_DESTROYED_PENDING_COUNT: 4 -> 0
+  RESOURCE_WARNING_COUNT: 1 -> 0
+
+Windows CPython 3.13.2:
+  U3B regression (test_u3b_orchestrator_interaction_runtime.py + test_u3b_orchestrator_loopback.py)
+    = 45 passed
+  full suite baseline (HEAD sin parche) = 9 failed, 1218 passed, 109 skipped
+  full suite post-parche = 9 failed, 1218 passed, 109 skipped
+  new_failure_nodeids = none (un miembro rotativo de la familia preexistente
+    PY313_SUPERVISOR_CLOSE_READER_DRAIN_RACE por corrida, nunca una categoria nueva)
+```
+
+Restricciones vigentes (no modificadas por `U3AR10`): mismas que `U3BR2` (composicion global en
+`main.py`, worker loopback falso, sin worker real CXX17, sin audio real validado, sin HIL).
+
 ## 13. Baseline de pruebas
 
 Proveniencia: `U3BR2`, ejecucion focal posterior a cerrar settlement acotado y emergencia interna en `TourOrchestrator` con Python 3.10 local. Sustituye el baseline focal previo de `U3BR1`; la suite completa conserva los fallos heredados listados abajo si aparecen.
@@ -810,6 +871,12 @@ NEXT_ACTION vigente tras U3BR1 (sin cambio):
 
 ```text
 NEXT_ACTION = IMPLEMENT_U3C_RUNTIME_COMPOSITION_AND_FAIL_CLOSED_MODE_SELECTION_V1
+```
+
+NEXT_ACTION actualizado tras U3AR10:
+
+```text
+NEXT_ACTION = PREPARE_U3C_RUNTIME_COMPOSITION_AND_FAIL_CLOSED_MODE_SELECTION_V2
 ```
 
 No ejecutar U3C desde este handoff. La siguiente etapa debe componer el runtime supervisado en el lifespan sin introducir worker real CXX17, audio real ni HIL salvo autorizacion explicita.
