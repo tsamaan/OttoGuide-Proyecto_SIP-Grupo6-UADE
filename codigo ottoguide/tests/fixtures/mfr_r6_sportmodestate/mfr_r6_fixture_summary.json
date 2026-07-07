@@ -1,0 +1,17 @@
+{
+  "total_samples": 160,
+  "channels": {
+    "rt/odommodestate": 80,
+    "rt/lf/odommodestate": 80
+  },
+  "primary_channel": "rt/odommodestate",
+  "primary_count": 80,
+  "secondary_channel": "rt/lf/odommodestate",
+  "secondary_count": 80,
+  "no_prefix_odommodestate_count": 0,
+  "no_prefix_lf_odommodestate_count": 0,
+  "stamp_all_zero": true,
+  "primary_receipt_monotonic": true,
+  "secondary_receipt_monotonic": true,
+  "all_position_velocity_yawspeed_finite": true
+}
