@@ -29,9 +29,12 @@ dependencies = [
     "httpx>=0.27",              # Cliente HTTP async para Ollama y proveedores cloud NLP
 
     # --- NLP / STT / TTS ---
-    "faster-whisper>=1.0",      # STT en CPU; reemplaza SpeechRecognition (eliminada)
-    "piper-tts>=1.2",           # TTS local edge; reemplaza pyttsx3 (eliminada)
+    "aiohttp>=3.14",            # Cliente HTTP async usado directamente por src/interaction/llm_client.py
+    "faster-whisper>=1.0",      # STT en CPU
+    "piper-tts>=1.2",           # TTS local edge objetivo
     "sounddevice>=0.4",         # Reproduccion PCM via ALSA
+    "SpeechRecognition>=3.17",  # Bridge legacy importado por src/interaction/audio_bridge.py
+    "pyttsx3>=2.99",            # Bridge legacy importado por src/interaction/audio_bridge.py
 
     # --- Vision / Robotica ---
     "opencv-python-headless>=4.9",
@@ -50,6 +53,9 @@ dev = [
     "pytest-asyncio>=0.23",
     "httpx>=0.27",
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
