@@ -485,3 +485,11 @@ checkpoint de diseño**.
 - Sin compilación, sin ejecución, sin acceso a robot.
 - Debe dejar explícita la decisión pendiente de §12 (multicast directo vs inyección de audio)
   o, como mínimo, marcarla como pregunta abierta a resolver antes de R3.
+
+## IA-CXX-R2 update
+
+IA-CXX-R2 creó el diseño detallado del shim JSONL y un skeleton de código C++ no compilado ni
+ejecutado (`otto_jsonl_shim.cpp`, `otto_jsonl_protocol.hpp`), sin modificar
+`otto_pipeline.cpp`. La decisión de audio de §12/§25 fue resuelta a favor de la Opción 1
+(C++ conserva UDP/audio físico) como ruta primaria. Ver
+`docs/Arquitectura/IA_CXX_R2_CXX_JSONL_SHIM_DESIGN.md`.

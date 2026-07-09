@@ -34,9 +34,18 @@ worker process (this pipeline or a JSONL-speaking shim around it), it does not r
 STT/LLM/TTS/audio in Python. Do not compile or execute anything in this archive without an
 explicit, future authorized checkpoint.
 
+## IA-CXX-R2 update
+
+`Ottoguide_IA/src/otto_audio/cpp/` now also contains `otto_jsonl_shim.cpp`,
+`otto_jsonl_protocol.hpp`, and `README_JSONL_SHIM.md` — a skeleton for the JSONL shim
+described in IA-CXX-R1/R2. These new files are not compiled and not executed.
+`otto_pipeline.cpp` remains unmodified, with the SHA-256 above unchanged.
+
 ## Related documentation
 
 See:
 
 - `docs/Arquitectura/INTERACCIONIA_CONSOLIDATION_R2.md`
 - `docs/Arquitectura/IA_CXX_R1_CXX_FIRST_ORCHESTRATOR_ADAPTER_DESIGN.md`
+- `docs/Arquitectura/IA_CXX_R2_CXX_JSONL_SHIM_DESIGN.md`
+- `Ottoguide_IA/src/otto_audio/cpp/README_JSONL_SHIM.md`
