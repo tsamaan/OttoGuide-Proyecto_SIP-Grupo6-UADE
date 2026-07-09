@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OttoGuide — Wake Word "Hola Otto"</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:      #0a0c10;
+    --bg2:     #111318;
+    --bg3:     #181c24;
+    --border:  rgba(255,255,255,0.07);
+    --text:    #e8eaf0;
+    --muted:   #8890a4;
+    --accent:  #5b8af5;
+    --green:   #38d9a9;
+    --orange:  #f5a623;
+    --red:     #e05c7a;
+    --purple:  #a78bfa;
+    --yellow:  #f5c842;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  /* ─── NAV ─── */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1rem 3rem;
+    background: rgba(10,12,16,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-logo { font-family: 'DM Mono', monospace; font-size: 0.8rem; color: var(--text); }
+  .nav-logo span { color: var(--green); }
+  .nav-tag { font-family: 'DM Mono', monospace; font-size: 0.62rem; color: var(--muted); letter-spacing: 0.1em; }
+
+  /* ─── HERO ─── */
+  .hero {
+    padding: 5rem 3rem 4rem;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-glow {
+    position: absolute; width: 600px; height: 600px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(56,217,169,0.1) 0%, transparent 70%);
+    top: -200px; right: -100px; pointer-events: none;
+  }
+  .hero-label { font-family: 'DM Mono', monospace; font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--green); margin-bottom: 0.75rem; }
+  .hero h1 { font-family: 'DM Serif Display', serif; font-size: clamp(2.5rem, 5vw, 4.5rem); color: #fff; line-height: 1.05; margin-bottom: 1rem; }
+  .hero h1 em { font-style: italic; color: var(--green); }
+  .hero p { color: var(--muted); max-width: 580px; font-size: 1rem; margin-bottom: 2rem; }
+
+  .status-row { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-family: 'DM Mono', monospace; font-size: 0.65rem;
+    letter-spacing: 0.08em; padding: 0.35rem 0.9rem;
+    border-radius: 2rem;
+  }
+  .pill-warn   { background: rgba(245,166,35,0.1); color: var(--orange); border: 1px solid rgba(245,166,35,0.3); }
+  .pill-red    { background: rgba(224,92,122,0.1); color: var(--red);    border: 1px solid rgba(224,92,122,0.3); }
+  .pill-green  { background: rgba(56,217,169,0.1); color: var(--green);  border: 1px solid rgba(56,217,169,0.3); }
+  .pill-purple { background: rgba(167,139,250,0.1); color: var(--purple); border: 1px solid rgba(167,139,250,0.3); }
+
+  /* ─── LAYOUT ─── */
+  .content { max-width: 900px; margin: 0 auto; padding: 0 3rem 5rem; }
+
+  .doc-section { margin-top: 3.5rem; scroll-margin-top: 2rem; }
+  .section-label { font-family: 'DM Mono', monospace; font-size: 0.6rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.5rem; }
+  .section-title { font-family: 'DM Serif Display', serif; font-size: clamp(1.5rem, 2.5vw, 2rem); color: #fff; margin-bottom: 0.75rem; line-height: 1.15; }
+  .section-intro { color: var(--muted); font-size: 0.92rem; max-width: 620px; margin-bottom: 2rem; line-height: 1.65; }
+
+  .divider { height: 1px; background: var(--border); margin: 3.5rem 0 0; }
+
+  /* ─── CARDS ─── */
+  .card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 14px; padding: 1.5rem 1.75rem;
+    margin-bottom: 1rem;
+    transition: border-color 0.2s;
+  }
+  .card:hover { border-color: rgba(255,255,255,0.14); }
+  .card-title { font-size: 0.95rem; font-weight: 600; color: #fff; margin-bottom: 0.4rem; }
+  .card-desc { font-size: 0.85rem; color: var(--muted); line-height: 1.6; }
+
+  .cards-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+  /* ─── NOTE BOXES ─── */
+  .note { display: flex; gap: 0.75rem; align-items: flex-start; padding: 1rem 1.25rem; border-radius: 10px; font-size: 0.84rem; line-height: 1.6; margin-bottom: 1rem; }
+  .note-icon { font-size: 0.9rem; flex-shrink: 0; margin-top: 2px; }
+  .note-info  { background: rgba(91,138,245,0.07);  border: 1px solid rgba(91,138,245,0.2);  color: #a8c0ff; }
+  .note-warn  { background: rgba(245,166,35,0.07);  border: 1px solid rgba(245,166,35,0.2);  color: var(--yellow); }
+  .note-ok    { background: rgba(56,217,169,0.07);  border: 1px solid rgba(56,217,169,0.2);  color: var(--green); }
+  .note-red   { background: rgba(224,92,122,0.07);  border: 1px solid rgba(224,92,122,0.2);  color: var(--red); }
+
+  /* ─── CODE BLOCKS ─── */
+  .code-block { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 1rem; }
+  .code-header { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 1rem; border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.02); }
+  .code-lang { font-family: 'DM Mono', monospace; font-size: 0.58rem; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; }
+  .code-file { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--orange); }
+  .code-body { padding: 1.1rem 1.25rem; font-family: 'DM Mono', monospace; font-size: 0.75rem; color: #c8d8ff; line-height: 1.8; white-space: pre; overflow-x: auto; }
+  .cm { color: var(--muted) !important; }
+  .ck { color: var(--purple) !important; }
+  .cs { color: var(--orange) !important; }
+  .cg { color: var(--green) !important; }
+
+  code { font-family: 'DM Mono', monospace; font-size: 0.82em; background: rgba(91,138,245,0.12); color: var(--accent); padding: 0.1em 0.45em; border-radius: 4px; }
+
+  /* ─── TIMELINE ─── */
+  .timeline { position: relative; padding-left: 2rem; }
+  .timeline::before { content: ''; position: absolute; left: 7px; top: 8px; bottom: 8px; width: 2px; background: var(--border); }
+
+  .tl-item { position: relative; margin-bottom: 1.75rem; }
+  .tl-dot {
+    position: absolute; left: -2rem; top: 4px;
+    width: 16px; height: 16px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.5rem; font-weight: 700;
+    font-family: 'DM Mono', monospace;
+  }
+  .dot-tried  { background: rgba(224,92,122,0.15); border: 1.5px solid rgba(224,92,122,0.4); color: var(--red); }
+  .dot-ok     { background: rgba(56,217,169,0.15); border: 1.5px solid rgba(56,217,169,0.4); color: var(--green); }
+  .dot-warn   { background: rgba(245,166,35,0.15); border: 1.5px solid rgba(245,166,35,0.4); color: var(--orange); }
+
+  .tl-title { font-size: 0.9rem; font-weight: 600; color: #fff; margin-bottom: 0.25rem; }
+  .tl-desc  { font-size: 0.83rem; color: var(--muted); line-height: 1.55; }
+  .tl-result { display: inline-flex; align-items: center; gap: 0.4rem; font-family: 'DM Mono', monospace; font-size: 0.62rem; margin-top: 0.4rem; padding: 0.18rem 0.6rem; border-radius: 2rem; }
+  .result-fail { background: rgba(224,92,122,0.1); color: var(--red); border: 1px solid rgba(224,92,122,0.3); }
+  .result-ok   { background: rgba(56,217,169,0.1); color: var(--green); border: 1px solid rgba(56,217,169,0.3); }
+  .result-warn { background: rgba(245,166,35,0.1); color: var(--orange); border: 1px solid rgba(245,166,35,0.3); }
+
+  /* ─── REQUIREMENT TABLE ─── */
+  .req-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .req-table th { text-align: left; font-family: 'DM Mono', monospace; font-size: 0.58rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); }
+  .req-table td { padding: 0.8rem 1rem; border-bottom: 1px solid var(--border); vertical-align: top; line-height: 1.5; }
+  .req-table tr:last-child td { border-bottom: none; }
+  .req-table .item { font-weight: 500; color: var(--text); }
+  .req-table .val  { font-family: 'DM Mono', monospace; font-size: 0.78rem; color: var(--accent); }
+  .req-table .desc { font-size: 0.82rem; color: var(--muted); }
+
+  /* ─── STEP ─── */
+  .step-block { margin-bottom: 2rem; }
+  .step-num { font-family: 'DM Mono', monospace; font-size: 0.62rem; color: var(--green); letter-spacing: 0.08em; margin-bottom: 0.3rem; }
+  .step-num::before { content: '→ '; }
+  .step-title { font-size: 0.92rem; font-weight: 600; color: #fff; margin-bottom: 0.35rem; }
+  .step-desc { font-size: 0.84rem; color: var(--muted); margin-bottom: 0.75rem; line-height: 1.6; }
+
+  /* ─── MODELS TABLE ─── */
+  .models-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  .models-table th { text-align: left; font-family: 'DM Mono', monospace; font-size: 0.58rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); }
+  .models-table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .models-table tr:last-child td { border-bottom: none; }
+
+  /* ─── CHECKLIST ─── */
+  .checklist { list-style: none; display: flex; flex-direction: column; gap: 0.45rem; }
+  .checklist li { display: flex; align-items: flex-start; gap: 0.6rem; font-size: 0.84rem; color: var(--muted); line-height: 1.5; }
+  .checklist li.done::before    { content: '✓'; color: var(--green);  font-size: 0.8rem; flex-shrink: 0; margin-top: 2px; }
+  .checklist li.pending::before { content: '○'; color: var(--muted);  font-size: 0.8rem; flex-shrink: 0; margin-top: 2px; }
+  .checklist li.fail::before    { content: '✗'; color: var(--red);    font-size: 0.8rem; flex-shrink: 0; margin-top: 2px; }
+  .checklist li.done { color: var(--text); }
+
+  /* ─── HIGHLIGHT BOX ─── */
+  .highlight-box {
+    background: linear-gradient(135deg, rgba(56,217,169,0.06) 0%, rgba(91,138,245,0.06) 100%);
+    border: 1px solid rgba(56,217,169,0.2);
+    border-radius: 14px; padding: 1.75rem;
+    margin-bottom: 1.5rem;
+  }
+  .hb-title { font-size: 1rem; font-weight: 600; color: #fff; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.75rem; }
+  .hb-desc { font-size: 0.88rem; color: var(--muted); line-height: 1.65; }
+
+  footer { padding: 2rem 3rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; color: var(--muted); font-size: 0.75rem; font-family: 'DM Mono', monospace; flex-wrap: wrap; gap: 0.5rem; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">otto<span>guide</span> / wake-word</div>
+  <span class="nav-tag">Documento técnico · V1 · 03/05/2026</span>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-glow"></div>
+  <div class="hero-label">Wake Word — Investigación y Plan</div>
+  <h1>Crear <em>"Hola Otto"</em><br>como wake word</h1>
+  <p>Documentación completa del proceso de investigación, lo que se intentó, por qué no funcionó, qué se necesita para hacerlo bien y el plan definitivo para implementarlo.</p>
+  <div class="status-row">
+    <span class="status-pill pill-warn">⏸ MVP — solución provisoria activa</span>
+    <span class="status-pill pill-purple">📋 Modelo personalizado — pendiente</span>
+    <span class="status-pill pill-red">✗ OpenWakeWord train — no viable sin datos sintéticos</span>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- ─── QUÉ ES UN WAKE WORD ─── -->
+  <div class="doc-section" id="concepto">
+    <div class="section-label">Concepto</div>
+    <h2 class="section-title">¿Qué es un wake word y cómo funciona?</h2>
+    <p class="section-intro">Antes de entender el problema, entender el concepto es clave para tomar decisiones correctas.</p>
+
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-title">🎤 Wake word dedicado</div>
+        <div class="card-desc">Un modelo de Machine Learning ultraliviano que escucha el micrófono 24/7 y detecta una frase específica. Consume muy pocos recursos (~50MB RAM) porque solo hace una cosa: detectar esa frase. Ejemplos: "Alexa", "Hey Siri", "OK Google".</div>
+      </div>
+      <div class="card">
+        <div class="card-title">🔁 El flujo correcto</div>
+        <div class="card-desc">El wake word activa el pipeline pesado. Mientras no se detecta la frase, Whisper (STT), el LLM y el TTS están apagados. Esto ahorra recursos críticos del Jetson y alarga la vida útil de la batería del robot durante el tour.</div>
+      </div>
+      <div class="card">
+        <div class="card-title">🧠 Cómo se entrena</div>
+        <div class="card-desc">Un modelo de wake word se entrena con muestras positivas (la frase objetivo) y muestras negativas (ruido de fondo y palabras similares). Cuantas más muestras variadas, más robusto es el modelo.</div>
+      </div>
+      <div class="card">
+        <div class="card-title">📦 OpenWakeWord</div>
+        <div class="card-desc">La librería elegida para OttoGuide. Corre en Python, es open source, compatible con ARM (Jetson), y permite crear modelos personalizados. El problema es que el proceso de entrenamiento requiere datos sintéticos masivos.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ─── QUÉ MODELOS HAY ─── -->
+  <div class="doc-section" id="modelos">
+    <div class="section-label">Investigación</div>
+    <h2 class="section-title">Modelos pre-entrenados disponibles</h2>
+    <p class="section-intro">OpenWakeWord v0.4.0 (versión instalada) incluye estos modelos pre-entrenados. Ninguno es viable para "Hola Otto".</p>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:1rem;">
+      <table class="models-table">
+        <thead><tr><th>Modelo</th><th>Wake word</th><th>Idioma</th><th>¿Usable para Otto?</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>alexa_v0.1.onnx</code></td>
+            <td>"Alexa"</td>
+            <td>Inglés</td>
+            <td><span style="color:var(--red);font-size:0.8rem;">✗ Diferente fonética</span></td>
+          </tr>
+          <tr>
+            <td><code>hey_mycroft_v0.1.onnx</code></td>
+            <td>"Hey Mycroft"</td>
+            <td>Inglés</td>
+            <td><span style="color:var(--red);font-size:0.8rem;">✗ En inglés, diferente</span></td>
+          </tr>
+          <tr>
+            <td><code>hey_jarvis_v0.1.onnx</code></td>
+            <td>"Hey Jarvis"</td>
+            <td>Inglés</td>
+            <td><span style="color:var(--red);font-size:0.8rem;">✗ En inglés, diferente</span></td>
+          </tr>
+          <tr>
+            <td><code>timer_v0.1.onnx</code></td>
+            <td>"Timer"</td>
+            <td>Inglés</td>
+            <td><span style="color:var(--red);font-size:0.8rem;">✗ No aplica</span></td>
+          </tr>
+          <tr>
+            <td><code>weather_v0.1.onnx</code></td>
+            <td>"Weather"</td>
+            <td>Inglés</td>
+            <td><span style="color:var(--red);font-size:0.8rem;">✗ No aplica</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note note-warn">
+      <span class="note-icon">⚠</span>
+      <span>OpenWakeWord no tiene modelos en español. Todos son en inglés. No hay ningún modelo existente que detecte "Hola Otto" — hay que crearlo desde cero.</span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ─── QUÉ SE INTENTÓ ─── -->
+  <div class="doc-section" id="intentos">
+    <div class="section-label">Historial</div>
+    <h2 class="section-title">Lo que se intentó y por qué no funcionó</h2>
+    <p class="section-intro">Registro cronológico de cada intento realizado el 03/05/2026 durante la sesión de desarrollo.</p>
+
+    <div class="timeline">
+
+      <div class="tl-item">
+        <div class="tl-dot dot-ok">✓</div>
+        <div class="tl-title">Grabar 14 muestras de "Hola Otto"</div>
+        <div class="tl-desc">Se grabaron 14 muestras WAV (16kHz, 16-bit, mono/estéreo) con el micrófono de la notebook usando <code>arecord</code>. Muestras variadas en tono, velocidad y personas distintas.</div>
+        <div class="tl-result result-ok">✓ Completado — samples en services/wake-word/samples/</div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-dot dot-tried">✗</div>
+        <div class="tl-title">Intentar <code>from openwakeword.train import train_model</code></div>
+        <div class="tl-desc">El módulo <code>openwakeword.train</code> no existe en la versión 0.4.0. La API de entrenamiento cambió entre versiones.</div>
+        <div class="tl-result result-fail">✗ ModuleNotFoundError: No module named 'openwakeword.train'</div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-dot dot-tried">✗</div>
+        <div class="tl-title">Investigar <code>train_custom_verifier</code></div>
+        <div class="tl-desc">La versión 0.4.0 sí tiene <code>train_custom_verifier</code> pero NO es lo que necesitamos. Esta función entrena un verificador de voz encima de un modelo existente — requiere que ya exista un modelo base de "Hola Otto", que no existe.</div>
+        <div class="tl-result result-fail">✗ No aplica — necesita modelo base previo</div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-dot dot-warn">⚠</div>
+        <div class="tl-title">Evaluar modelos pre-entrenados como aproximación</div>
+        <div class="tl-desc">Se evaluaron los 5 modelos incluidos (<code>alexa</code>, <code>hey_jarvis</code>, <code>hey_mycroft</code>, <code>timer</code>, <code>weather</code>). Ninguno tiene similitud fonética suficiente con "Hola Otto" para ser usable.</div>
+        <div class="tl-result result-warn">⚠ Descartados — ninguno funciona para español</div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-dot dot-tried">✗</div>
+        <div class="tl-title">Entrenar modelo desde cero con las 14 muestras</div>
+        <div class="tl-desc">El proceso real de entrenamiento de un wake word nuevo en OpenWakeWord requiere generar miles de muestras sintéticas con TTS en múltiples idiomas, acentos y condiciones de ruido. Las 14 muestras grabadas son insuficientes para entrenar el modelo completo — son las muestras de referencia, no el dataset de entrenamiento.</div>
+        <div class="tl-result result-fail">✗ No viable — faltan datos sintéticos masivos</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ─── SOLUCIÓN MVP ─── -->
+  <div class="doc-section" id="mvp">
+    <div class="section-label">Solución actual · MVP</div>
+    <h2 class="section-title">Solución para el MVP — detección via Whisper</h2>
+    <p class="section-intro">Para la demo del miércoles se implementa una solución basada en Whisper que ya está funcionando. Detecta "Hola Otto" sin entrenamiento previo.</p>
+
+    <div class="highlight-box">
+      <div class="hb-title">🎯 Pipeline MVP — Whisper como detector de wake word</div>
+      <div class="hb-desc">En lugar de un modelo dedicado, el orquestador graba fragmentos cortos de audio cada 3 segundos y los manda a Whisper. Si la transcripción contiene "otto", activa el pipeline completo. Es menos eficiente en recursos pero funciona perfectamente para la demo y ya está probado.</div>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header"><span class="code-lang">python</span><span class="code-file">services/core/main.py — lógica de wake word via Whisper</span></div>
+      <div class="code-body"><span class="cm"># Loop principal de detección</span>
+<span class="ck">import</span> subprocess, requests, time
+
+<span class="ck">def</span> <span class="cg">grabar_fragmento</span>(duracion=3):
+    subprocess.run([
+        <span class="cs">"arecord"</span>, <span class="cs">"-d"</span>, str(duracion),
+        <span class="cs">"-D"</span>, <span class="cs">"plughw:1,0"</span>, <span class="cs">"-f"</span>, <span class="cs">"S16_LE"</span>,
+        <span class="cs">"-c"</span>, <span class="cs">"2"</span>, <span class="cs">"-r"</span>, <span class="cs">"16000"</span>,
+        <span class="cs">"/tmp/fragmento.wav"</span>
+    ])
+
+<span class="ck">def</span> <span class="cg">transcribir</span>():
+    r = requests.post(<span class="cs">"http://stt:9000/asr"</span>,
+        files={<span class="cs">"audio_file"</span>: open(<span class="cs">"/tmp/fragmento.wav"</span>, <span class="cs">"rb"</span>)},
+        data={<span class="cs">"language"</span>: <span class="cs">"es"</span>})
+    <span class="ck">return</span> r.text.lower()
+
+<span class="ck">while</span> True:
+    grabar_fragmento()
+    texto = transcribir()
+    <span class="ck">if</span> <span class="cs">"otto"</span> <span class="ck">in</span> texto:
+        print(<span class="cs">"Wake word detectado! Activando pipeline..."</span>)
+        activar_pipeline()  <span class="cm"># llama a STT completo → LLM → TTS</span>
+    time.sleep(0.1)</div>
+    </div>
+
+    <div class="note note-warn">
+      <span class="note-icon">⚠</span>
+      <span><strong>Limitación del MVP:</strong> Graba en ciclos de 3 segundos — puede tardar hasta 3 segundos en detectar el wake word. Consume Whisper de forma continua en lugar de solo cuando es necesario. Aceptable para demo, no para producción.</span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ─── PLAN REAL ─── -->
+  <div class="doc-section" id="plan">
+    <div class="section-label">Plan definitivo</div>
+    <h2 class="section-title">Cómo crear "Hola Otto" correctamente</h2>
+    <p class="section-intro">El proceso completo para entrenar un modelo de wake word personalizado con OpenWakeWord. Requiere más tiempo pero es la solución correcta para producción.</p>
+
+    <div class="note note-info">
+      <span class="note-icon">ℹ</span>
+      <span>OpenWakeWord necesita que el modelo base sea entrenado por su pipeline oficial de generación de datos sintéticos. Las 14 muestras grabadas se usan como referencia para el <strong>verificador final</strong>, no como dataset de entrenamiento principal.</span>
+    </div>
+
+    <!-- Paso 1 -->
+    <div class="step-block">
+      <div class="step-num">Paso 1 — Clonar el repositorio de entrenamiento</div>
+      <div class="step-title">Obtener las herramientas de entrenamiento de OpenWakeWord</div>
+      <div class="step-desc">El entrenamiento completo no está en el paquete pip — está en el repositorio de GitHub.</div>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span></div>
+        <div class="code-body">git clone https://github.com/dscripka/openWakeWord.git
+cd openWakeWord
+pip install -r requirements.txt --break-system-packages</div>
+      </div>
+    </div>
+
+    <!-- Paso 2 -->
+    <div class="step-block">
+      <div class="step-num">Paso 2 — Instalar dependencias de generación de datos</div>
+      <div class="step-title">Text-to-Speech para generar muestras sintéticas</div>
+      <div class="step-desc">El entrenamiento genera miles de muestras sintéticas de "Hola Otto" con diferentes voces, acentos y condiciones de ruido usando TTS. Requiere estas dependencias adicionales.</div>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span></div>
+        <div class="code-body">pip install TTS piper-tts --break-system-packages
+<span class="cm"># También necesita datasets de ruido de fondo</span>
+<span class="cm"># El script los descarga automáticamente (~2GB)</span></div>
+      </div>
+    </div>
+
+    <!-- Paso 3 -->
+    <div class="step-block">
+      <div class="step-num">Paso 3 — Generar datos sintéticos de "Hola Otto"</div>
+      <div class="step-title">Crear el dataset de entrenamiento</div>
+      <div class="step-desc">El script genera miles de variaciones de la frase con diferentes voces TTS en español. Esto puede tardar 1-2 horas dependiendo del hardware.</div>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><span class="code-file">desde el directorio openWakeWord/</span></div>
+        <div class="code-body">python training/generate_training_data.py \
+  --target_phrase "Hola Otto" \
+  --output_dir data/hola_otto/ \
+  --n_samples 5000 \
+  --language es</div>
+      </div>
+    </div>
+
+    <!-- Paso 4 -->
+    <div class="step-block">
+      <div class="step-num">Paso 4 — Entrenar el modelo base</div>
+      <div class="step-title">Entrenamiento principal del wake word</div>
+      <div class="step-desc">Usa los datos sintéticos generados para entrenar el modelo neuronal. Tarda entre 30 minutos y 2 horas en CPU.</div>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span></div>
+        <div class="code-body">python training/train.py \
+  --training_data data/hola_otto/ \
+  --model_name hola_otto \
+  --output_dir models/ \
+  --epochs 50</div>
+      </div>
+    </div>
+
+    <!-- Paso 5 -->
+    <div class="step-block">
+      <div class="step-num">Paso 5 — Entrenar el verificador con las muestras reales</div>
+      <div class="step-title">Afinar el modelo con voces reales grabadas</div>
+      <div class="step-desc">Acá es donde entran las 14 muestras que ya grabamos. El verificador aprende a reconocer "Hola Otto" con voces reales de personas reales.</div>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">python</span><span class="code-file">train_verifier.py</span></div>
+        <div class="code-body"><span class="ck">from</span> openwakeword <span class="ck">import</span> train_custom_verifier
+
+train_custom_verifier(
+    positive_reference_clips=<span class="cs">"services/wake-word/samples/"</span>,
+    negative_reference_clips=<span class="cs">"data/negative_samples/"</span>,
+    output_path=<span class="cs">"services/wake-word/model/hola_otto_verifier.joblib"</span>,
+    model_name=<span class="cs">"models/hola_otto.onnx"</span>
+)</div>
+      </div>
+    </div>
+
+    <!-- Paso 6 -->
+    <div class="step-block">
+      <div class="step-num">Paso 6 — Integrar al contenedor wake-word</div>
+      <div class="step-title">Copiar los modelos al servicio Docker</div>
+      <div class="step-desc">Una vez entrenados, los archivos del modelo se copian a <code>services/wake-word/model/</code> y se actualizan en el Dockerfile y el script <code>listen.py</code>.</div>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span></div>
+        <div class="code-body">cp models/hola_otto.onnx services/wake-word/model/
+cp models/hola_otto_verifier.joblib services/wake-word/model/
+<span class="cm"># Rebuild del contenedor</span>
+docker compose up -d --build wake-word</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ─── REQUISITOS ─── -->
+  <div class="doc-section" id="requisitos">
+    <div class="section-label">Requisitos</div>
+    <h2 class="section-title">Lo que se necesita para hacerlo</h2>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:1.5rem;">
+      <table class="req-table">
+        <thead><tr><th>Requisito</th><th>Detalle</th><th>Estado</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="item">14 muestras de "Hola Otto"</td>
+            <td class="desc">Grabadas con voces variadas (13, 20, 50 años) en distintos tonos</td>
+            <td><span style="color:var(--green);font-size:0.8rem;">✓ Listo</span></td>
+          </tr>
+          <tr>
+            <td class="item">Repo openWakeWord clonado</td>
+            <td class="desc">Herramientas de entrenamiento no incluidas en el paquete pip</td>
+            <td><span style="color:var(--orange);font-size:0.8rem;">○ Pendiente</span></td>
+          </tr>
+          <tr>
+            <td class="item">Dependencias TTS instaladas</td>
+            <td class="desc">Para generar las miles de muestras sintéticas del dataset</td>
+            <td><span style="color:var(--orange);font-size:0.8rem;">○ Pendiente</span></td>
+          </tr>
+          <tr>
+            <td class="item">~2GB de espacio libre</td>
+            <td class="desc">Para el dataset sintético generado + modelos de ruido de fondo</td>
+            <td><span style="color:var(--green);font-size:0.8rem;">✓ Disponible</span></td>
+          </tr>
+          <tr>
+            <td class="item">2-4 horas de tiempo</td>
+            <td class="desc">Generación de datos + entrenamiento en CPU (sin GPU NVIDIA)</td>
+            <td><span style="color:var(--orange);font-size:0.8rem;">○ Planificar</span></td>
+          </tr>
+          <tr>
+            <td class="item">Muestras negativas</td>
+            <td class="desc">Audio con palabras similares pero que NO son "Hola Otto" — para que el modelo no se confunda. Ej: hola, "auto", "otto" solo, etc.</td>
+            <td><span style="color:var(--orange);font-size:0.8rem;">○ Grabar</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note note-ok">
+      <span class="note-icon">✓</span>
+      <span><strong>Las 14 muestras ya grabadas son válidas</strong> y se usan en el Paso 5. No hace falta re-grabarlas. Se guardan en <code>services/wake-word/samples/</code>.</span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ─── MUESTRAS NEGATIVAS ─── -->
+  <div class="doc-section" id="negativas">
+    <div class="section-label">Dato importante</div>
+    <h2 class="section-title">Muestras negativas — qué son y cómo grabarlas</h2>
+    <p class="section-intro">Para que el modelo sea preciso y no se active por error, necesita aprender también qué NO es "Hola Otto".</p>
+
+    <div class="card" style="margin-bottom:1rem;">
+      <div class="card-title">¿Qué son las muestras negativas?</div>
+      <div class="card-desc">Son grabaciones de audio que se parecen fonéticamente a "Hola Otto" pero no lo son. El modelo aprende a distinguir la frase exacta de palabras similares. Sin esto, el sistema se activa con cualquier palabra parecida.</div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:1.25rem 1.5rem;margin-bottom:1rem;">
+      <div style="font-family:'DM Mono',monospace;font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted);margin-bottom:0.75rem;">Frases a grabar como muestras negativas</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;font-size:0.84rem;">
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.85rem;color:var(--text);font-family:'DM Mono',monospace;font-size:0.8rem;">hola</div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.85rem;color:var(--text);font-family:'DM Mono',monospace;font-size:0.8rem;">"otto" (solo)</div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.85rem;color:var(--text);font-family:'DM Mono',monospace;font-size:0.8rem;">"oye auto"</div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.85rem;color:var(--text);font-family:'DM Mono',monospace;font-size:0.8rem;">"hola otto"</div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.85rem;color:var(--text);font-family:'DM Mono',monospace;font-size:0.8rem;">"oye todo"</div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.85rem;color:var(--text);font-family:'DM Mono',monospace;font-size:0.8rem;">"hola otto"</div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.85rem;color:var(--text);font-family:'DM Mono',monospace;font-size:0.8rem;">conversación general</div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.85rem;color:var(--text);font-family:'DM Mono',monospace;font-size:0.8rem;">ruido de fondo</div>
+      </div>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header"><span class="code-lang">bash</span><span class="code-file">Comando para grabar muestras negativas</span></div>
+      <div class="code-body"><span class="cm"># Crear carpeta para muestras negativas</span>
+mkdir -p services/wake-word/samples_negative
+
+<span class="cm"># Grabar cada frase negativa (cambiar nombre del archivo)</span>
+arecord -d 2 -D plughw:1,0 -f S16_LE -c 2 -r 16000 \
+  services/wake-word/samples_negative/neg_01.wav</div>
+    </div>
+
+    <div class="note note-info">
+      <span class="note-icon">ℹ</span>
+      <span>Grabar al menos 10 muestras negativas variadas. Usar las mismas voces que las muestras positivas para que el modelo aprenda a distinguir bien.</span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ─── RESUMEN ─── -->
+  <div class="doc-section" id="resumen">
+    <div class="section-label">Resumen</div>
+    <h2 class="section-title">Estado actual y próximos pasos</h2>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
+      <div style="background:var(--bg2);border:1px solid rgba(56,217,169,0.2);border-radius:14px;padding:1.5rem;">
+        <div style="font-family:'DM Mono',monospace;font-size:0.6rem;letter-spacing:0.12em;color:var(--green);margin-bottom:0.75rem;text-transform:uppercase;">✓ Completado</div>
+        <ul class="checklist">
+          <li class="done">14 muestras positivas grabadas</li>
+          <li class="done">openwakeword instalado en notebook</li>
+          <li class="done">Modelos pre-entrenados evaluados</li>
+          <li class="done">API de entrenamiento investigada</li>
+          <li class="done">Solución MVP activa con Whisper</li>
+        </ul>
+      </div>
+      <div style="background:var(--bg2);border:1px solid rgba(245,166,35,0.2);border-radius:14px;padding:1.5rem;">
+        <div style="font-family:'DM Mono',monospace;font-size:0.6rem;letter-spacing:0.12em;color:var(--orange);margin-bottom:0.75rem;text-transform:uppercase;">○ Pendiente post-miércoles</div>
+        <ul class="checklist">
+          <li class="pending">Clonar repo openWakeWord completo</li>
+          <li class="pending">Instalar dependencias TTS de entrenamiento</li>
+          <li class="pending">Grabar ~10 muestras negativas</li>
+          <li class="pending">Generar dataset sintético (2-4hs)</li>
+          <li class="pending">Entrenar modelo hola_otto.onnx</li>
+          <li class="pending">Entrenar verificador con muestras reales</li>
+          <li class="pending">Integrar al contenedor wake-word</li>
+          <li class="pending">Reemplazar solución MVP por modelo dedicado</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="note note-ok">
+      <span class="note-icon">✓</span>
+      <span><strong>Las 14 muestras grabadas no se pierden.</strong> Se guardan en <code>services/wake-word/samples/</code> y se usan en el Paso 5 del entrenamiento definitivo. No hay que re-grabarlas.</span>
+    </div>
+
+    <div class="note note-warn">
+      <span class="note-icon">⚠</span>
+      <span><strong>Para el miércoles</strong> se usa la solución MVP basada en Whisper. Funciona perfectamente para la demo. El modelo dedicado "Hola Otto" se implementa después para producción en el robot.</span>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <span>OttoGuide · Wake Word "Hola Otto" · V1 · 03/05/2026</span>
+  <span>Notebook: Linux Mint · OpenWakeWord v0.4.0 · Robot: Jetson Orin NX</span>
+</footer>
+
+</body>
+</html>
