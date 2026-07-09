@@ -899,7 +899,9 @@ def create_app() -> FastAPI:
     """
     @TASK: Factory de la aplicacion FastAPI
     @INPUT: Sin parametros
-    @OUTPUT: FastAPI app con lifespan, CORS, router incluido y dashboard legacy/redirect
+    @OUTPUT: FastAPI app con lifespan, CORS, router incluido; "/" y "/dashboard" redirigen a
+             WEB_UI_PUBLIC_URL (React) o devuelven 503 explicito; dashboard legacy solo
+             accesible via "/dashboard-legacy" como endpoint de diagnostico deprecado
     @CONTEXT: Invocada por uvicorn con factory=True
     @SECURITY: La politica de exposicion de documentacion OpenAPI se gestiona fuera de esta factory.
                CORSMiddleware usa Settings.web_ui_allowed_origins_list como unica fuente de
@@ -939,18 +941,42 @@ def create_app() -> FastAPI:
     async def dashboard():
         # @SECURITY: Si WEB_UI_PUBLIC_URL esta configurado, React es la interfaz principal y
         #            el dashboard HTML legacy nunca se sirve desde este proceso; redirige.
-        #            Sin configurar, sirve static/dashboard.html como fallback transicional,
-        #            identificado como legacy via header de respuesta.
+        #            Sin configurar, NO se sirve static/dashboard.html como fallback operativo
+        #            silencioso (WEB-R6: la UI canonica es ottoguide_web_app/frontend). Se
+        #            responde 503 con guia explicita para configurar WEB_UI_PUBLIC_URL.
+        #            static/dashboard.html permanece como endpoint de diagnostico opt-in via
+        #            /dashboard-legacy, deprecado y no promovido como UI.
         public_url = settings.WEB_UI_PUBLIC_URL.strip()
         if public_url:
             return RedirectResponse(url=public_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Canonical React UI is not configured. "
+                "Set WEB_UI_PUBLIC_URL to the Vite UI URL "
+                "(e.g. http://127.0.0.1:3001). "
+                "The legacy static dashboard is deprecated and is not served here; "
+                "see /dashboard-legacy for diagnostic access."
+            ),
+        )
+
+    @app.get("/dashboard-legacy", include_in_schema=False)
+    async def dashboard_legacy():
+        # @SECURITY: Endpoint de diagnostico/deprecacion explicito, nunca la UI principal.
+        #            No reemplaza a WEB_UI_PUBLIC_URL ni a ottoguide_web_app/frontend.
         if not DASHBOARD_FILE.is_file():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Dashboard no encontrado en {DASHBOARD_FILE}",
+                detail=f"Dashboard legacy no encontrado en {DASHBOARD_FILE}",
             )
-        return FileResponse(DASHBOARD_FILE, headers={"X-OttoGuide-Dashboard": "legacy-fallback"})
+        return FileResponse(
+            DASHBOARD_FILE,
+            headers={
+                "X-OttoGuide-Dashboard": "legacy-fallback",
+                "X-OttoGuide-Deprecated": "true",
+            },
+        )
 
     return app
 

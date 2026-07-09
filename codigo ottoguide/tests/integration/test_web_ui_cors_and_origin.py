@@ -2,12 +2,16 @@
 Integration tests for the web UI hardening added for pilar-web integration:
   - CORSMiddleware on main.create_app() (allowed/rejected origin, wildcard rejected in real mode)
   - Manual Origin validation on WS /ws/telemetry
-  - /dashboard redirect to WEB_UI_PUBLIC_URL vs legacy static fallback
+  - "/" and "/dashboard" redirect to WEB_UI_PUBLIC_URL, or 503 explicit if unset (WEB-R6:
+    the legacy static dashboard is no longer a silent fallback; see /dashboard-legacy)
 
 These tests call main.create_app() directly via httpx.ASGITransport WITHOUT triggering the
 FastAPI lifespan (no lifespan="on"), so no hardware/orchestrator boot is exercised — only the
 app-construction-time wiring (CORSMiddleware, dashboard route) and the WS handler's manual
 Origin check, which reads config.settings.get_settings() independently of app.state.orchestrator.
+
+Suggested command for a future checkpoint (NOT run as part of WEB-R6, which is static-only):
+    pytest tests/integration/test_web_ui_cors_and_origin.py -v
 """
 from __future__ import annotations
 
@@ -455,7 +459,33 @@ def test_runbook_distinguishes_shutdown_completed_from_terminal_safety_confirmed
     assert "de forma garantizada" not in content
 
 
-def test_dashboard_serves_legacy_fallback_when_no_public_url_configured():
+def test_dashboard_returns_503_when_no_public_url_configured():
+    """WEB-R6: without WEB_UI_PUBLIC_URL, "/" and "/dashboard" must NOT silently serve the
+    legacy static dashboard as if it were the operational UI. They must fail explicitly
+    with 503 and point the operator at WEB_UI_PUBLIC_URL."""
+    with patch.dict(os.environ, {
+        "ROBOT_MODE": "mock",
+        "WEB_UI_PUBLIC_URL": "",
+    }, clear=False):
+        app = _fresh_app()
+    transport = httpx.ASGITransport(app=app)
+
+    async def _run(path):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.get(path, follow_redirects=False)
+
+    import asyncio
+    for path in ("/", "/dashboard"):
+        resp = asyncio.run(_run(path))
+        assert resp.status_code == 503
+        assert "WEB_UI_PUBLIC_URL" in resp.text
+    get_settings.cache_clear()
+
+
+def test_dashboard_legacy_endpoint_serves_static_file_marked_deprecated():
+    """WEB-R6: the legacy dashboard HTML remains reachable only as an explicit, deprecated
+    diagnostic endpoint at /dashboard-legacy — never as the default response of "/" or
+    "/dashboard"."""
     with patch.dict(os.environ, {
         "ROBOT_MODE": "mock",
         "WEB_UI_PUBLIC_URL": "",
@@ -465,13 +495,14 @@ def test_dashboard_serves_legacy_fallback_when_no_public_url_configured():
 
     async def _run():
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            return await client.get("/dashboard", follow_redirects=False)
+            return await client.get("/dashboard-legacy", follow_redirects=False)
 
     import asyncio
     resp = asyncio.run(_run())
     # 200 if static/dashboard.html exists in this checkout, 404 otherwise — either way,
-    # it must NOT be a redirect, and a 200 must carry the legacy marker header.
+    # a 200 must carry both the legacy marker and the deprecation header.
     assert resp.status_code in (200, 404)
     if resp.status_code == 200:
         assert resp.headers.get("x-ottoguide-dashboard") == "legacy-fallback"
+        assert resp.headers.get("x-ottoguide-deprecated") == "true"
     get_settings.cache_clear()
