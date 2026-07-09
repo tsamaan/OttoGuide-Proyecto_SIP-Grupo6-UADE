@@ -214,6 +214,14 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
             self._spawn_task(self._heartbeat_monitor(), "interaction-jsonl-heartbeat-monitor")
             await self._enqueue_command(WorkerCommandType.START, interaction_id=None, payload={})
             await asyncio.wait_for(self._ready_event.wait(), timeout=self._config.startup_timeout_s)
+            # A worker that writes READY immediately followed by a
+            # process-level FAILED frame (both already sitting in the stdout
+            # buffer) can have _ready_event.set() observed here before
+            # _stdout_reader's next loop iteration has processed that second
+            # line. Give it the same bounded, non-blocking chance to settle
+            # as close() does, so a real primary failure it discovers is
+            # reflected in self._state before this method decides success.
+            await self._await_stdout_reader_settlement()
             if self._state != InteractionRuntimeState.READY:
                 raise InteractionRuntimeUnavailableError("worker did not become ready")
         except Exception:
@@ -502,6 +510,18 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                         except ProcessLookupError:
                             pass
                         await self._process.wait()
+            # The child may have written its final bytes (e.g. a protocol-level
+            # failure frame) to stdout right before/at exit -- terminate()/kill()
+            # only guarantee the process is gone, not that _stdout_reader has
+            # drained and processed whatever is already sitting in the stream
+            # buffer. Give it a bounded chance to settle so a real primary
+            # failure reason it discovers (via _fail()) is recorded before the
+            # finally block below decides between that and an escalation/
+            # graceful-close reason. This does not wait for more input: a
+            # reader legitimately blocked on readuntil() for data that will
+            # never arrive simply hits the timeout and is left to be cancelled
+            # by _cancel_tasks() as usual.
+            await self._await_stdout_reader_settlement()
         finally:
             final_exit_code = self._process.returncode if self._process is not None else None
             # Reevaluate live: a primary failure reason may have been recorded
@@ -540,6 +560,32 @@ class JsonlInteractionWorkerSupervisor(InteractionWorkerSupervisor):
                 self._raise_task_settlement_timeout(task_settlement)
             self._active_interaction_id = None
             self._state = InteractionRuntimeState.CLOSED
+
+    async def _await_stdout_reader_settlement(self) -> None:
+        """Give the stdout-reader task a bounded chance to drain and process
+        bytes the child already wrote before/at exit, so a real primary
+        failure it discovers via _fail() is recorded before close() decides
+        its own termination reason in the finally block.
+
+        Processing bytes already sitting in the stream buffer is pure
+        in-process work (JSON parse + envelope validation), not I/O, so it
+        settles within a handful of event-loop ticks if there is anything to
+        settle. This deliberately yields control a small bounded number of
+        times instead of awaiting a fixed timeout: a reader legitimately
+        blocked on readuntil() for input that will never arrive stays
+        blocked after every yield and is left for the normal
+        _cancel_tasks() cleanup below, without close() paying a timeout
+        it does not need on the (common) graceful-close path."""
+        reader_task = next(
+            (task for task in self._tasks if task.get_name() == "interaction-jsonl-stdout-reader"),
+            None,
+        )
+        if reader_task is None:
+            return
+        for _ in range(8):
+            if reader_task.done():
+                return
+            await asyncio.sleep(0)
 
     async def _let_event_loop_close_subprocess_transports(self) -> None:
         """Idempotent, centralized hook for deterministic subprocess
