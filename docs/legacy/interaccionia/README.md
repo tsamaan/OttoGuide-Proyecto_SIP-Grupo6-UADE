@@ -26,8 +26,17 @@ must preserve SHA-256:
 
 `0d1cc4567387f4bc41e3705d95c16d80be2e61d76fe2ea99dbe8a9fa6a926bcf`
 
+## IA-CXX-R1 update
+
+This material is still legacy/no-runtime as of this checkpoint. The recommended path
+forward is a supervised adapter, C++-first: the Python orchestrator supervises a C++
+worker process (this pipeline or a JSONL-speaking shim around it), it does not reimplement
+STT/LLM/TTS/audio in Python. Do not compile or execute anything in this archive without an
+explicit, future authorized checkpoint.
+
 ## Related documentation
 
 See:
 
 - `docs/Arquitectura/INTERACCIONIA_CONSOLIDATION_R2.md`
+- `docs/Arquitectura/IA_CXX_R1_CXX_FIRST_ORCHESTRATOR_ADAPTER_DESIGN.md`

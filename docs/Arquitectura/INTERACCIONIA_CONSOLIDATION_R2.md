@@ -52,3 +52,12 @@ Not imported:
 * Decide if C++ IA remains archival or becomes a supervised worker.
 * Define adapter boundary before connecting to the Python orchestrator.
 * Validate only in a future explicit HIL-safe checkpoint.
+
+## IA-CXX-R1 update
+
+As of IA-CXX-R1, this C++ pipeline is no longer treated as archival-only reference. It is
+the designated primary runtime candidate for physical conversation, under a supervised
+Python control-plane / C++ runtime split. No runtime was wired or executed in IA-CXX-R1 —
+the full design (protocol reuse, supervisor reuse, shim vs direct-modification decision,
+risks, and the R2-R6 plan) is documented in
+`docs/Arquitectura/IA_CXX_R1_CXX_FIRST_ORCHESTRATOR_ADAPTER_DESIGN.md`.
