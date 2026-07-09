@@ -6,9 +6,9 @@ This document records the selective, static consolidation of historical `Interac
 
 ## Imported as archive/reference
 
-* `Ottoguide_IA/**`
-* `Robot G1-EDU Conversational Integration.md`
-* `documentacion general del proyecto/Interaccion/**`
+* `docs/legacy/interaccionia/Ottoguide_IA/**`
+* `docs/legacy/interaccionia/Robot_G1-EDU_Conversational_Integration.md`
+* `docs/legacy/interaccionia/documentacion_general_del_proyecto/Interaccion/**`
 
 ## Historical IA pipeline
 
