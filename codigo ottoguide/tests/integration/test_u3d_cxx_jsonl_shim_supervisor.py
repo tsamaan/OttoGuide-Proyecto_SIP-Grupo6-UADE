@@ -11,6 +11,7 @@ from src.interaction.jsonl_worker_supervisor import (
 from src.interaction.runtime_port import (
     InteractionContext,
     InteractionRuntimeState,
+    WorkerEventEnvelope,
     WorkerEventType,
 )
 
@@ -55,14 +56,15 @@ def _config(shim_path: str) -> JsonlWorkerSupervisorConfig:
 
 async def _collect_until(
     supervisor: JsonlInteractionWorkerSupervisor, event: WorkerEventType, *, limit: int = 20
-) -> list[WorkerEventType]:
-    seen: list[WorkerEventType] = []
+) -> list[WorkerEventEnvelope]:
+    seen: list[WorkerEventEnvelope] = []
     for _ in range(limit):
         item = await supervisor.next_event(timeout_s=2.0)
-        seen.append(item.event)
+        seen.append(item)
         if item.event == event:
             return seen
-    raise AssertionError(f"did not see {event}; saw {seen}")
+    seen_types = [envelope.event for envelope in seen]
+    raise AssertionError(f"did not see {event}; saw {seen_types}")
 
 
 @pytest.mark.asyncio
@@ -108,12 +110,27 @@ async def test_activate_reaches_mock_playback_completed() -> None:
     try:
         await supervisor.activate(InteractionContext(interaction_id="itx-r12a-1"))
         seen = await _collect_until(supervisor, WorkerEventType.PLAYBACK_COMPLETED)
-        assert WorkerEventType.WAKE_WORD_CONFIRMED in seen
-        assert WorkerEventType.CAPTURE_STARTED in seen
-        assert WorkerEventType.TRANSCRIPT_READY in seen
-        assert WorkerEventType.RESPONSE_READY in seen
-        assert WorkerEventType.PLAYBACK_STARTED in seen
-        assert seen[-1] == WorkerEventType.PLAYBACK_COMPLETED
+        seen_types = [envelope.event for envelope in seen]
+        assert WorkerEventType.WAKE_WORD_CONFIRMED in seen_types
+        assert WorkerEventType.CAPTURE_STARTED in seen_types
+        assert WorkerEventType.TRANSCRIPT_READY in seen_types
+        assert WorkerEventType.RESPONSE_READY in seen_types
+        assert WorkerEventType.PLAYBACK_STARTED in seen_types
+        assert seen_types[-1] == WorkerEventType.PLAYBACK_COMPLETED
+
+        # otto_jsonl_shim (IA-CXX-R11) hardcodes these exact mock payloads for
+        # transcript_ready/response_ready; assert the literal text, not just event presence,
+        # per the observation raised in R12B (OBSERVATION_PAYLOAD_TEXT_NOT_ASSERTED).
+        transcript_ready = next(
+            envelope for envelope in seen if envelope.event is WorkerEventType.TRANSCRIPT_READY
+        )
+        assert transcript_ready.payload["text"] == "hola otto"
+
+        response_ready = next(
+            envelope for envelope in seen if envelope.event is WorkerEventType.RESPONSE_READY
+        )
+        assert response_ready.payload["text"] == "respuesta mock"
+
         health = await supervisor.health()
         assert health.state is InteractionRuntimeState.READY
     finally:
