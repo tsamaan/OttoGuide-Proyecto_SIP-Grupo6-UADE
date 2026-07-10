@@ -60,6 +60,55 @@ usuario pedida en ese mismo checkpoint, fast-forward (nunca force), y sin tags.
   variantes "-FAST" que salten checkpoints intermedios de verificación, y siempre requiere
   autorización explícita separada de cualquier checkpoint de nivel A-C.
 
+## Fast-track documental de Nivel A
+
+Para reducir latencia operativa durante cierre de MVP, se habilita un fast-track exclusivo para
+checkpoints de Nivel A que modifiquen únicamente documentación pura.
+
+### Alcance permitido
+
+El fast-track documental solo aplica si el diff completo toca exclusivamente:
+
+- `docs/**`, excepto `docs/legacy/**`;
+- `AGENTS.md`;
+- `TODO.md`.
+
+### Alcance prohibido
+
+El fast-track documental queda prohibido si el diff toca cualquier archivo bajo:
+
+- `codigo ottoguide/**`;
+- `ottoguide_web_app/**`;
+- `docs/legacy/**`;
+- cualquier archivo C/C++/Python/JS/TS/shell;
+- cualquier configuración runtime;
+- cualquier script ejecutable;
+- cualquier archivo relacionado con robot, audio, Unitree, ROS, DDS, Nav2, SLAM o HIL.
+
+### Flujo permitido
+
+Un checkpoint fast-track documental puede colapsar revisión, mirror stage y promoción canónica
+en un solo checkpoint, siempre que cumpla todos los gates siguientes:
+
+1. preflight local con branch esperado, HEAD esperado y working tree limpio;
+2. verificación remota de canónico y mirror antes del cambio;
+3. diff acotado exclusivamente a documentación permitida;
+4. secret scan high-confidence;
+5. commit local único;
+6. confirmación explícita literal del usuario en ese mismo checkpoint;
+7. push fast-forward-only al mirror;
+8. push fast-forward-only al canónico;
+9. verificación posterior independiente de que mirror y canónico quedan alineados;
+10. reporte de evidencia.
+
+### Límites
+
+El fast-track documental no autoriza build, ejecución, tests, backend, frontend, robot, SSH,
+audio, Unitree, movimiento, `/cmd_vel`, `/odom`, `/tf`, force push, tags, merge, rebase ni PRs.
+
+Cualquier cambio de código, runtime, C++, Python, frontend, robot, audio o HIL vuelve
+automáticamente al flujo completo por checkpoints separados.
+
 ## Gates para robot físico (Nivel D)
 
 Antes de cualquier acceso al robot físico, movimiento o ejecución de HIL:
