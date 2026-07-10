@@ -30,3 +30,14 @@ add_executable(otto_jsonl_protocol_smoke
     tests/protocol_contract_smoke.cpp
 )
 target_link_libraries(otto_jsonl_protocol_smoke PRIVATE otto_jsonl_protocol)
+
+# IA-CXX-R8: protocol-compliant loopback worker (test double, no real audio/models/Unitree).
+add_executable(otto_jsonl_loopback_worker
+    src/otto_jsonl_loopback_worker.cpp
+)
+target_link_libraries(otto_jsonl_loopback_worker PRIVATE otto_jsonl_protocol)
+
+add_executable(loopback_worker_protocol_smoke
+    tests/loopback_worker_protocol_smoke.cpp
+)
+target_link_libraries(loopback_worker_protocol_smoke PRIVATE otto_jsonl_protocol)
