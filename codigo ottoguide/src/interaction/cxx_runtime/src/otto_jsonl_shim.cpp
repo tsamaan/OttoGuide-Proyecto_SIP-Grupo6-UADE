@@ -20,6 +20,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #include "otto_jsonl_protocol.hpp"
@@ -97,6 +98,11 @@ std::optional<std::string> ExtractStringField(const std::string& line, const std
     }
     return value;
 }
+
+// IA-CXX-R14B (ALT_2_INTERACTION_ID_RESERVED): reserved for offline mock protocol-gap
+// coverage only. Never a production interaction_id; never routed to otto_pipeline.cpp.
+constexpr std::string_view kSemanticRejectInteractionId = "itx-r14-semantic-reject";
+constexpr std::string_view kTimeoutInteractionId = "itx-r14-timeout";
 
 std::optional<CommandType> ParseCommand(const std::string& wire) {
     if (wire == "start") return CommandType::kStart;
@@ -230,6 +236,18 @@ public:
         emitter_.Emit(EventType::kFailed, std::nullopt, payload.str());
     }
 
+    // Interaction-scoped variant of EmitFailed: interaction_id is always non-null, so the
+    // supervisor (jsonl_worker_supervisor.py::_process_event) treats this as a rejection of the
+    // named interaction and returns to READY, instead of a process-level failure that would
+    // terminate the worker.
+    void EmitInteractionFailed(const std::string& interactionId, const std::string& code,
+                                const std::string& message) {
+        std::ostringstream payload;
+        payload << "{\"code\":\"" << JsonEscape(code) << "\",\"message\":\""
+                 << JsonEscape(message) << "\"}";
+        emitter_.Emit(EventType::kFailed, interactionId, payload.str());
+    }
+
     // Returns false once the process should exit (after stopped/closed emitted).
     bool HandleLine(const std::string& line) {
         auto commandWire = ExtractStringField(line, "command");
@@ -258,6 +276,24 @@ public:
                     return true;
                 }
                 EmitCommandAccepted(*command, *messageId, interactionId);
+
+                // IA-CXX-R14B (ALT_2_INTERACTION_ID_RESERVED): two reserved interaction_id
+                // values deterministically trigger the mock protocol-gap paths that were never
+                // exercised by the R11 happy-path shim. Reserved for offline mock coverage
+                // only -- never a production interaction_id, never routed to otto_pipeline.cpp.
+                if (*interactionId == kSemanticRejectInteractionId) {
+                    EmitInteractionFailed(*interactionId, "ERR_SEMANTIC_REJECTED",
+                                           "mock semantic rejection (IA-CXX-R14B)");
+                    return true;
+                }
+                if (*interactionId == kTimeoutInteractionId) {
+                    // Simulated timeout: emitted immediately, not awaited via sleep, per
+                    // IA-CXX-R14A RISK_2 mitigation.
+                    emitter_.Emit(EventType::kInteractionTimeout, interactionId,
+                                   "{\"timeout_s\":0.0}");
+                    return true;
+                }
+
                 emitter_.Emit(EventType::kWakeWordConfirmed, std::nullopt, "{}");
                 emitter_.Emit(EventType::kCaptureStarted, interactionId, "{}");
                 emitter_.Emit(EventType::kTranscriptReady, interactionId,

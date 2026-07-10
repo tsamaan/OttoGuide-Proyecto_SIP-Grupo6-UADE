@@ -146,3 +146,62 @@ async def test_close_reaches_closed_state() -> None:
     await supervisor.close()
     health = await supervisor.health()
     assert health.state is InteractionRuntimeState.CLOSED
+
+
+@pytest.mark.asyncio
+async def test_activate_with_reserved_id_emits_semantic_rejection() -> None:
+    # IA-CXX-R14B (ALT_2_INTERACTION_ID_RESERVED): the shim recognizes the reserved
+    # interaction_id "itx-r14-semantic-reject" and deterministically emits a `failed` event
+    # scoped to that interaction (non-null interaction_id) instead of the happy path.
+    shim_path = _resolve_shim_binary()
+    assert shim_path is not None
+    supervisor = JsonlInteractionWorkerSupervisor(_config(shim_path))
+    await supervisor.start()
+    try:
+        await supervisor.activate(
+            InteractionContext(interaction_id="itx-r14-semantic-reject")
+        )
+        seen = await _collect_until(supervisor, WorkerEventType.FAILED)
+        seen_types = [envelope.event for envelope in seen]
+        assert WorkerEventType.TRANSCRIPT_READY not in seen_types
+        assert WorkerEventType.RESPONSE_READY not in seen_types
+        assert WorkerEventType.PLAYBACK_COMPLETED not in seen_types
+
+        failed = seen[-1]
+        assert failed.interaction_id == "itx-r14-semantic-reject"
+        assert failed.payload["code"] == "ERR_SEMANTIC_REJECTED"
+        assert isinstance(failed.payload["message"], str)
+        assert failed.payload["message"] != ""
+
+        # Interaction-scoped FAILED must return the supervisor to READY, not terminate the
+        # worker (that only happens for process-level FAILED, interaction_id=None).
+        health = await supervisor.health()
+        assert health.state is InteractionRuntimeState.READY
+    finally:
+        await supervisor.close()
+
+
+@pytest.mark.asyncio
+async def test_activate_with_reserved_id_emits_interaction_timeout() -> None:
+    # IA-CXX-R14B (ALT_2_INTERACTION_ID_RESERVED): the shim recognizes the reserved
+    # interaction_id "itx-r14-timeout" and deterministically emits `interaction_timeout`
+    # immediately (simulated, not awaited via sleep) instead of the happy path.
+    shim_path = _resolve_shim_binary()
+    assert shim_path is not None
+    supervisor = JsonlInteractionWorkerSupervisor(_config(shim_path))
+    await supervisor.start()
+    try:
+        await supervisor.activate(InteractionContext(interaction_id="itx-r14-timeout"))
+        seen = await _collect_until(supervisor, WorkerEventType.INTERACTION_TIMEOUT)
+        seen_types = [envelope.event for envelope in seen]
+        assert WorkerEventType.TRANSCRIPT_READY not in seen_types
+        assert WorkerEventType.RESPONSE_READY not in seen_types
+        assert WorkerEventType.PLAYBACK_COMPLETED not in seen_types
+
+        timeout_envelope = seen[-1]
+        assert timeout_envelope.interaction_id == "itx-r14-timeout"
+
+        health = await supervisor.health()
+        assert health.state is InteractionRuntimeState.READY
+    finally:
+        await supervisor.close()

@@ -5,7 +5,8 @@
 // stdin/stdout as a subprocess, and does not depend on Python or the real supervisor.
 // Exercises: no NaN/Infinity in numeric output, every emitted line has no embedded newline,
 // and the wire vocabulary matches otto_jsonl_protocol.hpp exactly, including the two new
-// events (wake_word_confirmed, heartbeat cadence) introduced in R11.
+// events (wake_word_confirmed, heartbeat cadence) introduced in R11, and the two mock
+// protocol-gap paths (semantic rejection, interaction timeout) introduced in IA-CXX-R14B.
 
 #include <cassert>
 #include <cmath>
@@ -67,6 +68,9 @@ static_assert(EventTypeToWire(EventType::kPlaybackCompleted) == std::string_view
 static_assert(EventTypeToWire(EventType::kCancelled) == std::string_view{"cancelled"});
 static_assert(EventTypeToWire(EventType::kClosed) == std::string_view{"closed"});
 static_assert(EventTypeToWire(EventType::kStopped) == std::string_view{"stopped"});
+static_assert(EventTypeToWire(EventType::kFailed) == std::string_view{"failed"});
+static_assert(EventTypeToWire(EventType::kInteractionTimeout) ==
+              std::string_view{"interaction_timeout"});
 
 int main() {
     // ready (process event, interaction_id must be null)
@@ -135,5 +139,33 @@ int main() {
         assert(std::isfinite(0.0));
         assert(std::isfinite(1.6));
     }
+
+    // IA-CXX-R14B: semantic rejection path -- failed with a non-null interaction_id and
+    // code=ERR_SEMANTIC_REJECTED. Must NOT collapse to a process-level failure (which would
+    // require interaction_id:null and terminate the worker per jsonl_worker_supervisor.py).
+    {
+        const std::string iid = "itx-r14-semantic-reject";
+        const std::string frame = BuildFrame(
+            EventType::kFailed, 8, 1.7,
+            "{\"code\":\"ERR_SEMANTIC_REJECTED\",\"message\":\"mock semantic rejection\"}", &iid);
+        assert(frame.find("\"event\":\"failed\"") != std::string::npos);
+        assert(frame.find("\"interaction_id\":\"itx-r14-semantic-reject\"") != std::string::npos);
+        assert(frame.find("\"code\":\"ERR_SEMANTIC_REJECTED\"") != std::string::npos);
+        assert(HasNoEmbeddedNewline(frame));
+        assert(!ContainsNaNOrInfLiteral(frame));
+    }
+
+    // IA-CXX-R14B: interaction_timeout path -- non-null interaction_id, stable finite payload,
+    // emitted immediately (no sleep -- this is a simulated timeout, not an awaited one).
+    {
+        const std::string iid = "itx-r14-timeout";
+        const std::string frame =
+            BuildFrame(EventType::kInteractionTimeout, 9, 1.8, "{\"timeout_s\":0.0}", &iid);
+        assert(frame.find("\"event\":\"interaction_timeout\"") != std::string::npos);
+        assert(frame.find("\"interaction_id\":\"itx-r14-timeout\"") != std::string::npos);
+        assert(HasNoEmbeddedNewline(frame));
+        assert(!ContainsNaNOrInfLiteral(frame));
+    }
+
     return EXIT_SUCCESS;
 }
