@@ -7,6 +7,9 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - `DONE_CONFIRMED`: tarea ya implementada o validada por auditoría/código.
 - `DECIDED_NOT_IMPLEMENT`: tarea descartada por decisión arquitectónica explícita.
 - `PENDING_HIL`: requiere robot físico, ROS 2 runtime, sensores o captura HIL.
+- `PENDING_ROBOT_COMPILE_ONLY`: requiere robot físico para compilar o inspeccionar el
+  toolchain, pero no habilita runtime, ejecución de binarios, audio, red, ROS, DDS ni
+  movimiento.
 - `PENDING_DOC`: requiere actualización documental.
 - `PENDING_CODE`: requiere cambio de código post-RC1.
 - `OBSOLETE`: tarea superada por decisiones posteriores.
@@ -77,20 +80,62 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [PENDING_CODE] Separar MVC formalmente: modelos de dominio, controladores de caso de uso, vistas HTTP/WS.
 - [PENDING_CODE] Implementar `odom_bridge` solo si se confirma una fuente traslacional valida; debe quedar deshabilitado por defecto y no publicar `/cmd_vel`.
 - [PENDING_CODE] Implementar nodo ROS 2 `odom_bridge` solo despues de confirmar fuente traslacional valida.
+- [PENDING_CODE] IA-CXX-R8: implementar worker C++ loopback protocol-compliant bajo
+  `codigo ottoguide/src/interaction/cxx_runtime/`, con dispatch loop real de stdin/stdout,
+  offline, sin audio, sin red, sin modelos, sin Unitree.
+- [PENDING_CODE] IA-CXX-R8: crear tests C++ de framing/protocolo aislados en
+  `cxx_runtime/tests/`, sin dependencia de Python, red ni robot.
+- [PENDING_CODE] IA-CXX-R8: crear tests de integracion Python offline que apunten
+  `JsonlInteractionWorkerSupervisor` contra el worker C++ nuevo, analogos en estructura a
+  `test_u3a_jsonl_worker_supervisor.py`.
+- [PENDING_CODE] IA-CXX-R8: implementar `emergency_stop` dummy en el worker loopback,
+  validado offline, con transicion a `stopped` y terminacion limpia del proceso.
+- [PENDING_CODE] IA-CXX-R8: mantener paridad byte a byte con `runtime_port.py` en toda
+  logica de framing/serializacion nueva, no solo en los enums ya verificados en R5.
+- [PENDING_CODE] IA-CXX-R8: no tocar `otto_pipeline.cpp` bajo ninguna circunstancia.
+- [PENDING_CODE] IA-CXX-R8: no tocar `docs/legacy/**`.
+- [PENDING_CODE] IA-CXX-R8: no modificar `JsonlInteractionWorkerSupervisor`,
+  `runtime_port.py` ni `worker_supervisor.py` para acomodar al worker C++ — el worker C++ debe
+  adaptarse al contrato Python existente.
+
+## PENDING_ROBOT_COMPILE_ONLY
+
+- [PENDING_ROBOT_COMPILE_ONLY] Verificar que el repositorio en el robot fisico tiene working
+  tree limpio antes de cualquier accion de compilacion.
+- [PENDING_ROBOT_COMPILE_ONLY] Verificar branch/ref esperado del repositorio en el robot antes
+  de compilar.
+- [PENDING_ROBOT_COMPILE_ONLY] Verificar disponibilidad de toolchain (`g++`/`cmake`) en el
+  robot antes de intentar compilar.
+- [PENDING_ROBOT_COMPILE_ONLY] Compilar `codigo ottoguide/src/interaction/cxx_runtime/` en un
+  build dir externo al repo, en el entorno del robot, sin ejecutar los binarios resultantes.
+- [PENDING_ROBOT_COMPILE_ONLY] No ejecutar binarios producidos por esta compilacion bajo
+  ninguna circunstancia en este tipo de checkpoint.
+- [PENDING_ROBOT_COMPILE_ONLY] No autorizar movimiento del robot en ningun checkpoint
+  clasificado como compile-only.
+- [PENDING_ROBOT_COMPILE_ONLY] Capturar logs completos de compilacion, version del toolchain,
+  hash forense de `otto_pipeline.cpp` antes/despues, y estado del working tree antes/despues.
 
 ## DONE_CONFIRMED
 
 - [DONE_CONFIRMED] Mantener `UnitreeFactoryRestClient` en modo read-only hasta completar payload/ACK/autenticacion.
 - [DONE_CONFIRMED] Mantener prohibicion de control simultaneo: app oficial, control remoto manual y OttoGuide `/tour/start`.
 - [DONE_CONFIRMED] Mantener `TODO.md` como backlog post-RC1 y no como runbook operativo.
-- [DONE_CONFIRMED] Consolidar documentacion propia del proyecto bajo `documentacion general del proyecto/`.
-- [DONE_CONFIRMED] Eliminar `docs/` como ubicacion documental vigente.
-- [DONE_CONFIRMED] Aplicar raiz limpia con carpetas raiz principales `codigo ottoguide/`, `documentacion general del proyecto/` y `planificacion/`.
 - [DONE_CONFIRMED] Mover tooling/config/launch propios bajo `codigo ottoguide/`.
 - [DONE_CONFIRMED] Mirror Lucas `main` sincronizado una vez con canónico `robot` en `89c4c7f`.
 - [DONE_CONFIRMED] Remotos locales no canonicos eliminados para evitar push accidental.
 - [DONE_CONFIRMED] Documentar contrato formal offline del futuro `odom_bridge`.
 - [DONE_CONFIRMED] Agregar tests offline del contrato `odom_bridge` sin robot ni ROS runtime obligatorio.
+- [DONE_CONFIRMED] Ciclo IA-CXX R1-R7 cerrado: `docs/` confirmada como raiz documental vigente
+  y `codigo ottoguide/` como raiz de software, con flujo mirror -> validacion -> canonico
+  fast-forward ejercitado repetidamente con confirmacion explicita en cada push.
+- [DONE_CONFIRMED] Skeleton C++ productivo IA-CXX-R5 creado bajo
+  `codigo ottoguide/src/interaction/cxx_runtime/`, compilado offline (g++ 15.2.0, C++17, sin
+  warnings), publicado en canonico y mirror.
+- [DONE_CONFIRMED] IA-CXX-R6: binarios dummy (`otto_jsonl_shim`, `otto_jsonl_protocol_smoke`)
+  ejecutados una vez de forma controlada fuera del repo, sin cambios versionados.
+- [DONE_CONFIRMED] IA-CXX-R7: decidido y documentado
+  `NEXT_IMPLEMENTATION_STRATEGY = CXX_PROTOCOL_COMPLIANT_LOOPBACK_WORKER_FIRST` en
+  `docs/Arquitectura/IA_CXX_R7_JSONL_DISPATCH_LOOP_OR_DUMMY_WORKER_INTEGRATION_PLAN.md`.
 
 ## DECIDED_NOT_IMPLEMENT
 
@@ -98,7 +143,15 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 
 ## OBSOLETE
 
-- Sin items existentes clasificados como `OBSOLETE` en esta reestructuracion.
+- [OBSOLETE] Consolidar documentacion propia del proyecto bajo `documentacion general del
+  proyecto/`. Superada por el ciclo IA-CXX R1-R7: `docs/` es la raiz documental vigente
+  confirmada repetidamente (ver `AGENTS.md`, seccion "Raíces canónicas").
+- [OBSOLETE] Eliminar `docs/` como ubicacion documental vigente. Contradice directamente el
+  estado actual: toda la documentacion de arquitectura IA-CXX (R1-R7) vive bajo
+  `docs/Arquitectura/`, y `docs/legacy/**` conserva evidencia historica intencionalmente.
+- [OBSOLETE] Aplicar raiz limpia con carpetas raiz principales `codigo ottoguide/`,
+  `documentacion general del proyecto/` y `planificacion/`. Superada por la politica vigente de
+  dos raices (`docs/` documental, `codigo ottoguide/` software) fijada en `AGENTS.md`.
 
 ## UNKNOWN_REQUIRES_REVIEW
 
@@ -108,6 +161,29 @@ Estado: RC1_LOCKED. Este documento opera como backlog de tareas Post-RC1 y reque
 - [UNKNOWN_REQUIRES_REVIEW] Evaluar si `LowState`/`SportModeState` aportan datos suficientes para odometria o solo IMU/FSM/joints.
 - [UNKNOWN_REQUIRES_REVIEW] Determinar si existe fuente DDS HG distinta de `LowState`/`SportModeState` que exponga pose/twist.
 - [UNKNOWN_REQUIRES_REVIEW] Investigar por que `ros2 topic hz` en Foxy produjo `Segmentation fault` al consultar topics ausentes durante la sesion read-only 2026-06-18.
+
+## Precondiciones ROBOT-R5F / micro-movimiento
+
+Ninguna de las siguientes tareas debe ejecutarse hasta que se cumplan **todas** las
+precondiciones siguientes, cada una verificada explícitamente en su propio checkpoint:
+
+- [PENDING_HIL] IA-CXX-R8 cerrado y publicado (canónico y mirror alineados).
+- [PENDING_HIL] Worker loopback C++ validado offline contra
+  `JsonlInteractionWorkerSupervisor`, con cobertura de framing equivalente a la ya existente
+  contra el worker Python (`test_u3a_jsonl_worker_supervisor.py`).
+- [PENDING_HIL] `emergency_stop` dummy validado offline en el worker loopback antes de
+  cualquier prueba HIL.
+- [PENDING_HIL] Checkpoint de compilación en el robot físico (`PENDING_ROBOT_COMPILE_ONLY`)
+  completado, sin ejecución de binarios ni movimiento.
+- [PENDING_HIL] Hardstop físico disponible y probado antes de cualquier micro-movimiento.
+- [PENDING_HIL] Operador responsable presente durante la operación.
+- [PENDING_HIL] Límites explícitos de distancia, velocidad y tiempo definidos antes de
+  ejecutar cualquier movimiento, por mínimo que sea.
+- [PENDING_HIL] Plan de rollback definido antes de ejecutar.
+- [PENDING_HIL] No usar comandos `/cmd_vel`, `LocoClient.Move` ni ningún método del SDK de
+  locomoción antes de que exista un checkpoint dedicado y explícitamente autorizado para ello.
+- [PENDING_HIL] Autorización explícita del usuario, separada de cualquier checkpoint previo,
+  específica para el micro-movimiento o `ROBOT-R5F` en cuestión.
 
 ## Reglas de operación
 
