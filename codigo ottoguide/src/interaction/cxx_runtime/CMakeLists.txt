@@ -21,10 +21,15 @@ target_include_directories(otto_jsonl_protocol INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+# IA-CXX-R11: otto_jsonl_shim now runs a background heartbeat thread (std::thread), requiring
+# the platform threading library. No other target in this file uses threads.
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
 add_executable(otto_jsonl_shim
     src/otto_jsonl_shim.cpp
 )
-target_link_libraries(otto_jsonl_shim PRIVATE otto_jsonl_protocol)
+target_link_libraries(otto_jsonl_shim PRIVATE otto_jsonl_protocol Threads::Threads)
 
 add_executable(otto_jsonl_protocol_smoke
     tests/protocol_contract_smoke.cpp
@@ -41,3 +46,9 @@ add_executable(loopback_worker_protocol_smoke
     tests/loopback_worker_protocol_smoke.cpp
 )
 target_link_libraries(loopback_worker_protocol_smoke PRIVATE otto_jsonl_protocol)
+
+# IA-CXX-R11: mocked dispatch loop smoke test (otto_jsonl_shim.cpp is no longer a stub).
+add_executable(shim_mock_protocol_smoke
+    tests/shim_mock_protocol_smoke.cpp
+)
+target_link_libraries(shim_mock_protocol_smoke PRIVATE otto_jsonl_protocol)
