@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -50,18 +49,22 @@ class UnitreeG1Adapter(RobotHardwareInterface):
     @SECURITY: Toda llamada al SDK se aisla en ThreadPoolExecutor
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, network_interface: str) -> None:
         """
         @TASK: Inicializar estado interno sin contactar el SDK
-        @INPUT: Sin parametros
+        @INPUT: Interfaz DDS ya validada por Pydantic Settings
         @OUTPUT: Estado _initialized=False; SDK no cargado
         @CONTEXT: Constructor ligero; la inicializacion real ocurre en initialize()
         @SECURITY: No se toca el SDK hasta que initialize() sea invocado
         """
+        normalized = network_interface.strip()
+        if not normalized:
+            raise ValueError("ROBOT_NETWORK_INTERFACE_EMPTY")
+
         self._sdk_client: Optional[Any] = None
         self._executor: Optional[ThreadPoolExecutor] = None
         self._initialized: bool = False
-        self._network_interface: str = os.environ.get("ROBOT_NETWORK_INTERFACE", "")
+        self._network_interface = normalized
         LOGGER.info(
             "[REAL] UnitreeG1Adapter creado. network_interface='%s'",
             self._network_interface,
@@ -70,7 +73,7 @@ class UnitreeG1Adapter(RobotHardwareInterface):
     async def initialize(self) -> None:
         """
         @TASK: Inicializar SDK Unitree y negociar DDS en executor
-        @INPUT: ROBOT_NETWORK_INTERFACE desde os.environ
+        @INPUT: Interfaz inyectada por config.settings.get_hardware_adapter()
         @OUTPUT: _sdk_client listo; _initialized=True
         @CONTEXT: ChannelFactory.Instance().Init() es bloqueante
         STEP 1: Importar unitree_sdk2py localmente

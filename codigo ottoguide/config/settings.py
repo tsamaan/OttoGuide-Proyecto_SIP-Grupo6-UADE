@@ -281,7 +281,9 @@ def get_hardware_adapter():
             settings.ROBOT_NETWORK_INTERFACE,
         )
         from hardware.real_adapter import UnitreeG1Adapter
-        return UnitreeG1Adapter()
+        return UnitreeG1Adapter(
+            network_interface=settings.ROBOT_NETWORK_INTERFACE,
+        )
 
     if settings.ROBOT_MODE == "sim":
         # STEP 3: Import lazy del adaptador de simulacion
