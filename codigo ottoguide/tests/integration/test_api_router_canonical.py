@@ -171,6 +171,38 @@ async def test_status_reports_script_loaded_successfully():
     assert body["script_load_error"] is None
 
 
+@pytest.mark.asyncio
+async def test_status_works_with_navigation_explicitly_disabled():
+    app = _build_minimal_app(_IdleOrchestrator())
+    app.state.navigation_backend_requested = "disabled"
+    app.state.navigation_backend_resolved = "disabled"
+    app.state.navigation_started = False
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["navigation_backend_resolved"] == "disabled"
+    assert body["navigation_started"] is False
+
+
+@pytest.mark.asyncio
+async def test_tour_start_returns_503_when_navigation_is_disabled():
+    app = _build_minimal_app(_IdleOrchestrator())
+    app.state.navigation_backend_requested = "disabled"
+    app.state.navigation_backend_resolved = "disabled"
+    app.state.navigation_started = False
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/tour/start", json=_VALID_PAYLOAD)
+
+    assert response.status_code == 503
+    assert "navigation disabled: status-only real runtime" in str(response.json())
+
+
 # ---------------------------------------------------------------------------
 # 5.2 — POST /tour/start awaits dispatch_tour()
 # ---------------------------------------------------------------------------

@@ -624,7 +624,9 @@ async def _resolve_readiness_errors(request: Request, orchestrator) -> list[str]
     if nav_bridge is None or backend_resolved is None:
         errors.append("navigation backend unavailable")
     else:
-        if backend_resolved == "stub" and not stub_tours_allowed:
+        if backend_resolved == "disabled":
+            errors.append("navigation disabled: status-only real runtime")
+        elif backend_resolved == "stub" and not stub_tours_allowed:
             errors.append("navigation backend stub: autonomous tours disabled")
         elif backend_resolved in ("legacy", "direct") and not navigation_started:
             errors.append("navigation backend not started")

@@ -139,6 +139,11 @@ class TestSettingsValues:
             assert settings.API_HOST == "0.0.0.0"
             assert settings.API_PORT == 8000
 
+    def test_navigation_backend_disabled_is_valid_explicit_selection(self) -> None:
+        with patch.dict(os.environ, {"NAVIGATION_BACKEND": "disabled"}, clear=True):
+            settings = Settings(_env_file=None)  # type: ignore[call-arg]
+            assert settings.NAVIGATION_BACKEND == "disabled"
+
     def test_custom_env_values(self) -> None:
         with patch.dict(os.environ, {
             "ROBOT_MODE": "mock",

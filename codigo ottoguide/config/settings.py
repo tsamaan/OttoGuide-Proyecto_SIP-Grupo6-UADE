@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     #            defecto: selecciona el backend "direct" en ROBOT_MODE=real exige habilitarlo
     #            explicitamente. NAVIGATION_ALLOW_STUB_TOURS default False impide despachar
     #            tours autonomos contra un backend no operativo.
-    NAVIGATION_BACKEND: Literal["auto", "legacy", "direct", "stub"] = "auto"
+    NAVIGATION_BACKEND: Literal["auto", "legacy", "direct", "stub", "disabled"] = "auto"
     NAVIGATION_DIRECT_REAL_ENABLED: bool = False
     NAVIGATION_ALLOW_STUB_TOURS: bool = False
 

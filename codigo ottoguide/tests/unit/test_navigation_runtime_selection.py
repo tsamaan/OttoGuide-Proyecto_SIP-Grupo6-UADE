@@ -349,6 +349,12 @@ class BackendResolutionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "NAVIGATION_STUB_FORBIDDEN_IN_REAL_MODE"):
             self.main._resolve_navigation_backend(self._settings("stub", "real"))
 
+    def test_disabled_real_resolves_disabled(self):
+        self.assertEqual(
+            self.main._resolve_navigation_backend(self._settings("disabled", "real")),
+            "disabled",
+        )
+
 
 # ---------------------------------------------------------------------------
 # _check_direct_real_interlock
@@ -450,6 +456,31 @@ class NavigationBridgeFactoryTests(unittest.TestCase):
         settings = SimpleNamespace(NAVIGATION_BACKEND="stub")
         bridge = self.main._build_navigation_bridge(settings, "stub")
         self.assertIsInstance(bridge, self.main._MinimalNavStub)
+
+    def test_disabled_builds_without_importing_rclpy(self):
+        for name in tuple(sys.modules):
+            if name == "rclpy" or name.startswith("rclpy."):
+                sys.modules.pop(name, None)
+
+        bridge = self.main._build_navigation_bridge(SimpleNamespace(), "disabled")
+
+        self.assertIsInstance(bridge, self.main._DisabledNavigationBridge)
+        self.assertNotIn("rclpy", sys.modules)
+
+    def test_disabled_start_is_noop_and_navigation_is_rejected(self):
+        bridge = self.main._build_navigation_bridge(SimpleNamespace(), "disabled")
+
+        async def exercise():
+            self.assertIsNone(await bridge.start())
+            self.assertFalse(await bridge.is_navigation_active())
+            with self.assertRaisesRegex(RuntimeError, "NAVIGATION_DISABLED"):
+                await bridge.send_goal(SimpleNamespace())
+
+        asyncio.run(exercise())
+        readiness = bridge.get_readiness()
+        self.assertFalse(readiness.started)
+        self.assertFalse(readiness.ntp_available)
+        self.assertFalse(readiness.fw_available)
 
     def test_unknown_resolved_backend_fails_closed(self):
         settings = SimpleNamespace()
@@ -679,6 +710,22 @@ class LifespanDirectBackendTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(app.state.navigation_started)
             self.assertIsInstance(app.state.nav_bridge, self.main._MinimalNavStub)
 
+    async def test_real_disabled_backend_initializes_hardware_but_not_navigation(self):
+        app = _FakeApp()
+        fake_hardware = _FakeHardware()
+
+        self.main.get_settings = lambda: self._settings(
+            ROBOT_MODE="real",
+            NAVIGATION_BACKEND="disabled",
+        )
+        self.main.get_hardware_adapter = lambda: fake_hardware
+
+        async with self.main.lifespan(app):
+            self.assertEqual(app.state.navigation_backend_resolved, "disabled")
+            self.assertFalse(app.state.navigation_started)
+            self.assertIsInstance(app.state.nav_bridge, self.main._DisabledNavigationBridge)
+            fake_hardware.initialize.assert_awaited_once()
+
 
 # ---------------------------------------------------------------------------
 # Readiness gating (api/router.py _resolve_readiness_errors)
@@ -730,6 +777,12 @@ class ReadinessTests(unittest.IsolatedAsyncioTestCase):
         request = _FakeRequest(state)
         errors = await self.router._resolve_readiness_errors(request, _fake_orchestrator())
         self.assertIn("navigation backend stub: autonomous tours disabled", errors)
+
+    async def test_disabled_backend_blocks_with_status_only_reason(self):
+        state = self._state(navigation_backend_resolved="disabled", navigation_started=False)
+        request = _FakeRequest(state)
+        errors = await self.router._resolve_readiness_errors(request, _fake_orchestrator())
+        self.assertIn("navigation disabled: status-only real runtime", errors)
 
     async def test_stub_with_allow_flag_in_mock_permits(self):
         state = self._state(

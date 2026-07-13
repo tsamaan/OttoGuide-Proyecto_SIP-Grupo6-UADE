@@ -569,7 +569,7 @@ def _resolve_navigation_backend(settings) -> str:
     """
     @TASK: Resolver el backend de navegacion concreto a partir de Settings
     @INPUT: settings — instancia de Settings con NAVIGATION_BACKEND/ROBOT_MODE
-    @OUTPUT: "legacy" | "direct" | "stub"
+    @OUTPUT: "legacy" | "direct" | "stub" | "disabled"
     @CONTEXT: NAVIGATION_BACKEND="auto" resuelve a "legacy" en ROBOT_MODE=real
               (rollback explicito al stack ya validado) y a "stub" en cualquier
               otro modo. "legacy"/"direct" explicitos se devuelven tal cual,
@@ -581,7 +581,8 @@ def _resolve_navigation_backend(settings) -> str:
 
     STEP 1: NAVIGATION_BACKEND="auto" → legacy si real, stub en caso contrario
     STEP 2: NAVIGATION_BACKEND="stub" + ROBOT_MODE=real → error estable
-    STEP 3: Cualquier otro valor explicito ("legacy"/"direct"/"stub" no-real)
+    STEP 3: Cualquier otro valor explicito ("legacy"/"direct"/"stub" no-real/
+            "disabled")
             se devuelve sin modificar
     """
     requested = settings.NAVIGATION_BACKEND
@@ -621,7 +622,7 @@ def _build_navigation_bridge(settings, resolved_backend: str):
     """
     @TASK: Construir la instancia concreta del backend de navegacion ya resuelto
     @INPUT: settings — Settings con los parametros NAVIGATION_* configurables;
-            resolved_backend — "legacy" | "direct" | "stub"
+            resolved_backend — "legacy" | "direct" | "stub" | "disabled"
     @OUTPUT: Instancia construida (sin start()) que conforma NavigationPort
     @CONTEXT: Imports de AsyncNav2Bridge/DirectNav2ActionBridge son lazy (solo
               se importa rclpy/ROS si el backend resuelto realmente lo requiere).
@@ -633,6 +634,7 @@ def _build_navigation_bridge(settings, resolved_backend: str):
     STEP 2: "direct" → import lazy de DirectNav2ActionBridge, instancia con
             todos los valores NAVIGATION_* de Settings
     STEP 3: "stub" → _MinimalNavStub, sin imports de ROS
+    STEP 4: "disabled" → _DisabledNavigationBridge, status-only y sin I/O
     """
     if resolved_backend == "legacy":
         try:
@@ -661,6 +663,9 @@ def _build_navigation_bridge(settings, resolved_backend: str):
 
     if resolved_backend == "stub":
         return _MinimalNavStub()
+
+    if resolved_backend == "disabled":
+        return _DisabledNavigationBridge()
 
     raise RuntimeError(f"NAVIGATION_BACKEND_BUILD_FAILED:{resolved_backend}:unknown backend")
 
@@ -762,6 +767,62 @@ def _build_vision_processor(settings):
             "[BOOT] VisionProcessor no disponible. Usando stub minimo."
         )
         return _MinimalVisionStub()
+
+
+class _DisabledNavigationBridge:
+    """Backend explicito para hardware real status-only, sin ROS, red ni publishers."""
+
+    def __init__(self):
+        from src.navigation.models import NavigationResult, NavigationStatus, NavigationTerminalStatus
+
+        self._status = NavigationStatus(
+            task_active=False,
+            last_result_succeeded=False,
+            last_result=NavigationResult(
+                action_name="_DisabledNavigationBridge",
+                status=NavigationTerminalStatus.ERROR,
+                succeeded=False,
+                error_msg="NAVIGATION_DISABLED",
+            ),
+        )
+
+    async def start(self):
+        return None
+
+    async def close(self):
+        return None
+
+    async def navigate_to_waypoints(self, waypoints):
+        raise RuntimeError("NAVIGATION_DISABLED")
+
+    async def cancel_navigation(self):
+        return None
+
+    async def inject_absolute_pose(self, pose):
+        raise RuntimeError("NAVIGATION_DISABLED")
+
+    async def send_goal(self, waypoint) -> bool:
+        raise RuntimeError("NAVIGATION_DISABLED")
+
+    async def is_navigation_active(self) -> bool:
+        return False
+
+    async def get_status(self) -> "NavigationStatus":
+        from dataclasses import replace
+
+        return replace(self._status)
+
+    async def get_last_result(self) -> "NavigationResult":
+        return self._status.last_result
+
+    def get_readiness(self) -> "NavigationLayeredReadiness":
+        from src.navigation.models import NavigationLayeredReadiness
+
+        return NavigationLayeredReadiness(
+            started=False,
+            ntp_available=False,
+            fw_available=False,
+        )
 
 
 class _MinimalNavStub:
