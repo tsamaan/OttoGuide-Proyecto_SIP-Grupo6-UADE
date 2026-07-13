@@ -270,7 +270,7 @@ async def test_orchestrator_subscribes_on_init():
 
     # Mocks mínimos para el constructor
     mock_hw = MagicMock()
-    mock_hw.damp = AsyncMock()
+    mock_hw.stop_motion = AsyncMock()
     mock_hw.move = AsyncMock()
     mock_hw.get_state = AsyncMock(return_value={"battery_level": 100.0})
 

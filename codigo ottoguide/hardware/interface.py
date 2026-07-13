@@ -7,7 +7,7 @@
 
 STEP 1: Definir MotionCommand como dataclass inmutable
 STEP 2: Definir ABC con metodos obligatorios para cualquier adaptador
-STEP 3: damp() debe ser invocable con timeout de 1.5s por el caller
+STEP 3: stop_motion() preserva postura y delega exclusivamente en StopMove
 """
 
 from __future__ import annotations
@@ -51,28 +51,6 @@ class RobotHardwareInterface(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def stand(self) -> None:
-        """
-        @TASK: Comandar bipedestacion del robot
-        @INPUT: Sin parametros
-        @OUTPUT: Robot de pie en posicion neutra
-        @CONTEXT: Prerequisito para move(); no invocar desde EMERGENCY
-        @SECURITY: Verificar estado mecanico antes de invocar
-        """
-        ...
-
-    @abc.abstractmethod
-    async def damp(self) -> None:
-        """
-        @TASK: Ejecutar parada amortiguada de emergencia
-        @INPUT: Sin parametros
-        @OUTPUT: Actuadores desacoplados; robot en estado seguro
-        @CONTEXT: Timeout hard limit 1.5s impuesto por el caller
-        @SECURITY: Funcion critica de seguridad operacional — NUNCA omitir en shutdown
-        """
-        ...
-
-    @abc.abstractmethod
     async def move(self, command: MotionCommand) -> None:
         """
         @TASK: Ejecutar comando de movimiento cinematico
@@ -80,6 +58,15 @@ class RobotHardwareInterface(abc.ABC):
         @OUTPUT: Robot en movimiento durante duration_ms
         @CONTEXT: Clamping cinematico aplicado por el adaptador concreto
         @SECURITY: Velocidad maxima operativa 0.3 m/s (clamping obligatorio)
+        """
+        ...
+
+    @abc.abstractmethod
+    async def stop_motion(self) -> None:
+        """Detener locomocion preservando la postura.
+
+        Debe ejecutar StopMove exactamente una vez por invocacion. No puede
+        ejecutar Damp, Start, StandUp, BalanceStand ni otro cambio postural.
         """
         ...
 
@@ -93,18 +80,6 @@ class RobotHardwareInterface(abc.ABC):
         @SECURITY: Solo lectura; sin efectos secundarios
         """
         ...
-
-    @abc.abstractmethod
-    async def emergency_stop(self) -> None:
-        """
-        @TASK: Activar parada de emergencia inmediata
-        @INPUT: Sin parametros
-        @OUTPUT: damp() ejecutado; todos los comandos pendientes cancelados
-        @CONTEXT: Invocable desde cualquier estado; maxima prioridad
-        @SECURITY: Debe invocar damp() internamente como primera accion
-        """
-        ...
-
 
 __all__ = [
     "MotionCommand",

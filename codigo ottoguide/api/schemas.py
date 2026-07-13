@@ -89,20 +89,26 @@ class EmergencyResponse(BaseModel):
     """
     @TASK: Tipar la respuesta de POST /emergency reflejando el EmergencyStopResult real
     @INPUT: Poblado desde TourOrchestrator.emergency_stop()
-    @OUTPUT: executed/terminal_safe como booleanos JSON reales (nunca strings "true"/"false")
+    @OUTPUT: Resultado de parada de locomocion con preservacion postural
     @CONTEXT: executed indica que la secuencia se ejecuto (o ya estaba ejecutada via
-              already_emergency); terminal_safe es la unica fuente de verdad sobre seguridad
-              fisica confirmada. El codigo HTTP del endpoint depende de terminal_safe, no de
-              si esta respuesta se pudo construir.
+              already_emergency); terminal_safe es compatibilidad software-only y no sustituye
+              la verificacion fisica del operador.
     """
     executed: bool
     terminal_safe: bool
     already_emergency: bool
     reason: str
     state: str
+    mission_locked: bool
+    software_motion_terminal: bool
+    posture_preserved: bool
+    operator_intervention_required: bool
     nav_cancel_succeeded: bool
     zero_velocity_succeeded: bool
-    damp_succeeded: bool
+    stop_motion_succeeded: bool
+    posture_change_attempted: bool
+    damp_attempted: bool = False
+    damp_succeeded: bool = False
     errors: list[str] = Field(default_factory=list)
 
 

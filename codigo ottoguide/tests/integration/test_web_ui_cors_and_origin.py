@@ -34,6 +34,9 @@ def _fresh_app():
     """Import main fresh and clear the settings cache so env overrides take effect."""
     import main
     get_settings.cache_clear()
+    # Other integration modules may reload config.settings during collection. Clear the
+    # exact callable captured by main as well so this test remains order-independent.
+    main.get_settings.cache_clear()
     app = main.create_app()
     return app
 
@@ -436,17 +439,15 @@ def test_runbook_uses_npm_ci_not_npm_install():
     assert "npm install" not in content
 
 
-def test_runbook_distinguishes_shutdown_completed_from_terminal_safety_confirmed():
-    """The runbook must never let the operator read 'SECUENCIA HIL-SAFE COMPLETADA' as
-    proof that damp() succeeded: it must explicitly name the two real confirmations
-    (ORCHESTRATOR_EMERGENCY_COMPLETED or the damp() success log) and the physical
-    fallback (L1+A) for when neither is present."""
+def test_runbook_defines_posture_preserving_stop_and_operator_authority():
+    """The runbook must distinguish software stop from mechanical safety."""
     runbook = PROJECT_ROOT.parent / "docs" / "Operaciones_HIL" / "WEB_UI_NOTEBOOK_COMPANION_RUNBOOK.md"
     content = runbook.read_text(encoding="utf-8")
 
     assert "ORCHESTRATOR_EMERGENCY_COMPLETED" in content
-    assert "damp() ejecutado correctamente" in content
-    assert "L1+A" in content
+    assert "StopMove" in content
+    assert "operator_intervention_required=true" in content
+    assert "OttoGuide nunca emite" in content
 
     # The warning must sit next to the literal log marker, not just exist somewhere
     # disconnected from it.
@@ -454,7 +455,7 @@ def test_runbook_distinguishes_shutdown_completed_from_terminal_safety_confirmed
     assert marker_index != -1
     warning_window = content[marker_index : marker_index + 400]
     assert "NO" in warning_window
-    assert "damp()" in warning_window
+    assert "StopMove" in warning_window
 
     assert "de forma garantizada" not in content
 

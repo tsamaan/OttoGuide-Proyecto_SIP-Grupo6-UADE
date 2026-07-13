@@ -5,26 +5,19 @@
 //
 // Key differences from v1 (R5F-R2):
 //   - default mode is `status` (read-only), not `stop`;
-//   - Damp() is isolated to its own explicit `passive-damp` mode -- never called implicitly
-//     as prep or as the normal close of a motion command, per the operator's physical
-//     observation that Damp() can loosen joints and make an already-standing robot sit/fall;
-//   - motion modes (micro-yaw, micro-yaw-return, linear-min) close with StopMove() instead
-//     of Damp();
-//   - added stand-up and balance-stand explicit modes, each independently gated by the
-//     caller's own confirmation flow (this binary does not gate confirmations itself -- the
-//     calling checkpoint process does that before invoking a given --mode);
+//   - programmatic posture changes are rejected before SDK initialization;
+//   - motion modes close with StopMove(), which preserves posture;
 //   - added micro-yaw-return: a bounded positive-then-negative yaw pair to approximately
 //     restore original heading.
 //
 // Modes:
 //   --mode=status          (default) Read-only: GetFsmId/GetFsmMode/GetBalanceMode/
-//                           GetStandHeight. No motion, no Damp, no SetVelocity.
-//   --mode=passive-damp     Damp() only. Explicit passive/emergency mode. Never called
-//                           implicitly by any other mode.
+//                           GetStandHeight. No motion or SetVelocity.
+//   --mode=passive-damp     Rejected before SDK initialization. Operator remote only.
 //   --mode=velocity-stop    StopMove() only. Normal close of any velocity command, or an
 //                           explicit safe-stop after an anomaly.
-//   --mode=stand-up         StandUp() only.
-//   --mode=balance-stand    BalanceStand() only.
+//   --mode=stand-up         Rejected before SDK initialization. Operator remote only.
+//   --mode=balance-stand    Rejected before SDK initialization. Operator remote only.
 //   --mode=micro-yaw        Bounded SetVelocity(0, 0, +omega, duration), sleep, StopMove().
 //   --mode=micro-yaw-return Bounded SetVelocity(0,0,+omega,d1), StopMove(), sleep,
 //                           SetVelocity(0,0,-omega,d2), StopMove().
@@ -33,7 +26,7 @@
 // Hard safety bounds (not configurable via CLI, intentionally):
 //   - duration capped at kMaxDurationS for every motion mode;
 //   - omega/vx magnitude capped at conservative low values;
-//   - every motion mode closes with StopMove(), never Damp();
+//   - every motion mode closes with StopMove() and preserves posture;
 //   - a single SetVelocity call per motion leg, no loop, no retry.
 //
 // Does not touch ROS2, ottoguide production Python, or otto_pipeline.cpp.
@@ -106,6 +99,11 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  if (mode == "passive-damp" || mode == "stand-up" || mode == "balance-stand") {
+    std::cerr << "PROGRAMMATIC_POSTURE_CHANGE_PROHIBITED_USE_OPERATOR_REMOTE" << std::endl;
+    return 64;
+  }
+
   Log("ottoguide_g1_motion_v2 starting, mode=" + mode +
       ", network_interface=" + networkInterface);
 
@@ -149,19 +147,6 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  if (mode == "passive-damp") {
-    Log("mode=passive-damp: explicit passive mode, calling Damp() only. This is NOT used as "
-        "prep or as the normal close of any motion mode in this wrapper.");
-    int32_t ret = client.Damp();
-    Log("Damp() returned " + std::to_string(ret));
-    if (ret != 0) {
-      std::cerr << "Damp() failed with code " << ret << std::endl;
-      return 3;
-    }
-    Log("passive-damp mode complete, exit 0.");
-    return 0;
-  }
-
   if (mode == "velocity-stop") {
     Log("mode=velocity-stop: calling StopMove() only. Normal close / safe-stop mode. Damp() "
         "is NOT called.");
@@ -172,30 +157,6 @@ int main(int argc, char** argv) {
       return 4;
     }
     Log("velocity-stop mode complete, exit 0.");
-    return 0;
-  }
-
-  if (mode == "stand-up") {
-    Log("mode=stand-up: calling StandUp().");
-    int32_t ret = client.StandUp();
-    Log("StandUp() returned " + std::to_string(ret));
-    if (ret != 0) {
-      std::cerr << "StandUp() failed with code " << ret << std::endl;
-      return 5;
-    }
-    Log("stand-up mode complete, exit 0.");
-    return 0;
-  }
-
-  if (mode == "balance-stand") {
-    Log("mode=balance-stand: calling BalanceStand().");
-    int32_t ret = client.BalanceStand();
-    Log("BalanceStand() returned " + std::to_string(ret));
-    if (ret != 0) {
-      std::cerr << "BalanceStand() failed with code " << ret << std::endl;
-      return 6;
-    }
-    Log("balance-stand mode complete, exit 0.");
     return 0;
   }
 

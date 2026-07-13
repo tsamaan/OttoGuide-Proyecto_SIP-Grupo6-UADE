@@ -58,7 +58,7 @@ class RecordingHardware:
     def __init__(self, order: list[str]) -> None:
         self.order = order
         self.moves: list[MotionCommand] = []
-        self.damp_started = asyncio.Event()
+        self.stop_motion_started = asyncio.Event()
 
     async def initialize(self) -> bool:
         return True
@@ -67,9 +67,9 @@ class RecordingHardware:
         self.order.append("zero")
         self.moves.append(command)
 
-    async def damp(self) -> None:
-        self.order.append("damp")
-        self.damp_started.set()
+    async def stop_motion(self) -> None:
+        self.order.append("stop_motion")
+        self.stop_motion_started.set()
 
 
 class BlockingNav:
@@ -466,7 +466,7 @@ async def test_runtime_activation_failure_does_not_fallback_to_conversation_mana
 
 
 @pytest.mark.asyncio
-async def test_emergency_runtime_call_does_not_delay_zero_velocity_or_damp() -> None:
+async def test_emergency_runtime_call_does_not_delay_zero_velocity_or_stopmove() -> None:
     runtime = RuntimeFake()
     runtime.block_next_event = True
     orchestrator, _, completions, order = _make_orchestrator(runtime)
@@ -478,10 +478,10 @@ async def test_emergency_runtime_call_does_not_delay_zero_velocity_or_damp() -> 
     result = await orchestrator.emergency_stop("test emergency")
 
     assert result is not None
-    assert result.damp_succeeded is True
+    assert result.stop_motion_succeeded is True
     assert runtime.emergency_stop_calls == 1
     assert runtime.stop_calls == 0
-    assert order.index("damp") > order.index("zero")
+    assert order.index("stop_motion") > order.index("zero")
     assert completions == []
     assert orchestrator._active_runtime_interaction_id is None
     await orchestrator.close()
@@ -516,7 +516,7 @@ async def test_public_emergency_during_supervised_interaction_does_not_deadlock_
     await runtime.activate_started.wait()
 
     emergency_task = asyncio.create_task(orchestrator.emergency_stop("public emergency"))
-    await orchestrator._hardware_api.damp_started.wait()
+    await orchestrator._hardware_api.stop_motion_started.wait()
     runtime.release_emergency_stop.set()
     result = await asyncio.wait_for(emergency_task, timeout=1.0)
 
@@ -525,7 +525,7 @@ async def test_public_emergency_during_supervised_interaction_does_not_deadlock_
     assert completions == []
     assert runtime.emergency_stop_calls == 1
     assert runtime.stop_calls == 0
-    assert order.index("cancel_nav") < order.index("zero") < order.index("damp")
+    assert order.index("cancel_nav") < order.index("zero") < order.index("stop_motion")
 
 
 @pytest.mark.asyncio
@@ -905,15 +905,14 @@ async def test_stubborn_emergency_task_settlement_timeout_is_strictly_bounded() 
             del module.INTERACTION_TASK_SETTLE_S
 
     elapsed = loop.time() - t0
-    # on_enter_emergency no debe tardar más que damp_timeout + settle_timeout + margen
-    # El bound efectivo es damp_timeout_s (0.1 por defecto en make_orchestrator) + settle + margen
+    # on_enter_emergency no debe tardar más que stop_motion_timeout + settle_timeout + margen
     assert elapsed <= 2.0, (
         f"emergency_stop tardó {elapsed:.3f}s (demasiado; settlement debía estar acotado)"
     )
 
     # El resultado debe mantener EMERGENCY terminal aunque el settlement falló
     assert orchestrator.state_id == "emergency"
-    assert result.terminal_safe is True  # damp debe haber tenido éxito
+    assert result.terminal_safe is True  # StopMove debe haber tenido éxito
 
     release_emergency.set()
     await asyncio.sleep(0.05)
@@ -971,12 +970,12 @@ async def test_stubborn_emergency_task_handle_is_preserved_after_timeout() -> No
 
 
 # ---------------------------------------------------------------------------
-# DEFECT_2: EMERGENCY queda terminal aunque el settlement falle después de Damp
+# DEFECT_2: EMERGENCY queda terminal aunque el settlement falle después de StopMove
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_emergency_reaches_terminal_state_despite_post_damp_settlement_timeout() -> None:
-    """DEFECT_2: aunque el settlement de interaction/emergency tasks falle después de Damp,
+async def test_emergency_reaches_terminal_state_despite_post_stopmove_settlement_timeout() -> None:
+    """DEFECT_2: aunque el settlement de interaction/emergency tasks falle después de StopMove,
     el estado debe permanecer en EMERGENCY (terminal) y terminal_safe debe ser True."""
     import src.core.tour_orchestrator as module
 
@@ -1006,7 +1005,7 @@ async def test_emergency_reaches_terminal_state_despite_post_damp_settlement_tim
     module.INTERACTION_TASK_SETTLE_S = _SETTLE_TIMEOUT_FOR_TEST
 
     try:
-        result = await orchestrator.emergency_stop("stubborn after damp")
+        result = await orchestrator.emergency_stop("stubborn after stopmove")
     finally:
         if original_settle is not None:
             module.INTERACTION_TASK_SETTLE_S = original_settle
@@ -1017,9 +1016,9 @@ async def test_emergency_reaches_terminal_state_despite_post_damp_settlement_tim
     assert orchestrator.state_id == "emergency", (
         f"Estado debe ser 'emergency', actual: '{orchestrator.state_id}'"
     )
-    # terminal_safe depende solo de Damp, no de settlement de tasks posteriores
+    # terminal_safe es software-only y depende de StopMove, no del settlement posterior
     assert result.terminal_safe is True, (
-        "terminal_safe debe ser True si Damp tuvo éxito, independientemente del settlement posterior"
+        "terminal_safe debe ser True si StopMove tuvo éxito, independientemente del settlement posterior"
     )
 
     release_emergency.set()
@@ -1163,7 +1162,7 @@ async def test_resume_failure_triggers_emergency_without_self_cancelling_lifecyc
     # La task no debe haber sido cancelada (RESUME_FAILURE_SELF_CANCELLED = NO)
     # Verificamos que llegó a EMERGENCY por la ruta normal, no por CancelledError
     assert orchestrator._last_emergency_result is not None
-    assert orchestrator._last_emergency_result.damp_succeeded is True
+    assert orchestrator._last_emergency_result.stop_motion_succeeded is True
 
     # El completion fue publicado antes del fallo de resume_tour; la emergencia se activa después
     # La interaction task no se autocanceló — llegó a EMERGENCY por la ruta de excepción

@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     # --- Hardware ---
     ROBOT_MODE: Literal["real", "sim", "mock", "demo"] = "mock"
     ROBOT_NETWORK_INTERFACE: str = ""
+    ROBOT_OPERATOR_READY_FOR_MOTION: bool = False
 
     # --- Navigation backend selection (Fase 2H.2) ---
     # @SECURITY: NAVIGATION_DIRECT_REAL_ENABLED default False es un interlock cerrado por

@@ -79,9 +79,6 @@ async def run_smoke_test(args: argparse.Namespace) -> int:
     await adapter.initialize()
     print("[smoke] adapter initialized:", json.dumps(await adapter.get_state(), ensure_ascii=True))
 
-    await adapter.stand()
-    print("[smoke] stand() dispatched")
-
     if args.send_zero_move:
         await adapter.move(MotionCommand(linear_x=0.0, angular_z=0.0, duration_ms=250))
         print("[smoke] zero-velocity move dispatched")
@@ -90,8 +87,8 @@ async def run_smoke_test(args: argparse.Namespace) -> int:
     print("[smoke] lowstate sample:")
     print(json.dumps(_format_joint_sample(low_state), ensure_ascii=True, indent=2))
 
-    await adapter.damp()
-    print("[smoke] damp() dispatched")
+    await adapter.stop_motion()
+    print("[smoke] StopMove dispatched; posture preserved")
     return 0
 
 

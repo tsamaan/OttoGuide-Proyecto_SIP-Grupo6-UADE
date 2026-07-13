@@ -112,7 +112,7 @@ class MockHardwareAPI:
     async def move(self, *args: Any) -> None:
         return None
 
-    async def damp(self) -> None:
+    async def stop_motion(self) -> None:
         return None
 
     async def get_state(self) -> dict[str, float]:

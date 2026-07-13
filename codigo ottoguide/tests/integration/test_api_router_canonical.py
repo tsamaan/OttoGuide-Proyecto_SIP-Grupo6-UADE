@@ -534,7 +534,7 @@ async def test_real_orchestrator_concurrent_dispatch_is_atomic():
 
     hw = MagicMock()
     hw.move = AsyncMock()
-    hw.damp = AsyncMock()
+    hw.stop_motion = AsyncMock()
 
     nav = MagicMock()
     nav.navigate_to_waypoints = AsyncMock(return_value=False)
@@ -640,9 +640,14 @@ async def test_start_accepted_is_json_boolean():
 # ---------------------------------------------------------------------------
 
 class _FakeEmergencyResult:
-    def __init__(self, *, terminal_safe, damp_succeeded, already_emergency=False, errors=None):
+    def __init__(self, *, terminal_safe, stop_motion_succeeded, already_emergency=False, errors=None):
         self.terminal_safe = terminal_safe
-        self.damp_succeeded = damp_succeeded
+        self.stop_motion_succeeded = stop_motion_succeeded
+        self.software_motion_terminal = stop_motion_succeeded
+        self.mission_locked = True
+        self.posture_preserved = True
+        self.operator_intervention_required = True
+        self.posture_change_attempted = False
         self.nav_cancel_succeeded = True
         self.zero_velocity_succeeded = True
         self.already_emergency = already_emergency
@@ -680,7 +685,7 @@ class _RaisingEmergencyOrchestrator:
 
 async def test_emergency_safe_stop_returns_200_with_terminal_safe_true():
     orch = _EmergencyOrchestrator(result_sequence=[
-        _FakeEmergencyResult(terminal_safe=True, damp_succeeded=True),
+        _FakeEmergencyResult(terminal_safe=True, stop_motion_succeeded=True),
     ])
     app = _build_minimal_app(orch)
     transport = httpx.ASGITransport(app=app)
@@ -691,13 +696,18 @@ async def test_emergency_safe_stop_returns_200_with_terminal_safe_true():
     body = resp.json()
     assert body["executed"] is True
     assert body["terminal_safe"] is True
-    assert body["damp_succeeded"] is True
+    assert body["stop_motion_succeeded"] is True
+    assert body["posture_preserved"] is True
+    assert body["operator_intervention_required"] is True
+    assert body["posture_change_attempted"] is False
+    assert body["damp_attempted"] is False
+    assert body["damp_succeeded"] is False
     assert orch.calls == ["web_operator"]
 
 
-async def test_emergency_damp_failed_returns_503_with_terminal_safe_false():
+async def test_emergency_stopmove_failed_returns_503_with_terminal_safe_false():
     orch = _EmergencyOrchestrator(result_sequence=[
-        _FakeEmergencyResult(terminal_safe=False, damp_succeeded=False, errors=["damp_failed:RuntimeError:x"]),
+        _FakeEmergencyResult(terminal_safe=False, stop_motion_succeeded=False, errors=["stop_motion_failed:RuntimeError:x"]),
     ])
     app = _build_minimal_app(orch)
     transport = httpx.ASGITransport(app=app)
@@ -707,7 +717,7 @@ async def test_emergency_damp_failed_returns_503_with_terminal_safe_false():
     assert resp.status_code == 503
     body = resp.json()
     assert body["terminal_safe"] is False
-    assert "damp_failed:RuntimeError:x" in body["errors"]
+    assert "stop_motion_failed:RuntimeError:x" in body["errors"]
 
 
 async def test_emergency_endpoint_timeout_returns_504():
@@ -732,8 +742,8 @@ async def test_emergency_uncontrolled_exception_returns_500():
 
 
 async def test_emergency_repeat_call_after_safe_stop_stays_200_idempotent():
-    safe = _FakeEmergencyResult(terminal_safe=True, damp_succeeded=True, already_emergency=False)
-    idempotent = _FakeEmergencyResult(terminal_safe=True, damp_succeeded=True, already_emergency=True)
+    safe = _FakeEmergencyResult(terminal_safe=True, stop_motion_succeeded=True, already_emergency=False)
+    idempotent = _FakeEmergencyResult(terminal_safe=True, stop_motion_succeeded=True, already_emergency=True)
     orch = _EmergencyOrchestrator(result_sequence=[safe, idempotent])
     app = _build_minimal_app(orch)
     transport = httpx.ASGITransport(app=app)
@@ -747,8 +757,8 @@ async def test_emergency_repeat_call_after_safe_stop_stays_200_idempotent():
 
 
 async def test_emergency_repeat_call_after_unsafe_stop_stays_503_idempotent():
-    unsafe = _FakeEmergencyResult(terminal_safe=False, damp_succeeded=False, already_emergency=False, errors=["damp_failed:x"])
-    idempotent = _FakeEmergencyResult(terminal_safe=False, damp_succeeded=False, already_emergency=True, errors=["damp_failed:x"])
+    unsafe = _FakeEmergencyResult(terminal_safe=False, stop_motion_succeeded=False, already_emergency=False, errors=["stop_motion_failed:x"])
+    idempotent = _FakeEmergencyResult(terminal_safe=False, stop_motion_succeeded=False, already_emergency=True, errors=["stop_motion_failed:x"])
     orch = _EmergencyOrchestrator(result_sequence=[unsafe, idempotent])
     app = _build_minimal_app(orch)
     transport = httpx.ASGITransport(app=app)
@@ -763,7 +773,7 @@ async def test_emergency_repeat_call_after_unsafe_stop_stays_503_idempotent():
 
 async def test_emergency_accepts_web_operator_reason_payload():
     orch = _EmergencyOrchestrator(result_sequence=[
-        _FakeEmergencyResult(terminal_safe=True, damp_succeeded=True),
+        _FakeEmergencyResult(terminal_safe=True, stop_motion_succeeded=True),
     ])
     app = _build_minimal_app(orch)
     transport = httpx.ASGITransport(app=app)

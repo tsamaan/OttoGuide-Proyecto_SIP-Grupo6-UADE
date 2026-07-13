@@ -3,21 +3,20 @@
 @INPUT: Interfaz RobotHardwareInterface; SDK unitree_sdk2py importado localmente
 @OUTPUT: Adaptador funcional para control DDS del Unitree G1 EDU 8
 @CONTEXT: Unico archivo que importa unitree_sdk2py en todo el proyecto
-@SECURITY: Clamping cinematico obligatorio; damp() con timeout 1.5s
+@SECURITY: Clamping cinematico obligatorio; StopMove preserva postura
 
 STEP 1: Import lazy de unitree_sdk2py solo dentro de metodos
 STEP 2: ChannelFactoryInitialize(id=0, networkInterface=None) — firma auditada en
     libs/unitree_sdk2_python-master/unitree_sdk2py/core/channel.py:298
     Sintaxis correcta: ChannelFactoryInitialize(domain_id, network_interface_str)
 STEP 3: Clamping linear_x [-0.3, 0.3], angular_z [-0.5, 0.5]
-STEP 4: damp() con asyncio.wait_for timeout=1.5s
+STEP 4: stop_motion() con timeout acotado por el caller
 """
 
 from __future__ import annotations
 # AUDIT RESULT — ChannelFactoryInitialize: contrato VALIDO (firm signature confirmada)
 # AUDIT RESULT — Move(vx, vy, vyaw, continous_move=False): contrato VALIDO
-# AUDIT RESULT — stand() CORREGIDO: SetFsmId(1)=Damp; Start()=SetFsmId(200) para bipedestacion
-# AUDIT RESULT — Damp(): contrato VALIDO — LocoClient.Damp() llama SetFsmId(1)
+# SAFETY CONTRACT — OttoGuide no expone comandos posturales; StopMove preserva postura.
 # AUDIT RESULT — IDL: unitree_hg confirmado presente en libs/unitree_sdk2py/idl/unitree_hg/
 
 import asyncio
@@ -36,7 +35,6 @@ LOGGER = logging.getLogger("otto_guide.hardware.real_adapter")
 # ---------------------------------------------------------------------------
 _MAX_LINEAR_X: float = 0.3
 _MAX_ANGULAR_Z: float = 0.5
-_DAMP_TIMEOUT_S: float = 1.5
 _SDK_CALL_TIMEOUT_S: float = 0.75
 
 
@@ -128,42 +126,6 @@ class UnitreeG1Adapter(RobotHardwareInterface):
         self._initialized = True
         LOGGER.info("[REAL] SDK inicializado correctamente. LocoClient activo.")
 
-    async def stand(self) -> None:
-        """
-        @TASK: Comandar bipedestacion via Start() (SetFsmId=200)
-        @INPUT: Sin parametros
-        @OUTPUT: Robot de pie en posicion neutra
-        @CONTEXT: Auditado contra g1_loco_client.py — Start() = SetFsmId(200)
-                  CORRECCION: SetFsmId(1) = Damp (estado seguro), NO bipedestacion
-                  SetFsmId(200) = Start = bipedestacion operativa
-        @SECURITY: Verificar que initialize() fue invocado
-        """
-        self._assert_initialized()
-        await self._invoke_sdk("Start")
-        LOGGER.info("[REAL] Stand ejecutado via Start() (SetFsmId=200).")
-
-    async def damp(self) -> None:
-        """
-        @TASK: Ejecutar parada amortiguada con timeout hard 1.5s
-        @INPUT: Sin parametros
-        @OUTPUT: Actuadores desacoplados
-        @CONTEXT: Timeout impuesto localmente; no delegado al caller
-        @SECURITY: Funcion critica — timeout 1.5s es hard limit
-        """
-        self._assert_initialized()
-        try:
-            await asyncio.wait_for(
-                self._invoke_sdk("Damp"),
-                timeout=_DAMP_TIMEOUT_S,
-            )
-            LOGGER.info("[REAL] Damp() ejecutado correctamente (timeout=%.1fs).", _DAMP_TIMEOUT_S)
-        except asyncio.TimeoutError:
-            LOGGER.critical(
-                "[REAL] TIMEOUT en Damp() (%.1fs). Verificar estado mecanico manualmente.",
-                _DAMP_TIMEOUT_S,
-            )
-            raise
-
     async def move(self, command: MotionCommand) -> None:
         """
         @TASK: Ejecutar comando de movimiento con clamping cinematico
@@ -183,12 +145,17 @@ class UnitreeG1Adapter(RobotHardwareInterface):
         try:
             await self._invoke_sdk("Move", clamped_vx, 0.0, clamped_wz)
         except Exception as exc:
-            LOGGER.error("[REAL] Fallo en Move; ejecutando Damp() de emergencia.")
-            await self.damp()
-            raise RuntimeError(f"Fallo en Move; Damp() ejecutado: {exc}") from exc
+            LOGGER.error("[REAL] Fallo en Move; ejecutando StopMove().")
+            await self.stop_motion()
+            raise RuntimeError(f"Fallo en Move; StopMove() ejecutado: {exc}") from exc
 
         if command.duration_ms > 0:
             await asyncio.sleep(command.duration_ms / 1000.0)
+
+    async def stop_motion(self) -> None:
+        """Detiene locomocion con StopMove sin cambiar la postura."""
+        self._assert_initialized()
+        await self._invoke_sdk("StopMove")
 
     async def get_state(self) -> dict:
         """
@@ -203,17 +170,6 @@ class UnitreeG1Adapter(RobotHardwareInterface):
             "initialized": self._initialized,
             "network_interface": self._network_interface,
         }
-
-    async def emergency_stop(self) -> None:
-        """
-        @TASK: Parada de emergencia inmediata
-        @INPUT: Sin parametros
-        @OUTPUT: damp() ejecutado
-        @CONTEXT: Maxima prioridad; invocable desde cualquier estado
-        @SECURITY: damp() como primera y unica accion
-        """
-        LOGGER.critical("[REAL] EMERGENCY_STOP invocado.")
-        await self.damp()
 
     # ------------------------------------------------------------------
     # Internos

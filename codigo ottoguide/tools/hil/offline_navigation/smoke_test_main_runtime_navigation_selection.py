@@ -1259,8 +1259,8 @@ def _purge_app_modules() -> None:
 
 class _RecordingMockHardware:
     """Wraps the real hardware.mock_adapter.MockHardwareAPI, recording every
-    move()/damp() call so the smoke test can assert MotionCommand(0) and
-    damp() were actually observed, without inventing a parallel hardware
+    move()/stop_motion() call so the smoke test can assert MotionCommand(0) and
+    StopMove were actually observed, without inventing a parallel hardware
     implementation."""
 
     def __init__(self):
@@ -1268,17 +1268,14 @@ class _RecordingMockHardware:
 
         self._delegate = MockHardwareAPI()
         self.move_calls: list = []
-        self.damp_calls = 0
+        self.stop_motion_calls = 0
 
     async def initialize(self) -> None:
         await self._delegate.initialize()
 
-    async def stand(self) -> None:
-        await self._delegate.stand()
-
-    async def damp(self) -> None:
-        self.damp_calls += 1
-        await self._delegate.damp()
+    async def stop_motion(self) -> None:
+        self.stop_motion_calls += 1
+        await self._delegate.stop_motion()
 
     async def move(self, command) -> None:
         self.move_calls.append((command.linear_x, command.angular_z, command.duration_ms))
@@ -1286,9 +1283,6 @@ class _RecordingMockHardware:
 
     async def get_state(self) -> dict:
         return await self._delegate.get_state()
-
-    async def emergency_stop(self) -> None:
-        await self.damp()
 
 
 class _FakeState:
@@ -1470,7 +1464,7 @@ async def _run_emergency_cancel(
     result["metrics"]["goal_active_before_emergency"] = True
 
     move_calls_before = len(recording_hardware.move_calls)
-    damp_calls_before = recording_hardware.damp_calls
+    stop_motion_calls_before = recording_hardware.stop_motion_calls
 
     await asyncio.wait_for(
         orchestrator.emergency_stop(reason="smoke_test_2h22_emergency"), timeout=timeout_s
@@ -1481,7 +1475,7 @@ async def _run_emergency_cancel(
 
     result["metrics"]["final_fsm_state"] = orchestrator.state_id
     result["metrics"]["cancel_terminal_status"] = res.status.value if res else None
-    result["metrics"]["damp_calls"] = recording_hardware.damp_calls
+    result["metrics"]["stop_motion_calls"] = recording_hardware.stop_motion_calls
     result["metrics"]["task_active_after"] = status_after.task_active
     result["metrics"]["remote_state_unknown"] = status_after.remote_state_unknown
 
@@ -1491,8 +1485,8 @@ async def _run_emergency_cancel(
         result["errors"].append("NOT_CANCELED")
     if not res or not res.cancel_requested:
         result["errors"].append("CANCEL_NOT_REQUESTED")
-    if recording_hardware.damp_calls <= damp_calls_before:
-        result["errors"].append("DAMP_NOT_OBSERVED")
+    if recording_hardware.stop_motion_calls <= stop_motion_calls_before:
+        result["errors"].append("STOPMOVE_NOT_OBSERVED")
     if status_after.task_active:
         result["errors"].append("GOAL_STILL_ACTIVE_AFTER_EMERGENCY")
     if status_after.remote_state_unknown:

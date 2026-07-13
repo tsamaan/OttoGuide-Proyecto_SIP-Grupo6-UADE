@@ -13,9 +13,8 @@
           archivo), nunca con un fallback silencioso a stub. DirectNav2ActionBridge sigue
           siendo offline-only (sandbox /offline_nav/*); contra hardware real esta bloqueado
           por el interlock NAVIGATION_DIRECT_REAL_ENABLED (cerrado por defecto).
-@SECURITY: damp() garantizado en cualquier causa de shutdown (SIGINT/SIGTERM/excepcion).
-           Graceful shutdown HIL-safe: EventBus -> FSM EMERGENCY -> MotionCommand(0) -> damp()
-           -> close() del backend de navegacion (nunca silenciado).
+@SECURITY: shutdown preserva postura: cancela productores, envia MotionCommand(0), ejecuta
+           StopMove exactamente una vez y cierra recursos. Nunca ejecuta Damp ni cambia postura.
 @AI_CONTEXT: Cero sys.path.append; cero imports de unitree_sdk2py en el entrypoint.
 
 STEP 1: Crear FastAPI con asynccontextmanager lifespan
@@ -23,7 +22,7 @@ STEP 2: lifespan: resolver backend de navegacion, validar config, chequear inter
         construir el bridge (sin iniciar ROS) ANTES de tocar hardware
 STEP 3: lifespan: hardware = get_hardware_adapter(), await initialize(), await nav_bridge.start()
 STEP 4: lifespan: app.state.orchestrator = TourOrchestrator(hardware, nav_bridge)
-STEP 5: Instalar handlers SIGINT/SIGTERM con _install_signal_handlers()
+STEP 5: Conservar a Uvicorn como unica autoridad de SIGINT/SIGTERM
 STEP 6: lifespan yield; en shutdown: _run_shutdown_sequence() garantizado, luego close()
 STEP 7: uvicorn.run con factory=True
 """
@@ -33,7 +32,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import signal
 import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -45,20 +43,7 @@ LOGGER = logging.getLogger("otto_guide.main")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DASHBOARD_FILE = STATIC_DIR / "dashboard.html"
 
-# ---------------------------------------------------------------------------
-# Constantes de seguridad
-# ---------------------------------------------------------------------------
-_DAMP_SHUTDOWN_TIMEOUT_S: float = 1.5
-
-# ---------------------------------------------------------------------------
-# Evento global de shutdown HIL-safe
-# ---------------------------------------------------------------------------
-# @TASK: Coordinar el apagado graceful entre el loop de uvicorn y los subsistemas roboticos
-# @INPUT: Seteado por _signal_handler() ante SIGINT/SIGTERM
-# @OUTPUT: lifespan lo espera para iniciar la secuencia de cierre HIL-safe
-# @SECURITY: asyncio.Event es thread-safe en CPython con el GIL; seguro desde signal handlers.
-# @AI_CONTEXT: Se crea en el scope del modulo para que este disponible antes del event loop.
-_shutdown_event: asyncio.Event = asyncio.Event()
+_STOP_MOTION_SHUTDOWN_TIMEOUT_S: float = 1.5
 
 
 # ---------------------------------------------------------------------------
@@ -102,14 +87,14 @@ async def lifespan(app: FastAPI):
               Fase 2H.2: el backend de navegacion se resuelve y construye ANTES de tocar
               hardware/ROS (ver _resolve_navigation_backend/_check_direct_real_interlock/
               _build_navigation_bridge), nunca con un fallback silencioso a un stub.
-    STEP 1: Instalar signal handlers SIGINT/SIGTERM
+    STEP 1: Dejar SIGINT/SIGTERM bajo autoridad exclusiva de Uvicorn
     STEP 2: Validar config de navegacion, resolver backend, chequear interlock, construir bridge
     STEP 3: hardware = get_hardware_adapter(); await initialize(); await nav_bridge.start()
     STEP 4: app.state.orchestrator = TourOrchestrator(hardware, nav_bridge)
     STEP 5: yield
     STEP 6: _run_shutdown_sequence() — garantizado en cualquier causa de shutdown; luego
             intento de cierre del bridge (parcial o completo), nunca silenciado.
-    @SECURITY: damp() es el ultimo comando en _run_shutdown_sequence; siempre garantizado.
+    @SECURITY: StopMove es el ultimo comando fisico; la postura se preserva.
                Un fallo de arranque del backend de navegacion nunca degrada a un stub.
     """
     settings = get_settings()
@@ -119,8 +104,7 @@ async def lifespan(app: FastAPI):
     reached_yield = False
     station_trigger_coordinator = None
 
-    # STEP 1: Instalar handlers de senales al arrancar el event loop
-    _install_signal_handlers(asyncio.get_running_loop())
+    # Uvicorn conserva autoridad exclusiva sobre SIGINT/SIGTERM y cierra el lifespan.
 
     app.state.navigation_backend_requested = settings.NAVIGATION_BACKEND
     app.state.navigation_backend_resolved = None
@@ -326,51 +310,6 @@ async def lifespan(app: FastAPI):
 # Graceful Shutdown HIL-safe
 # ---------------------------------------------------------------------------
 
-def _install_signal_handlers(loop: asyncio.AbstractEventLoop) -> None:
-    """
-    @TASK: Instalar handlers para SIGINT y SIGTERM que activan el shutdown graceful
-    @INPUT: loop — event loop activo de asyncio (provisto por uvicorn en su worker)
-    @OUTPUT: Handlers registrados; _shutdown_event.set() sera invocado ante la senal
-    @CONTEXT: Llamado desde lifespan al inicio del contexto activo.
-              En Linux/macOS: loop.add_signal_handler() es la API correcta.
-              En Windows: signal.signal() es el fallback (add_signal_handler no disponible).
-    @SECURITY: _shutdown_event.set() es thread-safe en CPython; no ejecuta logica de hardware
-               directamente desde el handler (solo setea un Event que el event loop procesa).
-    @AI_CONTEXT: SIGKILL no es capturable; usar systemd stop-timeout >= 3s en produccion.
-    """
-    def _signal_handler(signum: int) -> None:
-        """
-        @TASK: Callback de senal — activar el evento de shutdown sin bloquear el loop
-        @INPUT: signum — numero de senal recibida (SIGINT=2, SIGTERM=15)
-        @OUTPUT: _shutdown_event seteado; LOGGER.warning emitido
-        @SECURITY: No ejecuta I/O ni logica de hardware; solo set() en un Event.
-        """
-        signal_name = signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
-        LOGGER.warning(
-            "[SHUTDOWN] Senal %s recibida. Iniciando cierre HIL-safe.",
-            signal_name,
-        )
-        _shutdown_event.set()
-
-    try:
-        # Linux/macOS: add_signal_handler integra limpiamente con el event loop asyncio
-        # @SECURITY: Usa pipe interno de asyncio; seguro para llamar desde dentro del loop.
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, _signal_handler, sig)
-        LOGGER.info("[SHUTDOWN] Signal handlers SIGINT/SIGTERM instalados (asyncio loop).")
-    except (NotImplementedError, AttributeError):
-        # Windows: add_signal_handler no esta disponible; usar signal.signal como fallback
-        # @AI_CONTEXT: signal.signal() ejecuta el handler en el thread principal del OS.
-        #              _shutdown_event.set() es thread-safe en CPython con el GIL.
-        import signal as signal_mod
-        for sig in (signal_mod.SIGINT, signal_mod.SIGTERM):
-            try:
-                signal_mod.signal(sig, lambda s, f: _signal_handler(s))
-            except OSError:
-                pass  # SIGTERM no disponible en Windows; SIGINT siempre disponible
-        LOGGER.info("[SHUTDOWN] Signal handlers instalados (Windows signal.signal fallback).")
-
-
 async def _run_shutdown_sequence(
     hardware: Optional[RobotHardwareInterface],
     orchestrator: object = None,
@@ -383,19 +322,15 @@ async def _run_shutdown_sequence(
              1. EventBus: publica EMERGENCY_STOP (notifica suscriptores desacoplados)
              2. FSM: transicion a EMERGENCY (cancela nav y odometry tasks)
              3. Hardware: MotionCommand(0) failsafe cinematico
-             4. Hardware: damp() — parada elastica (prioridad ABSOLUTA de seguridad)
+             4. Hardware: stop_motion() — StopMove preservando postura
     @CONTEXT: Invocado desde el finally del lifespan de FastAPI.
               El orden de los pasos es critico: hardware (Capa 1) se apaga ultimo.
-    @SECURITY: damp() es SIEMPRE el ultimo comando de hardware ejecutado.
-               Todos los errores en pasos 1, 2 y 3 se absorben para garantizar
-               que damp() se ejecute incluso si la FSM o el EventBus fallan.
-    @AI_CONTEXT: _DAMP_SHUTDOWN_TIMEOUT_S = 1.5s. En hardware real Damp() tarda ~500ms.
-                 En produccion: usar systemd stop-timeout >= 5s para margen adicional.
+    @SECURITY: StopMove es el ultimo comando fisico. No se cambia postura.
 
     STEP 1: Publicar EMERGENCY_STOP en EventBus (notifica subsistemas desacoplados)
     STEP 2: Transicionar FSM a EMERGENCY (cancela tareas background de nav/odometry)
-    STEP 3: MotionCommand(0) — failsafe cinematico antes de damp()
-    STEP 4: damp() — parada elastica final del hardware (PRIORIDAD ABSOLUTA)
+    STEP 3: MotionCommand(0) — velocidad cero
+    STEP 4: stop_motion() — StopMove final, sin cambio postural
     """
     LOGGER.info("[SHUTDOWN] === SECUENCIA HIL-SAFE INICIADA ===")
 
@@ -417,12 +352,8 @@ async def _run_shutdown_sequence(
     # STEP 2: Transicionar FSM a EMERGENCY
     # @SECURITY: emergency_stop() cancela _nav_task y _odometry_task de forma segura.
     #            Se ejecuta ANTES del hardware para que Nav2 cancele sus comandos activos.
-    #            El resultado tipado (EmergencyStopResult.terminal_safe) es la UNICA fuente de
-    #            verdad sobre exito — NUNCA se infiere de que emergency_stop() haya retornado
-    #            sin excepcion. terminal_safe=True requiere damp_succeeded=True; solo entonces
-    #            se omiten STEP 3+4 (ORCHESTRATOR_EMERGENCY_COMPLETED). En cualquier otro caso
-    #            (incluyendo fallo de damp dentro de on_enter_emergency) se ejecuta el fallback
-    #            directo (DIRECT_HARDWARE_FALLBACK_USED).
+    #            software_motion_terminal confirma StopMove y preservacion postural. Si el
+    #            orquestador no alcanzo a intentar StopMove, se usa un unico fallback directo.
     _orchestrator_handled_shutdown = False
     if orchestrator is not None:
         try:
@@ -432,16 +363,27 @@ async def _run_shutdown_sequence(
                     emergency_fn(reason="graceful_shutdown"),
                     timeout=2.0,
                 )
-                terminal_safe = bool(getattr(emergency_result, "terminal_safe", False))
-                if terminal_safe:
+                motion_terminal = bool(
+                    getattr(emergency_result, "software_motion_terminal", False)
+                )
+                stop_attempted = bool(
+                    getattr(emergency_result, "stop_motion_attempted", False)
+                )
+                if motion_terminal:
                     LOGGER.info(
-                        "[SHUTDOWN] STEP 2: TourOrchestrator confirmo terminal_safe=True (damp_succeeded). "
+                        "[SHUTDOWN] STEP 2: TourOrchestrator confirmo software_motion_terminal=True. "
                         "ORCHESTRATOR_EMERGENCY_COMPLETED"
+                    )
+                    _orchestrator_handled_shutdown = True
+                elif stop_attempted:
+                    LOGGER.critical(
+                        "[SHUTDOWN] STEP 2: StopMove ya fue intentado por el orquestador y fallo; "
+                        "no se duplica el comando. Intervencion del operador requerida."
                     )
                     _orchestrator_handled_shutdown = True
                 else:
                     LOGGER.warning(
-                        "[SHUTDOWN] STEP 2: emergency_stop() retorno sin excepcion pero terminal_safe=False "
+                        "[SHUTDOWN] STEP 2: emergency_stop() retorno sin terminalidad de movimiento "
                         "(errors=%s). DIRECT_HARDWARE_FALLBACK_USED.",
                         getattr(emergency_result, "errors", None),
                     )
@@ -455,13 +397,10 @@ async def _run_shutdown_sequence(
     if _orchestrator_handled_shutdown:
         LOGGER.info(
             "[SHUTDOWN] STEP 3+4: Omitidos — TourOrchestrator es la autoridad de motion; "
-            "on_enter_emergency confirmo damp_succeeded=True (terminal_safe)."
+            "on_enter_emergency confirmo StopMove; postura preservada."
         )
     else:
-        # STEP 3: Failsafe cinematico — MotionCommand(0) antes de damp()
-        # @SECURITY: Garantiza velocidad 0 incluso si damp() tiene timeout o falla.
-        #            El robot puede quedar en postura rigida ante fallo de damp(), pero
-        #            al menos no avanzara con velocidad remanente.
+        # STEP 3: Failsafe cinematico antes de StopMove.
         if hardware is not None:
             try:
                 from hardware.interface import MotionCommand
@@ -475,32 +414,31 @@ async def _run_shutdown_sequence(
             except Exception as exc:
                 LOGGER.warning("[SHUTDOWN] STEP 3: Fallo en MotionCommand(0): %s.", exc)
 
-        # STEP 4 (CRITICO): damp() — parada elastica del hardware. PRIORIDAD ABSOLUTA.
-        # @SECURITY: Se ejecuta incluso si todos los pasos anteriores fallaron.
+        # STEP 4: StopMove preserva la postura y pertenece a la autoridad software.
         if hardware is not None:
             LOGGER.info(
-                "[SHUTDOWN] STEP 4: Ejecutando damp() (timeout=%.1fs). PRIORIDAD ABSOLUTA.",
-                _DAMP_SHUTDOWN_TIMEOUT_S,
+                "[SHUTDOWN] STEP 4: Ejecutando StopMove (timeout=%.1fs).",
+                _STOP_MOTION_SHUTDOWN_TIMEOUT_S,
             )
             try:
                 await asyncio.wait_for(
-                    hardware.damp(),
-                    timeout=_DAMP_SHUTDOWN_TIMEOUT_S,
+                    hardware.stop_motion(),
+                    timeout=_STOP_MOTION_SHUTDOWN_TIMEOUT_S,
                 )
-                LOGGER.info("[SHUTDOWN] STEP 4: damp() ejecutado correctamente.")
+                LOGGER.info("[SHUTDOWN] STEP 4: StopMove ejecutado correctamente; postura preservada.")
             except asyncio.TimeoutError:
                 LOGGER.critical(
-                    "[SHUTDOWN] STEP 4: TIMEOUT en damp() (%.1fs). "
-                    "Verificar estado mecanico. Activar L1+A en mando si el robot sigue activo.",
-                    _DAMP_SHUTDOWN_TIMEOUT_S,
+                    "[SHUTDOWN] STEP 4: TIMEOUT en StopMove (%.1fs). "
+                    "Intervencion del operador requerida.",
+                    _STOP_MOTION_SHUTDOWN_TIMEOUT_S,
                 )
             except Exception as exc:
                 LOGGER.critical(
-                    "[SHUTDOWN] STEP 4: Fallo CRITICO en damp(): %s — %s. Verificar hardware.",
+                    "[SHUTDOWN] STEP 4: Fallo CRITICO en StopMove: %s — %s.",
                     type(exc).__name__, exc,
                 )
         else:
-            LOGGER.info("[SHUTDOWN] STEP 4: No hay hardware activo — damp() omitido.")
+            LOGGER.info("[SHUTDOWN] STEP 4: No hay hardware activo — StopMove omitido.")
 
     LOGGER.info("[SHUTDOWN] === SECUENCIA HIL-SAFE COMPLETADA ===")
 
@@ -1067,15 +1005,46 @@ if __name__ == "__main__":
     @INPUT: Sin parametros CLI
     @OUTPUT: Proceso HTTP activo en API_HOST:API_PORT
     @CONTEXT: Ejecutable como: python main.py
-    @SECURITY: KeyboardInterrupt suprimida; SIGINT capturada por _install_signal_handlers()
+    @SECURITY: Uvicorn conserva la autoridad unica sobre SIGINT/SIGTERM y ejecuta lifespan una vez.
     """
+    import signal
+    import threading
     import uvicorn
+    from uvicorn.server import HANDLED_SIGNALS
+
+    class _UvicornGracefulExitServer(uvicorn.Server):
+        """Use Uvicorn's handler without re-emitting the handled OS signal.
+
+        Recent Uvicorn versions deliberately re-raise the captured signal after
+        lifespan shutdown. That produces exit 143 for SIGTERM even when cleanup
+        succeeded. OttoGuide needs an ordinary zero exit so service managers do
+        not misclassify a safe graceful stop as a crash. Uvicorn's handle_exit
+        remains the sole signal authority; no parallel event or handler exists.
+        """
+
+        @contextlib.contextmanager
+        def capture_signals(self):
+            if threading.current_thread() is not threading.main_thread():
+                yield
+                return
+
+            original_handlers = {
+                sig: signal.signal(sig, self.handle_exit)
+                for sig in HANDLED_SIGNALS
+            }
+            try:
+                yield
+            finally:
+                for sig, handler in original_handlers.items():
+                    signal.signal(sig, handler)
+
     settings = get_settings()
     with contextlib.suppress(KeyboardInterrupt):
-        uvicorn.run(
+        config = uvicorn.Config(
             "main:create_app",
             host="0.0.0.0",
             port=settings.API_PORT,
             factory=True,
             log_level="info",
         )
+        _UvicornGracefulExitServer(config).run()

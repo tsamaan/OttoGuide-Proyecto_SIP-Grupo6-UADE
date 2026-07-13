@@ -110,6 +110,20 @@ async def endpoint_start_tour(
     from src.navigation import NavWaypoint
     from src.core import TourPlan
 
+    settings = get_settings()
+    if (
+        settings.ROBOT_MODE == "real"
+        and not settings.ROBOT_OPERATOR_READY_FOR_MOTION
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": "operator_action_required",
+                "operator_action_required": True,
+                "errors": ["ROBOT_OPERATOR_READY_FOR_MOTION=false"],
+            },
+        )
+
     readiness_errors = await _resolve_readiness_errors(request, orchestrator)
     if readiness_errors:
         raise HTTPException(
@@ -215,15 +229,14 @@ async def endpoint_emergency(
     orchestrator=Depends(_get_orchestrator),
 ) -> EmergencyResponse:
     """
-    @TASK: Trigger de emergencia con Damp() inmediato y contrato HTTP fiel al resultado fisico
+    @TASK: Trigger de emergencia con StopMove y preservacion postural
     @INPUT: payload con reason
-    @OUTPUT: HTTP 200 solo si terminal_safe=True; 503 si la secuencia corrio pero no confirmo
-             seguridad terminal; 504 ante timeout del endpoint; 500 ante excepcion no controlada
+    @OUTPUT: HTTP 200 si la parada terminal de software fue confirmada; 503 si StopMove fallo;
+             504 ante timeout del endpoint; 500 ante excepcion no controlada
     @CONTEXT: Maxima prioridad; acepta cualquier estado origen. Nunca infiere exito de que la
               FSM haya alcanzado EMERGENCY ni de que la llamada haya retornado sin excepcion.
-    @SECURITY: await directo para que Damp() inicie antes de retornar; el codigo HTTP es
-               siempre coherente con EmergencyStopResult.terminal_safe, nunca con un string
-               "true"/"false" ni con un 200 incondicional.
+    @SECURITY: await directo para que StopMove complete antes de retornar. La respuesta declara
+               operator_intervention_required; no afirma seguridad mecanica total.
     """
     LOGGER.critical("[API] POST /emergency recibido. Razon: %s", payload.reason)
 
@@ -241,8 +254,15 @@ async def endpoint_emergency(
             already_emergency=False,
             reason=payload.reason,
             state=orchestrator.state_id,
+            mission_locked=True,
+            software_motion_terminal=False,
+            posture_preserved=True,
+            operator_intervention_required=True,
             nav_cancel_succeeded=False,
             zero_velocity_succeeded=False,
+            stop_motion_succeeded=False,
+            posture_change_attempted=False,
+            damp_attempted=False,
             damp_succeeded=False,
             errors=["emergency_endpoint_timeout"],
         )
@@ -259,9 +279,16 @@ async def endpoint_emergency(
         already_emergency=result.already_emergency,
         reason=payload.reason,
         state=orchestrator.state_id,
+        mission_locked=getattr(result, "mission_locked", True),
+        software_motion_terminal=getattr(result, "software_motion_terminal", result.terminal_safe),
+        posture_preserved=getattr(result, "posture_preserved", True),
+        operator_intervention_required=getattr(result, "operator_intervention_required", True),
         nav_cancel_succeeded=result.nav_cancel_succeeded,
         zero_velocity_succeeded=result.zero_velocity_succeeded,
-        damp_succeeded=result.damp_succeeded,
+        stop_motion_succeeded=getattr(result, "stop_motion_succeeded", result.terminal_safe),
+        posture_change_attempted=getattr(result, "posture_change_attempted", False),
+        damp_attempted=False,
+        damp_succeeded=False,
         errors=list(result.errors),
     )
     response.status_code = (

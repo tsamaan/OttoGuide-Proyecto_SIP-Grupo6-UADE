@@ -4,14 +4,14 @@
 // (unitree::robot::g1::LocoClient) for supervised micro-motion testing.
 //
 // Modes:
-//   --mode stop        Damp() only. Never moves the robot. Default mode.
-//   --mode micro-yaw    Bounded SetVelocity(0, 0, omega, duration) then Damp().
-//   --mode linear-min    Bounded SetVelocity(vx, 0, 0, duration) then Damp().
+//   --mode stop         StopMove() only. Never changes posture. Default mode.
+//   --mode micro-yaw    Bounded SetVelocity(0, 0, omega, duration) then StopMove().
+//   --mode linear-min   Bounded SetVelocity(vx, 0, 0, duration) then StopMove().
 //
 // Hard safety bounds (not configurable via CLI, intentionally):
 //   - duration capped at kMaxDurationS for every motion mode;
 //   - omega/vx magnitude capped at conservative low values;
-//   - every motion mode always calls Damp() immediately afterward;
+//   - every motion mode always calls StopMove() immediately afterward;
 //   - a single SetVelocity call per invocation, no loop, no retry.
 //
 // Does not touch ROS2, ottoguide production Python, or otto_pipeline.cpp.
@@ -84,11 +84,11 @@ int main(int argc, char** argv) {
   Log("LocoClient initialized.");
 
   if (mode == "stop") {
-    Log("mode=stop: calling Damp() only, no velocity command issued.");
-    int32_t ret = client.Damp();
-    Log("Damp() returned " + std::to_string(ret));
+    Log("mode=stop: calling StopMove() only, preserving posture.");
+    int32_t ret = client.StopMove();
+    Log("StopMove() returned " + std::to_string(ret));
     if (ret != 0) {
-      std::cerr << "Damp() failed with code " << ret << std::endl;
+      std::cerr << "StopMove() failed with code " << ret << std::endl;
       return 3;
     }
     Log("stop mode complete, exit 0.");
@@ -107,9 +107,9 @@ int main(int argc, char** argv) {
     // this wrapper does not sleep or loop while it executes.
     std::this_thread::sleep_for(
         std::chrono::milliseconds(static_cast<int>(duration * 1000) + 100));
-    Log("micro-yaw window elapsed, issuing Damp() to guarantee stop.");
-    int32_t dampRet = client.Damp();
-    Log("Damp() returned " + std::to_string(dampRet));
+    Log("micro-yaw window elapsed, issuing StopMove() to preserve posture.");
+    int32_t stopRet = client.StopMove();
+    Log("StopMove() returned " + std::to_string(stopRet));
     if (ret != 0) {
       std::cerr << "SetVelocity() failed with code " << ret << std::endl;
       return 4;
@@ -127,9 +127,9 @@ int main(int argc, char** argv) {
     Log("SetVelocity() returned " + std::to_string(ret));
     std::this_thread::sleep_for(
         std::chrono::milliseconds(static_cast<int>(duration * 1000) + 100));
-    Log("linear-min window elapsed, issuing Damp() to guarantee stop.");
-    int32_t dampRet = client.Damp();
-    Log("Damp() returned " + std::to_string(dampRet));
+    Log("linear-min window elapsed, issuing StopMove() to preserve posture.");
+    int32_t stopRet = client.StopMove();
+    Log("StopMove() returned " + std::to_string(stopRet));
     if (ret != 0) {
       std::cerr << "SetVelocity() failed with code " << ret << std::endl;
       return 5;

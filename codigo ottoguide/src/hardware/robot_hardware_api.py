@@ -15,13 +15,7 @@ class SupportsUnitreeHighLevelControl(Protocol):
     def Move(self, vx: float, vy: float, vyaw: float, continous_move: bool = ...) -> Any:
         ...
 
-    def Damp(self) -> Any:
-        ...
-
-    def SetFsmId(self, fsm_id: int) -> Any:
-        ...
-
-    def SetBalanceMode(self, balance_mode: int) -> Any:
+    def StopMove(self) -> Any:
         ...
 
 
@@ -50,7 +44,7 @@ MAX_LINEAR_VELOCITY: float = 0.3
 def _default_unitree_client_factory() -> SupportsUnitreeHighLevelControl:
     # @TASK: Resolver cliente SDK2 G1 EDU via secuencia real de inicializacion
     # @INPUT: Sin parametros
-    # @OUTPUT: Instancia de LocoClient compatible con Move/Damp/SetFsmId/SetBalanceMode
+    # @OUTPUT: Instancia de LocoClient compatible con Move/StopMove
     # @CONTEXT: Capa de envoltura sobre unitree_sdk2py (nombre real del paquete)
     # STEP 1: Invocar ChannelFactoryInitialize(0) para crear DomainParticipant DDS
     # STEP 2: Instanciar LocoClient y llamar Init() para registrar APIs RPC
@@ -169,8 +163,7 @@ class RobotHardwareAPI:
         # @OUTPUT: Resultado del SDK o excepcion de dominio
         # @CONTEXT: Comando cinemático de alto nivel expuesto al orquestador
         # STEP 1: Invocar Move fuera del event loop con timeout
-        # STEP 2: Activar Damp si falla para llevar robot a estado seguro
-        # @SECURITY: Failsafe con parada amortiguada ante error
+        # STEP 2: Ejecutar StopMove si falla, preservando postura
         # @AI_CONTEXT: Mantiene hilo principal libre de bloqueos de IO/SDK
         if isinstance(command_or_vx, MotionCommand):
             vx = command_or_vx.linear_x
@@ -183,8 +176,8 @@ class RobotHardwareAPI:
         try:
             return await self._invoke_sdk("Move", clamped_vx, clamped_vy, wz)
         except Exception as exc:
-            await self._safe_damp_on_failure(exc)
-            raise RobotHardwareAPIError("Fallo en Move; se ejecuto Damp().") from exc
+            await self.stop_motion()
+            raise RobotHardwareAPIError("Fallo en Move; se ejecuto StopMove().") from exc
 
     @staticmethod
     def _clamp_linear_velocity(vx: float, vy: float) -> tuple[float, float]:
@@ -206,35 +199,9 @@ class RobotHardwareAPI:
         scale = MAX_LINEAR_VELOCITY / norm
         return limited_vx * scale, limited_vy * scale
 
-    async def euler(self, roll: float, pitch: float, yaw: float) -> Any:
-        # @TASK: Ejecutar ajuste de actitud como adapter sobre SetBalanceMode del SDK G1
-        # @INPUT: roll, pitch, yaw (radianes) — solo yaw es controlable de forma segura
-        # @OUTPUT: Resultado del SDK o excepcion de dominio
-        # @CONTEXT: El SDK G1 LocoClient no expone Euler() nativo; actitud se controla via FSM
-        # STEP 1: Activar BalanceStand (mode=1) para habilitar control de equilibrio activo
-        # STEP 2: Si el SDK expone Euler nativo (versiones futuras), usarlo directamente
-        # STEP 3: Activar Damp si falla para transicion segura
-        # @SECURITY: Reduce riesgo de estado mecanico inconsistente
-        # @AI_CONTEXT: BalanceStand mode=1 equivale a ajuste postural; no permite roll/pitch arbitrarios
-        try:
-            euler_method = getattr(self._sdk_client, "Euler", None)
-            if callable(euler_method):
-                return await self._invoke_sdk("Euler", roll, pitch, yaw)
-            return await self._invoke_sdk("SetBalanceMode", 1)
-        except Exception as exc:
-            await self._safe_damp_on_failure(exc)
-            raise RobotHardwareAPIError("Fallo en euler; se ejecuto Damp().") from exc
-
-    async def damp(self) -> Any:
-        # @TASK: Ejecutar parada Damp
-        # @INPUT: Sin parametros
-        # @OUTPUT: Resultado del SDK o excepcion
-        # @CONTEXT: Comando de emergencia para desacoplar actuacion
-        # STEP 1: Invocar Damp fuera del event loop
-        # STEP 2: Propagar resultado para telemetria/observabilidad
-        # @SECURITY: Funcion critica de seguridad operacional
-        # @AI_CONTEXT: Debe ser invocable tanto en error como manualmente
-        return await self._invoke_sdk("Damp")
+    async def stop_motion(self) -> Any:
+        """Ejecuta StopMove sin modificar la postura del robot."""
+        return await self._invoke_sdk("StopMove")
 
     async def get_state(self) -> dict[str, Any]:
         # @TASK: Exponer estado observable del wrapper SDK
@@ -247,22 +214,6 @@ class RobotHardwareAPI:
             "initialized": self._sdk_client is not None,
             "call_timeout_s": self._call_timeout_s,
         }
-
-    async def _safe_damp_on_failure(self, cause: Exception) -> None:
-        # @TASK: Proteger en falla critica
-        # @INPUT: cause
-        # @OUTPUT: Damp ejecutado o excepcion especializada
-        # @CONTEXT: Ruta de contencion para errores en comandos cinemáticos
-        # STEP 1: Intentar Damp inmediatamente
-        # STEP 2: Elevar error de emergencia si Damp tambien falla
-        # @SECURITY: Prioriza transicion a estado seguro del robot
-        # @AI_CONTEXT: Aisla logica de fallback para reutilizar en Move/Euler
-        try:
-            await self.damp()
-        except Exception as damp_exc:
-            raise RobotHardwareEmergencyStopError(
-                "Fallo al ejecutar Damp() durante recuperacion de emergencia."
-            ) from damp_exc
 
     async def _invoke_sdk(self, method_name: str, *args: Any) -> Any:
         # @TASK: Invocar metodo SDK

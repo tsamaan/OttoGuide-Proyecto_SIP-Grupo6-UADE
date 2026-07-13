@@ -112,7 +112,7 @@ def _fake_settings(**overrides) -> SimpleNamespace:
 class _FakeHardware:
     def __init__(self) -> None:
         self.initialize = AsyncMock()
-        self.damp = AsyncMock()
+        self.stop_motion = AsyncMock()
         self.move = AsyncMock()
         self.get_state = AsyncMock(return_value={"initialized": True, "battery_level": 100.0})
 

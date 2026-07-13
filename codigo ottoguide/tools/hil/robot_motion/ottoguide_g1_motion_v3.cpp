@@ -11,15 +11,14 @@
 //
 // Preserved from v2, unchanged:
 //   - default mode is `status` (read-only);
-//   - Damp() is isolated to its own explicit `passive-damp` mode -- never called implicitly
-//     as prep or as the normal close of a motion command;
-//   - every motion mode closes with StopMove(), never Damp();
+//   - programmatic Damp is rejected before SDK initialization;
+//   - every motion mode closes with posture-preserving StopMove();
 //   - no freeform vx/omega/duration via CLI -- named profiles only, hardcoded.
 //
 // Modes:
 //   --mode=status           (default) Read-only: GetFsmId/GetFsmMode/GetBalanceMode/
-//                            GetStandHeight. No motion, no Damp, no SetVelocity.
-//   --mode=passive-damp      Damp() only. Explicit passive/emergency mode.
+//                            GetStandHeight. No motion or SetVelocity.
+//   --mode=passive-damp      Rejected before SDK initialization. Operator remote only.
 //   --mode=velocity-stop     StopMove() only. Normal close of any velocity command, or an
 //                            explicit safe-stop after an anomaly.
 //   --mode=yaw-l1            SetVelocity(0,0,+0.20, 0.50s), sleep, StopMove().
@@ -35,7 +34,7 @@
 //   - every profile's vx/omega/duration is a hardcoded constant, selected only by --mode;
 //   - highest profile in this wrapper is linear-l3 (0.30 m/s) / yaw-l3 (0.45 rad/s) -- no
 //     mode accepts a value above these;
-//   - every motion mode closes with StopMove(), never Damp();
+//   - every motion mode closes with posture-preserving StopMove();
 //   - a single SetVelocity call per motion leg (two for the return pair), no loop, no retry.
 //
 // Does not touch ROS2, ottoguide production Python, or otto_pipeline.cpp.
@@ -118,8 +117,13 @@ int main(int argc, char** argv) {
     }
   }
 
+  if (mode == "passive-damp") {
+    std::cerr << "PROGRAMMATIC_DAMP_PROHIBITED_USE_OPERATOR_REMOTE" << std::endl;
+    return 64;
+  }
+
   static const std::string kValidModes[] = {
-      "status",     "passive-damp", "velocity-stop",
+      "status",     "velocity-stop",
       "yaw-l1",     "yaw-l2",       "yaw-l3",
       "yaw-return-l1", "yaw-return-l2",
       "linear-l1",  "linear-l2",    "linear-l3",
@@ -176,19 +180,6 @@ int main(int argc, char** argv) {
         std::to_string(standHeight));
 
     Log("status mode complete, exit 0.");
-    return 0;
-  }
-
-  if (mode == "passive-damp") {
-    Log("mode=passive-damp: explicit passive mode, calling Damp() only. This is NOT used as "
-        "prep or as the normal close of any motion mode in this wrapper.");
-    int32_t ret = client.Damp();
-    Log("Damp() returned " + std::to_string(ret));
-    if (ret != 0) {
-      std::cerr << "Damp() failed with code " << ret << std::endl;
-      return 3;
-    }
-    Log("passive-damp mode complete, exit 0.");
     return 0;
   }
 

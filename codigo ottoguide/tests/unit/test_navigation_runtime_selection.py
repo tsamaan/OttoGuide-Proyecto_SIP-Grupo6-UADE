@@ -237,7 +237,7 @@ def _remove_router_fakes(installed: dict) -> None:
 class _FakeHardware:
     def __init__(self, *, state: Optional[dict] = None, initialize_exc: Optional[Exception] = None):
         self.initialize = AsyncMock(side_effect=initialize_exc)
-        self.damp = AsyncMock()
+        self.stop_motion = AsyncMock()
         self.move = AsyncMock()
         self.get_state = AsyncMock(return_value=state if state is not None else {"initialized": True})
 
@@ -673,7 +673,7 @@ class LifespanDirectBackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(app.state.navigation_startup_error)
         self.assertIn("NAVIGATION_BACKEND_START_FAILED", app.state.navigation_startup_error)
         # Hardware safety sequence still ran on the already-initialized hardware:
-        fake_hardware.damp.assert_awaited()
+        fake_hardware.stop_motion.assert_awaited()
         fake_hardware.move.assert_awaited()
         # Partial bridge close was attempted even though start() failed:
         fake_bridge.close.assert_awaited_once()
@@ -691,7 +691,7 @@ class LifespanDirectBackendTests(unittest.IsolatedAsyncioTestCase):
         async with self.main.lifespan(app):
             pass
 
-        fake_hardware.damp.assert_awaited()
+        fake_hardware.stop_motion.assert_awaited()
         fake_hardware.move.assert_awaited()
         fake_bridge.close.assert_awaited_once()
         self.assertIsNotNone(app.state.navigation_shutdown_error)

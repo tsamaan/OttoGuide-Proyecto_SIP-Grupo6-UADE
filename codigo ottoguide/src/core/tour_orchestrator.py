@@ -12,7 +12,7 @@
           hardware.interface.RobotHardwareInterface y src.navigation.port.NavigationPort,
           no de implementaciones concretas. La implementacion de navegacion inyectada en
           main.py sigue siendo la del bridge Nav2 legacy hasta Fase 2H.1.
-@SECURITY: EMERGENCY es la unica transicion con prioridad absoluta; Damp() es terminal.
+@SECURITY: EMERGENCY cancela productores, envia cero y termina locomocion con StopMove.
 
 STEP 1: Definir grafo de estados (IDLE, NAVIGATING, INTERACTING, EMERGENCY) en TourOrchestrator
 STEP 2: Implementar callbacks on_enter/on_exit con logica de integracion real de subsistemas
@@ -20,7 +20,7 @@ STEP 3: Gestionar tareas background (odometria, nav) con cancelacion segura via 
 STEP 4: Exponer dispatch_tour para integracion con FastAPI BackgroundTasks
 
 Constantes operativas del modulo:
-  DAMP_TIMEOUT_S (1.5 s)           — Cota dura de tiempo de reaccion ante EMERGENCY; no elevar
+  STOP_MOTION_TIMEOUT_S (1.5 s)    — Cota dura de StopMove ante EMERGENCY
   AUDIO_CAPTURE_TIMEOUT_S (8.0 s)  — Timeout de interaccion NLP; ajustar segun duracion del wake-word
   ODOMETRY_INJECT_TIMEOUT_S (0.5 s)— Timeout de inyeccion de odometria en AsyncNav2Bridge
   WAYPOINT_POLL_INTERVAL_S (0.1 s) — Intervalo de ceder el event loop entre waypoints consecutivos
@@ -63,7 +63,7 @@ from src.vision import OdometryVector, QRStationDetected, VisionProcessor
 # Constantes de operacion
 # ---------------------------------------------------------------------------
 
-DAMP_TIMEOUT_S: float = 1.5
+STOP_MOTION_TIMEOUT_S: float = 1.5
 AUDIO_CAPTURE_TIMEOUT_S: float = 8.0
 ODOMETRY_INJECT_TIMEOUT_S: float = 0.5
 WAYPOINT_POLL_INTERVAL_S: float = 0.1
@@ -109,17 +109,23 @@ class EmergencyStopResult:
     @TASK: Tipar el resultado terminal de una secuencia de EMERGENCY para el caller de emergency_stop()
     @INPUT: Poblado incrementalmente por on_enter_emergency() durante cada fase de la secuencia
     @OUTPUT: Snapshot inmutable-por-convencion consultado por main._run_shutdown_sequence()
-    @CONTEXT: Resuelve el falso positivo donde un retorno normal de emergency_stop() se interpretaba
-              como exito terminal sin verificar si damp() realmente tuvo exito.
-    @SECURITY: terminal_safe NO puede inferirse solo de la transicion FSM a EMERGENCY; requiere
-               damp_succeeded=True como condicion necesaria. errors acumula cada excepcion absorbida
-               para diagnostico post-mortem sin romper la garantia de no propagar excepciones.
+    @CONTEXT: Separa parada terminal de software de seguridad mecanica, que siempre requiere operador.
+    @SECURITY: terminal_safe es compatibilidad software-only: StopMove exitoso y postura preservada.
+               Nunca afirma seguridad fisica total. errors conserva fallos para diagnostico.
     """
 
     nav_cancel_attempted: bool = False
     nav_cancel_succeeded: bool = False
     zero_velocity_attempted: bool = False
     zero_velocity_succeeded: bool = False
+    stop_motion_attempted: bool = False
+    stop_motion_succeeded: bool = False
+    posture_change_attempted: bool = False
+    posture_preserved: bool = True
+    mission_locked: bool = True
+    software_motion_terminal: bool = False
+    operator_intervention_required: bool = True
+    # Compatibilidad de respuesta: siempre false; Damp esta prohibido.
     damp_attempted: bool = False
     damp_succeeded: bool = False
     terminal_safe: bool = False
@@ -152,7 +158,7 @@ class TourOrchestrator(StateMachine):
     """
     @TASK: Implementar la FSM central que coordina todos los subsistemas HIL del robot guia universitario
     @INPUT: Dependencias inyectadas via constructor DI: hardware_api, nav_bridge, conversation_manager,
-            vision_processor, telemetry_manager, mission_audit_logger, damp_timeout_s, robot_mode
+            vision_processor, telemetry_manager, mission_audit_logger, stop_motion_timeout_s, robot_mode
     @OUTPUT: FSM de 4 estados con callbacks async completos y los siguientes efectos de lado:
              movimiento del robot via HAL, reproduccion de audio TTS, inyeccion de odometria AMCL,
              broadcast de telemetria WebSocket, persistencia de eventos de auditoria en JSON
@@ -219,7 +225,7 @@ class TourOrchestrator(StateMachine):
         vision_processor: VisionProcessor,
         telemetry_manager: Optional[TelemetryManager] = None,
         mission_audit_logger: Optional[MissionAuditLogger] = None,
-        damp_timeout_s: float = DAMP_TIMEOUT_S,
+        stop_motion_timeout_s: float = STOP_MOTION_TIMEOUT_S,
         audio_capture_timeout_s: float = AUDIO_CAPTURE_TIMEOUT_S,
         robot_mode: str = "mock",
         event_bus: Optional[OttoEventBus] = None,
@@ -233,7 +239,7 @@ class TourOrchestrator(StateMachine):
                 vision_processor — procesador de odometria visual via AprilTags y camara D435i
                 telemetry_manager — gestor de broadcast WebSocket (opcional; None desactiva telemetria)
                 mission_audit_logger — persistencia de eventos de mision en JSON (opcional)
-                damp_timeout_s — timeout fisico de Damp() en segundos; debe ser >= 0.5 s
+                stop_motion_timeout_s — timeout acotado de StopMove
                 audio_capture_timeout_s — timeout maximo del pipeline NLP completo en segundos
                 robot_mode — "real" | "sim" | "mock"; inyectado desde config/settings.py (no de os.environ)
                 event_bus — instancia de OttoEventBus para suscribirse a INTERACTION_STARTED;
@@ -242,18 +248,18 @@ class TourOrchestrator(StateMachine):
                  y suscripción activa a EventType.INTERACTION_STARTED en el EventBus.
         @CONTEXT: Constructor DI; todos los subsistemas deben estar en estado ACTIVO antes de inyectar.
                   super().__init__() se invoca al final para que python-statemachine inicialice el grafo.
-        @SECURITY: damp_timeout_s <= 0 lanza ValueError; por debajo de 0.5 s puede no propagarse via DDS.
+        @SECURITY: stop_motion_timeout_s <= 0 lanza ValueError; la parada queda acotada.
                    LOGGER.critical al arrancar advierte del kill switch mecanico L1+A disponible.
 
-        STEP 1: Validar parametros criticos de seguridad (ValueError si damp o audio timeout <= 0)
+        STEP 1: Validar parametros criticos (ValueError si stop_motion o audio timeout <= 0)
         STEP 2: Persistir referencias a todos los subsistemas inyectados como atributos privados
         STEP 3: Inicializar contexto del tour, handles de tareas background y atributos de interaccion pendiente
         STEP 4: Suscribirse a EventType.INTERACTION_STARTED en el EventBus
         STEP 5: Emitir advertencia CRITICAL de kill switch mecanico al arrancar
         STEP 6: Invocar super().__init__() para que python-statemachine inicialice el grafo de estados
         """
-        if damp_timeout_s <= 0:
-            raise ValueError("damp_timeout_s debe ser mayor que 0.")
+        if stop_motion_timeout_s <= 0:
+            raise ValueError("stop_motion_timeout_s debe ser mayor que 0.")
         if audio_capture_timeout_s <= 0:
             raise ValueError("audio_capture_timeout_s debe ser mayor que 0.")
 
@@ -263,7 +269,7 @@ class TourOrchestrator(StateMachine):
         self._vision_processor: VisionProcessor = vision_processor
         self._telemetry_manager: Optional[TelemetryManager] = telemetry_manager
         self._mission_audit_logger: Optional[MissionAuditLogger] = mission_audit_logger
-        self._damp_timeout_s: float = damp_timeout_s
+        self._stop_motion_timeout_s: float = stop_motion_timeout_s
         self._audio_capture_timeout_s: float = audio_capture_timeout_s
         self._robot_mode: str = robot_mode.strip().lower()
         self._interaction_runtime: Optional[InteractionRuntimePort] = interaction_runtime
@@ -296,7 +302,7 @@ class TourOrchestrator(StateMachine):
 
         LOGGER.critical(
             "[SAFETY] TourOrchestrator inicializado. "
-            "L1+A en el mando fuerza Damp mecanico inmediato. "
+            "El operador conserva autoridad exclusiva sobre postura mediante el mando. "
             "Control manual y API simultaneos estan estrictamente prohibidos en NAVIGATING."
         )
 
@@ -571,12 +577,11 @@ class TourOrchestrator(StateMachine):
                   trigger_emergency acepta cualquier estado origen operativo. Si la FSM YA esta en
                   EMERGENCY (estado final), este metodo es idempotente: retorna el
                   self._last_emergency_result de la primera invocacion con already_emergency=True,
-                  sin reintentar trigger_emergency() ni repetir ninguna fase fisica (move/damp ya
+                  sin reintentar trigger_emergency() ni repetir ninguna fase fisica (zero/StopMove ya
                   fueron terminales o fallaron terminalmente en la primera llamada).
-        @SECURITY: Este metodo NO ejecuta Damp() directamente; delega en on_enter_emergency que lo hace
-                   como STEP 5, garantizando la secuencia correcta de cancelacion antes que hardware.
-                   terminal_safe del resultado retornado es la UNICA fuente de verdad sobre exito;
-                   nunca debe inferirse de self.state_id por separado. La idempotencia es necesaria
+        @SECURITY: Delega en on_enter_emergency la secuencia cancelacion, cero y StopMove.
+                   software_motion_terminal describe solo la parada de locomocion; la verificacion
+                   fisica pertenece al operador. La idempotencia es necesaria
                    porque EMERGENCY es un estado final de python-statemachine: una segunda transicion
                    trigger_emergency() siempre seria rechazada, independientemente de si la primera
                    parada fue terminal_safe=True o False.
@@ -592,7 +597,7 @@ class TourOrchestrator(StateMachine):
             if cached is not None:
                 LOGGER.warning(
                     "[Orchestrator] emergency_stop() idempotente: FSM ya en EMERGENCY. "
-                    "Retornando resultado terminal previo sin reintentar Damp(). Razon nueva: %s",
+                    "Retornando resultado previo sin reintentar StopMove. Razon nueva: %s",
                     reason,
                 )
                 return EmergencyStopResult(
@@ -600,8 +605,13 @@ class TourOrchestrator(StateMachine):
                     nav_cancel_succeeded=cached.nav_cancel_succeeded,
                     zero_velocity_attempted=cached.zero_velocity_attempted,
                     zero_velocity_succeeded=cached.zero_velocity_succeeded,
-                    damp_attempted=cached.damp_attempted,
-                    damp_succeeded=cached.damp_succeeded,
+                    stop_motion_attempted=cached.stop_motion_attempted,
+                    stop_motion_succeeded=cached.stop_motion_succeeded,
+                    posture_change_attempted=False,
+                    posture_preserved=True,
+                    mission_locked=True,
+                    software_motion_terminal=cached.software_motion_terminal,
+                    operator_intervention_required=True,
                     terminal_safe=cached.terminal_safe,
                     already_emergency=True,
                     errors=list(cached.errors),
@@ -1250,7 +1260,7 @@ class TourOrchestrator(StateMachine):
         """
         @TASK: Ejecutar la secuencia de emergencia perentoria e irreversible ante cualquier fallo critico
         @INPUT: Sin parametros directos; _context.last_error contiene la causa registrada por emergency_stop()
-        @OUTPUT: Todas las tareas background canceladas; Nav2 detenido; Damp() ejecutado en hardware;
+        @OUTPUT: Tareas canceladas; navegacion detenida; StopMove ejecutado preservando postura;
                  VisionProcessor cerrado; eventos de auditoria y telemetria registrados;
                  self._last_emergency_result poblado con un EmergencyStopResult tipado
         @CONTEXT: Callback del estado final EMERGENCY invocado por AsyncEngine. Irreversible desde esta clase
@@ -1259,18 +1269,14 @@ class TourOrchestrator(StateMachine):
                   no absorbida aqui hace que AsyncEngine revierta la transicion a EMERGENCY) pero se
                   registran en EmergencyStopResult.errors para que el caller pueda diagnosticar la causa
                   exacta de una falla terminal sin depender de logs.
-        @SECURITY: Damp() es el ULTIMO comando de locomocion (STEP 5); ninguna operacion de
-                   movimiento o velocidad ocurre despues de Damp() para garantizar el estado terminal
-                   seguro. Secuencia: cancel_navigation -> zero velocity -> damp -> sin locomocion.
-                   terminal_safe=True requiere damp_succeeded=True como condicion necesaria; un fallo
-                   de logging o de VisionProcessor.close() posterior a un damp exitoso NUNCA repite
-                   comandos fisicos ni revierte terminal_safe a False.
+        @SECURITY: StopMove es el ULTIMO comando fisico; no cambia postura y no se repite.
+                   Secuencia: cancel_navigation -> zero velocity -> StopMove -> sin locomocion.
 
         STEP 1: Persistir evento EMERGENCY_TRIGGERED en MissionAuditLogger con await directo
         STEP 2: Cancelar _nav_task y _odometry_task via _cancel_*_safe() sin propagar excepciones
         STEP 3: Enviar cancel_navigation() al Nav2Bridge con timeout de 1.0 s
-        STEP 4: Enviar MotionCommand de velocidad cero antes de Damp() como reduccion cinematica
-        STEP 5: Invocar Damp() en hardware con timeout _damp_timeout_s (comando terminal de locomocion)
+        STEP 4: Enviar MotionCommand de velocidad cero
+        STEP 5: Invocar stop_motion() con timeout acotado
         STEP 6: Invocar VisionProcessor.close() para liberar el bus USB y el thread de captura
         STEP 7: Registrar estado final del sistema via LOGGER.critical para diagnostico post-mortem
         """
@@ -1342,35 +1348,34 @@ class TourOrchestrator(StateMachine):
             result.errors.append(f"zero_velocity_failed:{type(exc).__name__}:{exc}")
 
         LOGGER.critical(
-            "[Orchestrator] Emitiendo Damp() al hardware (timeout=%.1f s).",
-            self._damp_timeout_s,
+            "[Orchestrator] Emitiendo StopMove al hardware (timeout=%.1f s); postura preservada.",
+            self._stop_motion_timeout_s,
         )
-        result.damp_attempted = True
+        result.stop_motion_attempted = True
         try:
             await asyncio.wait_for(
-                self._hardware_api.damp(),
-                timeout=self._damp_timeout_s,
+                self._hardware_api.stop_motion(),
+                timeout=self._stop_motion_timeout_s,
             )
-            result.damp_succeeded = True
-            LOGGER.critical("[Orchestrator] Damp() ejecutado correctamente.")
+            result.stop_motion_succeeded = True
+            LOGGER.critical("[Orchestrator] StopMove ejecutado correctamente; postura sin cambios.")
         except (TimeoutError, asyncio.TimeoutError) as exc:
             LOGGER.critical(
-                "[Orchestrator] TIMEOUT en Damp() durante EMERGENCY. "
-                "Verificar estado mecanico manualmente."
+                "[Orchestrator] TIMEOUT en StopMove durante EMERGENCY. "
+                "Intervencion del operador requerida."
             )
-            result.errors.append(f"damp_timeout:{type(exc).__name__}:{exc}")
+            result.errors.append(f"stop_motion_timeout:{type(exc).__name__}:{exc}")
         except Exception as exc:
             LOGGER.critical(
-                "[Orchestrator] Excepcion inesperada en Damp(): %s — %s",
+                "[Orchestrator] Excepcion inesperada en StopMove: %s — %s",
                 type(exc).__name__,
                 exc,
             )
-            result.errors.append(f"damp_failed:{type(exc).__name__}:{exc}")
+            result.errors.append(f"stop_motion_failed:{type(exc).__name__}:{exc}")
 
-        # @SECURITY: terminal_safe se fija inmediatamente despues de Damp() y nunca se revierte
-        #            por fallos posteriores (logging, VisionProcessor). damp_succeeded=True es
-        #            condicion necesaria; ninguna rama posterior ejecuta comandos de locomocion.
-        result.terminal_safe = result.damp_succeeded
+        result.software_motion_terminal = result.stop_motion_succeeded
+        # Compatibilidad: solo describe terminalidad de software, nunca seguridad mecanica total.
+        result.terminal_safe = result.stop_motion_succeeded and result.posture_preserved
 
         try:
             await self._cancel_interaction_task_safe()

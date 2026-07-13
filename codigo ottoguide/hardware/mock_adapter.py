@@ -1,7 +1,7 @@
 """
 @TASK: Proveer adaptador de hardware mock para demo local/offline sin DDS ni Unitree SDK.
 @INPUT: MotionCommand y contratos del RobotHardwareInterface.
-@OUTPUT: Implementacion asincrona de exito inmediato para initialize/stand/move/damp/emergency_stop.
+@OUTPUT: Implementacion asincrona de initialize/get_state/move/stop_motion sin cambios posturales.
 @CONTEXT: Usado en ROBOT_MODE=mock|demo para demostraciones en PC comun sin robot fisico.
 @SECURITY: Cero imports de unitree_sdk2py y cero llamadas de red a 192.168.123.161.
 
@@ -52,28 +52,6 @@ class MockHardwareAPI(RobotHardwareInterface):
         self._state = "initialized"
         LOGGER.info("[MOCK] initialize() -> state='%s'", self._state)
 
-    async def stand(self) -> None:
-        """
-        @TASK: Simular comando de bipedestacion.
-        @INPUT: Sin parametros.
-        @OUTPUT: _state='standing'.
-        @CONTEXT: Compatible con contrato de RobotHardwareInterface.
-        @SECURITY: Sin actuacion fisica.
-        """
-        self._state = "standing"
-        LOGGER.info("[MOCK] stand() -> state='%s'", self._state)
-
-    async def damp(self) -> None:
-        """
-        @TASK: Simular parada segura amortiguada.
-        @INPUT: Sin parametros.
-        @OUTPUT: _state='damped'.
-        @CONTEXT: Hook de seguridad invocado en shutdown y emergencia.
-        @SECURITY: Failsafe local sin efectos laterales en hardware real.
-        """
-        self._state = "damped"
-        LOGGER.info("[MOCK] damp() -> state='%s'", self._state)
-
     async def move(self, command: MotionCommand) -> None:
         """
         @TASK: Simular movimiento integrando posicion local.
@@ -86,11 +64,6 @@ class MockHardwareAPI(RobotHardwareInterface):
         STEP 3: Integrar yaw.
         @SECURITY: Solo aritmetica local; no publica comandos a bus externo.
         """
-        if self._state == "damped":
-            LOGGER.warning(
-                "[MOCK] move() ignorado: el adaptador permanece en estado 'damped'."
-            )
-            return
         dt = command.duration_ms / 1000.0
         self._position["x"] += command.linear_x * dt * math.cos(self._position["yaw"])
         self._position["y"] += command.linear_x * dt * math.sin(self._position["yaw"])
@@ -106,6 +79,11 @@ class MockHardwareAPI(RobotHardwareInterface):
             self._position["yaw"],
         )
 
+    async def stop_motion(self) -> None:
+        """Registra StopMove mock preservando la postura y posicion."""
+        self._stop_motion_calls = getattr(self, "_stop_motion_calls", 0) + 1
+        LOGGER.info("[MOCK] stop_motion() -> StopMove registrado")
+
     async def get_state(self) -> dict:
         """
         @TASK: Exponer estado del adaptador mock para observabilidad.
@@ -118,18 +96,8 @@ class MockHardwareAPI(RobotHardwareInterface):
             "adapter": "MockHardwareAPI",
             "state": self._state,
             "position": dict(self._position),
+            "stop_motion_calls": getattr(self, "_stop_motion_calls", 0),
         }
-
-    async def emergency_stop(self) -> None:
-        """
-        @TASK: Simular parada de emergencia inmediata.
-        @INPUT: Sin parametros.
-        @OUTPUT: Estado final amortiguado via damp().
-        @CONTEXT: Ruta de contingencia en modo demo.
-        @SECURITY: No emite comandos externos.
-        """
-        LOGGER.critical("[MOCK] emergency_stop() invocado")
-        await self.damp()
 
 
 class MockRobotAdapter(MockHardwareAPI):

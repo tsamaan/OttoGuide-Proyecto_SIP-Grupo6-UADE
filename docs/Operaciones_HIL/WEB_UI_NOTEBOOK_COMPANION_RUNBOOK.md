@@ -225,16 +225,16 @@ curl -s -X POST http://<companion-ip>:8000/emergency \
 
 | HTTP | Significado |
 |---|---|
-| **200** | `emergency_stop()` confirmo `terminal_safe=True` (incluye `damp_succeeded=True`). |
-| **503** | La secuencia de emergencia corrio pero **no** confirmo seguridad terminal (`terminal_safe=False`); revisar el campo `errors` del body. |
+| **200** | `emergency_stop()` bloqueo la mision, envio velocidad cero y confirmo `StopMove`; la postura no fue modificada. |
+| **503** | La secuencia corrio pero no confirmo la parada terminal de software; revisar `errors` y actuar con el mando. |
 | **504** | Timeout (5s) esperando `emergency_stop()`. Tratar como emergencia no confirmada: verificar el robot fisicamente. |
 | **500** | Excepcion no controlada en el endpoint. Tratar como emergencia no confirmada. |
 
-**Critico**: el campo que confirma seguridad fisica es `terminal_safe` en el body de la
-respuesta, **no** el campo `executed`. `executed=true` solo indica que la llamada se
-realizo sin excepcion; no implica que el robot haya quedado en `damp()` seguro. Ante
-cualquier respuesta que no sea HTTP 200 con `terminal_safe=true`, verificar el estado
-fisico del robot antes de continuar la sesion.
+**Critico**: `terminal_safe` es un indicador de software conservado por compatibilidad; no
+confirma seguridad mecanica total. La respuesta debe informar `posture_preserved=true`,
+`stop_motion_succeeded=true` y `operator_intervention_required=true`. OttoGuide nunca emite
+`Damp`, `Start`, `StandUp` ni `BalanceStand`. El operador conserva autoridad exclusiva sobre
+la postura y debe verificar fisicamente el robot antes de continuar.
 
 ## 10. Limitaciones del contrato actual
 
@@ -250,8 +250,8 @@ fisico del robot antes de continuar la sesion.
    `navigating`/`interacting`) o ejecutar `/emergency` si es necesario.
 2. Detener el frontend (`Ctrl+C` en la terminal de `npm run dev`).
 3. Detener el backend (`Ctrl+C` en la terminal de `python main.py` / `uvicorn`); el
-   `lifespan` ejecuta la secuencia de apagado HIL-safe (`EventBus -> FSM EMERGENCY ->
-   MotionCommand(0) -> damp()`). La secuencia siempre se ejecuta (esta en el `finally` del
+   `lifespan` ejecuta la secuencia de apagado (`EventBus -> cancelacion de productores ->
+   MotionCommand(0) -> StopMove`). La secuencia siempre se ejecuta (esta en el `finally` del
    lifespan), pero **ejecutarse no es lo mismo que tener exito**: cada paso interno puede
    fallar o hacer timeout sin que eso interrumpa el procedimiento (ver paso 4).
 4. Revisar los logs y distinguir explicitamente dos cosas distintas:
@@ -259,21 +259,19 @@ fisico del robot antes de continuar la sesion.
    - **El procedimiento termino.** El log
      `[SHUTDOWN] === SECUENCIA HIL-SAFE COMPLETADA ===` confirma **unicamente** que la
      funcion `_run_shutdown_sequence()` llego al final de su ejecucion. **Por si solo NO
-     confirma que `damp()` haya tenido exito ni que el robot este fisicamente seguro.**
-   - **La seguridad terminal fue confirmada.** Esto requiere ver en los logs **alguna** de
-     estas dos confirmaciones explicitas:
-     - `ORCHESTRATOR_EMERGENCY_COMPLETED` (el `TourOrchestrator` confirmo
-       `terminal_safe=True`, lo cual implica `damp_succeeded=True`), o
-     - el log `[SHUTDOWN] STEP 4: damp() ejecutado correctamente.` (fallback directo de
-       hardware cuando no hubo orquestador activo).
+     confirma StopMove ni que el robot este fisicamente seguro.**
+   - **La parada terminal de software fue confirmada.** Requiere
+     `ORCHESTRATOR_EMERGENCY_COMPLETED` o el log de fallback que confirma `StopMove`.
+     Esto significa locomocion detenida con postura preservada; la seguridad mecanica
+     permanece bajo verificacion y autoridad del operador.
 
-   Si en su lugar aparece `DIRECT_HARDWARE_FALLBACK_USED`, un `TIMEOUT en damp()`, o
-   `Fallo CRITICO en damp()`, la seguridad terminal **no esta confirmada** aunque el log
+   Si aparece un timeout o fallo de `StopMove`, la parada terminal de software **no esta
+   confirmada** aunque el log
    `SECUENCIA HIL-SAFE COMPLETADA` se haya emitido igual. Ante esto:
 
    1. Verificar el estado fisico del robot antes de alejarse o dar la sesion por cerrada.
-   2. Si el robot sigue activo o en una postura no segura, activar **L1+A** en el mando
-      fisico para forzar el corte de motores.
+   2. Si el robot sigue activo o en una postura no segura, el operador debe usar el mando
+      fisico y el procedimiento Unitree vigente; OttoGuide no cambia la postura.
    3. No continuar la sesion ni reiniciar el backend hasta confirmar visualmente que el
       robot quedo en un estado seguro.
 

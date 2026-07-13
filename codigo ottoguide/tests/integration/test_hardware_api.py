@@ -44,7 +44,7 @@ class FailingMoveClient(MockHighLevelClient):
         # STEP 1: Consumir parametros de entrada
         # STEP 2: Elevar error controlado
         # @SECURITY: No ejecuta acciones de hardware real
-        # @AI_CONTEXT: Debe disparar llamada automatica a Damp en wrapper
+        # @AI_CONTEXT: Debe disparar StopMove preservando postura
         del vx
         del vy
         del wz
@@ -98,10 +98,10 @@ async def test_hardware_non_blocking_executor_delegation(
 ) -> None:
     # @TASK: Validar no bloqueo loop
     # @INPUT: hardware_bundle
-    # @OUTPUT: Move y Damp ejecutados sin bloquear event loop
+    # @OUTPUT: Move y StopMove ejecutados sin bloquear event loop
     # @CONTEXT: Prueba de concurrencia sobre wrapper con ThreadPoolExecutor
     # STEP 1: Lanzar ticker asíncrono concurrente
-    # STEP 2: Ejecutar move+damp y verificar avance del ticker
+    # STEP 2: Ejecutar move+stop_motion y verificar avance del ticker
     # @SECURITY: Confirma aislamiento de llamadas bloqueantes del hilo principal
     # @AI_CONTEXT: Cobertura critica para telemetria de equilibrio en runtime
     hardware_api = hardware_bundle.hardware_api
@@ -118,7 +118,7 @@ async def test_hardware_non_blocking_executor_delegation(
     try:
         await asyncio.gather(
             hardware_api.move(0.15, 0.0, 0.05),
-            hardware_api.damp(),
+            hardware_api.stop_motion(),
         )
     finally:
         stop_event.set()
@@ -128,14 +128,14 @@ async def test_hardware_non_blocking_executor_delegation(
 
 
 @pytest.mark.asyncio
-async def test_hardware_move_failure_triggers_damp_recovery() -> None:
+async def test_hardware_move_failure_triggers_stopmove_recovery() -> None:
     # @TASK: Validar recovery operativo
     # @INPUT: Sin parametros
-    # @OUTPUT: Error en Move y registro de Damp automatico
+    # @OUTPUT: Error en Move y registro de StopMove automatico
     # @CONTEXT: Cobertura de seguridad interna en RobotHardwareAPI
     # STEP 1: Inyectar cliente que falla en Move
-    # STEP 2: Asertar excepcion de dominio y ejecucion de Damp
-    # @SECURITY: Verifica ruta failsafe de postura segura
+    # STEP 2: Asertar excepcion de dominio y ejecucion de StopMove
+    # @SECURITY: Verifica ruta de parada con postura preservada
     # @AI_CONTEXT: Protege al robot frente a fallos de locomocion
     RobotHardwareAPI._instance = None
     failing_client = FailingMoveClient(default_latency_s=0.001)
@@ -150,7 +150,7 @@ async def test_hardware_move_failure_triggers_damp_recovery() -> None:
     try:
         with pytest.raises(RobotHardwareAPIError):
             await hardware_api.move(0.1, 0.0, 0.0)
-        assert any(record.command == "Damp" for record in failing_client.history)
+        assert [record.command for record in failing_client.history] == ["StopMove"]
     finally:
         hardware_api.close()
         RobotHardwareAPI._instance = None

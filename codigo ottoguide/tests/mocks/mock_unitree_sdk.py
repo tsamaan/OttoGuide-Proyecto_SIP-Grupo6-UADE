@@ -34,38 +34,17 @@ class MockHighLevelClient:
             "payload": record.payload,
         }
 
-    def Euler(self, roll: float, pitch: float, yaw: float) -> Dict[str, Any]:
-        # @TASK: Simular comando Euler
-        # @INPUT: roll, pitch, yaw
-        # @OUTPUT: Diccionario de confirmacion de orientacion
-        # @CONTEXT: Mock de ajuste cinemático de alto nivel
-        # STEP 1: Simular tiempo de respuesta minimo
-        # STEP 2: Registrar y retornar el comando ejecutado
-        # @SECURITY: Aisla pruebas de actuadores fisicos
-        # @AI_CONTEXT: Usado para tests de transicion y control de estado
-        _run_async_sleep(self.default_latency_s)
-        record = CommandRecord(
-            command="Euler",
-            payload={"roll": roll, "pitch": pitch, "yaw": yaw},
-        )
-        self.history.append(record)
-        return {
-            "ok": True,
-            "command": record.command,
-            "payload": record.payload,
-        }
-
-    def Damp(self) -> Dict[str, Any]:
-        # @TASK: Simular comando Damp
+    def StopMove(self) -> Dict[str, Any]:
+        # @TASK: Simular comando StopMove
         # @INPUT: Sin parametros
-        # @OUTPUT: Diccionario de confirmacion de postura segura
-        # @CONTEXT: Mock de parada amortiguada para rutas de emergencia
+        # @OUTPUT: Diccionario de confirmacion de locomocion detenida
+        # @CONTEXT: Mock de parada con preservacion postural
         # STEP 1: Simular latencia minima de seguridad
-        # STEP 2: Registrar ejecucion del comando Damp
+        # STEP 2: Registrar ejecucion del comando StopMove
         # @SECURITY: Garantiza cobertura de escenarios de fallo en pruebas
         # @AI_CONTEXT: Verifica comportamiento failsafe del orquestador
         _run_async_sleep(self.default_latency_s)
-        record = CommandRecord(command="Damp", payload={})
+        record = CommandRecord(command="StopMove", payload={})
         self.history.append(record)
         return {
             "ok": True,
