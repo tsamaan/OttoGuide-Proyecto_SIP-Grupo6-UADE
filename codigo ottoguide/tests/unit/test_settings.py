@@ -199,3 +199,66 @@ class TestCloudInterlockSettings:
         """cloud_fallback_effective=True when mode=demo and CLOUD_FALLBACK_ENABLED=True."""
         settings = self._s(ROBOT_MODE="demo", CLOUD_FALLBACK_ENABLED="true")
         assert settings.cloud_fallback_effective is True
+
+
+class TestInteractionRuntimeConfig:
+    """Verificar el interlock de INTERACTION_RUNTIME_BACKEND (MVP-R0)."""
+
+    def _s(self, **env) -> Settings:
+        with patch.dict(os.environ, env, clear=True):
+            return Settings(_env_file=None)  # type: ignore[call-arg]
+
+    def test_default_backend_is_disabled(self) -> None:
+        settings = self._s()
+        assert settings.INTERACTION_RUNTIME_BACKEND == "disabled"
+        settings.validate_interaction_runtime_config()
+
+    def test_disabled_requires_no_worker_path(self) -> None:
+        settings = self._s(INTERACTION_RUNTIME_BACKEND="disabled")
+        settings.validate_interaction_runtime_config()
+
+    def test_cxx_jsonl_mock_requires_worker_path(self) -> None:
+        settings = self._s(INTERACTION_RUNTIME_BACKEND="cxx_jsonl_mock")
+        with pytest.raises(ValueError, match="INTERACTION_WORKER_PATH_empty"):
+            settings.validate_interaction_runtime_config()
+
+    def test_cxx_jsonl_mock_valid_in_mock_mode(self) -> None:
+        settings = self._s(
+            ROBOT_MODE="mock",
+            INTERACTION_RUNTIME_BACKEND="cxx_jsonl_mock",
+            INTERACTION_WORKER_PATH="/tmp/fake_worker",
+        )
+        settings.validate_interaction_runtime_config()
+
+    def test_cxx_jsonl_mock_forbidden_in_real_mode_without_allow_flag(self) -> None:
+        settings = self._s(
+            ROBOT_MODE="real",
+            ROBOT_NETWORK_INTERFACE="eth0",
+            INTERACTION_RUNTIME_BACKEND="cxx_jsonl_mock",
+            INTERACTION_WORKER_PATH="/tmp/fake_worker",
+        )
+        with pytest.raises(ValueError, match="cxx_jsonl_mock_forbidden_in_real_mode"):
+            settings.validate_interaction_runtime_config()
+
+    def test_cxx_jsonl_mock_allowed_in_real_mode_with_explicit_flag(self) -> None:
+        settings = self._s(
+            ROBOT_MODE="real",
+            ROBOT_NETWORK_INTERFACE="eth0",
+            INTERACTION_RUNTIME_BACKEND="cxx_jsonl_mock",
+            INTERACTION_WORKER_PATH="/tmp/fake_worker",
+            INTERACTION_RUNTIME_ALLOW_MOCK_IN_REAL="true",
+        )
+        settings.validate_interaction_runtime_config()
+
+    def test_negative_timeout_rejected(self) -> None:
+        settings = self._s(
+            INTERACTION_RUNTIME_BACKEND="cxx_jsonl_mock",
+            INTERACTION_WORKER_PATH="/tmp/fake_worker",
+            INTERACTION_STARTUP_TIMEOUT_S="0",
+        )
+        with pytest.raises(ValueError, match="INTERACTION_STARTUP_TIMEOUT_S_must_be_positive"):
+            settings.validate_interaction_runtime_config()
+
+    def test_allow_mock_in_real_default_false(self) -> None:
+        settings = self._s()
+        assert settings.INTERACTION_RUNTIME_ALLOW_MOCK_IN_REAL is False

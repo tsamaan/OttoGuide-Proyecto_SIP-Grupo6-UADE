@@ -291,6 +291,27 @@ class TourOrchestrator(StateMachine):
         self._last_emergency_result: Optional[EmergencyStopResult] = None
         self._closed: bool = False
 
+        # Standalone interaction session (MVP-R0): activable solo desde IDLE, no toca
+        # navegacion/waypoints/FSM de mision. Comparte _interaction_task/_interaction_runtime
+        # con el flujo tour-acoplado (mutuamente excluyentes por gating de estado FSM), de
+        # modo que emergency_stop()/close() ya existentes cubren ambos sin duplicar logica.
+        self._standalone_session_id: Optional[str] = None
+        self._standalone_session_state: str = "idle"
+        self._standalone_session_last_event: Optional[str] = None
+
+        # @SECURITY: sin un consumidor de next_event() mientras no hay interaccion activa, los
+        # heartbeat/ready del worker C++ se acumulan sin limite en su cola interna (tamano fijo)
+        # hasta desbordarla, forzando el runtime a failed (ver JsonlInteractionWorkerSupervisor
+        # ._publish_event -> "event queue full"). _interaction_idle_drain_task consume y descarta
+        # READY/HEARTBEAT mientras no hay interaccion activa; se pausa (best-effort cancel) antes
+        # de que cualquier activate() real reclame next_event() en exclusividad, y se relanza al
+        # terminar esa interaccion. No se arranca automaticamente en __init__ (evitaria una
+        # carrera con fixtures de test que precargan eventos en runtimes fake antes de activate());
+        # main.py la arranca explicitamente via start_idle_drain() despues de que el runtime
+        # reporte ready=true en el boot productivo.
+        self._interaction_idle_drain_task: Optional[asyncio.Task[None]] = None
+        self._idle_drain_paused: asyncio.Event = asyncio.Event()
+
         resolved_bus = event_bus if event_bus is not None else OttoEventBus.get_instance()
         self._event_bus: OttoEventBus = resolved_bus
         self._event_bus.subscribe(EventType.INTERACTION_STARTED, self._on_interaction_started)
@@ -391,6 +412,274 @@ class TourOrchestrator(StateMachine):
             plan.tour_id,
             len(plan.waypoints),
         )
+
+    @property
+    def standalone_interaction_session(self) -> dict[str, Optional[str]]:
+        """
+        @TASK: Exponer el estado observable de la sesion de interaccion standalone (MVP-R0)
+        @INPUT: Sin parametros
+        @OUTPUT: dict con session_id, state (idle|starting|active|playback|completed|cancelled|
+                 failed|timeout) y last_event; consumido por GET /status y el broadcast WebSocket
+        @CONTEXT: No confundir con el estado FSM de mision (state_id); esta sesion es independiente
+                  y solo existe mientras start_standalone_interaction() esta en curso desde IDLE.
+        """
+        return {
+            "session_id": self._standalone_session_id,
+            "state": self._standalone_session_state,
+            "last_event": self._standalone_session_last_event,
+        }
+
+    async def start_standalone_interaction(
+        self,
+        *,
+        locale: str = "es",
+        timeout_s: float = 15.0,
+    ) -> str:
+        """
+        @TASK: Iniciar una interaccion standalone contra el interaction runtime desde IDLE
+        @INPUT: locale — codigo de idioma para InteractionContext; timeout_s — deadline total
+        @OUTPUT: interaction_id trazable; corre en background hasta terminal (completed/failed/
+                 timeout/cancelled), actualizando standalone_interaction_session y publicando
+                 EventType.INTERACTION_COMPLETED al finalizar con exito
+        @CONTEXT: MVP-R0 — conecta JsonlInteractionWorkerSupervisor a un flujo web/API que no
+                  requiere un tour activo. Reutiliza el mismo _interaction_task/_interaction_runtime
+                  que el flujo tour-acoplado (_run_supervised_runtime_interaction); ambos son
+                  mutuamente excluyentes porque este metodo exige state_id=="idle" mientras el otro
+                  solo corre en "interacting". emergency_stop()/close() ya existentes cubren ambos
+                  sin necesidad de una segunda FSM de mision.
+        @SECURITY: No llama navegacion, no cambia postura, no emite velocidad, no transiciona la
+                   FSM de mision (nunca a NAVIGATING). RuntimeError fail-closed si el estado no es
+                   IDLE, si no hay runtime configurado, o si ya hay una interaccion activa.
+
+        STEP 1: Validar state_id=="idle"; RuntimeError si no
+        STEP 2: Validar runtime configurado y sin interaccion activa; RuntimeError si no
+        STEP 3: Construir InteractionContext; marcar sesion "starting"; activar runtime
+        STEP 4: Lanzar consumo de eventos como _interaction_task en background; retornar interaction_id
+        """
+        if self.state_id != "idle":
+            raise RuntimeError(
+                f"start_standalone_interaction() rechazado: estado actual es '{self.state_id}', se requiere 'idle'."
+            )
+        if self._interaction_runtime is None:
+            raise RuntimeError("start_standalone_interaction() rechazado: interaction runtime no configurado.")
+        if self._interaction_task is not None and not self._interaction_task.done():
+            raise RuntimeError("start_standalone_interaction() rechazado: ya existe una interaccion activa.")
+
+        self._interaction_sequence += 1
+        interaction_id = f"standalone:{self._interaction_sequence}"
+
+        try:
+            context = InteractionContext(
+                interaction_id=interaction_id,
+                tour_id=None,
+                waypoint_id=None,
+                locale=locale,
+                timeout_s=timeout_s,
+                metadata={"source": "standalone_api"},
+            )
+        except Exception as exc:
+            raise RuntimeError(f"start_standalone_interaction() contexto invalido: {exc}") from exc
+
+        self._standalone_session_id = interaction_id
+        self._standalone_session_state = "starting"
+        self._standalone_session_last_event = None
+        self._active_runtime_interaction_id = interaction_id
+        self._interaction_terminal_outcome = "ACTIVE"
+        self._runtime_stop_sent_for_interaction_id = None
+
+        # @SECURITY: liberar next_event() como recurso exclusivo ANTES de activate(); el drain
+        # de idle y la interaccion real nunca deben llamar next_event() concurrentemente.
+        await self._pause_idle_drain_task_safe()
+
+        self._interaction_task = asyncio.create_task(
+            self._run_standalone_interaction(context),
+            name=f"standalone-interaction:{interaction_id}",
+        )
+        self._schedule_telemetry_broadcast()
+        LOGGER.info(
+            "[Orchestrator] start_standalone_interaction aceptado. interaction_id=%s locale=%s",
+            interaction_id, locale,
+        )
+        return interaction_id
+
+    async def _run_standalone_interaction(self, context: InteractionContext) -> None:
+        """
+        @TASK: Ejecutar el lifecycle completo de una interaccion standalone (activate -> eventos -> terminal)
+        @INPUT: context — InteractionContext ya validado por start_standalone_interaction()
+        @OUTPUT: standalone_interaction_session actualizado en cada evento observado; publica
+                 EventType.INTERACTION_COMPLETED al completar con exito
+        @CONTEXT: Corre como self._interaction_task; comparte cancelacion con emergency_stop()/close()
+                  igual que _run_supervised_runtime_interaction, sin acoplarse a la FSM de mision.
+        @SECURITY: Nunca llama resume_tour(), nunca cambia state_id, nunca invoca navegacion/hardware.
+        """
+        runtime = self._interaction_runtime
+        if runtime is None:
+            self._standalone_session_state = "failed"
+            return
+
+        try:
+            await runtime.activate(context)
+        except asyncio.CancelledError:
+            self._standalone_session_state = "cancelled"
+            self._active_runtime_interaction_id = None
+            raise
+        except Exception as exc:
+            self._standalone_session_state = "failed"
+            self._context.last_error = f"standalone_runtime_activate_failed:{type(exc).__name__}:{exc}"
+            self._active_runtime_interaction_id = None
+            self._interaction_terminal_outcome = None
+            LOGGER.error("[Orchestrator] Standalone runtime activate() fallo: %s", exc)
+            return
+
+        self._standalone_session_state = "active"
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + context.timeout_s
+        transcript_text = ""
+        response_text = ""
+
+        try:
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    await self._fail_standalone_interaction(
+                        "standalone_deadline_expired", terminal="timeout", stop_runtime=True,
+                    )
+                    return
+                try:
+                    event = await runtime.next_event(timeout_s=remaining)
+                except asyncio.TimeoutError:
+                    await self._fail_standalone_interaction(
+                        "standalone_deadline_expired", terminal="timeout", stop_runtime=True,
+                    )
+                    return
+                except asyncio.CancelledError:
+                    if self._interaction_terminal_outcome not in ("EMERGENCY", "CLOSING"):
+                        await self._fail_standalone_interaction(
+                            "standalone_consumer_cancelled", terminal="cancelled", stop_runtime=True,
+                        )
+                    raise
+                except Exception as exc:
+                    await self._fail_standalone_interaction(
+                        f"standalone_next_event_failed:{type(exc).__name__}:{exc}",
+                        terminal="failed",
+                        stop_runtime=True,
+                    )
+                    return
+
+                if not self._runtime_event_matches_interaction(event, context.interaction_id):
+                    await self._fail_standalone_interaction(
+                        f"standalone_wrong_interaction_id:{event.interaction_id}",
+                        terminal="failed",
+                        stop_runtime=True,
+                    )
+                    return
+
+                event_type = event.event
+                self._standalone_session_last_event = event_type.value
+                self._schedule_telemetry_broadcast()
+                if event_type in (
+                    WorkerEventType.READY,
+                    WorkerEventType.HEARTBEAT,
+                    WorkerEventType.WAKE_WORD_CONFIRMED,
+                ):
+                    continue
+                if event_type is WorkerEventType.COMMAND_ACCEPTED:
+                    continue
+                if event_type is WorkerEventType.TRANSCRIPT_READY:
+                    text = event.payload.get("text")
+                    if isinstance(text, str):
+                        transcript_text = text
+                    continue
+                if event_type is WorkerEventType.RESPONSE_READY:
+                    text = event.payload.get("text")
+                    if isinstance(text, str):
+                        response_text = text
+                    continue
+                if event_type is WorkerEventType.CAPTURE_STARTED:
+                    continue
+                if event_type is WorkerEventType.PLAYBACK_STARTED:
+                    self._standalone_session_state = "playback"
+                    continue
+                if event_type is WorkerEventType.PLAYBACK_COMPLETED:
+                    await self._complete_standalone_interaction(
+                        context=context, transcript_text=transcript_text, response_text=response_text,
+                    )
+                    return
+                if event_type in (
+                    WorkerEventType.INTERACTION_TIMEOUT,
+                    WorkerEventType.CANCELLED,
+                    WorkerEventType.FAILED,
+                    WorkerEventType.STOPPED,
+                    WorkerEventType.CLOSED,
+                ):
+                    terminal = "timeout" if event_type is WorkerEventType.INTERACTION_TIMEOUT else "failed"
+                    if event_type is WorkerEventType.CANCELLED:
+                        terminal = "cancelled"
+                    await self._fail_standalone_interaction(
+                        f"standalone_terminal_event:{event_type.value}",
+                        terminal=terminal,
+                        stop_runtime=event_type not in (WorkerEventType.STOPPED, WorkerEventType.CLOSED),
+                    )
+                    return
+
+                await self._fail_standalone_interaction(
+                    f"standalone_unexpected_event:{event_type.value}",
+                    terminal="failed",
+                    stop_runtime=True,
+                )
+                return
+        finally:
+            if self._active_runtime_interaction_id == context.interaction_id:
+                self._active_runtime_interaction_id = None
+            current = asyncio.current_task()
+            if self._interaction_task is current:
+                self._interaction_task = None
+            self._resume_idle_drain_task()
+
+    async def _complete_standalone_interaction(
+        self,
+        *,
+        context: InteractionContext,
+        transcript_text: str,
+        response_text: str,
+    ) -> None:
+        if self._interaction_terminal_outcome != "ACTIVE":
+            return
+        if not self._claim_interaction_terminal_outcome("COMPLETED"):
+            return
+        self._standalone_session_state = "completed"
+        payload = {
+            "interaction_id": context.interaction_id,
+            "source_pipeline": "standalone_runtime",
+            "playback_completed": True,
+        }
+        if transcript_text:
+            payload["transcript_preview"] = transcript_text[:80]
+        if response_text:
+            payload["response_preview"] = response_text[:80]
+        await self._event_bus.publish(EventType.INTERACTION_COMPLETED, payload)
+        self._schedule_telemetry_broadcast()
+        LOGGER.info(
+            "[Orchestrator] Interaccion standalone completada. interaction_id=%s",
+            context.interaction_id,
+        )
+
+    async def _fail_standalone_interaction(
+        self,
+        reason: str,
+        *,
+        terminal: str,
+        stop_runtime: bool = False,
+    ) -> None:
+        outcome_map = {"cancelled": "FAILED", "failed": "FAILED", "timeout": "FAILED"}
+        if not self._claim_interaction_terminal_outcome(outcome_map.get(terminal, "FAILED")):
+            stop_runtime = False
+        self._standalone_session_state = terminal
+        self._context.last_error = reason
+        self._schedule_telemetry_broadcast()
+        LOGGER.warning("[Orchestrator] Interaccion standalone fallida: %s", reason)
+        if stop_runtime:
+            await self._runtime_stop_best_effort()
 
     async def request_interaction(
         self,
@@ -821,6 +1110,9 @@ class TourOrchestrator(StateMachine):
         if self._interaction_runtime is not None:
             if self._interaction_task is None or self._interaction_task.done():
                 self._interaction_sequence += 1
+                # @SECURITY: liberar next_event() como recurso exclusivo ANTES de activate();
+                # ver _drain_idle_runtime_events.
+                await self._pause_idle_drain_task_safe()
                 self._interaction_task = asyncio.create_task(
                     self._run_supervised_runtime_interaction(waypoint_id),
                     name=f"interaction-runtime-interaction:{self._interaction_sequence}",
@@ -954,6 +1246,7 @@ class TourOrchestrator(StateMachine):
                 self._interaction_task = None
             if self._deferred_current_interaction_task is current:
                 self._deferred_current_interaction_task = None
+            self._resume_idle_drain_task()
 
     async def _consume_runtime_interaction_events(
         self,
@@ -1600,6 +1893,7 @@ class TourOrchestrator(StateMachine):
             stop_settled = await self._runtime_stop_best_effort()
             if not stop_settled:
                 return
+        await self._cancel_idle_drain_task_safe()
         await self._cancel_interaction_task_safe()
         await self._cancel_interaction_emergency_task_safe()
         if self._interaction_stop_task is not None:
@@ -1638,6 +1932,126 @@ class TourOrchestrator(StateMachine):
     # ------------------------------------------------------------------
     # Utilidades internas de cancelacion segura
     # ------------------------------------------------------------------
+
+    async def _drain_idle_runtime_events(self) -> None:
+        """
+        @TASK: Consumir y descartar READY/HEARTBEAT del interaction runtime mientras no hay
+               interaccion activa, evitando que su cola interna de eventos se desborde
+        @INPUT: Sin parametros; opera sobre self._interaction_runtime
+        @OUTPUT: Bucle infinito que llama runtime.next_event() con timeout corto solo mientras
+                 self._idle_drain_paused NO esta seteado; nunca falla el proceso ante error
+                 puntual (log y continua), salvo CancelledError (terminacion normal)
+        @CONTEXT: Corre como self._interaction_idle_drain_task, creada en __init__ si hay runtime
+                  inyectado. self._idle_drain_paused (asyncio.Event) es seteado SINCRONAMENTE por
+                  start_standalone_interaction()/on_enter_interacting() ANTES de cualquier otro
+                  await, cerrando la ventana de carrera donde el drain podria robar un evento
+                  (p. ej. READY) entre la decision de activar una interaccion real y la primera
+                  oportunidad de cancelar esta tarea. Solo despues de setear el flag se cancela
+                  esta tarea (best-effort, por si esta bloqueada dentro de next_event()).
+        @SECURITY: Nunca interpreta HEARTBEAT/READY como parte de una interaccion; solo los descarta.
+                   No llama activate/stop/emergency_stop; es puramente un dren de la cola.
+
+        STEP 1: Loop: si el flag de pausa esta seteado o hay interaccion activa, ceder el turno
+        STEP 2: Si no, next_event() con timeout corto; descartar el evento recibido
+        STEP 3: TimeoutError es normal (no hubo evento en la ventana); continuar el loop
+        STEP 4: CancelledError se propaga (terminacion normal via cancel())
+        """
+        runtime = self._interaction_runtime
+        if runtime is None:
+            return
+        while True:
+            if self._idle_drain_paused.is_set() or self._active_runtime_interaction_id is not None:
+                await asyncio.sleep(0.02)
+                continue
+            try:
+                await runtime.next_event(timeout_s=0.2)
+            except asyncio.TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                LOGGER.debug(
+                    "[Orchestrator] idle drain: next_event() fallo (no fatal): %s", exc
+                )
+                await asyncio.sleep(0.02)
+
+    async def _pause_idle_drain_task_safe(self) -> None:
+        """
+        @TASK: Bloquear atomicamente el drain de idle ANTES de que una interaccion real active el runtime
+        @INPUT: Sin parametros
+        @OUTPUT: self._idle_drain_paused seteado (sincrono, sin await previo — cierra la ventana de
+                 carrera); luego se cancela la tarea de drain (best-effort) por si estaba bloqueada
+                 dentro de next_event()
+        @CONTEXT: Debe ser la PRIMERA operacion en start_standalone_interaction()/on_enter_interacting()
+                  al decidir activar el runtime, antes de cualquier otro await que ceda el control
+                  del event loop. Un asyncio.Event.set() es sincrono: no hay punto de suspension
+                  entre "decidir activar" y "bloquear el drain", por lo que el drain nunca alcanza
+                  a ejecutar next_event() de nuevo una vez seteado el flag.
+        @SECURITY: No lanza si la tarea ya termino o nunca existio.
+        """
+        self._idle_drain_paused.set()
+        task = self._interaction_idle_drain_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        self._interaction_idle_drain_task = None
+
+    async def _cancel_idle_drain_task_safe(self) -> None:
+        """
+        @TASK: Cancelar _interaction_idle_drain_task de forma segura sin propagar CancelledError
+        @INPUT: Sin parametros; opera sobre self._interaction_idle_drain_task
+        @OUTPUT: Tarea cancelada y esperada; _interaction_idle_drain_task = None
+        @CONTEXT: Invocado desde close() para el cierre final del orquestador. Para el camino de
+                  activacion real de interaccion usar _pause_idle_drain_task_safe() (cierra la
+                  ventana de carrera; este metodo no la cierra por si solo).
+        @SECURITY: Mismo idiom que _cancel_nav_task_safe; CancelledError absorbido es esperado.
+        """
+        self._idle_drain_paused.set()
+        task = self._interaction_idle_drain_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        self._interaction_idle_drain_task = None
+
+    def start_idle_drain(self) -> None:
+        """
+        @TASK: Arrancar (o relanzar) el consumo de idle del interaction runtime
+        @INPUT: Sin parametros
+        @OUTPUT: Nueva tarea de drain creada si hay runtime configurado y no hay una ya activa
+        @CONTEXT: Invocado por main.py una unica vez tras confirmar interaction_runtime_ready=true
+                  en el boot productivo (evita que el drain arranque en __init__, lo que
+                  competiria por next_event() con fixtures de test que precargan eventos en un
+                  runtime fake antes de llamar activate()). Tambien reutilizado internamente por
+                  _resume_idle_drain_task tras cada interaccion real.
+        @SECURITY: No-op si close() ya fue invocado (self._closed) o si no hay runtime configurado.
+        """
+        self._resume_idle_drain_task()
+
+    def _resume_idle_drain_task(self) -> None:
+        """
+        @TASK: Relanzar _interaction_idle_drain_task tras completar/fallar una interaccion real
+        @INPUT: Sin parametros
+        @OUTPUT: Nueva tarea de drain creada si el runtime sigue configurado y no hay una activa
+        @CONTEXT: Invocado al final de _run_standalone_interaction/_run_supervised_runtime_interaction
+                  (finally) para que el heartbeat vuelva a consumirse apenas termina la interaccion,
+                  y desde start_idle_drain() para el arranque inicial productivo.
+        @SECURITY: No-op si close() ya fue invocado (self._closed) o si no hay runtime configurado.
+        """
+        if self._closed or self._interaction_runtime is None:
+            return
+        if self._interaction_idle_drain_task is not None and not self._interaction_idle_drain_task.done():
+            return
+        self._idle_drain_paused.clear()
+        self._interaction_idle_drain_task = asyncio.create_task(
+            self._drain_idle_runtime_events(),
+            name="interaction-runtime-idle-drain",
+        )
 
     async def _cancel_nav_task_safe(self) -> None:
         """
@@ -1801,6 +2215,7 @@ class TourOrchestrator(StateMachine):
             "nlp_intent": nlp_intent,
             "nlp_source_pipeline": nlp_source_pipeline,
             "nlp_answer_preview": nlp_answer_preview,
+            "interaction_session": dict(self.standalone_interaction_session),
         }
 
     def _schedule_telemetry_broadcast(self) -> None:

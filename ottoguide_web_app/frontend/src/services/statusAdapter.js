@@ -10,6 +10,24 @@ export const FSM_STATE_LABELS = {
   emergency: 'emergencia',
 }
 
+const DEFAULT_INTERACTION_RUNTIME = Object.freeze({
+  configured: false,
+  state: 'not_configured',
+  ready: false,
+  mock: false,
+  physical: false,
+  capabilities: {},
+  lastHeartbeatMonotonicS: null,
+  lastError: null,
+})
+
+const DEFAULT_INTERACTION_SESSION = Object.freeze({
+  active: false,
+  sessionId: null,
+  state: 'idle',
+  lastEvent: null,
+})
+
 const DEFAULT_UI_STATUS = Object.freeze({
   fsmState: 'idle',
   fsmStateLabel: FSM_STATE_LABELS.idle,
@@ -25,6 +43,8 @@ const DEFAULT_UI_STATUS = Object.freeze({
   scriptWaypointCount: 0,
   conversationRuntimeDegraded: false,
   conversationRuntimeError: null,
+  interactionRuntime: DEFAULT_INTERACTION_RUNTIME,
+  interactionSession: DEFAULT_INTERACTION_SESSION,
 })
 
 // statusResponse: el JSON crudo devuelto por GET /status (api/schemas.py::StatusResponse).
@@ -49,6 +69,35 @@ export function adaptStatusResponse(statusResponse) {
     scriptWaypointCount: statusResponse.script_waypoint_count ?? 0,
     conversationRuntimeDegraded: Boolean(statusResponse.conversation_runtime_degraded),
     conversationRuntimeError: statusResponse.conversation_runtime_error ?? null,
+    interactionRuntime: adaptInteractionRuntime(statusResponse.interaction_runtime),
+    interactionSession: adaptInteractionSession(statusResponse.interaction_session),
+  }
+}
+
+// interactionRuntime: refleja InteractionRuntimeStatusResponse (api/schemas.py). mock=true
+// y physical=false deben mostrarse siempre que el backend configurado sea cxx_jsonl_mock;
+// nunca se infiere "physical" localmente, solo se lee lo que el backend ya calculo.
+function adaptInteractionRuntime(raw) {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_INTERACTION_RUNTIME }
+  return {
+    configured: Boolean(raw.configured),
+    state: raw.state ?? 'not_configured',
+    ready: Boolean(raw.ready),
+    mock: Boolean(raw.mock),
+    physical: Boolean(raw.physical),
+    capabilities: raw.capabilities ?? {},
+    lastHeartbeatMonotonicS: raw.last_heartbeat_monotonic_s ?? null,
+    lastError: raw.last_error ?? null,
+  }
+}
+
+function adaptInteractionSession(raw) {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_INTERACTION_SESSION }
+  return {
+    active: Boolean(raw.active),
+    sessionId: raw.session_id ?? null,
+    state: raw.state ?? 'idle',
+    lastEvent: raw.last_event ?? null,
   }
 }
 

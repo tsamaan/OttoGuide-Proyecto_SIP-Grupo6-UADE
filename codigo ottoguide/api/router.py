@@ -31,6 +31,8 @@ from .schemas import (
     QuestionRequest,
     QuestionResponse,
     ScriptReloadResponse,
+    StartInteractionRequest,
+    StartInteractionResponse,
     StartTourRequest,
     StartTourResponse,
     StatusResponse,
@@ -297,6 +299,66 @@ async def endpoint_emergency(
     return body
 
 
+@router.post(
+    "/interaction/start",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=StartInteractionResponse,
+    summary="Iniciar interaccion standalone contra el interaction runtime",
+)
+async def endpoint_start_interaction(
+    payload: StartInteractionRequest,
+    request: Request,
+    response: Response,
+    orchestrator=Depends(_get_orchestrator),
+) -> StartInteractionResponse:
+    """
+    @TASK: Iniciar una interaccion standalone (MVP-R0) sin requerir un tour activo
+    @INPUT: payload con locale y timeout_s
+    @OUTPUT: HTTP 202 con interaction_id trazable; 409 si FSM no esta IDLE o ya hay
+             interaccion activa; 503 si el runtime esta deshabilitado/no listo/termino;
+             422 si locale/timeout invalidos (manejado por Pydantic)
+    @CONTEXT: Delega en TourOrchestrator.start_standalone_interaction(). Nunca llama
+              navegacion ni cambia la FSM de mision a NAVIGATING.
+    @SECURITY: runtime_mock siempre refleja Settings.INTERACTION_RUNTIME_BACKEND=="cxx_jsonl_mock";
+               nunca se afirma interaccion fisica cuando el backend es un test double.
+    """
+    requested_backend = getattr(request.app.state, "interaction_runtime_requested", "disabled")
+    runtime = getattr(request.app.state, "interaction_runtime", None)
+    is_mock = bool(getattr(request.app.state, "interaction_runtime_mock", False))
+
+    if runtime is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Interaction runtime no disponible (backend='{requested_backend}').",
+        )
+
+    current_state = getattr(orchestrator, "state_id", None)
+    if current_state != "idle":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "start_standalone_interaction solo es valido en estado IDLE.",
+                "current_state": current_state,
+            },
+        )
+
+    try:
+        interaction_id = await orchestrator.start_standalone_interaction(
+            locale=payload.locale,
+            timeout_s=payload.timeout_s,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        if "ya existe una interaccion activa" in detail:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail)
+
+    return StartInteractionResponse(
+        accepted=True,
+        interaction_id=interaction_id,
+        runtime_backend=requested_backend,
+        runtime_mock=is_mock,
+    )
 
 
 
@@ -391,6 +453,7 @@ async def endpoint_status(
     factory_rest = await _resolve_factory_rest_status(request)
     nav_observability = await _resolve_navigation_observability(request)
     interaction_runtime_status = await _resolve_interaction_runtime_status(request)
+    interaction_session_status = await _resolve_interaction_session_status(orchestrator)
     station_trigger_status = await _resolve_station_trigger_status(request)
     return StatusResponse(
         state=orchestrator.state_id,
@@ -408,6 +471,7 @@ async def endpoint_status(
         script_load_error=getattr(request.app.state, "script_load_error", None),
         interaction_runtime=interaction_runtime_status,
         station_trigger=station_trigger_status,
+        interaction_session=interaction_session_status,
         **nav_observability,
     )
 
@@ -425,15 +489,22 @@ async def _resolve_interaction_runtime_status(request: Request) -> dict:
                heartbeat, error); nunca PID, transporte, socket o credenciales.
     """
     runtime = getattr(request.app.state, "interaction_runtime", None)
+    is_mock = bool(getattr(request.app.state, "interaction_runtime_mock", False))
+    termination = getattr(request.app.state, "interaction_runtime_termination", None)
+    termination_reason = getattr(termination, "reason", None) if termination is not None else None
+
     if runtime is None:
         return {
             "configured": False,
             "protocol_version": 1,
             "state": "not_configured",
             "ready": False,
+            "mock": False,
+            "physical": False,
             "capabilities": {},
             "last_heartbeat_monotonic_s": None,
             "last_error": None,
+            "termination_reason": termination_reason,
         }
 
     health_fn = getattr(runtime, "health", None)
@@ -443,9 +514,12 @@ async def _resolve_interaction_runtime_status(request: Request) -> dict:
             "protocol_version": 1,
             "state": "failed",
             "ready": False,
+            "mock": is_mock,
+            "physical": False,
             "capabilities": {},
             "last_heartbeat_monotonic_s": None,
             "last_error": "health_method_missing",
+            "termination_reason": termination_reason,
         }
 
     try:
@@ -456,9 +530,12 @@ async def _resolve_interaction_runtime_status(request: Request) -> dict:
             "protocol_version": 1,
             "state": "failed",
             "ready": False,
+            "mock": is_mock,
+            "physical": False,
             "capabilities": {},
             "last_heartbeat_monotonic_s": None,
             "last_error": "health_timeout",
+            "termination_reason": termination_reason,
         }
     except Exception as exc:
         return {
@@ -466,9 +543,12 @@ async def _resolve_interaction_runtime_status(request: Request) -> dict:
             "protocol_version": 1,
             "state": "failed",
             "ready": False,
+            "mock": is_mock,
+            "physical": False,
             "capabilities": {},
             "last_heartbeat_monotonic_s": None,
             "last_error": f"health_error:{type(exc).__name__}",
+            "termination_reason": termination_reason,
         }
 
     capabilities = getattr(health, "capabilities", None)
@@ -490,14 +570,42 @@ async def _resolve_interaction_runtime_status(request: Request) -> dict:
     state_value = getattr(health, "state", None)
     state_str = state_value.value if hasattr(state_value, "value") else str(state_value)
 
+    # @SECURITY: physical solo puede ser True si el runtime NO es mock Y declara playback fisico
+    #            real via capabilities. cxx_jsonl_mock nunca reporta physical=True.
+    is_physical = (not is_mock) and bool(capabilities_dict.get("physical_playback", False))
+
     return {
         "configured": True,
         "protocol_version": int(getattr(health, "protocol_version", 1)),
         "state": state_str,
         "ready": bool(getattr(health, "ready", False)),
+        "mock": is_mock,
+        "physical": is_physical,
         "capabilities": capabilities_dict,
         "last_heartbeat_monotonic_s": getattr(health, "last_heartbeat_monotonic_s", None),
         "last_error": getattr(health, "last_error", None),
+        "termination_reason": termination_reason,
+    }
+
+
+async def _resolve_interaction_session_status(orchestrator) -> dict:
+    """
+    @TASK: Construir el snapshot observable de la sesion de interaccion standalone (MVP-R0)
+    @INPUT: orchestrator — TourOrchestrator activo
+    @OUTPUT: dict con las claves de InteractionSessionStatusResponse
+    @CONTEXT: Independiente del estado FSM de mision; solo refleja
+              orchestrator.standalone_interaction_session.
+    """
+    session_getter = getattr(orchestrator, "standalone_interaction_session", None)
+    if not isinstance(session_getter, dict):
+        return {"active": False, "session_id": None, "state": "idle", "last_event": None}
+
+    state = session_getter.get("state", "idle")
+    return {
+        "active": state not in ("idle", "completed", "cancelled", "failed", "timeout"),
+        "session_id": session_getter.get("session_id"),
+        "state": state,
+        "last_event": session_getter.get("last_event"),
     }
 
 

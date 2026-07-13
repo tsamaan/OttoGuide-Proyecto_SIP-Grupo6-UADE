@@ -131,6 +131,19 @@ class Settings(BaseSettings):
     QR_RELEASE_FRAMES: int = 3
     QR_STATION_QUEUE_MAX_SIZE: int = 8
 
+    # --- Interaction Runtime (C++ JSONL worker control plane, MVP-R0) ---
+    # @SECURITY: INTERACTION_RUNTIME_BACKEND default "disabled" es un interlock cerrado: sin
+    #            configuracion explicita, ningun proceso ni import de C++ ocurre. cxx_jsonl_mock
+    #            es un worker de protocolo (test double); nunca audio fisico. En ROBOT_MODE=real,
+    #            "cxx_jsonl_mock" queda bloqueado salvo INTERACTION_RUNTIME_ALLOW_MOCK_IN_REAL=True
+    #            (ver validate_interaction_runtime_config).
+    INTERACTION_RUNTIME_BACKEND: Literal["disabled", "cxx_jsonl_mock"] = "disabled"
+    INTERACTION_RUNTIME_ALLOW_MOCK_IN_REAL: bool = False
+    INTERACTION_WORKER_PATH: str = ""
+    INTERACTION_STARTUP_TIMEOUT_S: float = 3.0
+    INTERACTION_HEARTBEAT_TIMEOUT_S: float = 5.0
+    INTERACTION_SHUTDOWN_TIMEOUT_S: float = 2.0
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
@@ -237,6 +250,36 @@ class Settings(BaseSettings):
             raise ValueError("QR_STATION_CONFIG_INVALID:QR_RELEASE_FRAMES_must_be_positive")
         if self.QR_STATION_QUEUE_MAX_SIZE <= 0:
             raise ValueError("QR_STATION_CONFIG_INVALID:QR_STATION_QUEUE_MAX_SIZE_must_be_positive")
+
+    def validate_interaction_runtime_config(self) -> None:
+        """
+        @TASK: Validar la configuracion del interaction runtime (worker C++ JSONL) antes de arrancar
+        @INPUT: Sin parametros; opera sobre los campos INTERACTION_* de esta instancia
+        @OUTPUT: None si la configuracion es valida; ValueError("INTERACTION_RUNTIME_CONFIG_INVALID:<detalle>") si no
+        @CONTEXT: Invocado desde el lifespan de main.py ANTES de construir runtime_factory.
+                  INTERACTION_RUNTIME_BACKEND="disabled" (default) no requiere INTERACTION_WORKER_PATH
+                  y no construye ningun supervisor.
+        @SECURITY: cxx_jsonl_mock en ROBOT_MODE=real esta bloqueado salvo habilitacion explicita via
+                   INTERACTION_RUNTIME_ALLOW_MOCK_IN_REAL=True (interlock cerrado por defecto).
+        """
+        if self.INTERACTION_RUNTIME_BACKEND == "disabled":
+            return
+
+        if self.INTERACTION_RUNTIME_BACKEND == "cxx_jsonl_mock":
+            if self.ROBOT_MODE == "real" and not self.INTERACTION_RUNTIME_ALLOW_MOCK_IN_REAL:
+                raise ValueError(
+                    "INTERACTION_RUNTIME_CONFIG_INVALID:cxx_jsonl_mock_forbidden_in_real_mode_without_allow_flag"
+                )
+            if not self.INTERACTION_WORKER_PATH:
+                raise ValueError("INTERACTION_RUNTIME_CONFIG_INVALID:INTERACTION_WORKER_PATH_empty")
+
+        for name, value in (
+            ("INTERACTION_STARTUP_TIMEOUT_S", self.INTERACTION_STARTUP_TIMEOUT_S),
+            ("INTERACTION_HEARTBEAT_TIMEOUT_S", self.INTERACTION_HEARTBEAT_TIMEOUT_S),
+            ("INTERACTION_SHUTDOWN_TIMEOUT_S", self.INTERACTION_SHUTDOWN_TIMEOUT_S),
+        ):
+            if value <= 0:
+                raise ValueError(f"INTERACTION_RUNTIME_CONFIG_INVALID:{name}_must_be_positive")
 
 
 @lru_cache(maxsize=1)

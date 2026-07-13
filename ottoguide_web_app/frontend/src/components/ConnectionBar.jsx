@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Wifi, WifiOff, FlaskConical } from 'lucide-react'
+import { config } from '../config.js'
 
 const STATE_TEXT = {
   mock: 'Simulacion', connecting: 'Conectando…', connected: 'Conectado',
@@ -11,11 +12,21 @@ export default function ConnectionBar({ mockMode, onToggleMock, baseUrl, onChang
   useEffect(() => setDraft(baseUrl), [baseUrl])
 
   const live = connState === 'connected' || connState === 'polling' || connState === 'mock'
+  const isRealProfile = config.deploymentProfile === 'real'
 
   return (
     <div className="conn-bar">
-      <label className="toggle">
-        <input type="checkbox" checked={mockMode} onChange={(e) => onToggleMock(e.target.checked)} />
+      <span className={`pill profile-pill ${isRealProfile ? 'profile-real' : 'profile-dev'}`}>
+        {isRealProfile ? 'REAL' : 'DEVELOPMENT'}
+      </span>
+
+      <label className="toggle" title={!config.allowRuntimeSwitch ? 'Bloqueado en perfil real' : undefined}>
+        <input
+          type="checkbox"
+          checked={mockMode}
+          disabled={!config.allowRuntimeSwitch}
+          onChange={(e) => onToggleMock(e.target.checked)}
+        />
         <FlaskConical size={15} /> Modo simulacion
       </label>
 

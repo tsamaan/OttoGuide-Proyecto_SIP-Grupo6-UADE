@@ -129,4 +129,10 @@ export const robotApi = {
   stopAll: (baseUrl, reason = 'web_operator') => postEmergency(baseUrl, config.endpoints.stop, { reason }),
   // Estado del sistema
   getStatus: (baseUrl) => get(baseUrl, config.endpoints.status),
+  // Boton "Interaccion" del panel de interaction runtime — POST /interaction/start real.
+  // 409 (FSM no IDLE / ya activa), 503 (runtime disabled/no listo) y 422 (locale/timeout
+  // invalidos) llegan como RobotApiError con status+detail; nunca se sustituyen con un
+  // fallback local que simule exito.
+  startInteraction: (baseUrl, { locale = 'es', timeout_s = 15.0 } = {}) =>
+    post(baseUrl, config.endpoints.interactionStart, { locale, timeout_s }),
 }

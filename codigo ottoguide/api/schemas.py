@@ -131,19 +131,36 @@ class InteractionCapabilitiesResponse(BaseModel):
 
 class InteractionRuntimeStatusResponse(BaseModel):
     """
-    @TASK: Exponer el estado observable del runtime de interaccion real (U1)
+    @TASK: Exponer el estado observable del runtime de interaccion real (U1/MVP-R0)
     @CONTEXT: configured=False indica que no hay app.state.interaction_runtime
               configurado; el router degrada conservadoramente ante timeout o error.
+              mock=True/physical=False deben ser siempre visibles cuando el backend
+              configurado es cxx_jsonl_mock (test double de protocolo, nunca audio fisico).
     """
     configured: bool = False
     protocol_version: int = 1
     state: str = "not_configured"
     ready: bool = False
+    mock: bool = False
+    physical: bool = False
     capabilities: InteractionCapabilitiesResponse = Field(
         default_factory=InteractionCapabilitiesResponse
     )
     last_heartbeat_monotonic_s: Optional[float] = None
     last_error: Optional[str] = None
+    termination_reason: Optional[str] = None
+
+
+class InteractionSessionStatusResponse(BaseModel):
+    """
+    @TASK: Exponer el estado observable de la sesion de interaccion standalone (MVP-R0)
+    @CONTEXT: active=False cuando no hay sesion standalone en curso. Independiente del
+              estado FSM de mision (StatusResponse.state).
+    """
+    active: bool = False
+    session_id: Optional[str] = None
+    state: str = "idle"
+    last_event: Optional[str] = None
 
 
 class StationTriggerStatusResponse(BaseModel):
@@ -196,6 +213,30 @@ class StatusResponse(BaseModel):
     station_trigger: StationTriggerStatusResponse = Field(
         default_factory=StationTriggerStatusResponse
     )
+    interaction_session: InteractionSessionStatusResponse = Field(
+        default_factory=InteractionSessionStatusResponse
+    )
+
+
+class StartInteractionRequest(BaseModel):
+    """Payload para POST /interaction/start."""
+    model_config = ConfigDict(extra="forbid")
+
+    locale: str = Field(default="es", min_length=1)
+    timeout_s: float = Field(default=15.0, gt=0.0, le=300.0)
+
+
+class StartInteractionResponse(BaseModel):
+    """
+    @TASK: Tipar la respuesta de POST /interaction/start (202 Accepted)
+    @CONTEXT: runtime_mock=True indica explicitamente worker de protocolo C++ (test double),
+              nunca audio fisico. Nunca reportar runtime_mock=False sin que el runtime
+              configurado realmente declare capacidades fisicas.
+    """
+    accepted: bool
+    interaction_id: str
+    runtime_backend: str
+    runtime_mock: bool
 
 
 class QuestionRequest(BaseModel):
@@ -288,11 +329,14 @@ __all__ = [
     "EmergencyResponse",
     "InteractionCapabilitiesResponse",
     "InteractionRuntimeStatusResponse",
+    "InteractionSessionStatusResponse",
     "NavWaypointDTO",
     "PauseTourRequest",
     "QuestionRequest",
     "QuestionResponse",
     "ScriptReloadResponse",
+    "StartInteractionRequest",
+    "StartInteractionResponse",
     "StartTourRequest",
     "StartTourResponse",
     "StationTriggerStatusResponse",

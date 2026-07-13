@@ -10,6 +10,9 @@ export default function ControlPanel({ mockMode, baseUrl, status, apiReachable, 
   const [voiceMockActive, setVoiceMockActive] = useState(false)
   const timers = useRef([])
 
+  const runtime = status.interactionRuntime ?? {}
+  const session = status.interactionSession ?? {}
+
   const clearTimers = () => {
     timers.current.forEach(clearTimeout)
     timers.current.forEach(clearInterval)
@@ -51,17 +54,33 @@ export default function ControlPanel({ mockMode, baseUrl, status, apiReachable, 
     }
   }
 
-  // "Interaccion por voz": el backend canonico NO expone /chat/start. Este control nunca
-  // hace una llamada real (tampoco sustituye con /tour/pause + audio vacio, que seria un
-  // mock silencioso disfrazado de funcionalidad real). Solo anima localmente en mock mode.
-  function startVoiceInteraction() {
-    if (!mockMode) return
+  // Interaccion: en mock mode del frontend, solo animacion local (sin llamada real). Fuera
+  // de mock mode, POST /interaction/start real contra el interaction runtime del backend
+  // (C++ JSONL worker). Nunca se sustituye con un fallback local que simule exito.
+  async function startVoiceInteraction() {
+    if (mockMode) {
+      setBusy('voice'); setMsg(null)
+      setVoiceMockActive(true)
+      setMsg({ text: 'Interaccion simulada (mock mode). No hay llamada real al backend.', kind: 'ok' })
+      const id = setTimeout(() => setVoiceMockActive(false), 4000)
+      timers.current.push(id)
+      setBusy(null)
+      return
+    }
     setBusy('voice'); setMsg(null)
-    setVoiceMockActive(true)
-    setMsg({ text: 'Interaccion por voz simulada (mock mode). No hay llamada real al backend.', kind: 'ok' })
-    const id = setTimeout(() => setVoiceMockActive(false), 4000)
-    timers.current.push(id)
-    setBusy(null)
+    try {
+      const res = await robotApi.startInteraction(baseUrl, { locale: 'es', timeout_s: 15.0 })
+      await refresh()
+      const label = runtime.mock ? 'Interaccion C++ de protocolo' : (runtime.physical ? 'Interaccion fisica C++' : 'Interaccion')
+      setMsg({ text: `${label} iniciada (interaction_id=${res.interaction_id}).`, kind: 'ok' })
+    } catch (err) {
+      setMsg({
+        text: `No se pudo iniciar la interaccion (HTTP ${err.status ?? '?'}): ${err.detail ?? err.message}`,
+        kind: 'error',
+      })
+    } finally {
+      setBusy(null)
+    }
   }
 
   async function stopAll() {
@@ -76,13 +95,22 @@ export default function ControlPanel({ mockMode, baseUrl, status, apiReachable, 
       } else {
         const res = await robotApi.stopAll(baseUrl, 'web_operator')
         await refresh()
-        if (res.terminal_safe === true) {
-          setMsg({ text: 'Ejecucion terminada. Parada de emergencia confirmada (terminal_safe).', kind: 'ok' })
+        // Semantica software-only: software_motion_terminal/posture_preserved/damp_attempted
+        // describen unicamente que hizo el software. Nunca se afirma seguridad mecanica
+        // ("Robot mecanicamente seguro") — eso es responsabilidad exclusiva del operador.
+        if (res.software_motion_terminal === true) {
+          const opNote = res.operator_intervention_required
+            ? ' Verificacion fisica del operador requerida.'
+            : ''
+          setMsg({
+            text: `El software detuvo sus productores de movimiento (StopMove).${opNote}`,
+            kind: 'ok',
+          })
         } else {
-          // Nunca un mensaje ambiguo de "exito" si la seguridad terminal no se confirmo.
           const errList = (res.errors ?? []).join('; ')
           setMsg({
-            text: `ATENCION: la parada de emergencia NO confirmo seguridad terminal (HTTP ${res.httpStatus}).` +
+            text: `ATENCION: el software NO confirmo el cese de sus productores de movimiento ` +
+              `(HTTP ${res.httpStatus}). Verificacion fisica del operador requerida.` +
               (errList ? ` Detalle: ${errList}` : ''),
             kind: 'critical',
           })
@@ -98,6 +126,13 @@ export default function ControlPanel({ mockMode, baseUrl, status, apiReachable, 
     }
   }
 
+  // Fuera de mock mode, el boton de interaccion solo se habilita si el runtime real
+  // reporto ready=true; nunca se infiere ready de que el proceso simplemente exista.
+  const interactionBlocked = !mockMode && !runtime.ready
+  const interactionLabel = runtime.mock
+    ? 'Interaccion C++ de protocolo'
+    : (runtime.physical ? 'Interaccion fisica C++' : 'Interaccion')
+
   return (
     <section className="controls">
       <div className="controls-head">
@@ -111,6 +146,14 @@ export default function ControlPanel({ mockMode, baseUrl, status, apiReachable, 
               Conversacion degradada
             </span>
           )}
+          {!mockMode && runtime.configured && (
+            <span
+              className={`pill ${runtime.mock ? 'pill-mock' : (runtime.physical ? 'pill-physical' : '')}`}
+              title={`heartbeat=${runtime.lastHeartbeatMonotonicS ?? 'N/A'} capabilities=${JSON.stringify(runtime.capabilities)}`}
+            >
+              {runtime.mock ? 'CXX PROTOCOL MOCK' : (runtime.physical ? 'PHYSICAL' : runtime.state.toUpperCase())}
+            </span>
+          )}
         </div>
       </div>
 
@@ -122,9 +165,10 @@ export default function ControlPanel({ mockMode, baseUrl, status, apiReachable, 
         </button>
 
         <button className="btn btn-accent" onClick={startVoiceInteraction}
-          disabled={busy !== null || !mockMode}
-          title={!mockMode ? 'Pendiente de integracion Wake Word/TTS - Fase 2' : undefined}>
-          <Mic size={18} /> Interaccion por voz{voiceMockActive ? ' (simulando...)' : ''}
+          disabled={busy !== null || interactionBlocked}
+          title={interactionBlocked ? `Interaction runtime no listo (state=${runtime.state})` : undefined}>
+          <Mic size={18} /> {interactionLabel}{voiceMockActive ? ' (simulando...)' : ''}
+          {session.active ? ` — sesion: ${session.state}` : ''}
         </button>
 
         <button className="btn btn-danger" onClick={stopAll}
@@ -133,9 +177,14 @@ export default function ControlPanel({ mockMode, baseUrl, status, apiReachable, 
         </button>
       </div>
 
-      {!mockMode && (
+      {!mockMode && !runtime.configured && (
         <p className="controls-note">
-          Interaccion por voz: pendiente de integracion Wake Word/TTS — Fase 2.
+          Interaction runtime deshabilitado (INTERACTION_RUNTIME_BACKEND=disabled).
+        </p>
+      )}
+      {!mockMode && runtime.configured && !runtime.ready && (
+        <p className="controls-note is-error">
+          Interaction runtime no listo: state={runtime.state} last_error={runtime.lastError ?? 'N/A'}
         </p>
       )}
       {tourBlocked && (

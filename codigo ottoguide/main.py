@@ -115,15 +115,30 @@ async def lifespan(app: FastAPI):
     app.state.nav_bridge = None
     app.state.station_trigger = None
 
+    # getattr defensivo: compatibilidad con test doubles preexistentes (SimpleNamespace en
+    # tests/unit/test_navigation_runtime_selection.py) que no implementan este campo nuevo de
+    # MVP-R0. config.settings.Settings real SIEMPRE lo expone (default "disabled").
+    app.state.interaction_runtime_requested = getattr(settings, "INTERACTION_RUNTIME_BACKEND", "disabled")
+    app.state.interaction_runtime_resolved = None
+    app.state.interaction_runtime_started = False
+    app.state.interaction_runtime_ready = False
+    app.state.interaction_runtime_mock = False
+    app.state.interaction_runtime_state = "not_configured"
+    app.state.interaction_runtime_capabilities = None
+    app.state.interaction_runtime_last_error = None
+    app.state.interaction_runtime_termination = None
+    app.state.interaction_runtime = None
+    interaction_runtime = None
+
     try:
         try:
             # STEP 2: Config, resolucion de backend e interlock — antes de tocar hardware/ROS
             settings.validate_navigation_config()
             settings.validate_web_ui_config()
             # getattr defensivo: compatibilidad con test doubles preexistentes (SimpleNamespace
-            # en tests/unit/test_navigation_runtime_selection.py) que no implementan este metodo
-            # nuevo de U2. config.settings.Settings real SIEMPRE lo expone y lo ejecuta; esto no
-            # degrada el fail-closed productivo, solo evita romper fakes parciales fuera de scope.
+            # en tests/unit/test_navigation_runtime_selection.py) que no implementan estos metodos
+            # nuevos de U2/MVP-R0. config.settings.Settings real SIEMPRE los expone y ejecuta; esto
+            # no degrada el fail-closed productivo, solo evita romper fakes parciales fuera de scope.
             validate_qr_station_config = getattr(settings, "validate_qr_station_config", None)
             if validate_qr_station_config is not None:
                 if not callable(validate_qr_station_config):
@@ -131,6 +146,14 @@ async def lifespan(app: FastAPI):
                         "QR_STATION_CONFIG_VALIDATOR_INVALID:validate_qr_station_config_not_callable"
                     )
                 validate_qr_station_config()
+
+            validate_interaction_runtime_config = getattr(settings, "validate_interaction_runtime_config", None)
+            if validate_interaction_runtime_config is not None:
+                if not callable(validate_interaction_runtime_config):
+                    raise TypeError(
+                        "INTERACTION_RUNTIME_CONFIG_VALIDATOR_INVALID:validate_interaction_runtime_config_not_callable"
+                    )
+                validate_interaction_runtime_config()
 
             resolved_backend = _resolve_navigation_backend(settings)
             app.state.navigation_backend_resolved = resolved_backend
@@ -160,6 +183,39 @@ async def lifespan(app: FastAPI):
                 resolved_backend, app.state.navigation_started,
             )
 
+            # Interaction runtime (C++ JSONL worker control plane, MVP-R0)
+            # @SECURITY: build_interaction_runtime() nunca inicia el proceso; start() se invoca
+            #            aqui explicitamente. Un fallo de arranque es fail-closed (se propaga),
+            #            nunca hay fallback silencioso a ConversationManager ni a Python.
+            # getattr defensivo: compatibilidad con test doubles preexistentes (SimpleNamespace en
+            # tests/unit/test_navigation_runtime_selection.py) que no implementan este campo nuevo.
+            _interaction_backend_requested = getattr(settings, "INTERACTION_RUNTIME_BACKEND", "disabled")
+            app.state.interaction_runtime_resolved = _interaction_backend_requested
+            interaction_runtime = _build_interaction_runtime(settings)
+            if interaction_runtime is not None:
+                try:
+                    await interaction_runtime.start()
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"INTERACTION_RUNTIME_START_FAILED:{_interaction_backend_requested}:{exc}"
+                    ) from exc
+                app.state.interaction_runtime_started = True
+                app.state.interaction_runtime_mock = _interaction_backend_requested == "cxx_jsonl_mock"
+                _interaction_health = await interaction_runtime.health()
+                app.state.interaction_runtime_ready = _interaction_health.ready
+                app.state.interaction_runtime_state = _interaction_health.state.value
+                app.state.interaction_runtime_capabilities = _interaction_health.capabilities
+                app.state.interaction_runtime_last_error = _interaction_health.last_error
+                app.state.interaction_runtime = interaction_runtime
+                LOGGER.info(
+                    "[BOOT] Interaction runtime '%s' iniciado. ready=%s mock=%s",
+                    _interaction_backend_requested,
+                    app.state.interaction_runtime_ready,
+                    app.state.interaction_runtime_mock,
+                )
+            else:
+                LOGGER.info("[BOOT] Interaction runtime deshabilitado (INTERACTION_RUNTIME_BACKEND=disabled).")
+
             # Instanciar orquestador con dependencias congeladas
             # Los modulos congelados siguen usando src.* — no modificar sus imports
             from api.router import telemetry_manager
@@ -181,9 +237,16 @@ async def lifespan(app: FastAPI):
                 mission_audit_logger=mission_audit_logger,
                 robot_mode=settings.ROBOT_MODE,
                 event_bus=shared_event_bus,
+                interaction_runtime=interaction_runtime,
             )
             app.state.orchestrator = orchestrator
             await orchestrator.activate_initial_state()
+
+            # Interaction runtime: arrancar el drain de idle solo despues de que el orchestrator
+            # este activo. Evita que la cola interna del worker C++ se desborde con
+            # heartbeats/ready acumulados mientras no hay ninguna interaccion en curso.
+            if interaction_runtime is not None and getattr(orchestrator, "start_idle_drain", None):
+                orchestrator.start_idle_drain()
 
             # QR Station Trigger (U2) — opcional; fail-closed si esta habilitado y algo falla
             # getattr defensivo: compatibilidad con test doubles preexistentes (ver
@@ -294,6 +357,21 @@ async def lifespan(app: FastAPI):
         #           _close_orchestrator_and_conversation_manager para el contrato productivo
         #           ejercido directamente por tests/unit/test_shutdown_sequence.py T-A04/T-A05).
         await _close_orchestrator_and_conversation_manager(_orch_shutdown)
+
+        # Interaction runtime (C++ JSONL worker): orchestrator.close() ya detuvo cualquier
+        # sesion activa (best-effort stop); aqui se cierra el supervisor/subproceso en si.
+        if interaction_runtime is not None:
+            try:
+                await interaction_runtime.close()
+                app.state.interaction_runtime_started = False
+                app.state.interaction_runtime_ready = False
+                _termination = getattr(interaction_runtime, "termination", None)
+                app.state.interaction_runtime_termination = _termination
+                app.state.interaction_runtime_state = "closed"
+                LOGGER.info("[SHUTDOWN] Interaction runtime cerrado.")
+            except Exception as exc:
+                app.state.interaction_runtime_last_error = f"INTERACTION_RUNTIME_CLOSE_FAILED:{exc}"
+                LOGGER.warning("[SHUTDOWN] Interaction runtime close() fallido: %s", exc)
 
         if nav_bridge is not None:
             try:
@@ -606,6 +684,20 @@ def _build_navigation_bridge(settings, resolved_backend: str):
         return _DisabledNavigationBridge()
 
     raise RuntimeError(f"NAVIGATION_BACKEND_BUILD_FAILED:{resolved_backend}:unknown backend")
+
+
+def _build_interaction_runtime(settings):
+    """
+    @TASK: Construir (sin iniciar) el interaction runtime resuelto desde Settings
+    @INPUT: settings — Settings con INTERACTION_RUNTIME_BACKEND/INTERACTION_WORKER_PATH/timeouts
+    @OUTPUT: None si backend="disabled"; instancia construida (constructor puro) en caso contrario
+    @CONTEXT: Delega en src.interaction.runtime_factory.build_interaction_runtime. El lifespan
+              invoca await runtime.start() explicitamente despues de esta llamada.
+    @SECURITY: Fail-closed: backend desconocido o config invalida propaga excepcion, nunca
+               degrada silenciosamente a disabled.
+    """
+    from src.interaction.runtime_factory import build_interaction_runtime
+    return build_interaction_runtime(settings)
 
 
 def _get_conversation_manager_stub(settings):

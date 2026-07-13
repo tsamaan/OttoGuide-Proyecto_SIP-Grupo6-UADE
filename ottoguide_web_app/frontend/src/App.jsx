@@ -26,11 +26,17 @@ function savePref(key, value) {
 }
 
 export default function App() {
-  const [mockMode, setMockMode] = useState(() => loadPref('otto_mock', config.mockMode))
+  // Perfil "real": ignora localStorage de mock previo (nunca hereda un mock=true guardado
+  // de una sesion development anterior) y el toggle queda bloqueado en Header/config.
+  const [mockMode, setMockMode] = useState(() =>
+    config.deploymentProfile === 'real' ? false : loadPref('otto_mock', config.mockMode)
+  )
   const [baseUrl, setBaseUrl] = useState(() => loadPref('otto_url', config.robotBaseUrl))
   const [tab, setTab] = useState('graficos') // 'tabla' | 'graficos'
 
-  useEffect(() => savePref('otto_mock', mockMode), [mockMode])
+  useEffect(() => {
+    if (config.deploymentProfile !== 'real') savePref('otto_mock', mockMode)
+  }, [mockMode])
   useEffect(() => savePref('otto_url', baseUrl), [baseUrl])
 
   const { frame, history, connState } = useTelemetry({ mockMode, baseUrl })
