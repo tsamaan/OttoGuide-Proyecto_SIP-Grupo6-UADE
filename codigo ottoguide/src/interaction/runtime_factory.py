@@ -43,7 +43,12 @@ def build_interaction_runtime(settings) -> Optional[JsonlInteractionWorkerSuperv
     if backend == "disabled":
         return None
 
-    if backend == "cxx_jsonl_mock":
+    # cxx_jsonl_mock (protocol test double) and cxx_jsonl_physical (real audio worker) share the
+    # SAME supervisor and construction path — the supervisor is protocol-agnostic and drives any
+    # JSONL worker via argv. The mock/physical distinction is NOT made here: it is grounded later
+    # from evidence (main.py sets interaction_runtime_mock = backend=="cxx_jsonl_mock"; api/router
+    # computes physical = (not mock) AND capabilities.physical_playback). No supervisor duplication.
+    if backend in ("cxx_jsonl_mock", "cxx_jsonl_physical"):
         config = JsonlWorkerSupervisorConfig(
             argv=(settings.INTERACTION_WORKER_PATH,),
             startup_timeout_s=settings.INTERACTION_STARTUP_TIMEOUT_S,

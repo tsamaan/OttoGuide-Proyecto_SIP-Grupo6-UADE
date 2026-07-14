@@ -136,8 +136,12 @@ class Settings(BaseSettings):
     #            configuracion explicita, ningun proceso ni import de C++ ocurre. cxx_jsonl_mock
     #            es un worker de protocolo (test double); nunca audio fisico. En ROBOT_MODE=real,
     #            "cxx_jsonl_mock" queda bloqueado salvo INTERACTION_RUNTIME_ALLOW_MOCK_IN_REAL=True
-    #            (ver validate_interaction_runtime_config).
-    INTERACTION_RUNTIME_BACKEND: Literal["disabled", "cxx_jsonl_mock"] = "disabled"
+    #            (ver validate_interaction_runtime_config). cxx_jsonl_physical (MVP-IA-CXX-R1) es
+    #            el worker de audio real (UDP mic -> Whisper -> Ollama -> Piper -> AudioClient); es
+    #            el UNICO backend permitido para reportar physical=True, y lo hace solo si el worker
+    #            declara physical_playback en sus capabilities (ver api/router.py). Nunca reproduce
+    #            comandos locomotores.
+    INTERACTION_RUNTIME_BACKEND: Literal["disabled", "cxx_jsonl_mock", "cxx_jsonl_physical"] = "disabled"
     INTERACTION_RUNTIME_ALLOW_MOCK_IN_REAL: bool = False
     INTERACTION_WORKER_PATH: str = ""
     INTERACTION_STARTUP_TIMEOUT_S: float = 3.0
@@ -270,6 +274,14 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "INTERACTION_RUNTIME_CONFIG_INVALID:cxx_jsonl_mock_forbidden_in_real_mode_without_allow_flag"
                 )
+            if not self.INTERACTION_WORKER_PATH:
+                raise ValueError("INTERACTION_RUNTIME_CONFIG_INVALID:INTERACTION_WORKER_PATH_empty")
+
+        # MVP-IA-CXX-R1: cxx_jsonl_physical es el worker de audio real. Requiere una ruta de
+        # worker explicita (el binario fisico compilado). No esta sujeto al interlock de
+        # cxx_jsonl_mock: es genuinamente fisico y esta permitido en ROBOT_MODE=real. El flag
+        # ALLOW_MOCK_IN_REAL no debe usarse para habilitarlo (no es un mock).
+        if self.INTERACTION_RUNTIME_BACKEND == "cxx_jsonl_physical":
             if not self.INTERACTION_WORKER_PATH:
                 raise ValueError("INTERACTION_RUNTIME_CONFIG_INVALID:INTERACTION_WORKER_PATH_empty")
 
