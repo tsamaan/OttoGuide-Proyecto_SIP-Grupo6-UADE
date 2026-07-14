@@ -1154,7 +1154,7 @@ def check_navigation_backend_selector_contract(result: dict) -> None:
         return
 
     text = _read_text(NAVIGATION_SETTINGS_FILE)
-    if 'NAVIGATION_BACKEND: Literal["auto", "legacy", "direct", "stub"]' not in text:
+    if 'NAVIGATION_BACKEND: Literal["auto", "legacy", "direct", "stub", "disabled"]' not in text:
         result["errors"].append("NAVIGATION_BACKEND_SELECTOR_NOT_EXPLICIT")
     if "NAVIGATION_DIRECT_REAL_ENABLED: bool = False" not in text:
         result["errors"].append("NAVIGATION_DIRECT_REAL_INTERLOCK_NOT_CLOSED_BY_DEFAULT")
