@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Play, Mic, Square } from 'lucide-react'
 import { robotApi } from '../services/robotApi.js'
 import { tourScriptToStartTourRequest, TourScriptValidationError } from '../services/tourMapper.js'
-import { tourStartBlockReasons } from '../services/statusAdapter.js'
+import { tourStartBlockReasons, interactionStartBlockReasons } from '../services/statusAdapter.js'
 
 export default function ControlPanel({ mockMode, baseUrl, status, apiReachable, setStatus, refresh }) {
   const [busy, setBusy] = useState(null) // 'tour' | 'voice' | 'stop' | null
@@ -126,9 +126,13 @@ export default function ControlPanel({ mockMode, baseUrl, status, apiReachable, 
     }
   }
 
-  // Fuera de mock mode, el boton de interaccion solo se habilita si el runtime real
-  // reporto ready=true; nunca se infiere ready de que el proceso simplemente exista.
-  const interactionBlocked = !mockMode && !runtime.ready
+  // MVP-IA-CXX-R1 (FASE E): fuera de mock mode, el boton de Interaccion fisica solo se habilita
+  // cuando TODAS estas condiciones se cumplen, y nunca se oculta un motivo de bloqueo:
+  //   FSM = idle, runtime configured, runtime ready, runtime NO mock, runtime physical,
+  //   y no hay una interaccion activa. El estado physical/ready se lee del backend (grounded en
+  //   capabilities del worker), nunca se infiere localmente.
+  const interactionBlockReasons = mockMode ? [] : interactionStartBlockReasons(status)
+  const interactionBlocked = interactionBlockReasons.length > 0
   const interactionLabel = runtime.mock
     ? 'Interaccion C++ de protocolo'
     : (runtime.physical ? 'Interaccion fisica C++' : 'Interaccion')
@@ -166,7 +170,7 @@ export default function ControlPanel({ mockMode, baseUrl, status, apiReachable, 
 
         <button className="btn btn-accent" onClick={startVoiceInteraction}
           disabled={busy !== null || interactionBlocked}
-          title={interactionBlocked ? `Interaction runtime no listo (state=${runtime.state})` : undefined}>
+          title={interactionBlocked ? `Interaccion bloqueada: ${interactionBlockReasons.join('; ')}` : undefined}>
           <Mic size={18} /> {interactionLabel}{voiceMockActive ? ' (simulando...)' : ''}
           {session.active ? ` — sesion: ${session.state}` : ''}
         </button>
@@ -185,6 +189,17 @@ export default function ControlPanel({ mockMode, baseUrl, status, apiReachable, 
       {!mockMode && runtime.configured && !runtime.ready && (
         <p className="controls-note is-error">
           Interaction runtime no listo: state={runtime.state} last_error={runtime.lastError ?? 'N/A'}
+        </p>
+      )}
+      {!mockMode && runtime.configured && runtime.ready && interactionBlocked && (
+        <p className="controls-note is-error">
+          Interaccion bloqueada: {interactionBlockReasons.join('; ')}
+        </p>
+      )}
+      {!mockMode && (session.active || session.sessionId) && (
+        <p className="controls-note">
+          Interaccion: id={session.sessionId ?? 'N/A'} state={session.state}
+          {session.lastEvent ? ` last_event=${session.lastEvent}` : ''}
         </p>
       )}
       {tourBlocked && (

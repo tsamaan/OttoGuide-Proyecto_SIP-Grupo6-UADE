@@ -4,8 +4,50 @@ import {
   adaptStatusResponse,
   defaultUiStatus,
   tourStartBlockReasons,
+  interactionStartBlockReasons,
   FSM_STATE_LABELS,
 } from '../src/services/statusAdapter.js'
+
+function physicalReadyStatus(overrides = {}) {
+  return {
+    fsmState: 'idle',
+    interactionRuntime: {
+      configured: true, ready: true, mock: false, physical: true, state: 'ready',
+    },
+    interactionSession: { active: false, state: 'idle' },
+    ...overrides,
+  }
+}
+
+test('interactionStartBlockReasons is empty when physical runtime is idle, ready, physical, no session', () => {
+  assert.deepEqual(interactionStartBlockReasons(physicalReadyStatus()), [])
+})
+
+test('interactionStartBlockReasons blocks a mock runtime (never enables physical interaction on a mock)', () => {
+  const reasons = interactionStartBlockReasons(physicalReadyStatus({
+    interactionRuntime: { configured: true, ready: true, mock: true, physical: false, state: 'ready' },
+  }))
+  assert.ok(reasons.some((r) => r.includes('mock')))
+})
+
+test('interactionStartBlockReasons blocks when not physical, not ready, not idle, or session active — never hides a reason', () => {
+  const reasons = interactionStartBlockReasons({
+    fsmState: 'navigating',
+    interactionRuntime: { configured: true, ready: false, mock: false, physical: false, state: 'starting' },
+    interactionSession: { active: true, state: 'capturing' },
+  })
+  assert.ok(reasons.some((r) => r.includes('FSM=navigating')))
+  assert.ok(reasons.some((r) => r.includes('no listo')))
+  assert.ok(reasons.some((r) => r.includes('physical')))
+  assert.ok(reasons.some((r) => r.includes('activa')))
+})
+
+test('interactionStartBlockReasons blocks a not-configured runtime with a single clear reason', () => {
+  assert.deepEqual(
+    interactionStartBlockReasons({ fsmState: 'idle', interactionRuntime: { configured: false } }),
+    ['runtime no configurado'],
+  )
+})
 
 test('adaptStatusResponse maps FSM state to a Spanish label, never inventing llm_enabled', () => {
   const ui = adaptStatusResponse({

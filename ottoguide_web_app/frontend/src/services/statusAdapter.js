@@ -105,6 +105,26 @@ export function defaultUiStatus() {
   return { ...DEFAULT_UI_STATUS }
 }
 
+// MVP-IA-CXX-R1 (FASE E): motivos por los que el boton de Interaccion fisica debe estar
+// bloqueado. Nunca oculta un motivo. El boton se habilita solo con lista vacia, lo que exige:
+//   FSM=idle, runtime configured, ready, NO mock, physical, y sin interaccion activa.
+// physical/ready se leen del backend (grounded en las capabilities del worker), nunca se infieren.
+export function interactionStartBlockReasons(uiStatus) {
+  const runtime = uiStatus?.interactionRuntime ?? {}
+  const session = uiStatus?.interactionSession ?? {}
+  const reasons = []
+  if (!runtime.configured) {
+    reasons.push('runtime no configurado')
+    return reasons
+  }
+  if (uiStatus?.fsmState !== 'idle') reasons.push(`FSM=${uiStatus?.fsmState} (requiere idle)`)
+  if (!runtime.ready) reasons.push(`runtime no listo (state=${runtime.state})`)
+  if (runtime.mock) reasons.push('runtime es mock (protocol test double)')
+  else if (!runtime.physical) reasons.push('runtime no reporta physical=true')
+  if (session.active) reasons.push(`interaccion activa (state=${session.state})`)
+  return reasons
+}
+
 // Determina si el boton de iniciar tour debe estar deshabilitado, y por que.
 // Nunca oculta un motivo: si hay mas de uno, todos se reportan.
 export function tourStartBlockReasons(uiStatus, { apiReachable = true } = {}) {
