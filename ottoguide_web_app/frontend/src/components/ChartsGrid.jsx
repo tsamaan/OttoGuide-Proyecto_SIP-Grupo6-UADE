@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import TimeSeriesChart from './charts/TimeSeriesChart.jsx'
+import { deriveChartsModel, sampleMotors, buildRows } from './chartsModel.js'
 
 // Paleta para curvas por motor / celda.
 const PALETTE = [
@@ -19,30 +20,21 @@ const CHART_DEFS = [
   { key: 'cells', label: 'Tension de celdas' },
 ]
 
-// Construye filas {t, ...valores} a partir del historial de frames.
-function buildRows(history, valueFor) {
-  if (!history.length) return []
-  const t0 = history[0].timestamp
-  return history.map((f) => {
-    const row = { t: +(f.timestamp - t0).toFixed(1) }
-    valueFor(f, row)
-    return row
-  })
-}
-
 export default function ChartsGrid({ history }) {
   const [visible, setVisible] = useState(
     Object.fromEntries(CHART_DEFS.map((c) => [c.key, true]))
   )
 
-  const motors = history.length ? history[history.length - 1].motors : []
-  const groups = useMemo(() => [...new Set(motors.map((m) => m.group))], [motors])
+  // Derivacion defensiva: el contrato canonico del backend real no trae `motors`/`bms`/
+  // `power_*`. deriveChartsModel nunca lanza aunque el frame carezca de esos campos.
+  const model = useMemo(() => deriveChartsModel(history), [history])
+  const { safeHistory, motors, groups, richTelemetryAvailable } = model
   const [group, setGroup] = useState('')
   const activeGroup = group && groups.includes(group) ? group : groups[0] || ''
 
   const toggle = (k) => setVisible((v) => ({ ...v, [k]: !v[k] }))
 
-  // --- Datos por grafico ---
+  // --- Datos por grafico --- (todas las lecturas de motores/bms/power son defensivas)
   const angleMotors = useMemo(
     () => motors.filter((m) => m.group === activeGroup),
     [motors, activeGroup]
@@ -51,42 +43,59 @@ export default function ChartsGrid({ history }) {
     key: m.name, name: m.name, color: PALETTE[i % PALETTE.length],
   }))
   const angleData = useMemo(
-    () => buildRows(history, (f, row) => {
-      f.motors.forEach((m) => { if (m.group === activeGroup) row[m.name] = m.q_deg })
+    () => buildRows(safeHistory, (f, row) => {
+      sampleMotors(f).forEach((m) => { if (m.group === activeGroup) row[m.name] = m.q_deg })
     }),
-    [history, activeGroup]
+    [safeHistory, activeGroup]
   )
 
   const tempSeries = motors.map((m, i) => ({
     key: m.name, name: m.name, color: PALETTE[i % PALETTE.length],
   }))
   const tempData = useMemo(
-    () => buildRows(history, (f, row) => {
-      f.motors.forEach((m) => { row[m.name] = m.temperature })
+    () => buildRows(safeHistory, (f, row) => {
+      sampleMotors(f).forEach((m) => { row[m.name] = m.temperature })
     }),
-    [history]
+    [safeHistory]
   )
 
   const currentData = useMemo(
-    () => buildRows(history, (f, row) => { row.A = f.power_a }), [history]
+    () => buildRows(safeHistory, (f, row) => { row.A = f.power_a }), [safeHistory]
   )
   const voltageData = useMemo(
-    () => buildRows(history, (f, row) => { row.V = f.power_v }), [history]
+    () => buildRows(safeHistory, (f, row) => { row.V = f.power_v }), [safeHistory]
   )
   const socData = useMemo(
-    () => buildRows(history, (f, row) => { row.SOC = f.bms?.soc ?? null }), [history]
+    () => buildRows(safeHistory, (f, row) => { row.SOC = f.bms?.soc ?? null }), [safeHistory]
   )
   const cellsData = useMemo(
-    () => buildRows(history, (f, row) => {
+    () => buildRows(safeHistory, (f, row) => {
       (f.bms?.cell_vol || []).forEach((mv, i) => { row[`Celda ${i + 1}`] = mv })
     }),
-    [history]
+    [safeHistory]
   )
-  const cellCount = motors.length && history.length
-    ? (history[history.length - 1].bms?.cell_vol?.length || 0) : 6
+  const cellCount = motors.length && safeHistory.length
+    ? (safeHistory.at(-1).bms?.cell_vol?.length || 0) : 6
   const cellSeries = Array.from({ length: cellCount }, (_, i) => ({
     key: `Celda ${i + 1}`, name: `Celda ${i + 1}`, color: PALETTE[i % PALETTE.length],
   }))
+
+  // Sin telemetria rica de motores (contrato canonico del backend real): no montar
+  // graficos que requieran `motors`; mostrar un panel explicito en su lugar.
+  if (!richTelemetryAvailable) {
+    return (
+      <div className="charts-panel">
+        <div className="charts-empty">
+          {safeHistory.length === 0
+            ? 'Sin datos todavia. Inicia el robot o activa el modo simulacion.'
+            : 'Telemetria rica de motores no disponible en el contrato canonico. ' +
+              'El backend real publica estado (FSM, interaccion, navegacion) pero no ' +
+              'arrays por motor, bateria ni potencia; los graficos correspondientes ' +
+              'requieren esa telemetria y permanecen ocultos.'}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="charts-panel">
@@ -108,7 +117,7 @@ export default function ChartsGrid({ history }) {
         )}
       </div>
 
-      {history.length === 0 ? (
+      {safeHistory.length === 0 ? (
         <div className="charts-empty">Sin datos todavia. Inicia el robot o activa el modo simulacion.</div>
       ) : (
         <div className="charts-grid">

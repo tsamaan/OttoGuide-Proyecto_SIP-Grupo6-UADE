@@ -3,22 +3,35 @@
 // que este modulo siga siendo importable por los tests puros de node:test.
 const env = (typeof import.meta !== 'undefined' && import.meta.env) || {}
 
+// Resuelve los flags de despliegue desde el entorno Vite. Funcion pura (testeable con
+// node --test): la regla de seguridad "perfil real nunca activa mock ni permite alternar
+// mock desde la UI" queda aqui, verificable sin bundler.
 // deploymentProfile: "development" (default, permite mock toggle) | "real" (ignora
 // localStorage de mock previo, bloquea el toggle, nunca reemplaza silenciosamente la URL).
-const deploymentProfile = env.VITE_DEPLOYMENT_PROFILE === 'real' ? 'real' : 'development'
-const isRealProfile = deploymentProfile === 'real'
+export function resolveDeploymentConfig(rawEnv) {
+  const e = rawEnv || {}
+  const deploymentProfile = e.VITE_DEPLOYMENT_PROFILE === 'real' ? 'real' : 'development'
+  const isRealProfile = deploymentProfile === 'real'
+  return {
+    deploymentProfile,
+    // En perfil real el operador nunca puede alternar mock/real desde la UI, sin importar
+    // VITE_ALLOW_RUNTIME_SWITCH; en development, default true salvo que se deshabilite.
+    allowRuntimeSwitch: isRealProfile ? false : (e.VITE_ALLOW_RUNTIME_SWITCH ?? 'true') !== 'false',
+    // URL del backend en el robot (companion PC, FastAPI canonico). Editable tambien desde la UI
+    // solo en perfil development; en real la URL configurada nunca se reemplaza en silencio.
+    robotBaseUrl: e.VITE_ROBOT_BASE_URL || 'http://192.168.123.164:8000',
+    // Perfil real ignora cualquier localStorage de mock previo: mockMode siempre false ahi.
+    mockMode: isRealProfile ? false : (e.VITE_MOCK_MODE ?? 'true') !== 'false',
+  }
+}
+
+const _flags = resolveDeploymentConfig(env)
 
 export const config = {
-  deploymentProfile,
-  // En perfil real el operador nunca puede alternar mock/real desde la UI, sin importar
-  // VITE_ALLOW_RUNTIME_SWITCH; en development, default true salvo que se deshabilite.
-  allowRuntimeSwitch: isRealProfile ? false : (env.VITE_ALLOW_RUNTIME_SWITCH ?? 'true') !== 'false',
-
-  // URL del backend en el robot (companion PC, FastAPI canonico). Editable tambien desde la UI
-  // solo en perfil development; en perfil real la URL configurada nunca se reemplaza silenciosamente.
-  robotBaseUrl: env.VITE_ROBOT_BASE_URL || 'http://192.168.123.164:8000',
-  // Perfil real ignora cualquier localStorage de mock previo: mockMode siempre false ahi.
-  mockMode: isRealProfile ? false : (env.VITE_MOCK_MODE ?? 'true') !== 'false',
+  deploymentProfile: _flags.deploymentProfile,
+  allowRuntimeSwitch: _flags.allowRuntimeSwitch,
+  robotBaseUrl: _flags.robotBaseUrl,
+  mockMode: _flags.mockMode,
 
   // Endpoints del backend canonico (api/router.py). Si cambian las rutas, se ajustan aca.
   endpoints: {

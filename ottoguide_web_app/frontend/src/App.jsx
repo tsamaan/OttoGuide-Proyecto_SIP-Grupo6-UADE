@@ -11,6 +11,7 @@ import FootForceCard from './components/FootForceCard.jsx'
 import MotorsTable from './components/MotorsTable.jsx'
 import ChartsGrid from './components/ChartsGrid.jsx'
 import ControlPanel from './components/ControlPanel.jsx'
+import ErrorBoundary from './components/ErrorBoundary.js'
 
 // Preferencias guardadas (no son datos criticos: solo URL y modo).
 function loadPref(key, fallback) {
@@ -77,9 +78,11 @@ export default function App() {
               Mostrando ultimos datos conocidos (probablemente vacios fuera de mock mode).
             </p>
           )}
-          {tab === 'tabla'
-            ? <MotorsTable motors={frame?.motors} />
-            : <ChartsGrid history={history} />}
+          <ErrorBoundary label={tab === 'tabla' ? 'Tabla de motores' : 'Graficos en tiempo real'}>
+            {tab === 'tabla'
+              ? <MotorsTable motors={frame?.motors} />
+              : <ChartsGrid history={history} />}
+          </ErrorBoundary>
         </div>
       </section>
 
