@@ -1,0 +1,42 @@
+{
+  "ledger_built_by": "MASTER-OFFLINE-R1-LOCAL-R1",
+  "baseline_head": "3da2e9a72ff573bc1a8a88ac23a2a5012e94b59d",
+  "baseline_parent_chain": [
+    "254cdddfa33477b794561560b397418870d777d9",
+    "0d14de65165805793b6c7c752780e0472507a388",
+    "3da2e9a72ff573bc1a8a88ac23a2a5012e94b59d"
+  ],
+  "domains": {
+    "git": {"classification": "VERIFIED", "note": "structural/foundational; ls-remote + rev-parse against fresh clone, this session"},
+    "hardware_adapter": {"classification": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED"},
+    "dds": {"classification": "NOT_IMPLEMENTED", "note": "cyclonedds installed as python dependency only; zero DDS traffic in this task"},
+    "web": {"classification": "OFFLINE_VALIDATED", "note": "51/51 frontend tests pass, vite build succeeds"},
+    "websocket": {"classification": "OFFLINE_VALIDATED", "note": "contract-only, never connected to a live socket"},
+    "emergency": {"classification": "OFFLINE_VALIDATED", "note": "grounded in test_emergency_safe_stop_returns_200_with_terminal_safe_true"},
+    "sigterm": {"classification": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED", "note": "test skipped on Windows host, not executed this session"},
+    "posture_preservation": {"classification": "OFFLINE_VALIDATED", "note": "4/4 unit tests pass"},
+    "interaction_protocol": {"classification": "OFFLINE_VALIDATED", "note": "17/17 combined unit+integration pass"},
+    "physical_cxx_worker": {"classification": "PHYSICAL_EVIDENCE_HARVESTED", "note": "binary present and hash-verified in harvest; never executed this task; on-Jetson claims are commit-message assertions"},
+    "wake_word": {"classification": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED"},
+    "stt": {"classification": "NOT_IMPLEMENTED"},
+    "llm": {"classification": "NOT_IMPLEMENTED"},
+    "tts": {"classification": "NOT_IMPLEMENTED"},
+    "speaker": {"classification": "NOT_IMPLEMENTED"},
+    "lowstate": {"classification": "PHYSICAL_EVIDENCE_HARVESTED", "note": "299 records, replayed offline, 21/21 replay tests pass"},
+    "energy": {"classification": "NOT_IMPLEMENTED", "note": "power_v/power_a absent from source telemetry"},
+    "bms": {"classification": "NOT_IMPLEMENTED", "note": "bms_state absent from source telemetry"},
+    "foot_force": {"classification": "NOT_IMPLEMENTED", "note": "foot_force absent from source telemetry"},
+    "imu": {"classification": "PHYSICAL_EVIDENCE_HARVESTED", "note": "present and populated in all 299 harvested records"},
+    "camera": {"classification": "NOT_IMPLEMENTED"},
+    "qr": {"classification": "NOT_IMPLEMENTED"},
+    "livox": {"classification": "NOT_IMPLEMENTED"},
+    "odometry": {"classification": "NOT_IMPLEMENTED"},
+    "tf": {"classification": "NOT_IMPLEMENTED"},
+    "mapping": {"classification": "NOT_IMPLEMENTED"},
+    "localization": {"classification": "NOT_IMPLEMENTED"},
+    "nav2": {"classification": "NOT_IMPLEMENTED"},
+    "movement": {"classification": "NOT_IMPLEMENTED", "note": "zero real locomotion API symbols introduced by audited commits; no autonomous navigation validated anywhere in this state file"}
+  },
+  "autonomous_navigation_declared_validated": false,
+  "generated_this_session": true
+}
