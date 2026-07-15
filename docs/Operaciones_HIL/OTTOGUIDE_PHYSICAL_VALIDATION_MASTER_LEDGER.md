@@ -1,6 +1,6 @@
 # OttoGuide Physical Validation Master Ledger
 
-Reconciled during `MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2A`, on top of `MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2`'s checkpoint (`7f5be60`, parent chain `254cddd → 0d14de6 → 3da2e9a → bed9e01 → b41559d → 4caecd9 → c68032d → d2b6beb → 6934213 → 7f5be60`).
+Reconciled during `MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2B`, on top of `MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2A`'s checkpoint (`edce6f5`, parent chain `254cddd → 0d14de6 → 3da2e9a → bed9e01 → b41559d → 4caecd9 → c68032d → d2b6beb → 6934213 → 7f5be60 → edce6f5`).
 
 **Correction note (CORRECTION-R1):** the prior version of this ledger (written during `MASTER-OFFLINE-R1-LOCAL-R1`) used only evidence generated within that single checkpoint's own session and, for several domains, conflated "this checkpoint did not execute X" with "the project has not validated X." That revision separated those two questions explicitly and incorporated real raw evidence found in five prior physical/consolidation runs under `OttoGuide-Agent-Runs` (`FINAL_MVP_R2_EXPEDITED/run_20260714T185718Z`, `MVP_IA_CXX_R1/run_20260714T194651Z`, `FINAL_ROBOT_HARVEST_R1/run_20260714T203807Z`, `MIRROR_STAGING_MVP_IA_CXX_R1_R0/run_20260715T005710Z`, `FINAL_SAFETY_R1_R3_OFFLINE_CANONICAL/run_20260714T033823Z`), all five verified to exist and read directly during that reconciliation.
 
@@ -8,25 +8,27 @@ Reconciled during `MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2A`, on top of `MASTER-OFF
 
 **Correction note (EVIDENCE-LEDGER-R2):** this revision incorporates evidence from `MASTER-R1`, `ROBOT-R2X`, `ROBOT-R3X`, and `ODOM-R5` runs under `OttoGuide-Mapping-Workspace` that RELEASE-READINESS-R1 had cited only partially or not at all, and separates `implementation_status` from `project_validation_status` as two independent dimensions (a capability can be `IMPLEMENTED` in source/commit while still `NOT_VALIDATED`, `OFFLINE_VALIDATED`, or `PHYSICAL_EVIDENCE_HARVESTED` at the project level — the two axes are not synonyms and must not be conflated). The Odometry, Mapping/Localization/Nav2, and Livox sections are rewritten with finer-grained sub-domains distinguishing offline-code validation from on-robot-but-stationary physical evidence capture from live dynamic runtime (never present). See `EVIDENCE_LEDGER_R2_SOURCE_INVENTORY.md` (`MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2` run root) for the full source list, hashes, and flagged cross-source contradictions.
 
-**Correction note (EVIDENCE-LEDGER-R2A):** this revision grounds `92a8bc4` (the odometry adapter commit) against the current, live-verified state of `review/orchestrator-unification` — it is a genuine ancestor of the current `review` tip (33 commits back, confirmed via `git merge-base --is-ancestor` and `git cat-file -t` against a local clone tracking the mirror repository, cross-checked live via `git ls-remote` against both canonical and mirror repositories) — and retires all "never pushed / unmerged / local-only / not present in current repo" language for that commit, which was accurate as of `ODOM-R5`'s own session but is now outdated. It also: (1) reclassifies the uncited "35/35 PASS" MASTER-R1 claim from a capped-but-still-somewhat-elevated evidence level to an explicit `UNKNOWN`/`REPORTED_UNVERIFIED` pair, introducing `claim_status` as a formal field so unverified claims can be recorded honestly without being silently trusted or silently dropped; (2) splits Livox's ROS-topic evidence into `*_topic_observed` domains (real, hash-verified message counts — `PHYSICAL_EVIDENCE_HARVESTED`) separated from `livox_ros_publisher_identity_attribution`/`livox_current_bridge_runtime_validation` (whether *this repository's* current bridge code produced those specific topics — `NOT_VALIDATED`, since no artifact traces that identity); (3) splits `simulated_mapping` into `simulated_map_artifact_and_map_server_load` (a pre-existing map artifact was loaded — `OFFLINE_VALIDATED`) vs. `simulated_mapping_generation` (no run generates a map from sensor data — `NOT_VALIDATED`); (4) softens `/odom`/TF absence language from "confirmed absent"/implicitly-universal phrasing to explicit `observed_in_named_physical_captures: false` plus prose that scopes the claim to the specific captures inspected, never to the whole project. See `LEDGER_R2A.patch` and `EVIDENCE_LEDGER_R2A_SOURCE_NOTES.md` (`MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A` run root) for the full verification trail.
+**Correction note (EVIDENCE-LEDGER-R2A):** this revision grounds `92a8bc4` (the odometry adapter commit) against the current, live-verified state of `review/orchestrator-unification` — it is a genuine ancestor of the current `review` tip (33 commits back, confirmed via `git merge-base --is-ancestor` and `git cat-file -t` against a local clone tracking the mirror repository, cross-checked live via `git ls-remote` against both canonical and mirror repositories) — and retires all "never pushed / unmerged / local-only / not present in current repo" language for that commit, which was accurate as of `ODOM-R5`'s own session but is now outdated. It also: (1) reclassifies the uncited "35/35 PASS" MASTER-R1 claim from a capped-but-still-somewhat-elevated evidence level to an explicit `UNKNOWN`/`REPORTED_UNVERIFIED` pair, introducing `claim_status` as a formal field so unverified claims can be recorded honestly without being silently trusted or silently dropped; (2) splits Livox's ROS-topic evidence into `*_topic_observed` domains (real, hash-verified message counts — `PHYSICAL_EVIDENCE_HARVESTED`) separated from `livox_ros_publisher_identity_attribution`/`livox_current_bridge_runtime_validation` (whether *this repository's* current bridge code produced those specific topics — `NOT_VALIDATED`, since no artifact traces that identity); (3) splits `simulated_mapping` into `simulated_map_artifact_and_map_server_load` (a pre-existing map artifact was loaded — `OFFLINE_VALIDATED`) vs. `simulated_mapping_generation` (no run generates a map from sensor data — `NOT_VALIDATED`); (4) softens `/odom`/TF absence language from "confirmed absent"/implicitly-universal phrasing to explicit `observed_in_named_physical_captures: false` plus prose that scopes the claim to the specific captures inspected, never to the whole project. See `LEDGER_R2A.patch`, `GITHUB_BRANCH_TOPOLOGY.json`, `ODOMETRY_GITHUB_ANCESTRY.txt`, `GITHUB_REFS.txt`, and `DOMAIN_AND_CLASSIFICATION_PARITY.json` (`MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A` run root) for the full verification trail. *(Corrected in EVIDENCE-LEDGER-R2B: this paragraph originally also cited `EVIDENCE_LEDGER_R2A_SOURCE_NOTES.md` in that same run root — that file does not exist there and was never produced; the citation is corrected here to list only the files that actually exist.)*
+
+**Correction note (EVIDENCE-LEDGER-R2B):** this checkpoint corrects schema and traceability defects in EVIDENCE-LEDGER-R2A itself, found by reproducing them with a genuinely symmetric parity validator (`ledger_schema_parity.py`, this checkpoint's run root) rather than accepting R2A's own asymmetric one. Specifically, this revision: (1) adds `implementation_status` to the 26 domains that lacked it on both sides (see `SCHEMA_ASSIGNMENT_RATIONALE.md` for the per-domain reasoning); (2) adds the `claim_status` bullet to `odometry_candidate_adapter_implementation` below, which the JSON companion already carried but this Markdown ledger did not — a real asymmetric-field defect, not a missing classification; (3) splits the four domains whose `project_validation_status` (and, for one, `claim_status`) were compound values joining two classifications with `+`/`;` — `interaction_protocol` → `interaction_protocol_offline_contract` + `interaction_protocol_physical_observation`; `physical_cxx_worker` → `physical_cxx_worker_build_link_gpu_load` (limited to build/link/GPU-load only — the human-audio-confirmation question moves entirely to the voice-interaction domains below); `wake_word_stt_llm_tts_speaker` → `voice_interaction_software_observed_completion` + `voice_interaction_human_confirmed_audio_content`; `lowstate` → `lowstate_physical_capture` + `lowstate_offline_replay` — bringing the active domain count from 56 to 59, with the four retired names preserved as `domain_aliases` in the JSON companion; (4) replaces the two non-enum `N/A` values (`git`'s `project_validation_status`, `movement`'s `evidence_level`) with `NOT_APPLICABLE`; (5) moves every remaining `+`-joined `evidence_level` value into a single scalar primary value plus a `supporting_evidence_levels` list, for both the domains above and `web_real_profile_control_path`, `emergency`, `sigterm`, `posture_preservation`, `odometry_candidate_adapter_implementation`, `odometry_source_channels_physical_capture`, `physical_nav2`, and `physical_autonomous_movement`; (6) in the course of that cleanup, discovered and corrected `posture_preservation`'s `evidence_level`, which listed `STATICALLY_INSPECTED` — a `this_checkpoint_activity` enum value, not an `evidence_level` one — replacing it with `COMMIT_EXACT` (supporting), which correctly describes a direct source-code audit; (7) corrects the odometry adapter's file-path reference from the nonexistent flat file `odometry_candidate_adapter.py` to the real, git-verified path `codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py`, and adds byte-identity confirmation for that file and its primary test (`test_odometry_candidate_adapter.py`) between commit `92a8bc4` and the current review head `254cddd` (see `ODOMETRY_CURRENT_REVIEW_VERIFICATION.md`); (8) corrects two broken run-root citations to a file, `EVIDENCE_LEDGER_R2A_SOURCE_NOTES.md`, that was cited twice in the EVIDENCE-LEDGER-R2A text but never created — see the corrected sentence above and the corrected Provenance note at the end of this document. This checkpoint gathered no new physical, code, test, or robot evidence — every classification value inherited from EVIDENCE-LEDGER-R2A is unchanged in substance; only the schema (field completeness, scalararity, references) was corrected. See `EVIDENCE_LEDGER_R2B_SOURCE_NOTES.md` and `SCHEMA_ASSIGNMENT_RATIONALE.md` (`MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2B` run root) for the full trail.
 
 ## Vocabulary
 
-**Implementation status:** `IMPLEMENTED`, `PARTIALLY_IMPLEMENTED`, `NOT_IMPLEMENTED`, `UNKNOWN`. This dimension answers only "does the code/commit exist," independent of whether it has been validated at any level.
+**Implementation status:** `IMPLEMENTED`, `PARTIALLY_IMPLEMENTED`, `NOT_IMPLEMENTED`, `UNKNOWN`, `NOT_APPLICABLE`. This dimension answers only "does the code/commit exist," independent of whether it has been validated at any level. `NOT_APPLICABLE` is used for domains that are themselves pure observations, artifacts, or structural facts rather than a capability that can be "implemented" (e.g. `git`, the three Livox `*_topic_observed` domains, `lowstate_physical_capture`, `odometry_source_channels_physical_capture`).
 
-**Project validation status:** `PHYSICALLY_VALIDATED`, `PHYSICAL_EVIDENCE_HARVESTED`, `OFFLINE_VALIDATED`, `IMPLEMENTED_NOT_PHYSICALLY_VALIDATED`, `NOT_VALIDATED`, `UNKNOWN`. This dimension answers "what has actually been validated and at what level," independent of implementation status. `NOT_IMPLEMENTED` (implementation axis) must never be used as a synonym for `NOT_VALIDATED` (validation axis) — a capability can be fully implemented and still not validated, and the converse (validated without a corresponding implementation entry) should not occur.
+**Project validation status:** `PHYSICALLY_VALIDATED`, `PHYSICAL_EVIDENCE_HARVESTED`, `OFFLINE_VALIDATED`, `IMPLEMENTED_NOT_PHYSICALLY_VALIDATED`, `NOT_VALIDATED`, `UNKNOWN`, `NOT_APPLICABLE`. This dimension answers "what has actually been validated and at what level," independent of implementation status. `NOT_IMPLEMENTED` (implementation axis) must never be used as a synonym for `NOT_VALIDATED` (validation axis) — a capability can be fully implemented and still not validated, and the converse (validated without a corresponding implementation entry) should not occur.
 
-As of `MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2A`, every domain in this ledger uses `project_validation_status` (the prior `project_classification` field name has been fully retired; no domain retains it).
+As of `MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2A`, every domain in this ledger uses `project_validation_status` (the prior `project_classification` field name has been fully retired; no domain retains it). As of `MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2B`, `project_validation_status`, `claim_status`, `this_checkpoint_activity`, and `evidence_level` are always single scalar values — never a `+`/`;`-joined compound. Where more than one evidence artifact backs a domain, the strongest/primary one is recorded as `evidence_level` and any additional ones are recorded in a separate `supporting_evidence_levels` list (JSON: a list; Markdown: a comma-separated bullet). Where more than one validation state genuinely applies to a single conceptual topic, the topic is split into separate domains (one scalar `project_validation_status` each) rather than joined with `+` — see `domain_aliases` in the JSON companion for the four topics split this checkpoint.
 
 **Claim status** (`MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2A`): `VERIFIED` (the claim traces to a specific artifact this or a prior reconciliation opened and read directly), `REPORTED_UNVERIFIED` (the claim is recorded as stated by its source, but no independent artifact substantiates it — used instead of silently trusting or silently dropping such claims). A result can be successful with `REPORTED_UNVERIFIED` claims present, provided `project_validation_status` for that domain is never itself a validated status (`PHYSICALLY_VALIDATED`, `PHYSICAL_EVIDENCE_HARVESTED`, `OFFLINE_VALIDATED`) on the strength of an unverified claim alone.
 
-**Repository presence / integration status** (odometry-specific fields, introduced this checkpoint): `repository_presence` — `REMOTE_AND_TRACKED` (the commit exists as a real object and is present in a tracked remote branch's history) vs. `LOCAL_ONLY` (exists only in a local, unpushed context). `integration_status` — `ANCESTOR_OF_REVIEW_ORCHESTRATOR_UNIFICATION` (verified via `git merge-base --is-ancestor` against the current `review/orchestrator-unification` tip) vs. `NOT_INTEGRATED`.
+**Repository presence / integration status** (odometry-specific fields, introduced in `EVIDENCE-LEDGER-R2A`): `repository_presence` — `REMOTE_AND_TRACKED` (the commit exists as a real object and is present in a tracked remote branch's history) vs. `LOCAL_ONLY` (exists only in a local, unpushed context). `integration_status` — `ANCESTOR_OF_REVIEW_ORCHESTRATOR_UNIFICATION` (verified via `git merge-base --is-ancestor` against the current `review/orchestrator-unification` tip) vs. `NOT_INTEGRATED`.
 
 **Observed-in-named-physical-captures** (`observed_in_named_physical_captures: true|false`): a narrow, source-grounded field meaning only "was this specifically observed in the named capture(s) cited," never "is this proven absent/present across the entire project." Domains describing `/odom`, TF, or other absence findings use this field plus prose explicitly disclaiming any universal-absence claim, rather than phrases like "confirmed absent" or "proven absent project-wide."
 
 **This checkpoint's activity** (`MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2A` specifically, for rewritten domains) / prior checkpoints' activity (retained on untouched domains): `EXECUTED`, `NOT_EXECUTED_NO_ROBOT`, `STATICALLY_INSPECTED`, `REPLAYED_OFFLINE`, `TESTED_OFFLINE`, `NOT_IN_SCOPE`.
 
-**Evidence level:** `RAW_LOG`, `RAW_RESPONSE`, `OPERATOR_ATTESTATION`, `HASH_VERIFIED_ARTIFACT`, `COMMIT_EXACT`, `OFFLINE_TEST`, `REPORTED_BY_AGENT`, `REPORTED_BY_USER`, `INFERRED`, `UNKNOWN`.
+**Evidence level:** `RAW_LOG`, `RAW_RESPONSE`, `OPERATOR_ATTESTATION`, `HASH_VERIFIED_ARTIFACT`, `COMMIT_EXACT`, `OFFLINE_TEST`, `REPORTED_BY_AGENT`, `REPORTED_BY_USER`, `INFERRED`, `UNKNOWN`, `NOT_APPLICABLE`.
 
 No entry below asserts autonomous navigation as validated. No replay, mock, or offline test result from this or any checkpoint is elevated to a physical-evidence project validation status without raw log, raw response, marker count, or operator attestation backing it. No claim classified `REPORTED_UNVERIFIED` is ever paired with a validated `project_validation_status` for the same domain.
 
@@ -34,18 +36,26 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ## Git (baseline chain)
 
-- **project_validation_status:** N/A (structural, not a physical-validation domain)
+<!-- domain: git -->
+- **implementation_status:** NOT_APPLICABLE
+  _(structural git-chain verification, not a project capability)_
+- **project_validation_status:** NOT_APPLICABLE
+  _(structural, not a physical-validation domain)_
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** EXECUTED
-- **evidence_level:** RAW_LOG (git command output)
+- **evidence_level:** RAW_LOG
+  _(git command output)_
 - **source_paths:** this checkpoint's own `git ls-remote`/`git rev-parse` output; `FINAL_SAFETY_R1_R3_OFFLINE_CANONICAL/run_20260714T033823Z/CANONICAL_AND_MIRROR_ATTESTATION.txt`
 - **limitations:** verified at read time only; refs could drift after this ledger is written.
 
 ## Hardware adapter (real/mock/sim selection)
 
+<!-- domain: hardware_adapter -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** OFFLINE_VALIDATED
 - **claim_status:** VERIFIED
-- **this_checkpoint_activity:** TESTED_OFFLINE (24/24 `test_settings.py` pass)
+- **this_checkpoint_activity:** TESTED_OFFLINE
+  _(24/24 `test_settings.py` pass)_
 - **evidence_level:** OFFLINE_TEST
 - **source_paths:** this checkpoint's baseline test run; `FINAL_SAFETY_R1_R3_OFFLINE_CANONICAL/run_20260714T033823Z/FOCUSED_TEST_MATRIX.md` (`test_real_adapter_network_interface.py` 7/7 pass)
 - **limitations:** no adapter behavior against live hardware was exercised by any offline checkpoint; adapter's `LocoClient()`/`ChannelFactoryInitialize` calls are structurally present but only reachable in `ROBOT_MODE=real`, never exercised this way offline.
@@ -54,6 +64,8 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### dds_lowstate_read_path
 
+<!-- domain: dds_lowstate_read_path -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT
@@ -64,15 +76,20 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### dds_generic_runtime
 
+<!-- domain: dds_generic_runtime -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** IMPLEMENTED_NOT_PHYSICALLY_VALIDATED
 - **claim_status:** VERIFIED
-- **this_checkpoint_activity:** NOT_IN_SCOPE (cyclonedds installed only as a Python import dependency; zero DDS traffic sent or received by this checkpoint)
-- **evidence_level:** HASH_VERIFIED_ARTIFACT (worker binary links `libddsc.so.0`/`libddscxx.so.0`, per raw `ldd` output)
+- **this_checkpoint_activity:** NOT_IN_SCOPE
+  _(cyclonedds installed only as a Python import dependency; zero DDS traffic sent or received by this checkpoint)_
+- **evidence_level:** HASH_VERIFIED_ARTIFACT
+  _(worker binary links `libddsc.so.0`/`libddscxx.so.0`, per raw `ldd` output)_
 - **source_paths:** `MVP_IA_CXX_R1/run_20260714T194651Z/CXX_LINKAGE.txt`; this checkpoint's venv install log
 - **limitations:** confirms the binary is linked against DDS libraries; does not by itself confirm a runtime session.
 
 ### dds_write_or_publish_path
 
+<!-- domain: dds_write_or_publish_path -->
 - **implementation_status:** UNKNOWN
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** REPORTED_UNVERIFIED
@@ -85,19 +102,25 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### web_frontend_offline_tests
 
+<!-- domain: web_frontend_offline_tests -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** OFFLINE_VALIDATED
 - **claim_status:** VERIFIED
-- **this_checkpoint_activity:** TESTED_OFFLINE (51/51 pass, build succeeds)
+- **this_checkpoint_activity:** TESTED_OFFLINE
+  _(51/51 pass, build succeeds)_
 - **evidence_level:** OFFLINE_TEST
 - **source_paths:** this checkpoint's `npm test`/`npm run build`; `MVP_IA_CXX_R1/run_20260714T194651Z/FRONTEND_TESTS.txt`, `FRONTEND_BUILD.txt` (51 passed / 0 failed, exit 0)
 - **limitations:** not run against a live backend or real browser by any offline checkpoint.
 
 ### web_real_profile_control_path
 
+<!-- domain: web_real_profile_control_path -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** PHYSICALLY_VALIDATED
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT
-- **evidence_level:** OPERATOR_ATTESTATION + RAW_RESPONSE
+- **evidence_level:** RAW_RESPONSE
+- **supporting_evidence_levels:** OPERATOR_ATTESTATION
 - **source_paths:** `FINAL_MVP_R2_EXPEDITED/run_20260714T185718Z/WEB_UI_BROWSER_ACCEPTANCE.txt` (real browser, real backend, "Detener" button visible/enabled, "Modo simulacion" desmarcado, "Conectado" verde, `ROBOT http://192.168.123.164:8000`); `P1_EMERGENCY_RESPONSE.json` (`trigger: web_operator (Detener button in live Web UI)`, real `POST /emergency`)
 - **source_hashes:** `WEB_UI_BROWSER_ACCEPTANCE.txt` `98fe5f58b3e610495223f382d07aa4c30a5b845548e8a7a9a1f30fd50c6f4dc0`
 - **limitations:** single operator session; UI described as showing "pocos datos" beyond the Detener control at the time of this observation.
@@ -106,7 +129,10 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### websocket_offline_replay_contract
 
-- **project_validation_status:** OFFLINE_VALIDATED (contract only)
+<!-- domain: websocket_offline_replay_contract -->
+- **implementation_status:** IMPLEMENTED
+- **project_validation_status:** OFFLINE_VALIDATED
+  _(contract only)_
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** TESTED_OFFLINE
 - **evidence_level:** OFFLINE_TEST
@@ -115,6 +141,8 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### websocket_live_transport
 
+<!-- domain: websocket_live_transport -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT
@@ -125,10 +153,14 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ## Emergency (stop)
 
+<!-- domain: emergency -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** PHYSICALLY_VALIDATED
 - **claim_status:** VERIFIED
-- **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT (this checkpoint only re-derived the offline unit-test contract; the physical event below predates it)
-- **evidence_level:** RAW_RESPONSE + OPERATOR_ATTESTATION
+- **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT
+  _(this checkpoint only re-derived the offline unit-test contract; the physical event below predates it)_
+- **evidence_level:** RAW_RESPONSE
+- **supporting_evidence_levels:** OPERATOR_ATTESTATION
 - **source_paths:** `FINAL_MVP_R2_EXPEDITED/run_20260714T185718Z/P1_EMERGENCY_RESPONSE.json`, `P1_OPERATOR_ATTESTATION.txt`
 - **source_hashes:** N/A (raw JSON/text logs, not hash-manifested individually in that run)
 - **detail:** real `POST /emergency` (`reason=web_operator`) on backend PID 5948, 2026-07-15T03:24:08Z. Response markers: `stopmove_emit=1`, `stopmove_success=1`, `direct_hardware_fallback_used=0`, `programmatic_damp=0`, `nonzero_motioncommand=0`, `posture_command=0`, `emergency_completed=1`, `terminal_safe=true`, `posture_preserved=true`. Operator (lucas.capatti, present) attested no non-null movement, no postural change, no fall/instability, hardstop not needed, consistent with the software markers.
@@ -137,10 +169,15 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ## SIGTERM
 
+<!-- domain: sigterm -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** PHYSICALLY_VALIDATED
 - **claim_status:** VERIFIED
-- **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT (`test_sigterm_graceful_shutdown.py` remains skipped on this Windows host, as in the prior checkpoint)
-- **evidence_level:** RAW_LOG (WSL test execution) + RAW_RESPONSE (independent process-exit log) + OPERATOR_ATTESTATION
+- **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT
+  _(`test_sigterm_graceful_shutdown.py` remains skipped on this Windows host, as in the prior checkpoint)_
+- **evidence_level:** RAW_LOG
+  _(WSL test execution)_
+- **supporting_evidence_levels:** RAW_RESPONSE, OPERATOR_ATTESTATION
 - **source_paths:** `FINAL_SAFETY_R1_R3_OFFLINE_CANONICAL/run_20260714T033823Z/SIGTERM_TEST_WSL.log` (`test_sigterm_exits_without_sigkill_and_runs_stopmove_once PASSED`, 1 passed in 3.23s, platform linux/WSL Ubuntu-24.04); `FINAL_MVP_R2_EXPEDITED/run_20260714T185718Z/P2_PROCESS_EXIT.txt`, `P2_OPERATOR_ATTESTATION.txt`; `MVP_IA_CXX_R1/run_20260714T194651Z/PHYSICAL_BACKEND.log` (independent graceful-shutdown sequence on backend PID 14638, `StopMove ejecutado correctamente`, `terminal_safe=True`)
 - **detail:** the exact test this checkpoint's `sigterm_claims.json` pointed at as "unexecuted on this host" was, in a prior checkpoint, executed and passed on WSL/Linux. Separately, an independent fresh-backend SIGTERM test (PID 8938, no prior `/emergency` call) showed a single SIGTERM producing a clean graceful shutdown in ~2s with `StopMove emit=1, success=1`, no Damp, no nonzero motion, no posture command, no SIGKILL. A third, independent instance of the same shutdown sequence appears in `PHYSICAL_BACKEND.log` from a live interaction session's own teardown.
 - **limitations:** all three pieces of corroboration come from prior checkpoints, not from an execution within this specific checkpoint (this Windows host still cannot run the WSL-gated test itself); the correction here is to the *project*-level classification, not a claim that this checkpoint personally re-executed it.
@@ -148,65 +185,165 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ## Posture preservation
 
+<!-- domain: posture_preservation -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** PHYSICALLY_VALIDATED
 - **claim_status:** VERIFIED
-- **this_checkpoint_activity:** TESTED_OFFLINE (4/4 `test_posture_preserving_authority.py` pass, this checkpoint)
-- **evidence_level:** OFFLINE_TEST + RAW_RESPONSE (P1/P2 marker data) + STATICALLY_INSPECTED (source audit)
+- **this_checkpoint_activity:** TESTED_OFFLINE
+  _(4/4 `test_posture_preserving_authority.py` pass, this checkpoint)_
+- **evidence_level:** OFFLINE_TEST
+- **supporting_evidence_levels:** RAW_RESPONSE, COMMIT_EXACT
+  _(corrected in EVIDENCE-LEDGER-R2B: previously listed `STATICALLY_INSPECTED` here, which is a `this_checkpoint_activity` value, not an `evidence_level` value; `COMMIT_EXACT` correctly describes the direct source-code audit below)_
 - **source_paths:** this checkpoint's baseline; `FINAL_MVP_R2_EXPEDITED/run_20260714T185718Z/P1_EMERGENCY_RESPONSE.json` and `P2_PROCESS_EXIT.txt` (`posture_command=0`/`Damp=0`/`programmatic_damp=0` in both real events); `FINAL_SAFETY_R1_R3_OFFLINE_CANONICAL/run_20260714T033823Z/STATIC_POSTURE_AUTHORITY_AUDIT.json` (204 total posture-API regex matches across the codebase; 203 in vendored libs, exactly 1 in a productive path — `heartbeat_.Start()`, a timer/thread start correctly triaged as a false positive, not `LocoClient.Start()`)
 - **limitations:** the static audit is a regex-based scan, not a formal proof of unreachability; it is corroborated (not superseded) by the two independent physical events showing zero posture-command markers in practice.
 
 ## Interaction protocol (JSONL worker command/event envelopes)
 
-- **project_validation_status:** OFFLINE_VALIDATED (protocol) + PHYSICAL_EVIDENCE_HARVESTED (protocol observed live on the robot)
+*(Split in EVIDENCE-LEDGER-R2B from the single `interaction_protocol` domain, which carried a compound `project_validation_status`. See `domain_aliases` in the JSON companion.)*
+
+### interaction_protocol_offline_contract
+
+<!-- domain: interaction_protocol_offline_contract -->
+- **implementation_status:** IMPLEMENTED
+- **project_validation_status:** OFFLINE_VALIDATED
 - **claim_status:** VERIFIED
-- **this_checkpoint_activity:** TESTED_OFFLINE (17/17 combined unit+integration pass, this checkpoint's baseline)
-- **evidence_level:** OFFLINE_TEST + RAW_LOG
-- **source_paths:** this checkpoint's baseline; `MVP_IA_CXX_R1/run_20260714T194651Z/CXX_PROTOCOL_EVENTS.jsonl` (real `command_accepted`/`ready`/`closed` sequence from the physical worker, capabilities `{"audio_capture":true,"wake_word":true,"vad":true,"stt":true,"local_llm":true,"spanish_tts":true,"physical_playback":true,"physical_playback_stop":true,"physical_playback_completion":true}`)
-- **limitations:** the offline tests exercise the protocol shape without a real worker process; the raw `CXX_PROTOCOL_EVENTS.jsonl` is real but from a smoke-test invocation (start/health/close), not a full interaction cycle.
+- **this_checkpoint_activity:** TESTED_OFFLINE
+  _(17/17 combined unit+integration pass, this checkpoint's baseline)_
+- **evidence_level:** OFFLINE_TEST
+- **source_paths:** this checkpoint's baseline
+- **limitations:** the offline tests exercise the protocol shape without a real worker process.
+
+### interaction_protocol_physical_observation
+
+<!-- domain: interaction_protocol_physical_observation -->
+- **implementation_status:** IMPLEMENTED
+- **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED
+- **claim_status:** VERIFIED
+- **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT
+- **evidence_level:** RAW_LOG
+- **source_paths:** `MVP_IA_CXX_R1/run_20260714T194651Z/CXX_PROTOCOL_EVENTS.jsonl` (real `command_accepted`/`ready`/`closed` sequence from the physical worker, capabilities `{"audio_capture":true,"wake_word":true,"vad":true,"stt":true,"local_llm":true,"spanish_tts":true,"physical_playback":true,"physical_playback_stop":true,"physical_playback_completion":true}`)
+- **limitations:** the raw `CXX_PROTOCOL_EVENTS.jsonl` is real but from a smoke-test invocation (start/health/close), not a full interaction cycle.
 
 ## Physical C++ worker
 
-- **project_validation_status:** PHYSICALLY_VALIDATED (build/link/GPU-load) + IMPLEMENTED_NOT_PHYSICALLY_VALIDATED (full end-to-end voice cycle, pending operator transcript confirmation — see Wake word/STT/LLM/TTS/Speaker below)
+*(Limited in EVIDENCE-LEDGER-R2B to build/link/GPU-load only; the full end-to-end voice-cycle question moves entirely to the Voice interaction domains below. See `domain_aliases` in the JSON companion.)*
+
+### physical_cxx_worker_build_link_gpu_load
+
+<!-- domain: physical_cxx_worker_build_link_gpu_load -->
+- **implementation_status:** IMPLEMENTED
+- **project_validation_status:** PHYSICALLY_VALIDATED
 - **claim_status:** VERIFIED
-- **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT (aarch64 binary was only statically inspected for hash purposes in the prior checkpoint, not executed; not touched at all in this checkpoint)
-- **evidence_level:** RAW_LOG (build log, `ldd`/`file` output) + HASH_VERIFIED_ARTIFACT
-- **source_paths:** `MVP_IA_CXX_R1/run_20260714T194651Z/CXX_BUILD_LOG.txt` (real Whisper GPU model load log, CUDA0 backend, `[physical_worker] boot: whisper loaded on GPU`, `[physical_worker] capture: UDP multicast 239.168.123.161:5555`), `CXX_LINKAGE.txt` (real `file`/`ldd` output: ELF 64-bit ARM aarch64, linked against `libwhisper.so.1`, `libddsc.so.0`, `libddscxx.so.0`, standard C/C++ libs -- **no Unitree motion/locomotion library in the link list**); `FINAL_ROBOT_HARVEST_R1_PRIORITY_CORE.zip`/`_DATA.tar.gz` (hash-verified, contain a copy of the same binary)
-- **limitations:** the raw build/link log confirms the binary was built and linked on the Jetson and loaded its Whisper model on GPU; it does not by itself prove a full audio capture -> STT -> LLM -> TTS -> playback cycle completed (see the Wake word/STT/LLM/TTS/Speaker entry for that, which is evidence-level lower due to a pending operator transcript).
+- **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT
+  _(aarch64 binary was only statically inspected for hash purposes in the prior checkpoint, not executed; not touched at all in this checkpoint)_
+- **evidence_level:** RAW_LOG
+  _(build log, `ldd`/`file` output)_
+- **supporting_evidence_levels:** HASH_VERIFIED_ARTIFACT
+- **source_paths:** `MVP_IA_CXX_R1/run_20260714T194651Z/CXX_BUILD_LOG.txt` (real Whisper GPU model load log, CUDA0 backend, `[physical_worker] boot: whisper loaded on GPU`, `[physical_worker] capture: UDP multicast 239.168.123.161:5555`), `CXX_LINKAGE.txt` (real `file`/`ldd` output: ELF 64-bit ARM aarch64, linked against `libwhisper.so.1`, `libddsc.so.0`, `libddscxx.so.0`, standard C/C++ libs — **no Unitree motion/locomotion library in the link list**); `FINAL_ROBOT_HARVEST_R1_PRIORITY_CORE.zip`/`_DATA.tar.gz` (hash-verified, contain a copy of the same binary)
+- **limitations:** the raw build/link log confirms the binary was built and linked on the Jetson and loaded its Whisper model on GPU; it does not by itself prove a full audio capture → STT → LLM → TTS → playback cycle completed — see the Voice interaction domains below for that.
 
-## Wake word / STT / local LLM / TTS / physical speaker (voice interaction cycle)
+## Voice interaction (wake word / STT / local LLM / TTS / physical speaker)
 
-- **project_validation_status:** IMPLEMENTED_NOT_PHYSICALLY_VALIDATED (human-confirmed content) + PHYSICAL_EVIDENCE_HARVESTED (software-observed session completion)
-- **claim_status:** VERIFIED (as to what the software logs show); REPORTED_UNVERIFIED (as to the human-confirmed content, which is explicitly pending)
+*(Split in EVIDENCE-LEDGER-R2B from the single `wake_word_stt_llm_tts_speaker` domain, which carried a compound `project_validation_status` and a compound `claim_status`. See `domain_aliases` in the JSON companion.)*
+
+### voice_interaction_software_observed_completion
+
+<!-- domain: voice_interaction_software_observed_completion -->
+- **implementation_status:** IMPLEMENTED
+- **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED
+- **claim_status:** VERIFIED
+  _(as to what the software logs show)_
 - **this_checkpoint_activity:** NOT_IN_SCOPE
-- **evidence_level:** RAW_LOG (software correlate) + REPORTED_BY_USER (attestation, **explicitly PENDING**, not completed)
-- **source_paths:** `MVP_IA_CXX_R1/run_20260714T194651Z/INTERACTION_EVENTS.jsonl` (`interaction_id=standalone:2`: `active` [wake+capture+STT+LLM] -> `playback` [Piper TTS -> AudioClient PlayStream physical speaker] -> `completed` [`last_event=playback_completed`]); `PHYSICAL_BACKEND.log` (orchestrator log line "Interaccion standalone completada. interaction_id=standalone:2" at 2026-07-15T04:16:50 UTC); `INTERACTION_START_RESPONSE.json` (HTTP 202, `runtime_mock=false`, `runtime_backend=cxx_jsonl_physical`); `OPERATOR_AUDIO_ATTESTATION.txt`
+- **evidence_level:** RAW_LOG
+  _(software correlate)_
+- **supporting_evidence_levels:** RAW_RESPONSE
+- **source_paths:** `MVP_IA_CXX_R1/run_20260714T194651Z/INTERACTION_EVENTS.jsonl` (`interaction_id=standalone:2`: `active` [wake+capture+STT+LLM] → `playback` [Piper TTS → AudioClient PlayStream physical speaker] → `completed` [`last_event=playback_completed`]); `PHYSICAL_BACKEND.log` (orchestrator log line "Interaccion standalone completada. interaction_id=standalone:2" at 2026-07-15T04:16:50 UTC); `INTERACTION_START_RESPONSE.json` (HTTP 202, `runtime_mock=false`, `runtime_backend=cxx_jsonl_physical`)
+- **limitations:** a prior interaction attempt (`standalone:1`, from the live Web UI button) timed out at the wake-word stage and the runtime recovered to ready without a double-start; `standalone:2` (started via a second `curl` request while `standalone:1` was still pending correctly returned 409, confirming no double-start) reached `playback_completed` per software logs alone. This must not be elevated to `PHYSICALLY_VALIDATED` on the strength of the software log alone — see `voice_interaction_human_confirmed_audio_content` below for why.
+
+### voice_interaction_human_confirmed_audio_content
+
+<!-- domain: voice_interaction_human_confirmed_audio_content -->
+- **implementation_status:** IMPLEMENTED
+- **project_validation_status:** IMPLEMENTED_NOT_PHYSICALLY_VALIDATED
+- **claim_status:** REPORTED_UNVERIFIED
+  _(as to the human-confirmed content, which is explicitly pending)_
+- **this_checkpoint_activity:** NOT_IN_SCOPE
+- **evidence_level:** REPORTED_BY_USER
+  _(attestation, **explicitly PENDING**, not completed)_
+- **exact_transcript_text_available:** false
+- **exact_response_text_available:** false
+- **operator_attestation_status:** PENDING
+- **source_paths:** `OPERATOR_AUDIO_ATTESTATION.txt`
 - **critical finding:** `OPERATOR_AUDIO_ATTESTATION.txt` explicitly states `STATUS: PENDING operator confirmation` and both `Transcript` and `Response` fields are literally `<PENDING>`. The requested attestation text ("OTTO RECONOCIO 'HOLA OTTO'. ESCUCHO MI CONSULTA. RESPONDIO POR EL PARLANTE FISICO...") was never confirmed by the operator in this evidence set.
 - **exact transcript text:** UNAVAILABLE (per this reconciliation's mandatory constraint)
 - **exact response text:** UNAVAILABLE (per this reconciliation's mandatory constraint)
-- **limitations:** a prior interaction attempt (`standalone:1`, from the live Web UI button) timed out at the wake-word stage and the runtime recovered to ready without a double-start; `standalone:2` (started via a second `curl` request while `standalone:1` was still pending correctly returned 409, confirming no double-start) reached `playback_completed` per software logs alone, but there is no confirmed human observation that the audio content was correct, was actually audible, or matched the claimed wake-word/transcript/response text. This must not be elevated to `PHYSICALLY_VALIDATED` on the strength of the software log alone.
+- **limitations:** there is no confirmed human observation that the audio content was correct, was actually audible, or matched the claimed wake-word/transcript/response text. `implementation_status` is `IMPLEMENTED` because the pipeline producing this audio exists and is exercised (see `voice_interaction_software_observed_completion`) — what is missing is exclusively the human-confirmation step, not an implementation gap.
 
 ## Lowstate
 
-- **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED + OFFLINE_VALIDATED (replay)
+*(Split in EVIDENCE-LEDGER-R2B from the single `lowstate` domain, which carried a compound `project_validation_status`. See `domain_aliases` in the JSON companion.)*
+
+### lowstate_physical_capture
+
+<!-- domain: lowstate_physical_capture -->
+- **implementation_status:** NOT_APPLICABLE
+  _(this domain is the harvested dataset itself, not a capability with its own implementation)_
+- **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED
 - **claim_status:** VERIFIED
-- **this_checkpoint_activity:** REPLAYED_OFFLINE (38/38 tests pass post-correction, this checkpoint)
-- **evidence_level:** HASH_VERIFIED_ARTIFACT + OFFLINE_TEST
-- **source_paths:** `FINAL_ROBOT_HARVEST_R1_PRIORITY_CORE.zip` (hash-verified); `FINAL_ROBOT_HARVEST_R1/run_20260714T203807Z/02_lowstate/` (same dataset, corroborating source); this checkpoint's fixture and replay tests
-- **source_hashes:** CORE `2f94536be0a6e8bd1cd20f2d75d98044d0a132b8795cf691c8ba200b9c87f4b4`; fixture `lowstate_10hz.jsonl` `f377c2ef3cc2659a109c66217b9ac9928e95dcf495caa624935ceaaf19e1d74f`
+- **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT
+- **evidence_level:** HASH_VERIFIED_ARTIFACT
+- **source_paths:** `FINAL_ROBOT_HARVEST_R1_PRIORITY_CORE.zip` (hash-verified); `FINAL_ROBOT_HARVEST_R1/run_20260714T203807Z/02_lowstate/` (same dataset, corroborating source)
+- **source_hashes:** CORE `2f94536be0a6e8bd1cd20f2d75d98044d0a132b8795cf691c8ba200b9c87f4b4`
 - **limitations:** 299 records, single ~30s window, `mode_machine=5` only; not a continuous or multi-mode recording.
+
+### lowstate_offline_replay
+
+<!-- domain: lowstate_offline_replay -->
+- **implementation_status:** IMPLEMENTED
+- **project_validation_status:** OFFLINE_VALIDATED
+- **claim_status:** VERIFIED
+- **this_checkpoint_activity:** REPLAYED_OFFLINE
+  _(38/38 tests pass post-correction, this checkpoint)_
+- **evidence_level:** OFFLINE_TEST
+- **source_paths:** this checkpoint's fixture and replay tests, built from the `lowstate_physical_capture` dataset above
+- **source_hashes:** fixture `lowstate_10hz.jsonl` `f377c2ef3cc2659a109c66217b9ac9928e95dcf495caa624935ceaaf19e1d74f`
+- **limitations:** replay fidelity is bounded by the single capture window described in `lowstate_physical_capture`.
 
 ## Energy / BMS / Foot force
 
+All three fields below share an identical classification and evidence base: confirmed absent specifically from `rt/lowstate` on this G1 EDU unit; a different Unitree topic might expose this data, unresearched. **source_paths:** `tests/fixtures/physical/lowstate_harvest_r1/field_availability.json`; `FINAL_ROBOT_HARVEST_R1/run_20260714T203807Z/02_lowstate/field_availability.json`.
+
+<!-- domain: energy -->
 - **implementation_status:** NOT_IMPLEMENTED
-- **project_validation_status:** NOT_VALIDATED (data genuinely absent from the harvested message type, not an omission by any checkpoint)
+- **project_validation_status:** NOT_VALIDATED
+  _(data genuinely absent from the harvested message type, not an omission by any checkpoint)_
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** NOT_IN_SCOPE
-- **evidence_level:** HASH_VERIFIED_ARTIFACT (`field_availability.json` shows `false` for all three, consistently, across both this checkpoint's fixture and the original harvest run's copy)
-- **source_paths:** `tests/fixtures/physical/lowstate_harvest_r1/field_availability.json`; `FINAL_ROBOT_HARVEST_R1/run_20260714T203807Z/02_lowstate/field_availability.json`
-- **limitations:** confirmed absent specifically from `rt/lowstate` on this G1 EDU unit; a different Unitree topic might expose this data, unresearched.
+- **evidence_level:** HASH_VERIFIED_ARTIFACT
+  _(`field_availability.json` shows `false`, consistently, across both this checkpoint's fixture and the original harvest run's copy)_
+
+<!-- domain: bms -->
+- **implementation_status:** NOT_IMPLEMENTED
+- **project_validation_status:** NOT_VALIDATED
+  _(data genuinely absent from the harvested message type, not an omission by any checkpoint)_
+- **claim_status:** VERIFIED
+- **this_checkpoint_activity:** NOT_IN_SCOPE
+- **evidence_level:** HASH_VERIFIED_ARTIFACT
+  _(`field_availability.json` shows `false`, consistently, across both this checkpoint's fixture and the original harvest run's copy)_
+
+<!-- domain: foot_force -->
+- **implementation_status:** NOT_IMPLEMENTED
+- **project_validation_status:** NOT_VALIDATED
+  _(data genuinely absent from the harvested message type, not an omission by any checkpoint)_
+- **claim_status:** VERIFIED
+- **this_checkpoint_activity:** NOT_IN_SCOPE
+- **evidence_level:** HASH_VERIFIED_ARTIFACT
+  _(`field_availability.json` shows `false`, consistently, across both this checkpoint's fixture and the original harvest run's copy)_
 
 ## IMU
 
+<!-- domain: imu -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** REPLAYED_OFFLINE
@@ -218,28 +355,55 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### camera_vision_runtime / qr_frame_detector / station_trigger
 
+All three domains below share an identical classification and evidence base. **source_paths:** `codigo ottoguide/src/vision/vision_processor.py`, `codigo ottoguide/src/vision/qr_frame_detector.py`, `codigo ottoguide/src/vision/station_trigger.py`, `codigo ottoguide/src/stations/station_registry.py`. **limitations:** implementation exists and was confirmed present; no physical runtime log, RGB frame capture, or physical QR detection event was found in any of the three searched roots. Must not be classified `NOT_IMPLEMENTED`.
+
+<!-- domain: camera_vision_runtime -->
 - **implementation_status:** IMPLEMENTED
 - **project_validation_status:** IMPLEMENTED_NOT_PHYSICALLY_VALIDATED
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** STATICALLY_INSPECTED
-- **evidence_level:** COMMIT_EXACT (source files confirmed present in the audited working tree)
-- **source_paths:** `codigo ottoguide/src/vision/vision_processor.py`, `codigo ottoguide/src/vision/qr_frame_detector.py`, `codigo ottoguide/src/vision/station_trigger.py`, `codigo ottoguide/src/stations/station_registry.py`
-- **limitations:** implementation exists and was confirmed present; no physical runtime log, RGB frame capture, or physical QR detection event was found in any of the three searched roots. Must not be classified `NOT_IMPLEMENTED`.
+- **evidence_level:** COMMIT_EXACT
+  _(source files confirmed present in the audited working tree)_
+
+<!-- domain: qr_frame_detector -->
+- **implementation_status:** IMPLEMENTED
+- **project_validation_status:** IMPLEMENTED_NOT_PHYSICALLY_VALIDATED
+- **claim_status:** VERIFIED
+- **this_checkpoint_activity:** STATICALLY_INSPECTED
+- **evidence_level:** COMMIT_EXACT
+  _(source files confirmed present in the audited working tree)_
+
+<!-- domain: station_trigger -->
+- **implementation_status:** IMPLEMENTED
+- **project_validation_status:** IMPLEMENTED_NOT_PHYSICALLY_VALIDATED
+- **claim_status:** VERIFIED
+- **this_checkpoint_activity:** STATICALLY_INSPECTED
+- **evidence_level:** COMMIT_EXACT
+  _(source files confirmed present in the audited working tree)_
 
 ### camera_rgb_intrinsics_e2e / qr_physical_e2e
 
+Both domains below share an identical classification and evidence base. **source_paths:** none found. **limitations:** genuinely no evidence found for either camera RGB intrinsics end-to-end or physical QR detection anywhere searched. Distinct from the source-code sub-capability above, which does exist. `implementation_status` is `UNKNOWN` rather than `NOT_IMPLEMENTED` since this was not an exhaustive static audit specifically for an RGB-intrinsics or physical-QR-E2E code path.
+
+<!-- domain: camera_rgb_intrinsics_e2e -->
 - **implementation_status:** UNKNOWN
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** REPORTED_UNVERIFIED
 - **this_checkpoint_activity:** NOT_IN_SCOPE
 - **evidence_level:** UNKNOWN
-- **source_paths:** none found
-- **limitations:** genuinely no evidence found for either camera RGB intrinsics end-to-end or physical QR detection anywhere searched. Distinct from the source-code sub-capability above, which does exist. `implementation_status` is `UNKNOWN` rather than `NOT_IMPLEMENTED` since this was not an exhaustive static audit specifically for an RGB-intrinsics or physical-QR-E2E code path.
+
+<!-- domain: qr_physical_e2e -->
+- **implementation_status:** UNKNOWN
+- **project_validation_status:** NOT_VALIDATED
+- **claim_status:** REPORTED_UNVERIFIED
+- **this_checkpoint_activity:** NOT_IN_SCOPE
+- **evidence_level:** UNKNOWN
 
 ## Livox
 
 ### livox_sdk2_bridge_implementation
 
+<!-- domain: livox_sdk2_bridge_implementation -->
 - **implementation_status:** IMPLEMENTED
 - **project_validation_status:** IMPLEMENTED_NOT_PHYSICALLY_VALIDATED
 - **claim_status:** VERIFIED
@@ -250,6 +414,8 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### livox_sdk2_raw_cloud_capture
 
+<!-- domain: livox_sdk2_raw_cloud_capture -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT
@@ -260,6 +426,8 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### livox_sdk2_raw_imu_capture
 
+<!-- domain: livox_sdk2_raw_imu_capture -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT
@@ -270,6 +438,9 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### livox_ros_pointcloud_topic_observed
 
+<!-- domain: livox_ros_pointcloud_topic_observed -->
+- **implementation_status:** NOT_APPLICABLE
+  _(pure bus-observation/artifact; the code-existence question is covered separately by `livox_sdk2_bridge_implementation`/`livox_current_bridge_runtime_validation`)_
 - **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED
 - **claim_status:** VERIFIED
 - **observed_count:** 651527
@@ -281,6 +452,9 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### livox_ros_imu_topic_observed
 
+<!-- domain: livox_ros_imu_topic_observed -->
+- **implementation_status:** NOT_APPLICABLE
+  _(same reasoning as `livox_ros_pointcloud_topic_observed`)_
 - **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED
 - **claim_status:** VERIFIED
 - **observed_count:** 90753
@@ -292,6 +466,9 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### livox_scan_topic_observed
 
+<!-- domain: livox_scan_topic_observed -->
+- **implementation_status:** NOT_APPLICABLE
+  _(same reasoning as `livox_ros_pointcloud_topic_observed`)_
 - **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED
 - **claim_status:** VERIFIED
 - **observed_count:** 630915
@@ -303,6 +480,9 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### livox_ros_publisher_identity_attribution
 
+<!-- domain: livox_ros_publisher_identity_attribution -->
+- **implementation_status:** NOT_APPLICABLE
+  _(this domain asks a forensic-attribution question — which process published the topic — not a code-existence question)_
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** REPORTED_UNVERIFIED
 - **this_checkpoint_activity:** NOT_IN_SCOPE
@@ -312,15 +492,19 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### livox_current_bridge_runtime_validation
 
+<!-- domain: livox_current_bridge_runtime_validation -->
+- **implementation_status:** IMPLEMENTED
+  _(the bridge code whose runtime is in question does exist — see `livox_sdk2_bridge_implementation`; this domain's `NOT_VALIDATED` concerns runtime confirmation, not code existence)_
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** REPORTED_UNVERIFIED
 - **this_checkpoint_activity:** NOT_IN_SCOPE
 - **evidence_level:** UNKNOWN
 - **source_paths:** none found showing `livox_sdk_bridge_node.cpp` (as currently tracked in this repository) executed end-to-end and produced the observed rosbag topics
-- **limitations:** the current bridge source code (see `livox_sdk2_bridge_implementation` below) has not been confirmed, by any artifact this reconciliation could open, to be the code that ran during the `route_capture_summary.json` session. This is a distinct question from whether the topics were observed (they were) or from whether the bridge code exists (it does) — this domain isolates specifically whether *this* code, in its *current* form, has been validated at runtime, which it has not.
+- **limitations:** the current bridge source code has not been confirmed, by any artifact this reconciliation could open, to be the code that ran during the `route_capture_summary.json` session. This is a distinct question from whether the topics were observed (they were) or from whether the bridge code exists (it does) — this domain isolates specifically whether *this* code, in its *current* form, has been validated at runtime, which it has not.
 
 ### livox_coordinate_validation
 
+<!-- domain: livox_coordinate_validation -->
 - **implementation_status:** IMPLEMENTED
 - **project_validation_status:** IMPLEMENTED_NOT_PHYSICALLY_VALIDATED
 - **claim_status:** VERIFIED
@@ -331,6 +515,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### scan_gate
 
+<!-- domain: scan_gate -->
 - **implementation_status:** IMPLEMENTED
 - **project_validation_status:** IMPLEMENTED_NOT_PHYSICALLY_VALIDATED
 - **claim_status:** VERIFIED
@@ -341,11 +526,13 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### extrinsics_calibration
 
+<!-- domain: extrinsics_calibration -->
 - **implementation_status:** NOT_IMPLEMENTED
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** NOT_IN_SCOPE
-- **evidence_level:** RAW_LOG (explicit placeholder confirmed)
+- **evidence_level:** RAW_LOG
+  _(explicit placeholder confirmed)_
 - **source_paths:** `LIVOX_CAPTURE_ANALYSIS.md` ("extrinsics = unknown (config con extrinsic 0,0,0,0,0,0 = placeholder, no calibrado)")
 - **limitations:** confirmed uncalibrated placeholder values; no calibration attempt found in any searched root.
 
@@ -353,20 +540,30 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### odometry_candidate_adapter_implementation
 
+<!-- domain: odometry_candidate_adapter_implementation -->
 - **implementation_status:** IMPLEMENTED
 - **project_validation_status:** IMPLEMENTED_NOT_PHYSICALLY_VALIDATED
+- **claim_status:** VERIFIED
+  _(corrected in EVIDENCE-LEDGER-R2B: this bullet was present in the JSON companion but missing from this Markdown ledger — a real asymmetric-field defect)_
 - **repository_presence:** REMOTE_AND_TRACKED
 - **integration_status:** ANCESTOR_OF_REVIEW_ORCHESTRATOR_UNIFICATION
 - **current_review_contains_adapter:** true
+- **adapter_path:** `codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py`
+  _(corrected in EVIDENCE-LEDGER-R2B: previously this ledger referred to a nonexistent flat file, `odometry_candidate_adapter.py`; the real path, confirmed by `git rev-parse` against both `92a8bc4` and `254cddd`, is the one above)_
+- **adapter_main_file_byte_identical_to_92a:** true
+- **adapter_primary_test_byte_identical_to_92a:** true
 - **this_checkpoint_activity:** STATICALLY_INSPECTED
-- **evidence_level:** COMMIT_EXACT + HASH_VERIFIED_ARTIFACT
-- **source_paths:** `OttoGuide-Mapping-Workspace/_ODOM_R5_LOCAL_COMMIT_DECISION_WITH_RUFF_GAP_NO_PUBLISH/run_20260707T203329Z/ODOM_R5_COMMIT_LOG.txt` (commit `92a8bc45a7a8d7557bcdca9ae5684692016168a7`, 12 files, 1021 insertions); this checkpoint's own `git cat-file -t`, `git merge-base --is-ancestor`, and `git rev-list --count` against the local clone tracking `origin=LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git`, cross-verified live via `git ls-remote` against both the canonical (`tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE`) and mirror repositories moments before this check
-- **source_hashes:** `ODOM_R5_COMMIT_LOG.txt` `a6342c790027d7aba1ff820b8b65fb65c5a935cb33c7c3ae06342e3d310f4549`; `92a8bc45a7a8d7557bcdca9ae5684692016168a7` confirmed `git cat-file -t` = `commit`, subject exactly `feat(navigation): add offline odometry candidate adapter`
-- **detail:** `92a8bc4` is a genuine ancestor of `review/orchestrator-unification` (currently at `254cddd` on both canonical and mirror, verified live via `git ls-remote` moments before this check) — 33 commits separate the adapter commit from the current `review` tip. The adapter's source is therefore present in `review`'s history, though this checkpoint did not independently re-verify whether the exact file `odometry_candidate_adapter.py` still exists unmodified at the `review` tip vs. having been refactored/renamed/moved along the way; only the commit's ancestry was verified, not byte-identical file survival at HEAD.
-- **limitations:** `ODOM-R5` itself performed no push during that checkpoint — the commit was published and integrated into `review` at some point after that local checkpoint, per this ancestry check. This corrects prior ledger language ("never pushed," "unmerged," "local-only," "not present in current repo/tracked source") that was accurate as of `ODOM-R5`'s own session but is now outdated relative to the current state of `review/orchestrator-unification`. This checkpoint's local working copy at `C:\OG\master-offline-r1-local-r1\repo` (branch `session/master-offline-r1-local-r1`, based on the physical-audit branch tip, not on `review` directly) does not itself contain `odometry_candidate_adapter.py` in its working tree — that absence is a fact about this specific local checkout's branch point, not evidence that the adapter is absent from the project's `review` history.
+- **evidence_level:** COMMIT_EXACT
+- **supporting_evidence_levels:** HASH_VERIFIED_ARTIFACT
+- **source_paths:** `OttoGuide-Mapping-Workspace/_ODOM_R5_LOCAL_COMMIT_DECISION_WITH_RUFF_GAP_NO_PUBLISH/run_20260707T203329Z/ODOM_R5_COMMIT_LOG.txt` (commit `92a8bc45a7a8d7557bcdca9ae5684692016168a7`, 12 files, 1021 insertions); this checkpoint's own `git cat-file -t`, `git merge-base --is-ancestor`, `git rev-list --count`, and `git rev-parse <rev>:<path>` against `C:\OG\master-offline-r1-local-r1\repo` (tracking `origin=LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git`), cross-verified live via `git ls-remote` against both the canonical (`tsamaan/OttoGuide-Proyecto-SIP-Grupo6-UADE`, unreachable this checkpoint — see `PREFLIGHT.md`) and mirror repositories
+- **source_hashes:** `ODOM_R5_COMMIT_LOG.txt` `a6342c790027d7aba1ff820b8b65fb65c5a935cb33c7c3ae06342e3d310f4549`; `92a8bc45a7a8d7557bcdca9ae5684692016168a7` confirmed `git cat-file -t` = `commit`, subject exactly `feat(navigation): add offline odometry candidate adapter`; `adapter.py` blob `5d47d5f8602aad1a350dbe98d6192bc70679e2ad` identical at `92a8bc4` and `254cddd`; `test_odometry_candidate_adapter.py` blob `beeccbe9b66841b147e51a235a66826cada94bb8` identical at `92a8bc4` and `254cddd`
+- **detail:** `92a8bc4` is a genuine ancestor of `review/orchestrator-unification` (currently at `254cddd` on the mirror, verified live via `git ls-remote` moments before this check) — 33 commits separate the adapter commit from the current `review` tip. This checkpoint additionally confirmed (Phase B, `ODOMETRY_CURRENT_REVIEW_VERIFICATION.md`) that the real adapter file and its primary test are byte-identical between `92a8bc4` and `254cddd`, and that none of the 12 files introduced by `92a8bc4` were modified or deleted by the time of `254cddd`.
+- **limitations:** `ODOM-R5` itself performed no push during that checkpoint — the commit was published and integrated into `review` at some point after that local checkpoint, per this ancestry check. This corrects prior ledger language ("never pushed," "unmerged," "local-only," "not present in current repo/tracked source") that was accurate as of `ODOM-R5`'s own session but is now outdated relative to the current state of `review/orchestrator-unification`. This checkpoint's local working copy at `C:\OG\master-offline-r1-local-r1\repo` (branch `session/master-offline-r1-local-r1`, based on the physical-audit branch tip, not on `review` directly) does not itself contain the adapter files in its working tree — that absence is a fact about this specific local checkout's branch point, not evidence that the adapter is absent from the project's `review` history.
 
 ### adapter_offline_tests
 
+<!-- domain: adapter_offline_tests -->
+- **implementation_status:** IMPLEMENTED
 - **project_validation_status:** OFFLINE_VALIDATED
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** NOT_IN_SCOPE
@@ -380,6 +577,9 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### adapter_pure_code_robot_execution_claim
 
+<!-- domain: adapter_pure_code_robot_execution_claim -->
+- **implementation_status:** UNKNOWN
+  _(no artifact found confirming a distinct robot-side test harness exists; genuinely unresolved whether this claim corresponds to a real, separate implementation)_
 - **project_validation_status:** UNKNOWN
 - **claim_status:** REPORTED_UNVERIFIED
 - **execution_environment_claimed:** robot/Jetson (code-pure/offline per the claim; no live topic subscription described)
@@ -393,10 +593,14 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### odometry_source_channels_physical_capture
 
+<!-- domain: odometry_source_channels_physical_capture -->
+- **implementation_status:** NOT_APPLICABLE
+  _(the captured-channel observation itself is an artifact/fact, not a capability with its own implementation)_
 - **project_validation_status:** PHYSICAL_EVIDENCE_HARVESTED
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** NOT_EXECUTED_NO_ROBOT
-- **evidence_level:** RAW_LOG + HASH_VERIFIED_ARTIFACT
+- **evidence_level:** RAW_LOG
+- **supporting_evidence_levels:** HASH_VERIFIED_ARTIFACT
 - **source_paths:** `OttoGuide-Mapping-Workspace/_ROBOT_R2X_ONE_SHOT_PHYSICAL_READONLY_EVIDENCE_CAPTURE_NO_PUBLISH/run_20260708T215327Z/ROBOT_R2X_STATE.json`, `ROBOT_R2X_GO_NO_GO_DECISION.md`, `ROBOT_R2X_EVIDENCE_MANIFEST.md`; cross-verified independently by `ROBOT_R3X_INPUT_INTEGRITY_REPORT.md` (`INPUT_INTEGRITY_STATUS: VERIFIED_CONSISTENT`)
 - **source_hashes:** `ROBOT_R2X_STATE.json` `1501a8b42b3760a717909f9834096dd42c4c17569197da2ad5988920a6e93f4f`; `ROBOT_R2X_GO_NO_GO_DECISION.md` `373dbbe921d846741346a4e85f5a095c72c9eed8dda4ed2ffc92939367ff7939`
 - **detail:** `primary_channel: rt/odommodestate`, 80 samples, `hz_estimated: 501.1499074937536`, `receipt_monotonic: true`; `secondary_channel: rt/lf/odommodestate`, 80 samples, `hz_estimated: 19.999747436100858`, `receipt_monotonic: true`. `movement_performed: false`, `topics_published: false`, `odom_published: false`, `tf_published: false`, `critical_publishers: []`.
@@ -404,6 +608,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### adapter_live_dynamic_runtime
 
+<!-- domain: adapter_live_dynamic_runtime -->
 - **implementation_status:** UNKNOWN
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** REPORTED_UNVERIFIED
@@ -415,6 +620,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### dynamic_odometry_solution
 
+<!-- domain: dynamic_odometry_solution -->
 - **implementation_status:** UNKNOWN
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** REPORTED_UNVERIFIED
@@ -427,6 +633,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### odom_publication
 
+<!-- domain: odom_publication -->
 - **implementation_status:** NOT_IMPLEMENTED
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** VERIFIED
@@ -438,6 +645,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### tf_publication
 
+<!-- domain: tf_publication -->
 - **implementation_status:** NOT_IMPLEMENTED
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** VERIFIED
@@ -451,6 +659,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### scan_equivalent_offline_pipeline
 
+<!-- domain: scan_equivalent_offline_pipeline -->
 - **implementation_status:** IMPLEMENTED
 - **project_validation_status:** OFFLINE_VALIDATED
 - **claim_status:** VERIFIED
@@ -462,6 +671,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### map_input_contract
 
+<!-- domain: map_input_contract -->
 - **implementation_status:** IMPLEMENTED
 - **project_validation_status:** OFFLINE_VALIDATED
 - **claim_status:** VERIFIED
@@ -473,6 +683,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### simulated_map_artifact_and_map_server_load
 
+<!-- domain: simulated_map_artifact_and_map_server_load -->
 - **implementation_status:** IMPLEMENTED
 - **project_validation_status:** OFFLINE_VALIDATED
 - **claim_status:** VERIFIED
@@ -484,6 +695,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### simulated_mapping_generation
 
+<!-- domain: simulated_mapping_generation -->
 - **implementation_status:** UNKNOWN
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** REPORTED_UNVERIFIED
@@ -495,6 +707,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### nav2_sandbox
 
+<!-- domain: nav2_sandbox -->
 - **implementation_status:** IMPLEMENTED
 - **project_validation_status:** OFFLINE_VALIDATED
 - **claim_status:** VERIFIED
@@ -506,6 +719,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### simulated_waypoint_follower
 
+<!-- domain: simulated_waypoint_follower -->
 - **implementation_status:** IMPLEMENTED
 - **project_validation_status:** OFFLINE_VALIDATED
 - **claim_status:** VERIFIED
@@ -517,6 +731,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### mujoco_reference_route_replay
 
+<!-- domain: mujoco_reference_route_replay -->
 - **implementation_status:** IMPLEMENTED
 - **project_validation_status:** OFFLINE_VALIDATED
 - **claim_status:** VERIFIED
@@ -528,6 +743,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### physical_map
 
+<!-- domain: physical_map -->
 - **implementation_status:** NOT_IMPLEMENTED
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** VERIFIED
@@ -539,6 +755,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### physical_localization
 
+<!-- domain: physical_localization -->
 - **implementation_status:** NOT_IMPLEMENTED
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** VERIFIED
@@ -550,33 +767,41 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ### physical_nav2
 
+<!-- domain: physical_nav2 -->
 - **implementation_status:** NOT_IMPLEMENTED
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** VERIFIED
 - **observed_in_named_physical_captures:** false
 - **this_checkpoint_activity:** NOT_IN_SCOPE
-- **evidence_level:** RAW_LOG + INFERRED (all six M3A runs explicitly disclaim physical Nav2)
+- **evidence_level:** RAW_LOG
+  _(all six M3A runs explicitly disclaim physical Nav2)_
+- **supporting_evidence_levels:** INFERRED
 - **source_paths:** `M3A_R3Z_GO_NO_GO_DECISION.md` ("No physical Nav2"); `PHYSICAL_BASELINE_20260623/route_capture_summary.json`
 - **limitations:** Nav2 has been exercised only in sandbox against a loaded simulated map artifact (see `nav2_sandbox`/`simulated_map_artifact_and_map_server_load` above); not observed against physical sensor input or on the physical robot in any named capture.
 
 ### physical_autonomous_movement
 
+<!-- domain: physical_autonomous_movement -->
 - **implementation_status:** NOT_IMPLEMENTED
 - **project_validation_status:** NOT_VALIDATED
 - **claim_status:** VERIFIED
 - **observed_in_named_physical_captures:** false
 - **this_checkpoint_activity:** NOT_IN_SCOPE
-- **evidence_level:** RAW_LOG + INFERRED
+- **evidence_level:** RAW_LOG
+- **supporting_evidence_levels:** INFERRED
 - **source_paths:** `M3A_R4A_STATE.json` (`cmd_vel_physical_published: false`); `M3A_R4A_R1_GO_NO_GO_DECISION.md` ("No physical cmd_vel"); `M3A_R4B_GO_NO_GO_DECISION.md` ("No physical cmd_vel/odom/TF"); `ROBOT_R2X_STATE.json` (`movement_performed: false`)
 - **limitations:** every mapping/Nav2 run found in this reconciliation's scope (six M3A runs) explicitly and consistently disclaims physical movement; `ROBOT_R2X`/`R3X` independently confirm the robot was stationary throughout the odometry channel capture. **No autonomous navigation or movement is declared validated anywhere in this ledger, at any evidence level, in this or any prior checkpoint reviewed.** As with the other `physical_*` domains, this reflects what was observed in the named captures searched, not an exhaustive project-wide claim.
 
 ## Movement / autonomous navigation
 
+<!-- domain: movement -->
 - **implementation_status:** NOT_IMPLEMENTED
-- **project_validation_status:** NOT_VALIDATED — **movement autonomy: NOT_VALIDATED, anywhere in this ledger**
+- **project_validation_status:** NOT_VALIDATED
+  — **movement autonomy: NOT_VALIDATED, anywhere in this ledger**
 - **claim_status:** VERIFIED
 - **this_checkpoint_activity:** NOT_IN_SCOPE
-- **evidence_level:** N/A
+- **evidence_level:** NOT_APPLICABLE
+  _(this domain is a project-wide rollup cross-referencing `physical_autonomous_movement` above; not independently evidenced beyond that cross-reference)_
 - **source_paths:** N/A
 - **limitations:** no locomotion code was introduced or exercised by any commit in the audited chain (`0d14de6`/`bed9e01`/`b41559d` diffs independently scanned; zero real locomotion API symbol introductions found, only a disclaiming comment). **No autonomous navigation or movement is declared validated anywhere in this ledger, at any evidence level, in this or any prior checkpoint reviewed.**
 
@@ -584,7 +809,7 @@ No entry below asserts autonomous navigation as validated. No replay, mock, or o
 
 ## Machine-readable companion
 
-See `ottoguide_physical_validation_master_state.json` in this same directory.
+See `ottoguide_physical_validation_master_state.json` in this same directory. As of `EVIDENCE-LEDGER-R2B`, that file's top-level `domain_aliases` object maps each of the four retired compound-domain names (`interaction_protocol`, `physical_cxx_worker`, `wake_word_stt_llm_tts_speaker`, `lowstate`) to the list of domain IDs it was split into.
 
 ## Changes from the prior version of this ledger
 
@@ -636,6 +861,10 @@ All classifications not explicitly touched by items 11-13 above were carried for
 19. **`claim_status` field introduced ledger-wide** (`VERIFIED` / `REPORTED_UNVERIFIED`), retroactively applied to every domain in this ledger for full parity with the JSON companion, per this checkpoint's Phase G requirement.
 20. **Legacy `project_classification` field name fully retired.** Every domain in this ledger now uses `project_validation_status`; no domain still carries the old field name.
 
+### From MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2A (applied in this checkpoint, EVIDENCE-LEDGER-R2B)
+
+21. **Schema and traceability correction pass.** See the "Correction note (EVIDENCE-LEDGER-R2B)" paragraph at the top of this document for the full list: `implementation_status` completed on 26 domains; `claim_status` added to `odometry_candidate_adapter_implementation` in this Markdown ledger; four compound-status domains split into seven (`interaction_protocol`, `physical_cxx_worker`, `wake_word_stt_llm_tts_speaker`, `lowstate` → `domain_aliases`); two non-enum `N/A` values replaced with `NOT_APPLICABLE`; every remaining `+`-joined `evidence_level` moved to a scalar primary value plus `supporting_evidence_levels`; a mislabeled `evidence_level` (`STATICALLY_INSPECTED`) corrected to `COMMIT_EXACT`; the odometry adapter's file path corrected from a nonexistent flat file to the real, git-verified path, with byte-identity confirmation added; two broken run-root citations to a nonexistent `EVIDENCE_LEDGER_R2A_SOURCE_NOTES.md` corrected. No new physical, code, test, or robot evidence was gathered — every inherited classification value is unchanged in substance.
+
 ## Provenance note
 
-This ledger was built from: (1) Git objects/refs verified this and prior checkpoints, including this checkpoint's own live `git ls-remote`/`git cat-file`/`git merge-base`/`git rev-list` verification against both the canonical and mirror repositories, (2) hash-verified harvest artifacts, (3) tests executed in prior checkpoints, (4) raw logs, raw HTTP responses, marker counts, state JSON fields, and operator attestations found in prior physical/consolidation runs under `OttoGuide-Agent-Runs` and `OttoGuide-Mapping-Workspace`, read directly during this and prior reconciliations (not summarized from any intermediate report), and (5) commit messages/logs, labeled `REPORTED_BY_AGENT`/`REPORTED_UNVERIFIED` only where no raw corroboration was found (see the `adapter_pure_code_robot_execution_claim` "35/35" discrepancy above for a concrete example of this label in use). No claim in this ledger was elevated to a physical-evidence validation status on the strength of a report or summary alone — every such classification here points to a specific raw log, raw response, marker count, commit, state field, or operator attestation file that this or a prior reconciliation opened and read directly. Full source list with hashes for this checkpoint's additions: `GITHUB_BRANCH_TOPOLOGY.json`, `ODOMETRY_GITHUB_ANCESTRY.txt`, and `EVIDENCE_LEDGER_R2A_SOURCE_NOTES.md` in this checkpoint's (`MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A`) run root. This checkpoint modified no code, tests, fixtures, settings, or packages, ran no test suite, and built no package — documentation only.
+This ledger was built from: (1) Git objects/refs verified this and prior checkpoints, including this checkpoint's own live `git ls-remote`/`git cat-file`/`git merge-base`/`git rev-list`/`git rev-parse`/`git diff` verification against the mirror repository (the canonical repository was unreachable to an unauthenticated read this checkpoint — see `PREFLIGHT.md`), (2) hash-verified harvest artifacts, (3) tests executed in prior checkpoints, (4) raw logs, raw HTTP responses, marker counts, state JSON fields, and operator attestations found in prior physical/consolidation runs under `OttoGuide-Agent-Runs` and `OttoGuide-Mapping-Workspace`, read directly during this and prior reconciliations (not summarized from any intermediate report), and (5) commit messages/logs, labeled `REPORTED_BY_AGENT`/`REPORTED_UNVERIFIED` only where no raw corroboration was found (see the `adapter_pure_code_robot_execution_claim` "35/35" discrepancy above for a concrete example of this label in use). No claim in this ledger was elevated to a physical-evidence validation status on the strength of a report or summary alone — every such classification here points to a specific raw log, raw response, marker count, commit, state field, or operator attestation file that this or a prior reconciliation opened and read directly. Full source list with hashes for EVIDENCE-LEDGER-R2A's additions: `GITHUB_BRANCH_TOPOLOGY.json`, `ODOMETRY_GITHUB_ANCESTRY.txt`, `GITHUB_REFS.txt`, and `DOMAIN_AND_CLASSIFICATION_PARITY.json` in that checkpoint's (`MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A`) run root. *(Corrected in EVIDENCE-LEDGER-R2B: this sentence previously also cited `EVIDENCE_LEDGER_R2A_SOURCE_NOTES.md`, a file that does not exist in that run root and was never produced — the citation above lists only the files that actually exist there.)* Full source list for this checkpoint's (EVIDENCE-LEDGER-R2B's) own corrections: `EVIDENCE_LEDGER_R2B_SOURCE_NOTES.md`, `SCHEMA_ASSIGNMENT_RATIONALE.md`, and `ODOMETRY_CURRENT_REVIEW_VERIFICATION.md`/`.json` in this checkpoint's (`MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2B`) run root. This checkpoint modified no code, tests, fixtures, settings, or packages, ran no test suite, and built no package — documentation-schema correction only.

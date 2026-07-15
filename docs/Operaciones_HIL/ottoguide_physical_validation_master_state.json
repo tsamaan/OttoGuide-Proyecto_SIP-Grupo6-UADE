@@ -1,6 +1,6 @@
 {
-  "ledger_built_by": "MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2A",
-  "reconciles_prior_ledger_from": "MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2",
+  "ledger_built_by": "MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2B",
+  "reconciles_prior_ledger_from": "MASTER-OFFLINE-R1-EVIDENCE-LEDGER-R2A",
   "baseline_head": "7f5be6048aef105acc1f659fc1af8c244fb85d0b",
   "baseline_parent_chain": [
     "254cdddfa33477b794561560b397418870d777d9",
@@ -42,75 +42,532 @@
     "OttoGuide-Mapping-Workspace/M3A_R3Z_NAV2_SANDBOX_ROUTE_ON_SIMULATED_MAP_NO_ROBOT/run_20260709T201235Z",
     "OttoGuide-Mapping-Workspace/M3A_R4A_NAV2_SANDBOX_WAYPOINT_FOLLOWER_ON_SIMULATED_MAP_NO_ROBOT/run_20260709T211119Z",
     "OttoGuide-Mapping-Workspace/M3A_R4A_R1_REFERENCE_ROUTE_ALIGNMENT_AND_AUTONOMOUS_SANDBOX_REPLAY_NO_ROBOT/run_20260709T222239Z",
-    "OttoGuide-Mapping-Workspace/M3A_R4B_G1_MUJOCO_3D_REFERENCE_ROUTE_REPLAY_DEMO_NO_ROBOT/run_20260709T230031Z"
+    "OttoGuide-Mapping-Workspace/M3A_R4B_G1_MUJOCO_3D_REFERENCE_ROUTE_REPLAY_DEMO_NO_ROBOT/run_20260709T230031Z",
+    "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A/run_20260715T171223Z"
   ],
   "domains": {
-    "git": {"project_validation_status": "N/A", "claim_status": "VERIFIED", "this_checkpoint_activity": "EXECUTED", "evidence_level": "RAW_LOG"},
-    "hardware_adapter": {"project_validation_status": "OFFLINE_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "TESTED_OFFLINE", "evidence_level": "OFFLINE_TEST"},
-
-    "dds_lowstate_read_path": {"project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT", "evidence_level": "RAW_LOG"},
-    "dds_generic_runtime": {"project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "HASH_VERIFIED_ARTIFACT"},
-    "dds_write_or_publish_path": {"implementation_status": "UNKNOWN", "project_validation_status": "NOT_VALIDATED", "claim_status": "REPORTED_UNVERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "UNKNOWN"},
-
-    "web_frontend_offline_tests": {"project_validation_status": "OFFLINE_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "TESTED_OFFLINE", "evidence_level": "OFFLINE_TEST"},
-    "web_real_profile_control_path": {"project_validation_status": "PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT", "evidence_level": "OPERATOR_ATTESTATION + RAW_RESPONSE"},
-
-    "websocket_offline_replay_contract": {"project_validation_status": "OFFLINE_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "TESTED_OFFLINE", "evidence_level": "OFFLINE_TEST"},
-    "websocket_live_transport": {"project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT", "evidence_level": "RAW_LOG"},
-
-    "emergency": {"project_validation_status": "PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT", "evidence_level": "RAW_RESPONSE + OPERATOR_ATTESTATION"},
-    "sigterm": {"project_validation_status": "PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT", "evidence_level": "RAW_LOG + RAW_RESPONSE + OPERATOR_ATTESTATION"},
-    "posture_preservation": {"project_validation_status": "PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "TESTED_OFFLINE", "evidence_level": "OFFLINE_TEST + RAW_RESPONSE + STATICALLY_INSPECTED"},
-    "interaction_protocol": {"project_validation_status": "OFFLINE_VALIDATED + PHYSICAL_EVIDENCE_HARVESTED", "claim_status": "VERIFIED", "this_checkpoint_activity": "TESTED_OFFLINE", "evidence_level": "OFFLINE_TEST + RAW_LOG"},
-    "physical_cxx_worker": {"project_validation_status": "PHYSICALLY_VALIDATED + IMPLEMENTED_NOT_PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT", "evidence_level": "RAW_LOG + HASH_VERIFIED_ARTIFACT", "note": "build/link/GPU-load only PHYSICALLY_VALIDATED; full voice cycle IMPLEMENTED_NOT_PHYSICALLY_VALIDATED, tracked separately"},
-    "wake_word_stt_llm_tts_speaker": {"project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED + PHYSICAL_EVIDENCE_HARVESTED", "claim_status": "VERIFIED; REPORTED_UNVERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "RAW_LOG + REPORTED_BY_USER", "note": "claim_status is VERIFIED as to what the software logs show, REPORTED_UNVERIFIED as to the human-confirmed content, which is explicitly pending; transcript and response text unavailable; non-blocking for this offline baseline"},
-
-    "lowstate": {"project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED + OFFLINE_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "REPLAYED_OFFLINE", "evidence_level": "HASH_VERIFIED_ARTIFACT + OFFLINE_TEST"},
-    "energy": {"implementation_status": "NOT_IMPLEMENTED", "project_validation_status": "NOT_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "HASH_VERIFIED_ARTIFACT", "note": "genuinely absent from source telemetry"},
-    "bms": {"implementation_status": "NOT_IMPLEMENTED", "project_validation_status": "NOT_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "HASH_VERIFIED_ARTIFACT", "note": "genuinely absent from source telemetry"},
-    "foot_force": {"implementation_status": "NOT_IMPLEMENTED", "project_validation_status": "NOT_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "HASH_VERIFIED_ARTIFACT", "note": "genuinely absent from source telemetry"},
-    "imu": {"project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED", "claim_status": "VERIFIED", "this_checkpoint_activity": "REPLAYED_OFFLINE", "evidence_level": "HASH_VERIFIED_ARTIFACT"},
-
-    "camera_vision_runtime": {"implementation_status": "IMPLEMENTED", "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "STATICALLY_INSPECTED", "evidence_level": "COMMIT_EXACT"},
-    "qr_frame_detector": {"implementation_status": "IMPLEMENTED", "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "STATICALLY_INSPECTED", "evidence_level": "COMMIT_EXACT"},
-    "station_trigger": {"implementation_status": "IMPLEMENTED", "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "STATICALLY_INSPECTED", "evidence_level": "COMMIT_EXACT"},
-    "camera_rgb_intrinsics_e2e": {"implementation_status": "UNKNOWN", "project_validation_status": "NOT_VALIDATED", "claim_status": "REPORTED_UNVERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "UNKNOWN"},
-    "qr_physical_e2e": {"implementation_status": "UNKNOWN", "project_validation_status": "NOT_VALIDATED", "claim_status": "REPORTED_UNVERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "UNKNOWN"},
-
-    "livox_sdk2_bridge_implementation": {"implementation_status": "IMPLEMENTED", "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "STATICALLY_INSPECTED", "evidence_level": "COMMIT_EXACT"},
-    "livox_sdk2_raw_cloud_capture": {"project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT", "evidence_level": "RAW_LOG"},
-    "livox_sdk2_raw_imu_capture": {"project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT", "evidence_level": "RAW_LOG"},
-    "livox_ros_pointcloud_topic_observed": {"project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED", "claim_status": "VERIFIED", "observed_count": 651527, "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT", "evidence_level": "HASH_VERIFIED_ARTIFACT", "changed_from_prior": true, "prior_classification": "was part of livox_ros_pointcloud_publication (NOT_VALIDATED, bundled) in EVIDENCE-LEDGER-R2"},
-    "livox_ros_imu_topic_observed": {"project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED", "claim_status": "VERIFIED", "observed_count": 90753, "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT", "evidence_level": "HASH_VERIFIED_ARTIFACT", "changed_from_prior": true, "prior_classification": "was part of livox_ros_imu_publication (NOT_VALIDATED, bundled) in EVIDENCE-LEDGER-R2"},
-    "livox_scan_topic_observed": {"project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED", "claim_status": "VERIFIED", "observed_count": 630915, "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT", "evidence_level": "HASH_VERIFIED_ARTIFACT", "changed_from_prior": true, "prior_classification": "new domain, not previously present"},
-    "livox_ros_publisher_identity_attribution": {"project_validation_status": "NOT_VALIDATED", "claim_status": "REPORTED_UNVERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "UNKNOWN", "changed_from_prior": true, "prior_classification": "new domain, not previously present"},
-    "livox_current_bridge_runtime_validation": {"project_validation_status": "NOT_VALIDATED", "claim_status": "REPORTED_UNVERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "UNKNOWN", "changed_from_prior": true, "prior_classification": "new domain, not previously present"},
-    "livox_coordinate_validation": {"implementation_status": "IMPLEMENTED", "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "STATICALLY_INSPECTED", "evidence_level": "COMMIT_EXACT"},
-    "scan_gate": {"implementation_status": "IMPLEMENTED", "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "STATICALLY_INSPECTED", "evidence_level": "COMMIT_EXACT"},
-    "extrinsics_calibration": {"implementation_status": "NOT_IMPLEMENTED", "project_validation_status": "NOT_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "RAW_LOG", "note": "confirmed uncalibrated placeholder (0,0,0,0,0,0)"},
-
-    "odometry_candidate_adapter_implementation": {"implementation_status": "IMPLEMENTED", "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED", "claim_status": "VERIFIED", "repository_presence": "REMOTE_AND_TRACKED", "integration_status": "ANCESTOR_OF_REVIEW_ORCHESTRATOR_UNIFICATION", "current_review_contains_adapter": true, "this_checkpoint_activity": "STATICALLY_INSPECTED", "evidence_level": "COMMIT_EXACT + HASH_VERIFIED_ARTIFACT", "changed_from_prior": true, "prior_classification": "limitations text said 'never pushed anywhere' -- corrected: commit is a real ancestor of review/orchestrator-unification, 33 commits back, confirmed live"},
-    "adapter_offline_tests": {"project_validation_status": "OFFLINE_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "OFFLINE_TEST", "result": "58/58 PASS", "commit": "92a8bc45a7a8d7557bcdca9ae5684692016168a7"},
-    "adapter_pure_code_robot_execution_claim": {"project_validation_status": "UNKNOWN", "claim_status": "REPORTED_UNVERIFIED", "execution_environment_claimed": "robot/Jetson", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "REPORTED_BY_AGENT", "claimed_result": "35/35 PASS", "source_artifact_found": false, "changed_from_prior": true, "prior_classification": "adapter_pure_code_robot_validation: OFFLINE_VALIDATED, evidence_level REPORTED_BY_AGENT (EVIDENCE-LEDGER-R2) -- now UNKNOWN/REPORTED_UNVERIFIED per Phase B's prohibited-classification rule"},
-    "odometry_source_channels_physical_capture": {"project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT", "evidence_level": "RAW_LOG + HASH_VERIFIED_ARTIFACT", "primary_channel": "rt/odommodestate", "primary_samples": 80, "primary_hz_estimated": 501.1499074937536, "secondary_channel": "rt/lf/odommodestate", "secondary_samples": 80, "secondary_hz_estimated": 19.999747436100858, "receipt_monotonic": true, "movement_performed": false, "topics_published": false},
-    "adapter_live_dynamic_runtime": {"implementation_status": "UNKNOWN", "project_validation_status": "NOT_VALIDATED", "claim_status": "REPORTED_UNVERIFIED", "observed_in_named_physical_captures": false, "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "UNKNOWN", "changed_from_prior": true, "prior_classification": "implementation_status was unset/absent in EVIDENCE-LEDGER-R2; now explicit UNKNOWN per Phase E"},
-    "dynamic_odometry_solution": {"implementation_status": "UNKNOWN", "project_validation_status": "NOT_VALIDATED", "claim_status": "REPORTED_UNVERIFIED", "state": "UNRESOLVED", "observed_in_named_physical_captures": false, "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "UNKNOWN", "changed_from_prior": true, "prior_classification": "implementation_status was unset/absent in EVIDENCE-LEDGER-R2; now explicit UNKNOWN per Phase E"},
-    "odom_publication": {"implementation_status": "NOT_IMPLEMENTED", "project_validation_status": "NOT_VALIDATED", "claim_status": "VERIFIED", "observed_in_named_physical_captures": false, "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "RAW_LOG", "note": "/odom not observed in ROBOT-R2X capture or PHYSICAL_BASELINE_20260623 rosbag; not asserted as proven absent project-wide", "changed_from_prior": true, "prior_classification": "limitations text used 'confirmed absent' framing -- softened per Phase E"},
-    "tf_publication": {"implementation_status": "NOT_IMPLEMENTED", "project_validation_status": "NOT_VALIDATED", "claim_status": "VERIFIED", "observed_in_named_physical_captures": false, "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "RAW_LOG", "note": "/tf, /tf_static not observed in ROBOT-R2X capture or PHYSICAL_BASELINE_20260623 rosbag; not asserted as proven absent project-wide", "changed_from_prior": true, "prior_classification": "limitations text used 'confirmed absent' framing -- softened per Phase E"},
-
-    "scan_equivalent_offline_pipeline": {"implementation_status": "IMPLEMENTED", "project_validation_status": "OFFLINE_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "HASH_VERIFIED_ARTIFACT", "note": "M3A-R3R, 521 messages, /scan topic, dry run, NO_MAP"},
-    "map_input_contract": {"implementation_status": "IMPLEMENTED", "project_validation_status": "OFFLINE_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "HASH_VERIFIED_ARTIFACT", "note": "M3A-R3O, schema/contract only, NO_MAP"},
-    "simulated_map_artifact_and_map_server_load": {"implementation_status": "IMPLEMENTED", "project_validation_status": "OFFLINE_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "HASH_VERIFIED_ARTIFACT", "note": "M3A-R3Z, map_server load PASS", "changed_from_prior": true, "prior_classification": "was simulated_mapping (implementation_status UNKNOWN, NOT_VALIDATED) in EVIDENCE-LEDGER-R2, ambiguous between loading and generating"},
-    "simulated_mapping_generation": {"implementation_status": "UNKNOWN", "project_validation_status": "NOT_VALIDATED", "claim_status": "REPORTED_UNVERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "UNKNOWN", "note": "no run demonstrated generation of an occupancy map by a mapping algorithm", "changed_from_prior": true, "prior_classification": "split out of simulated_mapping"},
-    "nav2_sandbox": {"implementation_status": "IMPLEMENTED", "project_validation_status": "OFFLINE_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "HASH_VERIFIED_ARTIFACT", "note": "M3A-R3Z, Nav2 planner on simulated map, 455 poses, 11.533m, no physical claim"},
-    "simulated_waypoint_follower": {"implementation_status": "IMPLEMENTED", "project_validation_status": "OFFLINE_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "HASH_VERIFIED_ARTIFACT", "note": "M3A-R4A (3/3 waypoints, fake_robot) and M3A-R4A-R1 (5/5, 1376-pose reference-route replay input), all sandbox-only"},
-    "mujoco_reference_route_replay": {"implementation_status": "IMPLEMENTED", "project_validation_status": "OFFLINE_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "HASH_VERIFIED_ARTIFACT", "note": "M3A-R4B, G1 kinematic replay in MuJoCo, 180 frames, demo video, no physical cmd_vel/odom/TF"},
-    "physical_map": {"implementation_status": "NOT_IMPLEMENTED", "project_validation_status": "NOT_VALIDATED", "claim_status": "VERIFIED", "observed_in_named_physical_captures": false, "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "RAW_LOG"},
-    "physical_localization": {"implementation_status": "NOT_IMPLEMENTED", "project_validation_status": "NOT_VALIDATED", "claim_status": "VERIFIED", "observed_in_named_physical_captures": false, "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "RAW_LOG"},
-    "physical_nav2": {"implementation_status": "NOT_IMPLEMENTED", "project_validation_status": "NOT_VALIDATED", "claim_status": "VERIFIED", "observed_in_named_physical_captures": false, "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "RAW_LOG + INFERRED"},
-    "physical_autonomous_movement": {"implementation_status": "NOT_IMPLEMENTED", "project_validation_status": "NOT_VALIDATED", "claim_status": "VERIFIED", "observed_in_named_physical_captures": false, "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "RAW_LOG + INFERRED", "movement_autonomy": "NOT_VALIDATED"},
-
-    "movement": {"implementation_status": "NOT_IMPLEMENTED", "project_validation_status": "NOT_VALIDATED", "claim_status": "VERIFIED", "this_checkpoint_activity": "NOT_IN_SCOPE", "evidence_level": "N/A", "movement_autonomy": "NOT_VALIDATED", "note": "project-wide movement/autonomous-navigation statement; see physical_autonomous_movement under Mapping/Localization/Nav2 for the domain-specific sub-entry"}
+    "git": {
+      "project_validation_status": "NOT_APPLICABLE",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "EXECUTED",
+      "evidence_level": "RAW_LOG",
+      "implementation_status": "NOT_APPLICABLE"
+    },
+    "hardware_adapter": {
+      "project_validation_status": "OFFLINE_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "TESTED_OFFLINE",
+      "evidence_level": "OFFLINE_TEST",
+      "implementation_status": "IMPLEMENTED"
+    },
+    "dds_lowstate_read_path": {
+      "project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "RAW_LOG",
+      "implementation_status": "IMPLEMENTED"
+    },
+    "dds_generic_runtime": {
+      "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "implementation_status": "IMPLEMENTED"
+    },
+    "dds_write_or_publish_path": {
+      "implementation_status": "UNKNOWN",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "REPORTED_UNVERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "UNKNOWN"
+    },
+    "web_frontend_offline_tests": {
+      "project_validation_status": "OFFLINE_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "TESTED_OFFLINE",
+      "evidence_level": "OFFLINE_TEST",
+      "implementation_status": "IMPLEMENTED"
+    },
+    "web_real_profile_control_path": {
+      "project_validation_status": "PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "RAW_RESPONSE",
+      "implementation_status": "IMPLEMENTED",
+      "supporting_evidence_levels": [
+        "OPERATOR_ATTESTATION"
+      ]
+    },
+    "websocket_offline_replay_contract": {
+      "project_validation_status": "OFFLINE_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "TESTED_OFFLINE",
+      "evidence_level": "OFFLINE_TEST",
+      "implementation_status": "IMPLEMENTED"
+    },
+    "websocket_live_transport": {
+      "project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "RAW_LOG",
+      "implementation_status": "IMPLEMENTED"
+    },
+    "emergency": {
+      "project_validation_status": "PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "RAW_RESPONSE",
+      "implementation_status": "IMPLEMENTED",
+      "supporting_evidence_levels": [
+        "OPERATOR_ATTESTATION"
+      ]
+    },
+    "sigterm": {
+      "project_validation_status": "PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "RAW_LOG",
+      "implementation_status": "IMPLEMENTED",
+      "supporting_evidence_levels": [
+        "RAW_RESPONSE",
+        "OPERATOR_ATTESTATION"
+      ]
+    },
+    "posture_preservation": {
+      "project_validation_status": "PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "TESTED_OFFLINE",
+      "evidence_level": "OFFLINE_TEST",
+      "implementation_status": "IMPLEMENTED",
+      "supporting_evidence_levels": [
+        "RAW_RESPONSE",
+        "COMMIT_EXACT"
+      ]
+    },
+    "energy": {
+      "implementation_status": "NOT_IMPLEMENTED",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "note": "genuinely absent from source telemetry"
+    },
+    "bms": {
+      "implementation_status": "NOT_IMPLEMENTED",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "note": "genuinely absent from source telemetry"
+    },
+    "foot_force": {
+      "implementation_status": "NOT_IMPLEMENTED",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "note": "genuinely absent from source telemetry"
+    },
+    "imu": {
+      "project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "REPLAYED_OFFLINE",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "implementation_status": "IMPLEMENTED"
+    },
+    "camera_vision_runtime": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "STATICALLY_INSPECTED",
+      "evidence_level": "COMMIT_EXACT"
+    },
+    "qr_frame_detector": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "STATICALLY_INSPECTED",
+      "evidence_level": "COMMIT_EXACT"
+    },
+    "station_trigger": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "STATICALLY_INSPECTED",
+      "evidence_level": "COMMIT_EXACT"
+    },
+    "camera_rgb_intrinsics_e2e": {
+      "implementation_status": "UNKNOWN",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "REPORTED_UNVERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "UNKNOWN"
+    },
+    "qr_physical_e2e": {
+      "implementation_status": "UNKNOWN",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "REPORTED_UNVERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "UNKNOWN"
+    },
+    "livox_sdk2_bridge_implementation": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "STATICALLY_INSPECTED",
+      "evidence_level": "COMMIT_EXACT"
+    },
+    "livox_sdk2_raw_cloud_capture": {
+      "project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "RAW_LOG",
+      "implementation_status": "IMPLEMENTED"
+    },
+    "livox_sdk2_raw_imu_capture": {
+      "project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "RAW_LOG",
+      "implementation_status": "IMPLEMENTED"
+    },
+    "livox_ros_pointcloud_topic_observed": {
+      "project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED",
+      "claim_status": "VERIFIED",
+      "observed_count": 651527,
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "changed_from_prior": true,
+      "prior_classification": "was part of livox_ros_pointcloud_publication (NOT_VALIDATED, bundled) in EVIDENCE-LEDGER-R2",
+      "implementation_status": "NOT_APPLICABLE"
+    },
+    "livox_ros_imu_topic_observed": {
+      "project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED",
+      "claim_status": "VERIFIED",
+      "observed_count": 90753,
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "changed_from_prior": true,
+      "prior_classification": "was part of livox_ros_imu_publication (NOT_VALIDATED, bundled) in EVIDENCE-LEDGER-R2",
+      "implementation_status": "NOT_APPLICABLE"
+    },
+    "livox_scan_topic_observed": {
+      "project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED",
+      "claim_status": "VERIFIED",
+      "observed_count": 630915,
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "changed_from_prior": true,
+      "prior_classification": "new domain, not previously present",
+      "implementation_status": "NOT_APPLICABLE"
+    },
+    "livox_ros_publisher_identity_attribution": {
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "REPORTED_UNVERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "UNKNOWN",
+      "changed_from_prior": true,
+      "prior_classification": "new domain, not previously present",
+      "implementation_status": "NOT_APPLICABLE"
+    },
+    "livox_current_bridge_runtime_validation": {
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "REPORTED_UNVERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "UNKNOWN",
+      "changed_from_prior": true,
+      "prior_classification": "new domain, not previously present",
+      "implementation_status": "IMPLEMENTED"
+    },
+    "livox_coordinate_validation": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "STATICALLY_INSPECTED",
+      "evidence_level": "COMMIT_EXACT"
+    },
+    "scan_gate": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "STATICALLY_INSPECTED",
+      "evidence_level": "COMMIT_EXACT"
+    },
+    "extrinsics_calibration": {
+      "implementation_status": "NOT_IMPLEMENTED",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "RAW_LOG",
+      "note": "confirmed uncalibrated placeholder (0,0,0,0,0,0)"
+    },
+    "odometry_candidate_adapter_implementation": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "repository_presence": "REMOTE_AND_TRACKED",
+      "integration_status": "ANCESTOR_OF_REVIEW_ORCHESTRATOR_UNIFICATION",
+      "current_review_contains_adapter": true,
+      "this_checkpoint_activity": "STATICALLY_INSPECTED",
+      "evidence_level": "COMMIT_EXACT",
+      "changed_from_prior": true,
+      "prior_classification": "limitations text said 'never pushed anywhere' -- corrected: commit is a real ancestor of review/orchestrator-unification, 33 commits back, confirmed live",
+      "supporting_evidence_levels": [
+        "HASH_VERIFIED_ARTIFACT"
+      ],
+      "adapter_path": "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",
+      "adapter_main_file_byte_identical_to_92a": true,
+      "adapter_primary_test_byte_identical_to_92a": true
+    },
+    "adapter_offline_tests": {
+      "project_validation_status": "OFFLINE_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "OFFLINE_TEST",
+      "result": "58/58 PASS",
+      "commit": "92a8bc45a7a8d7557bcdca9ae5684692016168a7",
+      "implementation_status": "IMPLEMENTED"
+    },
+    "adapter_pure_code_robot_execution_claim": {
+      "project_validation_status": "UNKNOWN",
+      "claim_status": "REPORTED_UNVERIFIED",
+      "execution_environment_claimed": "robot/Jetson",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "REPORTED_BY_AGENT",
+      "claimed_result": "35/35 PASS",
+      "source_artifact_found": false,
+      "changed_from_prior": true,
+      "prior_classification": "adapter_pure_code_robot_validation: OFFLINE_VALIDATED, evidence_level REPORTED_BY_AGENT (EVIDENCE-LEDGER-R2) -- now UNKNOWN/REPORTED_UNVERIFIED per Phase B's prohibited-classification rule",
+      "implementation_status": "UNKNOWN"
+    },
+    "odometry_source_channels_physical_capture": {
+      "project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "RAW_LOG",
+      "primary_channel": "rt/odommodestate",
+      "primary_samples": 80,
+      "primary_hz_estimated": 501.1499074937536,
+      "secondary_channel": "rt/lf/odommodestate",
+      "secondary_samples": 80,
+      "secondary_hz_estimated": 19.999747436100858,
+      "receipt_monotonic": true,
+      "movement_performed": false,
+      "topics_published": false,
+      "implementation_status": "NOT_APPLICABLE",
+      "supporting_evidence_levels": [
+        "HASH_VERIFIED_ARTIFACT"
+      ]
+    },
+    "adapter_live_dynamic_runtime": {
+      "implementation_status": "UNKNOWN",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "REPORTED_UNVERIFIED",
+      "observed_in_named_physical_captures": false,
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "UNKNOWN",
+      "changed_from_prior": true,
+      "prior_classification": "implementation_status was unset/absent in EVIDENCE-LEDGER-R2; now explicit UNKNOWN per Phase E"
+    },
+    "dynamic_odometry_solution": {
+      "implementation_status": "UNKNOWN",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "REPORTED_UNVERIFIED",
+      "state": "UNRESOLVED",
+      "observed_in_named_physical_captures": false,
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "UNKNOWN",
+      "changed_from_prior": true,
+      "prior_classification": "implementation_status was unset/absent in EVIDENCE-LEDGER-R2; now explicit UNKNOWN per Phase E"
+    },
+    "odom_publication": {
+      "implementation_status": "NOT_IMPLEMENTED",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "VERIFIED",
+      "observed_in_named_physical_captures": false,
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "RAW_LOG",
+      "note": "/odom not observed in ROBOT-R2X capture or PHYSICAL_BASELINE_20260623 rosbag; not asserted as proven absent project-wide",
+      "changed_from_prior": true,
+      "prior_classification": "limitations text used 'confirmed absent' framing -- softened per Phase E"
+    },
+    "tf_publication": {
+      "implementation_status": "NOT_IMPLEMENTED",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "VERIFIED",
+      "observed_in_named_physical_captures": false,
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "RAW_LOG",
+      "note": "/tf, /tf_static not observed in ROBOT-R2X capture or PHYSICAL_BASELINE_20260623 rosbag; not asserted as proven absent project-wide",
+      "changed_from_prior": true,
+      "prior_classification": "limitations text used 'confirmed absent' framing -- softened per Phase E"
+    },
+    "scan_equivalent_offline_pipeline": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "OFFLINE_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "note": "M3A-R3R, 521 messages, /scan topic, dry run, NO_MAP"
+    },
+    "map_input_contract": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "OFFLINE_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "note": "M3A-R3O, schema/contract only, NO_MAP"
+    },
+    "simulated_map_artifact_and_map_server_load": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "OFFLINE_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "note": "M3A-R3Z, map_server load PASS",
+      "changed_from_prior": true,
+      "prior_classification": "was simulated_mapping (implementation_status UNKNOWN, NOT_VALIDATED) in EVIDENCE-LEDGER-R2, ambiguous between loading and generating"
+    },
+    "simulated_mapping_generation": {
+      "implementation_status": "UNKNOWN",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "REPORTED_UNVERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "UNKNOWN",
+      "note": "no run demonstrated generation of an occupancy map by a mapping algorithm",
+      "changed_from_prior": true,
+      "prior_classification": "split out of simulated_mapping"
+    },
+    "nav2_sandbox": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "OFFLINE_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "note": "M3A-R3Z, Nav2 planner on simulated map, 455 poses, 11.533m, no physical claim"
+    },
+    "simulated_waypoint_follower": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "OFFLINE_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "note": "M3A-R4A (3/3 waypoints, fake_robot) and M3A-R4A-R1 (5/5, 1376-pose reference-route replay input), all sandbox-only"
+    },
+    "mujoco_reference_route_replay": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "OFFLINE_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT",
+      "note": "M3A-R4B, G1 kinematic replay in MuJoCo, 180 frames, demo video, no physical cmd_vel/odom/TF"
+    },
+    "physical_map": {
+      "implementation_status": "NOT_IMPLEMENTED",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "VERIFIED",
+      "observed_in_named_physical_captures": false,
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "RAW_LOG"
+    },
+    "physical_localization": {
+      "implementation_status": "NOT_IMPLEMENTED",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "VERIFIED",
+      "observed_in_named_physical_captures": false,
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "RAW_LOG"
+    },
+    "physical_nav2": {
+      "implementation_status": "NOT_IMPLEMENTED",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "VERIFIED",
+      "observed_in_named_physical_captures": false,
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "RAW_LOG",
+      "supporting_evidence_levels": [
+        "INFERRED"
+      ]
+    },
+    "physical_autonomous_movement": {
+      "implementation_status": "NOT_IMPLEMENTED",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "VERIFIED",
+      "observed_in_named_physical_captures": false,
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "RAW_LOG",
+      "movement_autonomy": "NOT_VALIDATED",
+      "supporting_evidence_levels": [
+        "INFERRED"
+      ]
+    },
+    "movement": {
+      "implementation_status": "NOT_IMPLEMENTED",
+      "project_validation_status": "NOT_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "NOT_APPLICABLE",
+      "movement_autonomy": "NOT_VALIDATED",
+      "note": "project-wide movement/autonomous-navigation statement; see physical_autonomous_movement under Mapping/Localization/Nav2 for the domain-specific sub-entry"
+    },
+    "interaction_protocol_offline_contract": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "OFFLINE_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "TESTED_OFFLINE",
+      "evidence_level": "OFFLINE_TEST"
+    },
+    "interaction_protocol_physical_observation": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "RAW_LOG"
+    },
+    "physical_cxx_worker_build_link_gpu_load": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "PHYSICALLY_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "RAW_LOG",
+      "supporting_evidence_levels": [
+        "HASH_VERIFIED_ARTIFACT"
+      ]
+    },
+    "voice_interaction_software_observed_completion": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "RAW_LOG",
+      "supporting_evidence_levels": [
+        "RAW_RESPONSE"
+      ]
+    },
+    "voice_interaction_human_confirmed_audio_content": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED",
+      "claim_status": "REPORTED_UNVERIFIED",
+      "this_checkpoint_activity": "NOT_IN_SCOPE",
+      "evidence_level": "REPORTED_BY_USER",
+      "exact_transcript_text_available": false,
+      "exact_response_text_available": false,
+      "operator_attestation_status": "PENDING"
+    },
+    "lowstate_physical_capture": {
+      "implementation_status": "NOT_APPLICABLE",
+      "project_validation_status": "PHYSICAL_EVIDENCE_HARVESTED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "NOT_EXECUTED_NO_ROBOT",
+      "evidence_level": "HASH_VERIFIED_ARTIFACT"
+    },
+    "lowstate_offline_replay": {
+      "implementation_status": "IMPLEMENTED",
+      "project_validation_status": "OFFLINE_VALIDATED",
+      "claim_status": "VERIFIED",
+      "this_checkpoint_activity": "REPLAYED_OFFLINE",
+      "evidence_level": "OFFLINE_TEST"
+    }
   },
   "autonomous_navigation_declared_validated": false,
   "odom_publication_declared_validated": false,
@@ -129,8 +586,82 @@
     "livox_ros_publisher_identity_attribution / livox_current_bridge_runtime_validation: new domains, NOT_VALIDATED -- isolates 'was this repository's current bridge code the publisher' from 'were the topics observed' (the latter is now affirmatively PHYSICAL_EVIDENCE_HARVESTED)",
     "simulated_map_artifact_and_map_server_load: split out of simulated_mapping, OFFLINE_VALIDATED (map artifact load confirmed)",
     "simulated_mapping_generation: split out of simulated_mapping, NOT_VALIDATED (no generation demonstrated)",
-    "odom_publication / tf_publication / physical_map / physical_localization / physical_nav2 / physical_autonomous_movement / adapter_live_dynamic_runtime / dynamic_odometry_solution: absence language softened to observed_in_named_physical_captures=false with scoped prose, replacing 'confirmed absent' framing"
+    "odom_publication / tf_publication / physical_map / physical_localization / physical_nav2 / physical_autonomous_movement / adapter_live_dynamic_runtime / dynamic_odometry_solution: absence language softened to observed_in_named_physical_captures=false with scoped prose, replacing 'confirmed absent' framing",
+    "EVIDENCE-LEDGER-R2B (this checkpoint): completed implementation_status on all 26 domains that lacked it; added claim_status to odometry_candidate_adapter_implementation in the Markdown ledger (the JSON companion already had it -- this was an asymmetric-field defect, not a missing classification); split the 4 compound-status domains (interaction_protocol, physical_cxx_worker, wake_word_stt_llm_tts_speaker, lowstate) into 7 single-status domains plus domain_aliases pointing back to the retired names; replaced the two non-enum 'N/A' values (git.project_validation_status, movement.evidence_level) with NOT_APPLICABLE; moved every '+'-joined evidence_level into a scalar primary value plus a supporting_evidence_levels list; corrected a mislabeled evidence_level (posture_preservation previously listed STATICALLY_INSPECTED, a this_checkpoint_activity enum value, as an evidence_level -- replaced with COMMIT_EXACT); corrected the odometry adapter's file-path reference from the nonexistent 'odometry_candidate_adapter.py' to the real, git-verified path 'codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py', and added byte-identity confirmation for that file and its primary test between commit 92a8bc4 and the current review head 254cddd; corrected two broken run-root citations to EVIDENCE_LEDGER_R2A_SOURCE_NOTES.md (a file that was cited but never created) by pointing to the files that actually exist in that run root instead."
   ],
-  "scope_note": "This checkpoint (EVIDENCE-LEDGER-R2A) modified no code, tests, fixtures, settings, or packages, ran no test suite, and built no package -- documentation only (this file and the paired Markdown ledger).",
-  "generated_this_session": true
+  "scope_note": "This checkpoint (EVIDENCE-LEDGER-R2B) modified no code, tests, fixtures, settings, or packages, ran no test suite, and built no package -- documentation-schema correction only (this file and the paired Markdown ledger). It corrects EVIDENCE-LEDGER-R2A's asymmetric parity validator, incomplete implementation_status coverage, compound project_validation_status/claim_status fields, two broken run-root citations, a nonexistent file path reference, and a self-referencing manifest pattern (see EVIDENCE_LEDGER_R2B_SOURCE_NOTES.md in this checkpoint's own run root).",
+  "generated_this_session": true,
+  "domain_aliases": {
+    "interaction_protocol": [
+      "interaction_protocol_offline_contract",
+      "interaction_protocol_physical_observation"
+    ],
+    "physical_cxx_worker": [
+      "physical_cxx_worker_build_link_gpu_load"
+    ],
+    "wake_word_stt_llm_tts_speaker": [
+      "voice_interaction_software_observed_completion",
+      "voice_interaction_human_confirmed_audio_content"
+    ],
+    "lowstate": [
+      "lowstate_physical_capture",
+      "lowstate_offline_replay"
+    ]
+  },
+  "internal_references": [
+    {
+      "citation": "LEDGER_R2A.patch",
+      "context": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A run root",
+      "resolved_relative_path": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A/run_20260715T171223Z/LEDGER_R2A.patch",
+      "exists": true
+    },
+    {
+      "citation": "GITHUB_BRANCH_TOPOLOGY.json",
+      "context": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A run root",
+      "resolved_relative_path": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A/run_20260715T171223Z/GITHUB_BRANCH_TOPOLOGY.json",
+      "exists": true
+    },
+    {
+      "citation": "ODOMETRY_GITHUB_ANCESTRY.txt",
+      "context": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A run root",
+      "resolved_relative_path": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A/run_20260715T171223Z/ODOMETRY_GITHUB_ANCESTRY.txt",
+      "exists": true
+    },
+    {
+      "citation": "GITHUB_REFS.txt",
+      "context": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A run root",
+      "resolved_relative_path": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A/run_20260715T171223Z/GITHUB_REFS.txt",
+      "exists": true
+    },
+    {
+      "citation": "DOMAIN_AND_CLASSIFICATION_PARITY.json",
+      "context": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A run root",
+      "resolved_relative_path": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2A/run_20260715T171223Z/DOMAIN_AND_CLASSIFICATION_PARITY.json",
+      "exists": true
+    },
+    {
+      "citation": "EVIDENCE_LEDGER_R2B_SOURCE_NOTES.md",
+      "context": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2B run root (this checkpoint)",
+      "resolved_relative_path": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2B/run_20260715T181231Z/EVIDENCE_LEDGER_R2B_SOURCE_NOTES.md",
+      "exists": true
+    },
+    {
+      "citation": "SCHEMA_ASSIGNMENT_RATIONALE.md",
+      "context": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2B run root (this checkpoint)",
+      "resolved_relative_path": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2B/run_20260715T181231Z/SCHEMA_ASSIGNMENT_RATIONALE.md",
+      "exists": true
+    },
+    {
+      "citation": "ODOMETRY_CURRENT_REVIEW_VERIFICATION.md",
+      "context": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2B run root (this checkpoint)",
+      "resolved_relative_path": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2B/run_20260715T181231Z/ODOMETRY_CURRENT_REVIEW_VERIFICATION.md",
+      "exists": true
+    },
+    {
+      "citation": "ODOMETRY_CURRENT_REVIEW_VERIFICATION.json",
+      "context": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2B run root (this checkpoint)",
+      "resolved_relative_path": "MASTER_OFFLINE_R1_EVIDENCE_LEDGER_R2B/run_20260715T181231Z/ODOMETRY_CURRENT_REVIEW_VERIFICATION.json",
+      "exists": true
+    }
+  ]
 }
