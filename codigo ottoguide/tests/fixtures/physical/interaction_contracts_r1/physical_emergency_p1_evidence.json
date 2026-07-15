@@ -1,0 +1,39 @@
+{
+  "fixture_origin": "physical_observation",
+  "description": "Real P1 /emergency event evidence found and verified during MASTER-OFFLINE-R1-CORRECTION-R1's ledger reconciliation. This is NOT derived from any test in this repository -- it references raw evidence from a prior physical checkpoint. Must not be confused with emergency_response.json (offline_test_derived, fake orchestrator).",
+  "source_run": "FINAL_MVP_R2_EXPEDITED/run_20260714T185718Z",
+  "source_paths": [
+    "P1_EMERGENCY_RESPONSE.json",
+    "P1_OPERATOR_ATTESTATION.txt"
+  ],
+  "source_sha256": {
+    "P1_EMERGENCY_RESPONSE.json": "e4064fd368c21749e2c4312bc6f1623b0ce6ee76a11020b80b239e77ca2bddea",
+    "P1_OPERATOR_ATTESTATION.txt": "9d65fe9dc21bcb998020595fc8b522d43f84da65fee182d4d6fd692bd438b0ec"
+  },
+  "source_hash_note": "These hashes were computed by this checkpoint directly against the source files; the source run's own EVIDENCE_MANIFEST.json lists these filenames but does not record per-file hashes, so no pre-existing hash exists to cross-verify against. Treat these as this checkpoint's own attestation of the files' content at read time, not as independent corroboration of a prior hash.",
+  "event": {
+    "trigger": "web_operator (Detener button in live Web UI)",
+    "request": {"method": "POST", "path": "/emergency", "reason": "web_operator"},
+    "timestamp_utc": "2026-07-15T03:24:08Z",
+    "backend_pid": 5948,
+    "fsm_state_after": "emergency"
+  },
+  "markers": {
+    "stopmove_count": 1,
+    "stopmove_success_count": 1,
+    "damp_count": 0,
+    "motion_command_count": 0,
+    "posture_command_count": 0,
+    "direct_hardware_fallback_used_count": 0,
+    "emergency_completed_count": 1
+  },
+  "terminal_safe": true,
+  "posture_preserved": true,
+  "operator_attestation_status": "CONFIRMED",
+  "operator_attestation_text": "NO HUBO MOVIMIENTO NO NULO. NO HUBO CAMBIO POSTURAL. NO HUBO CAIDA NI INESTABILIDAD. NO FUE NECESARIO USAR EL HARDSTOP.",
+  "operator_attestation_source": "operador presente (lucas.capatti), confirmado directamente 2026-07-14 (UTC) via mensaje 'CONFIRMO LAS ATESTIGUACIONES P1 Y P2 COMO OPERADOR PRESENTE'",
+  "physical_context_note": "Operator physical report: robot seated/reclined on chair, joints loose (not rigid/damped), no movement observed since init.",
+  "classification": "PHYSICALLY_VALIDATED",
+  "evidence_level": "RAW_RESPONSE + OPERATOR_ATTESTATION",
+  "limitations": "Operator attestation is a human report, not an independent sensor log. No IMU/motor telemetry was captured simultaneously with this specific event in the source run to cross-verify the operator's 'joints loose' observation against raw motor state data."
+}
