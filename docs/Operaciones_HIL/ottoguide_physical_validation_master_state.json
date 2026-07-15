@@ -574,6 +574,26 @@
   "tf_publication_declared_validated": false,
   "exact_transcript_text_available": false,
   "exact_response_text_available": false,
+  "canonical_repository": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
+  "canonical_reachable": true,
+  "canonical_review": "254cdddfa33477b794561560b397418870d777d9",
+  "mirror_review": "254cdddfa33477b794561560b397418870d777d9",
+  "canonical_mirror_review_aligned": true,
+  "runtime_or_production_package_built": false,
+  "external_evidence_package_built": true,
+  "ledger_content_reconciled_through": "ff466a7cea119b88625b1d58fe626928ee356192",
+  "last_minimal_correction_applied_by": "MASTER-OFFLINE-R1-FINAL-GATE-AND-MIRROR-STAGING-R1",
+  "bounded_robot_motion_wrapper": {
+    "implementation": "present_in_review_baseline",
+    "physical_validation": "bounded_manual_profiles_validated",
+    "introduced_by_master_chain": false,
+    "source_commits": ["ed3e815", "0510075"],
+    "source_path": "codigo ottoguide/tools/hil/robot_motion/ottoguide_g1_motion_v3.cpp",
+    "note": "Predates and is untouched by the MASTER chain (0d14de6..ff466a7); both source commits are confirmed ancestors of review/orchestrator-unification's head 254cddd. Physically validated in ROBOT-R5F-R3C (yaw-l1, linear-l2 profiles, operator-confirmed visible/stable motion, no anomalies). Distinct from and not evidence toward autonomous navigation."
+  },
+  "physical_autonomous_navigation": {
+    "validation": "NOT_VALIDATED"
+  },
   "unreconciled_source_discrepancies": [
     "adapter_pure_code_robot_execution_claim: MASTER_R1_STATE.json claims robot_pytest_adapter_result='35/35 PASS' with no cited source file; does not match adapter_offline_tests' hash-verified 58/58 PASS for the same commit (92a8bc4) in a different execution environment (robot/Jetson vs desktop). Not treated as an automatic contradiction (may be different suites/scopes); recorded at claim_status=REPORTED_UNVERIFIED, project_validation_status=UNKNOWN rather than resolved either way.",
     "odometry_source_channels_physical_capture: MASTER_R1_ODOMETRY_STATE.md's earlier ~507 Hz estimate for rt/odommodestate is superseded by ROBOT-R2X's precise, hash-verified 501.1499 Hz figure; not a hard contradiction, treated as an outdated rounded estimate.",
@@ -587,9 +607,10 @@
     "simulated_map_artifact_and_map_server_load: split out of simulated_mapping, OFFLINE_VALIDATED (map artifact load confirmed)",
     "simulated_mapping_generation: split out of simulated_mapping, NOT_VALIDATED (no generation demonstrated)",
     "odom_publication / tf_publication / physical_map / physical_localization / physical_nav2 / physical_autonomous_movement / adapter_live_dynamic_runtime / dynamic_odometry_solution: absence language softened to observed_in_named_physical_captures=false with scoped prose, replacing 'confirmed absent' framing",
-    "EVIDENCE-LEDGER-R2B (this checkpoint): completed implementation_status on all 26 domains that lacked it; added claim_status to odometry_candidate_adapter_implementation in the Markdown ledger (the JSON companion already had it -- this was an asymmetric-field defect, not a missing classification); split the 4 compound-status domains (interaction_protocol, physical_cxx_worker, wake_word_stt_llm_tts_speaker, lowstate) into 7 single-status domains plus domain_aliases pointing back to the retired names; replaced the two non-enum 'N/A' values (git.project_validation_status, movement.evidence_level) with NOT_APPLICABLE; moved every '+'-joined evidence_level into a scalar primary value plus a supporting_evidence_levels list; corrected a mislabeled evidence_level (posture_preservation previously listed STATICALLY_INSPECTED, a this_checkpoint_activity enum value, as an evidence_level -- replaced with COMMIT_EXACT); corrected the odometry adapter's file-path reference from the nonexistent 'odometry_candidate_adapter.py' to the real, git-verified path 'codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py', and added byte-identity confirmation for that file and its primary test between commit 92a8bc4 and the current review head 254cddd; corrected two broken run-root citations to EVIDENCE_LEDGER_R2A_SOURCE_NOTES.md (a file that was cited but never created) by pointing to the files that actually exist in that run root instead."
+    "EVIDENCE-LEDGER-R2B (this checkpoint): completed implementation_status on all 26 domains that lacked it; added claim_status to odometry_candidate_adapter_implementation in the Markdown ledger (the JSON companion already had it -- this was an asymmetric-field defect, not a missing classification); split the 4 compound-status domains (interaction_protocol, physical_cxx_worker, wake_word_stt_llm_tts_speaker, lowstate) into 7 single-status domains plus domain_aliases pointing back to the retired names; replaced the two non-enum 'N/A' values (git.project_validation_status, movement.evidence_level) with NOT_APPLICABLE; moved every '+'-joined evidence_level into a scalar primary value plus a supporting_evidence_levels list; corrected a mislabeled evidence_level (posture_preservation previously listed STATICALLY_INSPECTED, a this_checkpoint_activity enum value, as an evidence_level -- replaced with COMMIT_EXACT); corrected the odometry adapter's file-path reference from the nonexistent 'odometry_candidate_adapter.py' to the real, git-verified path 'codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py', and added byte-identity confirmation for that file and its primary test between commit 92a8bc4 and the current review head 254cddd; corrected two broken run-root citations to EVIDENCE_LEDGER_R2A_SOURCE_NOTES.md (a file that was cited but never created) by pointing to the files that actually exist in that run root instead.",
+    "FINAL-GATE-R1 (this checkpoint): corrected a false canonical-repository-unreachable claim caused by a wrong, hyphenated slug (the correct underscore slug is reachable and aligned with the mirror); added bounded_robot_motion_wrapper and physical_autonomous_navigation top-level fields distinguishing a real, pre-existing, physically-validated bounded manual motion capability from autonomous navigation (still NOT_VALIDATED); no domain added, removed, or restructured."
   ],
-  "scope_note": "This checkpoint (EVIDENCE-LEDGER-R2B) modified no code, tests, fixtures, settings, or packages, ran no test suite, and built no package -- documentation-schema correction only (this file and the paired Markdown ledger). It corrects EVIDENCE-LEDGER-R2A's asymmetric parity validator, incomplete implementation_status coverage, compound project_validation_status/claim_status fields, two broken run-root citations, a nonexistent file path reference, and a self-referencing manifest pattern (see EVIDENCE_LEDGER_R2B_SOURCE_NOTES.md in this checkpoint's own run root).",
+  "scope_note": "This checkpoint (EVIDENCE-LEDGER-R2B) modified no code, tests, fixtures, settings, or packages, ran no test suite, and built no package -- documentation-schema correction only (this file and the paired Markdown ledger). It corrects EVIDENCE-LEDGER-R2A's asymmetric parity validator, incomplete implementation_status coverage, compound project_validation_status/claim_status fields, two broken run-root citations, a nonexistent file path reference, and a self-referencing manifest pattern (see EVIDENCE_LEDGER_R2B_SOURCE_NOTES.md in this checkpoint's own run root). FINAL-GATE-R1 (this checkpoint) additionally corrected a false canonical-unreachable claim and added minimal fields distinguishing bounded manual motion from autonomous navigation -- still no code, tests, fixtures, or settings modified; only an external evidence package was built, no runtime or production package.",
   "generated_this_session": true,
   "domain_aliases": {
     "interaction_protocol": [
