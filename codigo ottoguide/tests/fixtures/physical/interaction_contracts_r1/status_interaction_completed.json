@@ -1,0 +1,18 @@
+{
+  "fixture_origin": "synthetic_contract",
+  "description": "Status payload contract: interaction session terminal state after playback_completed. Runtime returns to ready with no active session.",
+  "fsmState": "idle",
+  "interactionRuntime": {
+    "configured": true,
+    "ready": true,
+    "mock": false,
+    "physical": true,
+    "state": "ready"
+  },
+  "interactionSession": {
+    "active": false,
+    "sessionId": "sess-contract-0002",
+    "state": "completed",
+    "lastEvent": "playback_completed"
+  }
+}

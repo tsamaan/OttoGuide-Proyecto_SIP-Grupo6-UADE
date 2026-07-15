@@ -1,0 +1,22 @@
+{
+  "fixture_origin": "physical_evidence_derived",
+  "description": "POST /emergency 200 response contract, shape taken directly from tests/integration/test_api_router_canonical.py::test_emergency_safe_stop_returns_200_with_terminal_safe_true, which was executed and passed in this task's Phase C baseline (see TEST_BASELINE_RESULTS.json). Field values here represent the safe-stop path (stop_motion_succeeded=true).",
+  "source_test": "codigo ottoguide/tests/integration/test_api_router_canonical.py::test_emergency_safe_stop_returns_200_with_terminal_safe_true",
+  "http_status": 200,
+  "request": {
+    "reason": "web_operator"
+  },
+  "response_body": {
+    "executed": true,
+    "terminal_safe": true,
+    "stop_motion_succeeded": true,
+    "posture_preserved": true,
+    "operator_intervention_required": true,
+    "posture_change_attempted": false,
+    "damp_attempted": false,
+    "damp_succeeded": false,
+    "errors": []
+  },
+  "classification": "OFFLINE_VALIDATED",
+  "note": "This fixture reflects the response shape asserted by an executed, passing test in this task's own baseline run. It does not represent a physical robot emergency-stop event; no hardware was involved in producing or validating this shape."
+}

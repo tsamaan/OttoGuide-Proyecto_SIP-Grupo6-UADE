@@ -1,0 +1,451 @@
+{
+  "fixture_origin": "physical_evidence_derived",
+  "type": "lowstate_frame",
+  "index": 0,
+  "payload": {
+    "wall_time_utc": "2026-07-14T20:49:26.562Z",
+    "receipt_monotonic_ns": 7118743860742,
+    "topic": "rt/lowstate",
+    "tick": 7140782,
+    "mode_pr": 0,
+    "mode_machine": 5,
+    "imu": {
+      "quaternion": [
+        -0.929651141166687,
+        0.0195147842168808,
+        0.3668431341648102,
+        0.028181612491607666
+      ],
+      "gyroscope": [
+        0.0031957929022610188,
+        0.017044229432940483,
+        -0.013848436065018177
+      ],
+      "accelerometer": [
+        6.627748966217041,
+        -0.259471595287323,
+        7.179013729095459
+      ],
+      "rpy": [
+        -0.021374115720391273,
+        -0.7520978450775146,
+        -0.052170224487781525
+      ],
+      "temperature": 79
+    },
+    "power_v": null,
+    "power_a": null,
+    "foot_force": null,
+    "bms_state": null,
+    "motor_count_received": 35,
+    "motor_count_persisted": 29,
+    "motors": [
+      {
+        "index": 0,
+        "name": "L_Hip_Pitch",
+        "group": "left_leg",
+        "q_rad": -0.6044139862060547,
+        "q_deg": -34.63037048828529,
+        "dq": -0.0010908308904618025,
+        "ddq": 0.0,
+        "tau_est": -0.17578125,
+        "temperature": [
+          36,
+          35
+        ]
+      },
+      {
+        "index": 1,
+        "name": "L_Hip_Roll",
+        "group": "left_leg",
+        "q_rad": -0.012433766387403011,
+        "q_deg": -0.7124023374498171,
+        "dq": 0.00436332356184721,
+        "ddq": 0.0,
+        "tau_est": -0.17578125,
+        "temperature": [
+          37,
+          37
+        ]
+      },
+      {
+        "index": 2,
+        "name": "L_Hip_Yaw",
+        "group": "left_leg",
+        "q_rad": 0.03447074070572853,
+        "q_deg": 1.9750279591280537,
+        "dq": -0.0068566505797207355,
+        "ddq": 0.0,
+        "tau_est": 0.11186079680919647,
+        "temperature": [
+          37,
+          37
+        ]
+      },
+      {
+        "index": 3,
+        "name": "L_Knee",
+        "group": "left_leg",
+        "q_rad": 1.5477354526519775,
+        "q_deg": 88.67870923972838,
+        "dq": 0.023998279124498367,
+        "ddq": 0.0,
+        "tau_est": -0.263671875,
+        "temperature": [
+          36,
+          36
+        ]
+      },
+      {
+        "index": 4,
+        "name": "L_Ankle_Pitch",
+        "group": "left_leg",
+        "q_rad": -0.044989876449108124,
+        "q_deg": -2.577730041348914,
+        "dq": -0.0033172026742249727,
+        "ddq": 0.0,
+        "tau_est": -0.08689568936824799,
+        "temperature": [
+          42,
+          41
+        ]
+      },
+      {
+        "index": 5,
+        "name": "L_Ankle_Roll",
+        "group": "left_leg",
+        "q_rad": 0.0064150188118219376,
+        "q_deg": 0.36755350341442505,
+        "dq": 1.1367525075911544e-05,
+        "ddq": 0.0,
+        "tau_est": -0.05535334348678589,
+        "temperature": [
+          45,
+          44
+        ]
+      },
+      {
+        "index": 6,
+        "name": "R_Hip_Pitch",
+        "group": "right_leg",
+        "q_rad": -0.6012778282165527,
+        "q_deg": -34.450681871600594,
+        "dq": 0.0,
+        "ddq": 0.0,
+        "tau_est": 0.17578125,
+        "temperature": [
+          36,
+          36
+        ]
+      },
+      {
+        "index": 7,
+        "name": "R_Hip_Roll",
+        "group": "right_leg",
+        "q_rad": -0.14129666984081268,
+        "q_deg": -8.095702841131992,
+        "dq": 0.01854412443935871,
+        "ddq": 0.0,
+        "tau_est": -0.263671875,
+        "temperature": [
+          37,
+          37
+        ]
+      },
+      {
+        "index": 8,
+        "name": "R_Hip_Yaw",
+        "group": "right_leg",
+        "q_rad": 0.011061705648899078,
+        "q_deg": 0.6337890478979388,
+        "dq": 0.022284114733338356,
+        "ddq": 0.0,
+        "tau_est": 0.11186079680919647,
+        "temperature": [
+          37,
+          37
+        ]
+      },
+      {
+        "index": 9,
+        "name": "R_Knee",
+        "group": "right_leg",
+        "q_rad": 1.5090876817703247,
+        "q_deg": 86.46435508062106,
+        "dq": 0.0,
+        "ddq": 0.0,
+        "tau_est": 0.17578125,
+        "temperature": [
+          37,
+          37
+        ]
+      },
+      {
+        "index": 10,
+        "name": "R_Ankle_Pitch",
+        "group": "right_leg",
+        "q_rad": -0.04186558350920677,
+        "q_deg": -2.3987212419300463,
+        "dq": -0.002418288728222251,
+        "ddq": 0.0,
+        "tau_est": -0.005298984702676535,
+        "temperature": [
+          41,
+          40
+        ]
+      },
+      {
+        "index": 11,
+        "name": "R_Ankle_Roll",
+        "group": "right_leg",
+        "q_rad": 0.1315046101808548,
+        "q_deg": 7.534659149876098,
+        "dq": 0.003595303976908326,
+        "ddq": 0.0,
+        "tau_est": -0.11022981256246567,
+        "temperature": [
+          44,
+          44
+        ]
+      },
+      {
+        "index": 12,
+        "name": "Waist_Yaw",
+        "group": "waist",
+        "q_rad": -0.02351616881787777,
+        "q_deg": -1.3473772235815464,
+        "dq": 0.0,
+        "ddq": 0.0,
+        "tau_est": -0.11186079680919647,
+        "temperature": [
+          38,
+          38
+        ]
+      },
+      {
+        "index": 13,
+        "name": "Waist_Roll",
+        "group": "waist",
+        "q_rad": -0.00485610868781805,
+        "q_deg": -0.27823453266878656,
+        "dq": -0.006614513695240021,
+        "ddq": 0.0,
+        "tau_est": -0.06573698669672012,
+        "temperature": [
+          45,
+          44
+        ]
+      },
+      {
+        "index": 14,
+        "name": "Waist_Pitch",
+        "group": "waist",
+        "q_rad": 0.437652587890625,
+        "q_deg": 25.075646179111132,
+        "dq": 0.0011895957868546247,
+        "ddq": 0.0,
+        "tau_est": 0.11804396659135818,
+        "temperature": [
+          45,
+          44
+        ]
+      },
+      {
+        "index": 15,
+        "name": "L_Shoulder_Pitch",
+        "group": "left_arm",
+        "q_rad": 0.2034442126750946,
+        "q_deg": 11.656494752644848,
+        "dq": -0.010737866163253784,
+        "ddq": 0.0,
+        "tau_est": -0.0625,
+        "temperature": [
+          52,
+          51
+        ]
+      },
+      {
+        "index": 16,
+        "name": "L_Shoulder_Roll",
+        "group": "left_arm",
+        "q_rad": 0.03482615947723389,
+        "q_deg": 1.9953919546950352,
+        "dq": -0.003067961661145091,
+        "ddq": 0.0,
+        "tau_est": 0.0,
+        "temperature": [
+          48,
+          47
+        ]
+      },
+      {
+        "index": 17,
+        "name": "L_Shoulder_Yaw",
+        "group": "left_arm",
+        "q_rad": -0.40108805894851685,
+        "q_deg": -22.980652990844387,
+        "dq": -0.004601942375302315,
+        "ddq": 0.0,
+        "tau_est": 0.0625,
+        "temperature": [
+          50,
+          49
+        ]
+      },
+      {
+        "index": 18,
+        "name": "L_Elbow",
+        "group": "left_arm",
+        "q_rad": 1.002480387687683,
+        "q_deg": 57.43789525914278,
+        "dq": -0.0076699042692780495,
+        "ddq": 0.0,
+        "tau_est": -0.0625,
+        "temperature": [
+          46,
+          45
+        ]
+      },
+      {
+        "index": 19,
+        "name": "L_Wrist_Roll",
+        "group": "left_wrist",
+        "q_rad": -0.2149011343717575,
+        "q_deg": -12.312928012075496,
+        "dq": 0.006135923322290182,
+        "ddq": 0.0,
+        "tau_est": -0.0625,
+        "temperature": [
+          46,
+          45
+        ]
+      },
+      {
+        "index": 20,
+        "name": "L_Wrist_Pitch",
+        "group": "left_wrist",
+        "q_rad": -1.625300645828247,
+        "q_deg": -93.12286744584554,
+        "dq": 0.0,
+        "ddq": 0.0,
+        "tau_est": -0.01875000074505806,
+        "temperature": [
+          44,
+          9
+        ]
+      },
+      {
+        "index": 21,
+        "name": "L_Wrist_Yaw",
+        "group": "left_wrist",
+        "q_rad": -0.18595921993255615,
+        "q_deg": -10.65467846368052,
+        "dq": -0.006135923322290182,
+        "ddq": 0.0,
+        "tau_est": -0.01875000074505806,
+        "temperature": [
+          45,
+          42
+        ]
+      },
+      {
+        "index": 22,
+        "name": "R_Shoulder_Pitch",
+        "group": "right_arm",
+        "q_rad": 0.20552946627140045,
+        "q_deg": 11.77597098292765,
+        "dq": -0.0015339808305725455,
+        "ddq": 0.0,
+        "tau_est": 0.0625,
+        "temperature": [
+          53,
+          52
+        ]
+      },
+      {
+        "index": 23,
+        "name": "R_Shoulder_Roll",
+        "group": "right_arm",
+        "q_rad": 0.03643204644322395,
+        "q_deg": 2.0874025002213346,
+        "dq": -0.0076699042692780495,
+        "ddq": 0.0,
+        "tau_est": -0.0625,
+        "temperature": [
+          52,
+          50
+        ]
+      },
+      {
+        "index": 24,
+        "name": "R_Shoulder_Yaw",
+        "group": "right_arm",
+        "q_rad": 0.16412396728992462,
+        "q_deg": 9.403610642655856,
+        "dq": 0.004601942375302315,
+        "ddq": 0.0,
+        "tau_est": 0.0625,
+        "temperature": [
+          54,
+          53
+        ]
+      },
+      {
+        "index": 25,
+        "name": "R_Elbow",
+        "group": "right_arm",
+        "q_rad": 0.5891085863113403,
+        "q_deg": 33.75343567055818,
+        "dq": 0.006135923322290182,
+        "ddq": 0.0,
+        "tau_est": 0.0,
+        "temperature": [
+          48,
+          47
+        ]
+      },
+      {
+        "index": 26,
+        "name": "R_Wrist_Roll",
+        "group": "right_wrist",
+        "q_rad": -0.2810540497303009,
+        "q_deg": -16.103210864606194,
+        "dq": 0.0,
+        "ddq": 0.0,
+        "tau_est": -0.0625,
+        "temperature": [
+          48,
+          47
+        ]
+      },
+      {
+        "index": 27,
+        "name": "R_Wrist_Pitch",
+        "group": "right_wrist",
+        "q_rad": -0.725572943687439,
+        "q_deg": -41.5722674021736,
+        "dq": 0.006135923322290182,
+        "ddq": 0.0,
+        "tau_est": 0.01875000074505806,
+        "temperature": [
+          45,
+          41
+        ]
+      },
+      {
+        "index": 28,
+        "name": "R_Wrist_Yaw",
+        "group": "right_wrist",
+        "q_rad": 0.22590264678001404,
+        "q_deg": 12.9432682413294,
+        "dq": 0.006135923322290182,
+        "ddq": 0.0,
+        "tau_est": 0.0,
+        "temperature": [
+          49,
+          42
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "fixture_origin": "physical_evidence_derived",
+  "description": "Claims about SIGTERM graceful-shutdown behavior, grounded in the assertions of tests/integration/test_sigterm_graceful_shutdown.py::test_sigterm_exits_without_sigkill_and_runs_stopmove_once, not independently re-derived here.",
+  "source_test": "codigo ottoguide/tests/integration/test_sigterm_graceful_shutdown.py",
+  "claims": [
+    {
+      "claim": "On SIGTERM, StopMove is invoked exactly once (never zero, never more than once).",
+      "assertion_grounding": "output.count('StopMove ejecutado correctamente') == 1",
+      "status_on_this_host": "SKIPPED_PLATFORM_GATED",
+      "status_note": "This test is explicitly skipped on this Windows host ('SIGTERM subprocess contract is exercised on Linux/WSL'). This claim is IMPLEMENTED_NOT_PHYSICALLY_VALIDATED on Windows; it was not executed as part of this task's test baseline (see TEST_BASELINE_RESULTS.json, where this same skip is recorded pre-existing and unattributed to any change made here)."
+    },
+    {
+      "claim": "The process exits gracefully on SIGTERM, without requiring SIGKILL.",
+      "assertion_grounding": "proc.send_signal(signal.SIGTERM); process expected to terminate on its own",
+      "status_on_this_host": "SKIPPED_PLATFORM_GATED",
+      "status_note": "Same skip condition as above."
+    }
+  ],
+  "classification": "IMPLEMENTED_NOT_PHYSICALLY_VALIDATED",
+  "note": "This fixture records what the existing test suite claims and how it grounds those claims, for use by offline tooling that needs to reference SIGTERM behavior without re-running a Linux-only subprocess test on Windows. It is not itself proof the behavior holds; it is a pointer to where that proof would come from."
+}
