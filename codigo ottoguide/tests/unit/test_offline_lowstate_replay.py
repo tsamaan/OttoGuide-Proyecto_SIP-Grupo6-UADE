@@ -453,6 +453,80 @@ def test_invalid_rate_raises_value_error() -> None:
         src.close()
 
 
+@pytest.mark.parametrize(
+    "bad_rate",
+    [
+        True,
+        False,
+        None,
+        "0",
+        "1",
+        0.5,
+        -1,
+        2,
+        float("nan"),
+        float("inf"),
+    ],
+    ids=["True", "False", "None", "str-0", "str-1", "0.5", "-1", "2", "nan", "inf"],
+)
+def test_rate_rejects_bool_and_other_non_numeric_or_out_of_range_values(bad_rate: object) -> None:
+    """rate must be exactly the numeric literal 0, 0.0, 1, or 1.0.
+
+    bool is explicitly rejected even though Python's `True == 1` and
+    `False == 0` would otherwise let it slip through an `in (0, 0.0, 1, 1.0)`
+    membership check -- this is a regression test for that exact defect.
+    """
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        with pytest.raises(ValueError):
+            src.iter_samples(start_index=0, limit=1, rate=bad_rate)
+    finally:
+        src.close()
+
+
+@pytest.mark.parametrize("good_rate", [0, 0.0, 1, 1.0], ids=["int-0", "float-0.0", "int-1", "float-1.0"])
+def test_rate_accepts_exact_numeric_zero_and_one(good_rate: object) -> None:
+    """The four accepted literal forms must still all work after the bool fix."""
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        snaps = list(src.iter_samples(start_index=0, limit=1, rate=good_rate))
+        assert len(snaps) == 1
+    finally:
+        src.close()
+
+
+def test_rate_bool_validation_raises_at_call_time_not_at_first_next() -> None:
+    """Same eager-validation contract as start_index/limit: a bad rate must
+    raise synchronously when iter_samples() is called, not on first next()."""
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        with pytest.raises(ValueError):
+            src.iter_samples(start_index=0, limit=1, rate=True)  # must raise here
+    finally:
+        src.close()
+
+
+def test_subprocess_bool_like_rate_string_rejected_by_cli_without_hanging() -> None:
+    """Hang-safety: the CLI's argparse type=float will reject non-float strings
+    like 'true'/'false' outright (argparse error, not the Python API's
+    ValueError), and must never hang regardless of --loop."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPLAY_MODULE_PATH),
+            "--fixture",
+            str(FIXTURE_PATH),
+            "--rate",
+            "true",
+            "--loop",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode != 0
+
+
 def test_validation_raises_at_call_time_not_at_first_next() -> None:
     """iter_samples() is not itself a generator function: bad arguments must
     raise synchronously when called, before the caller ever iterates."""

@@ -161,7 +161,9 @@ class LowStateSnapshotSource:
           - start_index not an int, or negative, or >= record_count for a
             non-empty fixture (no silent Python negative-index wraparound);
           - limit not None and not a non-negative int;
-          - rate not exactly 0 or 1 (as int or float; e.g. 0.5 is rejected).
+          - rate not exactly 0 or 1 (as int or float; e.g. 0.5 is rejected;
+            bool is also rejected even though True == 1 and False == 0 in
+            Python, since a bool is not a numeric literal 0/0.0/1/1.0).
 
         Behavior for an empty fixture (record_count == 0): start_index=0 is
         accepted (there is no valid non-zero start_index either way) and the
@@ -191,8 +193,8 @@ class LowStateSnapshotSource:
             if limit < 0:
                 raise ValueError(f"limit must be >= 0, got {limit}")
 
-        if rate not in (0, 0.0, 1, 1.0):
-            raise ValueError(f"rate must be exactly 0 or 1, got {rate!r}")
+        if isinstance(rate, bool) or rate not in (0, 0.0, 1, 1.0):
+            raise ValueError(f"rate must be exactly 0 or 1 (numeric, not bool), got {rate!r}")
 
         return self._iter_samples_impl(start_index, limit, rate, loop)
 
