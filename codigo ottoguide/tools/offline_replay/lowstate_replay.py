@@ -15,20 +15,55 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from types import MappingProxyType
+from typing import Any, Iterator, Mapping, Optional
+
+
+def _deep_freeze(value: Any) -> Any:
+    """Recursively convert dicts to read-only MappingProxyType and lists/tuples
+    to tuples of frozen elements, so no nested structure remains mutable.
+
+    Scalars (str, int, float, bool, None) are returned unchanged -- they are
+    already immutable in Python. This is what makes LowStateSnapshot.raw
+    genuinely immutable, not just its own top-level attribute: a frozen
+    dataclass alone only stops `snapshot.raw = ...`, it does nothing to
+    prevent `snapshot.raw["tick"] = ...` on a plain dict.
+    """
+    if isinstance(value, dict):
+        return MappingProxyType({k: _deep_freeze(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_deep_freeze(v) for v in value)
+    return value
+
+
+def _deep_thaw(value: Any) -> Any:
+    """Recursively convert a deep-frozen structure back to plain dict/list.
+
+    Required for JSON serialization: json.dumps() raises TypeError on
+    MappingProxyType directly (it is not a dict subclass), so this
+    conversion is not optional. It builds brand-new plain containers, so
+    the result never aliases the frozen structure's own backing storage.
+    """
+    if isinstance(value, MappingProxyType):
+        return {k: _deep_thaw(v) for k, v in value.items()}
+    if isinstance(value, tuple):
+        return [_deep_thaw(v) for v in value]
+    return value
 
 
 @dataclass(frozen=True)
 class LowStateSnapshot:
     """An immutable single rt/lowstate sample as read from the fixture.
 
-    `raw` is the exact parsed JSON object for this record, unmodified --
-    fields absent or null in the source (e.g. power_v, power_a, bms_state,
+    `raw` is a deeply frozen view of the parsed JSON object for this record
+    (MappingProxyType for objects, tuple for arrays) -- unmodified content,
+    but genuinely immutable at every nesting level, not just at the top.
+    Fields absent or null in the source (e.g. power_v, power_a, bms_state,
     foot_force) remain null here. Nothing is defaulted to zero.
     """
 
     index: int
-    raw: dict[str, Any]
+    raw: Mapping[str, Any]
 
 
 class LowStateSnapshotSource:
@@ -58,11 +93,16 @@ class LowStateSnapshotSource:
         """Return an immutable snapshot of the most recently iterated record.
 
         Returns None if no record has been produced yet (before the first
-        iter_samples() advance) or if the source is closed.
+        iter_samples() advance) or if the source is closed. The returned
+        snapshot's `raw` is deeply frozen: mutating it can never corrupt
+        this source's internal state, and calling latest() again always
+        returns the same, unpoisoned content.
         """
         if self._closed or self._latest_index < 0:
             return None
-        return LowStateSnapshot(index=self._latest_index, raw=self._records[self._latest_index])
+        return LowStateSnapshot(
+            index=self._latest_index, raw=_deep_freeze(self._records[self._latest_index])
+        )
 
     def health(self) -> dict[str, Any]:
         """Report replay state, record count, current index, and field availability.
@@ -107,11 +147,67 @@ class LowStateSnapshotSource:
         loop     -> after exhausting the fixture, restarts explicitly from
                     start_index and continues; iteration otherwise stops
                     when the fixture is exhausted or `limit` is reached.
+
+        All arguments are validated fail-closed *before* iteration begins.
+        This method is deliberately not itself a generator function: a
+        generator function's body (including validation code preceding any
+        `yield`) does not execute until the first `next()` call, so bad
+        arguments would otherwise only surface once the caller starts
+        consuming the result, not when they call iter_samples(). Here,
+        validation runs synchronously at call time and raises immediately;
+        only the actual replay loop is delegated to an internal generator.
+
+        Raises ValueError for:
+          - start_index not an int, or negative, or >= record_count for a
+            non-empty fixture (no silent Python negative-index wraparound);
+          - limit not None and not a non-negative int;
+          - rate not exactly 0 or 1 (as int or float; e.g. 0.5 is rejected).
+
+        Behavior for an empty fixture (record_count == 0): start_index=0 is
+        accepted (there is no valid non-zero start_index either way) and the
+        generator yields nothing and returns immediately, loop or not --
+        looping over zero records is a no-op, never a hang.
+
+        loop=True combined with start_index >= record_count can no longer
+        occur: start_index is validated against record_count above, so the
+        loop-reset target is always in-bounds by construction, eliminating
+        the infinite-loop hang that existed before this validation was added.
         """
+        total = len(self._records)
+
+        if not isinstance(start_index, int) or isinstance(start_index, bool):
+            raise ValueError(f"start_index must be an int, got {type(start_index).__name__}")
+        if total == 0:
+            if start_index != 0:
+                raise ValueError(f"start_index must be 0 for an empty fixture, got {start_index}")
+        elif not (0 <= start_index < total):
+            raise ValueError(
+                f"start_index must satisfy 0 <= start_index < {total} (record_count); got {start_index}"
+            )
+
+        if limit is not None:
+            if not isinstance(limit, int) or isinstance(limit, bool):
+                raise ValueError(f"limit must be None or a non-negative int, got {type(limit).__name__}")
+            if limit < 0:
+                raise ValueError(f"limit must be >= 0, got {limit}")
+
+        if rate not in (0, 0.0, 1, 1.0):
+            raise ValueError(f"rate must be exactly 0 or 1, got {rate!r}")
+
+        return self._iter_samples_impl(start_index, limit, rate, loop)
+
+    def _iter_samples_impl(
+        self,
+        start_index: int,
+        limit: Optional[int],
+        rate: float,
+        loop: bool,
+    ) -> Iterator[LowStateSnapshot]:
+        """Actual replay loop. Only reachable with already-validated arguments."""
         if self._closed:
             return
         total = len(self._records)
-        if total == 0:
+        if total == 0 or limit == 0:
             return
 
         emitted = 0
@@ -139,7 +235,7 @@ class LowStateSnapshotSource:
 
             self._latest_index = idx
             prev_ns = record.get("receipt_monotonic_ns") if rate == 1.0 else prev_ns
-            yield LowStateSnapshot(index=idx, raw=record)
+            yield LowStateSnapshot(index=idx, raw=_deep_freeze(record))
 
             emitted += 1
             idx += 1
@@ -154,11 +250,16 @@ def snapshot_to_websocket_compatible(snapshot: LowStateSnapshot) -> dict[str, An
 
     This is an offline data contract only. It is never sent over a real
     socket or connected to the production WebSocket transport by this tool.
+
+    `payload` is thawed to a plain dict/list tree for JSON-serializability;
+    `_deep_thaw` builds brand-new plain containers, so this never hands back
+    a reference into the snapshot's own frozen backing storage -- mutating
+    the returned envelope's `payload` cannot corrupt the snapshot or source.
     """
     return {
         "type": "lowstate_frame",
         "index": snapshot.index,
-        "payload": snapshot.raw,
+        "payload": _deep_thaw(snapshot.raw),
     }
 
 
@@ -194,7 +295,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             if args.output == "websocket-compatible":
                 out = snapshot_to_websocket_compatible(snapshot)
             else:
-                out = snapshot.raw
+                out = _deep_thaw(snapshot.raw)
             print(json.dumps(out), flush=True)
     finally:
         source.close()

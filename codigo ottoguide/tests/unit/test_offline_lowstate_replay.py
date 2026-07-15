@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import ast
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
@@ -217,7 +219,15 @@ def test_websocket_compatible_output_shape() -> None:
     envelope = snapshot_to_websocket_compatible(snap)
     assert envelope["type"] == "lowstate_frame"
     assert envelope["index"] == 0
-    assert envelope["payload"] == snap.raw
+    # payload is thawed to plain dict/list for JSON-serializability, so it is
+    # value-equal to the frozen snap.raw tree but not the same object/type
+    assert envelope["payload"]["tick"] == snap.raw["tick"]
+    assert envelope["payload"]["motors"][0]["name"] == snap.raw["motors"][0]["name"]
+    assert isinstance(envelope["payload"], dict)
+    assert isinstance(envelope["payload"]["motors"], list)
+    # mutating the returned envelope's payload must never touch the snapshot's frozen storage
+    envelope["payload"]["tick"] = -1
+    assert snap.raw["tick"] != -1
     # must be JSON-serializable (offline contract, never actually sent over a socket here)
     json.dumps(envelope)
 
@@ -289,3 +299,238 @@ def test_cli_websocket_compatible_output_smoke(capsys: pytest.CaptureFixture[str
     assert parsed["type"] == "lowstate_frame"
     assert parsed["index"] == 0
     assert "payload" in parsed
+
+
+# --- MASTER-OFFLINE-R1-CORRECTION-R1: immutability and fail-closed validation ---
+
+
+def test_top_level_dict_mutation_is_rejected() -> None:
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        snap = next(iter(src.iter_samples(limit=1)))
+        original_tick = snap.raw["tick"]
+        with pytest.raises(TypeError):
+            snap.raw["tick"] = -999
+        assert snap.raw["tick"] == original_tick
+        assert src.latest().raw["tick"] == original_tick
+    finally:
+        src.close()
+
+
+def test_nested_motor_dict_mutation_is_rejected() -> None:
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        snap = next(iter(src.iter_samples(limit=1)))
+        original_q = snap.raw["motors"][0]["q_rad"]
+        with pytest.raises(TypeError):
+            snap.raw["motors"][0]["q_rad"] = 999.0
+        assert snap.raw["motors"][0]["q_rad"] == original_q
+    finally:
+        src.close()
+
+
+def test_nested_list_mutation_is_rejected() -> None:
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        snap = next(iter(src.iter_samples(limit=1)))
+        # arrays are converted to tuples, which have no mutating methods at all
+        # (a stronger guarantee than a frozenlist-style TypeError-on-mutation type)
+        assert isinstance(snap.raw["motors"], tuple)
+        assert not hasattr(snap.raw["motors"], "append")
+        with pytest.raises(TypeError):
+            snap.raw["motors"][0] = {"index": 99}  # tuples reject item assignment
+        assert isinstance(snap.raw["imu"]["quaternion"], tuple)
+        with pytest.raises(TypeError):
+            snap.raw["imu"]["quaternion"][0] = 0.0  # nested list -> tuple, also immutable
+    finally:
+        src.close()
+
+
+def test_raw_is_deeply_frozen_types() -> None:
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        snap = next(iter(src.iter_samples(limit=1)))
+        assert isinstance(snap.raw, MappingProxyType)
+        assert isinstance(snap.raw["imu"], MappingProxyType)
+        assert isinstance(snap.raw["motors"], tuple)
+        assert isinstance(snap.raw["motors"][0], MappingProxyType)
+        assert isinstance(snap.raw["imu"]["quaternion"], tuple)
+    finally:
+        src.close()
+
+
+def test_attempted_mutation_does_not_contaminate_later_replay() -> None:
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        snap = next(iter(src.iter_samples(limit=1)))
+        try:
+            snap.raw["tick"] = -999
+        except TypeError:
+            pass
+        try:
+            snap.raw["motors"][0]["q_rad"] = 999.0
+        except TypeError:
+            pass
+        # a fresh iteration over the same source must show unpoisoned data
+        replayed = list(src.iter_samples(start_index=0, limit=1, rate=0))
+        assert replayed[0].raw["tick"] != -999
+        assert replayed[0].raw["motors"][0]["q_rad"] != 999.0
+        assert src.latest().raw["tick"] != -999
+    finally:
+        src.close()
+
+
+def test_fixture_file_on_disk_is_never_modified_by_mutation_attempts() -> None:
+    before = FIXTURE_PATH.read_bytes()
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        snap = next(iter(src.iter_samples(limit=1)))
+        try:
+            snap.raw["tick"] = -999
+        except TypeError:
+            pass
+    finally:
+        src.close()
+    after = FIXTURE_PATH.read_bytes()
+    assert before == after
+
+
+def test_negative_start_index_raises_value_error() -> None:
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        with pytest.raises(ValueError):
+            src.iter_samples(start_index=-1, limit=3)
+    finally:
+        src.close()
+
+
+def test_start_index_equal_to_record_count_raises_value_error() -> None:
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        with pytest.raises(ValueError):
+            src.iter_samples(start_index=len(src), limit=3)
+    finally:
+        src.close()
+
+
+def test_start_index_greater_than_record_count_raises_value_error() -> None:
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        with pytest.raises(ValueError):
+            src.iter_samples(start_index=len(src) + 50, limit=3)
+    finally:
+        src.close()
+
+
+def test_negative_limit_raises_value_error() -> None:
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        with pytest.raises(ValueError):
+            src.iter_samples(start_index=0, limit=-5)
+    finally:
+        src.close()
+
+
+def test_limit_zero_yields_no_samples_without_error() -> None:
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        result = list(src.iter_samples(start_index=0, limit=0))
+        assert result == []
+    finally:
+        src.close()
+
+
+def test_invalid_rate_raises_value_error() -> None:
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        with pytest.raises(ValueError):
+            src.iter_samples(start_index=0, limit=2, rate=0.5)
+        with pytest.raises(ValueError):
+            src.iter_samples(start_index=0, limit=2, rate=2)
+        with pytest.raises(ValueError):
+            src.iter_samples(start_index=0, limit=2, rate=-1)
+    finally:
+        src.close()
+
+
+def test_validation_raises_at_call_time_not_at_first_next() -> None:
+    """iter_samples() is not itself a generator function: bad arguments must
+    raise synchronously when called, before the caller ever iterates."""
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        with pytest.raises(ValueError):
+            src.iter_samples(start_index=-1)  # must raise here, not on first next()
+    finally:
+        src.close()
+
+
+def test_loop_with_out_of_bounds_start_index_raises_instead_of_hanging() -> None:
+    """Regression test for the infinite-loop defect: start_index >= record_count
+    combined with loop=True and no limit used to hang forever. It must now
+    raise ValueError before any iteration begins."""
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        with pytest.raises(ValueError):
+            src.iter_samples(start_index=len(src), rate=0, loop=True)
+    finally:
+        src.close()
+
+
+def test_websocket_compatible_payload_is_json_serializable_plain_data() -> None:
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        snap = next(iter(src.iter_samples(limit=1)))
+    finally:
+        src.close()
+    envelope = snapshot_to_websocket_compatible(snap)
+    assert isinstance(envelope["payload"], dict)
+    assert isinstance(envelope["payload"]["motors"], list)
+    # mutating the thawed payload is fine (it's a fresh copy) and never affects the snapshot
+    envelope["payload"]["motors"][0]["q_rad"] = -1.0
+    assert snap.raw["motors"][0]["q_rad"] != -1.0
+    json.dumps(envelope)  # must not raise
+
+
+def test_still_299_records_and_null_fields_preserved_after_correction() -> None:
+    """Re-confirms the pre-correction contract still holds exactly."""
+    src = LowStateSnapshotSource(FIXTURE_PATH)
+    try:
+        snaps = list(src.iter_samples(rate=0))
+    finally:
+        src.close()
+    assert len(snaps) == 299
+    for field in ("power_v", "power_a", "bms_state", "foot_force"):
+        values = {s.raw.get(field) for s in snaps}
+        assert values == {None}
+
+
+def test_subprocess_invalid_loop_arguments_do_not_hang_the_cli() -> None:
+    """End-to-end proof (not just in-process) that no invalid input can hang
+    the process: invoke the CLI with the exact hang-triggering arguments from
+    the pre-correction defect, under a hard subprocess timeout. The process
+    must exit (non-zero, since the arguments are invalid) well within the
+    timeout, never be killed by it.
+    """
+    fixture_arg = str(FIXTURE_PATH)
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tools.offline_replay.lowstate_replay",
+            "--fixture",
+            fixture_arg,
+            "--start-index",
+            "299",  # == record_count: the exact pre-correction hang trigger
+            "--rate",
+            "0",
+            "--loop",
+            # deliberately no --limit
+        ],
+        cwd=str(Path(__file__).resolve().parents[2]),
+        capture_output=True,
+        text=True,
+        timeout=10,  # generous; a hang would exceed this and raise TimeoutExpired
+    )
+    assert proc.returncode != 0
+    combined_output = (proc.stdout or "") + (proc.stderr or "")
+    assert "start_index" in combined_output
