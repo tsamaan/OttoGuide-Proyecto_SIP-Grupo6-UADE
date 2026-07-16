@@ -120,16 +120,33 @@ def _purge_app_modules() -> None:
 
 def _fresh_import_main():
     """Reimport main.py from scratch with the interaction dependency mocks
-    installed, returning (main_module, installed_mocks) for cleanup."""
+    installed, returning (main_module, installed_mocks) for cleanup.
+
+    R1A/R3: si la instalacion de mocks o el import de main fallan, el scope
+    se cierra y la referencia global se limpia ANTES de propagar la
+    excepcion original -- de lo contrario el scope queda abierto
+    indefinidamente y el guard de hilo de ModuleIsolationScope queda
+    activado para siempre, haciendo que todo test posterior en el mismo
+    proceso falle con un RuntimeError de anidamiento en vez del error de
+    import real. No se degrada el fallo a skip ni a fallback: la excepcion
+    original siempre se re-lanza sin cambios."""
     global _module_isolation_scope
     if _module_isolation_scope is not None:
         _module_isolation_scope.close()
-    _module_isolation_scope = ModuleIsolationScope(
+    scope = ModuleIsolationScope(
         _FRESH_IMPORT_PREFIXES, preserve=PRESERVED_CORE_IDENTITY_MODULES
     )
-    _module_isolation_scope.open()
-    installed = _install_interaction_dependency_mocks()
-    import main  # noqa: PLC0415
+    scope.open()
+    _module_isolation_scope = scope
+    installed: dict = {}
+    try:
+        installed = _install_interaction_dependency_mocks()
+        import main  # noqa: PLC0415
+    except BaseException:
+        _remove_interaction_dependency_mocks(installed)
+        scope.close()
+        _module_isolation_scope = None
+        raise
     return main, installed
 
 
