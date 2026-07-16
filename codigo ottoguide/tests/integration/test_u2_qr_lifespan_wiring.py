@@ -94,11 +94,21 @@ def _fresh_import_main():
     cleanup fallible (R15), y la excepcion PRIMARIA siempre es la que se
     propaga, con cualquier fallo de `scope.close()` encadenado como causa
     via `from` -- nunca reemplazada. Compatible con Python 3.10; no usa
-    ExceptionGroup ni BaseException.add_note()."""
+    ExceptionGroup ni BaseException.add_note().
+
+    R1D/R19: D17 mostro que el nulling INICIAL de arriba (de un scope
+    remanente de una llamada previa) seguia limpiando la referencia global
+    DESPUES de llamar a close(), no antes -- el mismo patron que R15 ya
+    habia corregido en _purge_app_modules(). Ahora: la referencia global se
+    lee a una variable local y se pone en None ANTES de llamar a close()
+    sobre esa local, y si ese close() falla, la excepcion se propaga
+    inmediatamente sin construir ningun scope nuevo ni intentar ningun
+    import."""
     global _module_isolation_scope
-    if _module_isolation_scope is not None:
-        _module_isolation_scope.close()
-        _module_isolation_scope = None
+    previous_scope = _module_isolation_scope
+    _module_isolation_scope = None
+    if previous_scope is not None:
+        previous_scope.close()
     scope = ModuleIsolationScope(
         _FRESH_IMPORT_PREFIXES, preserve=PRESERVED_CORE_IDENTITY_MODULES
     )

@@ -53,22 +53,66 @@
           jamas se alcanzo), que un intento posterior puede usar para
           restaurar objetos incorrectos. Y los dos callers (D14) reemplazaban
           la excepcion primaria de `import main` con la excepcion de un
-          `scope.close()` fallido en el cleanup, en vez de encadenarla.
-          Esta version (R1C) corrige todo lo anterior: (R10) descubre los
-          paquetes padre administrados desde el NAMESPACE del scope (nombres
-          base de prefijos, nombres exactos, sus padres inmediatos, y
-          cualquier modulo preservado dentro de ese namespace), no solo
-          desde `_original_matching_names`; (R11) un paquete preservado
-          nunca se elimina de sys.modules pero sus atributos administrados
-          se restauran exactamente igual que cualquier otro padre; (R12) si
-          el rollback de open() tambien falla, el scope se marca
-          "poisoned" y rechaza cualquier open() posterior sin mutar
-          sys.modules; (R13) el registro de mocks instalados se actualiza
-          ANTES de cada mutacion real de sys.modules, no despues; (R14/R15)
-          ambos callers preservan la excepcion primaria de `import main`
-          encadenando cualquier fallo secundario de cleanup como causa, y
-          limpian la referencia global ANTES de intentar el cleanup
-          fallible, no despues.
+          `scope.close()` fallido en el cleanup, en vez de encadenarla. R1C
+          corrigio D9/D10/D11/D14 con: (R10) descubrimiento de paquetes padre
+          administrados desde el NAMESPACE del scope (nombres base de
+          prefijos, nombres exactos, sus padres inmediatos, y cualquier
+          modulo preservado dentro de ese namespace), no solo desde
+          `_original_matching_names`; (R11) restauracion de atributos
+          administrados de paquetes preservados igual que cualquier otro
+          padre; (R12) poisoning de un scope cuyo rollback de open() tambien
+          falla; (R13) registro de mocks ANTES de mutar sys.modules; (R14/R15)
+          encadenamiento de excepciones en los callers y nulling de la
+          referencia global ANTES del cleanup fallible.
+          Pero R1C seguia fugando en cuatro formas mas: (D15) al capturar
+          atributos "administrados" de un padre, solo se registraba el VALOR
+          ORIGINAL de un leaf si ESE valor original ya era, el mismo, un
+          modulo dentro del namespace administrado -- si el valor original
+          era un objeto comun, una funcion, una clase, o un modulo FUERA del
+          namespace, y ese leaf luego se reemplazaba durante el scope por un
+          modulo SI administrado, `_restore_and_reset()` solo sabia "quitar
+          el valor nuevo" (no habia nada capturado que restaurar), dejando el
+          atributo eliminado por completo en vez de devuelto a su valor
+          original; (D16) las claves PRESERVADAS de sys.modules nunca se
+          capturaban ni restauraban por identidad -- `preserve` solo
+          significaba "no eliminar este nombre al abrir", pero nada impedia
+          que code dentro del scope reemplazara (D16A) o eliminara (D16B) esa
+          entrada, y `close()` nunca la revertia, porque `_managed_parents`
+          rastrea el OBJETO padre (capturado por referencia directa), no la
+          entrada de sys.modules bajo su propio nombre; (D17) ambos callers
+          limpiaban la referencia global _module_isolation_scope DESPUES de
+          llamar a `close()` en su paso de nulling INICIAL (al principio de
+          `_fresh_import_main()`), no antes -- si ese `close()` inicial
+          fallaba, la referencia global quedaba apuntando a un scope
+          potencialmente inconsistente en vez de None, y el caller
+          continuaba abriendo un scope nuevo e intentando `import main` de
+          todos modos; (D18) si `_restore_and_reset()` (el camino de
+          `close()` tras un `open()` exitoso) fallaba, su `finally` siempre
+          llamaba `_clear_internal_state()` incondicionalmente -- limpiando
+          snapshots y liberando el guard sin marcar el scope como poisoned,
+          permitiendo que ese mismo objeto se reabriera y reutilizara pese a
+          que su restauracion nunca se completo correctamente.
+          Esta version (R1D) corrige las cuatro: (R17) captura, para cada
+          paquete padre administrado, la presencia y el valor original de
+          TODOS sus atributos no-dunder (no solo los que ya eran modulos
+          administrados), y en close()/rollback restaura cualquier leaf
+          cuyo valor original fuera administrado O cuyo valor actual sea
+          administrado -- sin tocar jamas atributos que nunca fueron ni son
+          administrados; (R18) captura, para cada nombre preservado
+          relevante, su presencia y objeto original en sys.modules
+          directamente (no solo sus atributos), y lo restaura por identidad
+          en close()/rollback ANTES de restaurar atributos sobre ese objeto,
+          eliminandolo si nunca existio originalmente; (R19) ambos callers
+          usan ahora el patron "leer la referencia global a una variable
+          local, ponerla en None, LUEGO cerrar la local" tambien en su paso
+          de nulling INICIAL, no solo en la limpieza de excepciones ya
+          corregida en R14/R15, y no continuan abriendo un scope nuevo si
+          ese cierre inicial falla; (R20) cualquier fallo dentro de
+          `_restore_and_reset()` marca el scope como poisoned (ademas de
+          liberar el guard y propagar la excepcion original), rechazando
+          cualquier reutilizacion posterior del mismo objeto antes de que
+          pueda tocar sys.modules de nuevo -- un objeto scope nuevo no se ve
+          afectado.
 @AI_CONTEXT: No reemplaza tests.support.core_module_identity -- las claves en
              `preserve` deben incluir PRESERVED_CORE_IDENTITY_MODULES cuando
              el llamador purga src.*, exactamente como antes. Soporta dos
@@ -180,19 +224,36 @@ class ModuleIsolationScope:
         # actual parent module OBJECT (not just its name), so close() inspects
         # the real object even if sys.modules[parent_name] is later rebound.
         self._managed_parents: dict[str, ModuleType] = {}
-        # ORIGINAL_MANAGED_CHILD_ATTRIBUTES / ORIGINAL_MANAGED_CHILD_ATTRIBUTE_PRESENCE
-        # -- keyed by (parent_name, leaf), value is the original attribute
-        # value or _SENTINEL if the attribute did not exist originally.
-        self._managed_attr_originals: dict[tuple[str, str], object] = {}
+        # R1D/R17: ALL non-dunder leaf attributes of every managed parent,
+        # captured at open()-time regardless of whether the ORIGINAL value
+        # was itself a managed module -- keyed by (parent_name, leaf), value
+        # is the original attribute value or _SENTINEL if the attribute did
+        # not exist originally. Superset of what R1B/R1C called
+        # "_managed_attr_originals" (which only ever captured leaves whose
+        # ORIGINAL value already passed _is_managed_attribute_value): this
+        # is what makes D15 fixable, since a leaf whose original value was a
+        # plain object/function/class/out-of-namespace module is now
+        # captured too, not just leaves whose original value already looked
+        # "managed".
+        self._parent_attr_originals: dict[tuple[str, str], object] = {}
+        # R1D/R18: presence and identity of every PRESERVED name relevant to
+        # this scope's namespace, captured directly in sys.modules at
+        # open()-time -- independent of _managed_parents/_original_matching_names,
+        # since `preserve` means "never delete this key", not "this key's
+        # sys.modules identity is exempt from restoration". Value is the
+        # original module object, or _SENTINEL if the name was absent from
+        # sys.modules at open()-time.
+        self._preserved_key_originals: dict[str, object] = {}
         # Incrementally tracks exactly what THIS open() call has removed so
         # far, so a failure mid-open() can be undone without re-scanning
         # sys.modules (R6).
         self._deleted_so_far: list[str] = []
         self._is_open = False
-        # R1C/R12: once True, this scope object refuses any further open()
-        # deterministically -- set only when open()'s own rollback path
-        # itself fails, since at that point internal snapshots may be
-        # incomplete/stale and cannot be trusted for a future restore.
+        # R1C/R12, R1D/R20: once True, this scope object refuses any further
+        # open() deterministically -- set when open()'s own rollback path
+        # fails (R12) OR when close()'s restoration path fails (R20), since
+        # in either case internal snapshots may be incomplete/stale and
+        # cannot be trusted for a future restore.
         self._poisoned = False
 
     def _current_matching_names(self) -> set[str]:
@@ -248,17 +309,49 @@ class ModuleIsolationScope:
 
         return candidate_names
 
+    def _relevant_preserved_names(self) -> set[str]:
+        """R1D/R18: every name in `preserve` that falls within this scope's
+        own namespace (exact name in prefixes, or matches/is an ancestor of
+        a dot-terminated prefix) -- i.e. the preserved names this SPECIFIC
+        scope is actually responsible for, not every name ever passed to
+        `preserve` globally. A preserved name outside this scope's own
+        namespace is never touched, exactly like an ordinary non-managed
+        module."""
+        relevant: set[str] = set()
+        for name in self._preserve:
+            if _matches(name, self._prefixes) or _is_namespace_ancestor(name, self._prefixes):
+                relevant.add(name)
+        return relevant
+
+    def _capture_preserved_key_identities(self) -> None:
+        """R1D/R18: captures the presence and exact module OBJECT currently
+        under each namespace-relevant preserved name in sys.modules --
+        independent of _managed_parents (which only tracks the parent
+        OBJECT once resolved, not the sys.modules KEY itself). This is what
+        makes D16A (preserved key replaced with a different object during
+        the scope) and D16B (preserved key removed entirely during the
+        scope) both restorable: close()/rollback restore the exact original
+        object by identity, or remove the key entirely if it was absent at
+        open()-time -- before touching any attribute ON that object."""
+        for name in self._relevant_preserved_names():
+            self._preserved_key_originals[name] = sys.modules.get(name, _SENTINEL)
+
     def _capture_managed_parent_attributes(self) -> None:
         """Walks every parent package discovered by
         `_discover_managed_parent_names()` (R10 -- namespace-derived, so it
         includes preserved parents and prefix-only base packages, closing
-        D9/D10) and records, for every attribute whose value is currently a
-        'managed' module (per _is_managed_attribute_value), its original
+        D9/D10) and records, for EVERY non-dunder attribute (R1D/R17 --
+        regardless of whether its ORIGINAL value already looked like a
+        'managed' module per _is_managed_attribute_value), its original
         value -- independent of whether that value is also present in
-        sys.modules under its own name. This is what makes D5 (attribute
-        without a sys.modules entry) and D6 (sys.modules entry removed
-        before close) both visible, for BOTH ordinary and preserved
-        parents."""
+        sys.modules under its own name. Capturing every leaf (not just ones
+        whose original value already passed _is_managed_attribute_value) is
+        what fixes D15: a leaf whose original value was a plain object,
+        function, class, or a module OUTSIDE the managed namespace is now
+        restorable too, not just leaves that originally held an in-namespace
+        module. This also makes D5 (attribute without a sys.modules entry)
+        and D6 (sys.modules entry removed before close) both visible, for
+        BOTH ordinary and preserved parents."""
         for parent_name in self._discover_managed_parent_names():
             parent_module = sys.modules.get(parent_name)
             if parent_module is None or not isinstance(parent_module, ModuleType):
@@ -267,8 +360,7 @@ class ModuleIsolationScope:
             for leaf, value in list(vars(parent_module).items()):
                 if leaf.startswith("__") and leaf.endswith("__"):
                     continue
-                if _is_managed_attribute_value(value, self._prefixes):
-                    self._managed_attr_originals[(parent_name, leaf)] = value
+                self._parent_attr_originals[(parent_name, leaf)] = value
 
     def open(self) -> None:
         if self._poisoned:
@@ -294,6 +386,7 @@ class ModuleIsolationScope:
             for name in self._original_matching_names:
                 self._captured_modules[name] = sys.modules[name]
 
+            self._capture_preserved_key_identities()
             self._capture_managed_parent_attributes()
 
             for name in self._original_matching_names:
@@ -325,11 +418,19 @@ class ModuleIsolationScope:
         """Restores exactly what this open() call captured/deleted so far,
         using only the incremental snapshots taken during this attempt --
         never a fresh sys.modules scan. Used only from open()'s failure
-        path (R6)."""
+        path (R6). R1D/R18: restores preserved-key identities BEFORE
+        restoring attributes on those objects, since an attribute
+        restoration only makes sense once the parent object itself is back
+        to its original identity."""
+        for name, original_value in self._preserved_key_originals.items():
+            if original_value is _SENTINEL:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original_value
         for name in reversed(self._deleted_so_far):
             if name in self._captured_modules:
                 sys.modules[name] = self._captured_modules[name]
-        for (parent_name, leaf), original_value in self._managed_attr_originals.items():
+        for (parent_name, leaf), original_value in self._parent_attr_originals.items():
             parent_module = self._managed_parents.get(parent_name)
             if parent_module is None:
                 continue
@@ -352,17 +453,33 @@ class ModuleIsolationScope:
         self._original_matching_names = set()
         self._captured_modules.clear()
         self._managed_parents.clear()
-        self._managed_attr_originals.clear()
+        self._parent_attr_originals.clear()
+        self._preserved_key_originals.clear()
         self._deleted_so_far = []
         self._is_open = False
         _active.engaged = False
 
     def _restore_and_reset(self) -> None:
-        """Restores sys.modules and managed parent attributes (including
-        preserved parents, R11) to the exact pre-open() state, then clears
-        all internal snapshots and releases the thread guard. Used by
-        close() following a SUCCESSFUL open()."""
+        """Restores sys.modules, preserved-key identities (R1D/R18), and
+        managed parent attributes (including preserved parents, R11; and
+        non-managed original values, R1D/R17) to the exact pre-open() state,
+        then clears all internal snapshots and releases the thread guard.
+        Used by close() following a SUCCESSFUL open(). R1D/R20: if any
+        restoration step here fails, the scope is poisoned instead of
+        silently clearing state as if nothing happened -- a partially
+        restored scope must never be treated as safe to reopen."""
         try:
+            # R1D/R18: restore preserved-key presence/identity FIRST, before
+            # anything that might read or write attributes on that object --
+            # an attribute restoration on a preserved parent only makes
+            # sense once the parent object itself is back to its original
+            # identity (D16A: replaced key; D16B: removed key).
+            for name, original_value in self._preserved_key_originals.items():
+                if original_value is _SENTINEL:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = original_value
+
             current_matching_names = self._current_matching_names()
             leaked_names = current_matching_names - self._original_matching_names
 
@@ -377,25 +494,30 @@ class ModuleIsolationScope:
             for name, module in self._captured_modules.items():
                 sys.modules[name] = module
 
-            # R5/R11 (fixes D5/D6/D9/D10): restore/clear managed parent
-            # attributes from the snapshots captured at open()-time -- never
-            # by re-deriving "what changed" from a fresh sys.modules scan.
-            # `self._managed_parents` already includes preserved parents and
-            # prefix-only base packages (R10's namespace-derived discovery),
-            # so this loop handles them uniformly with ordinary parents:
-            # the parent OBJECT and the leaf NAME were captured directly at
-            # open()-time, regardless of whether the parent itself is ever
-            # deleted from sys.modules (preserved parents never are).
+            # R5/R11/R17 (fixes D5/D6/D9/D10/D15): restore/clear managed
+            # parent attributes from the snapshots captured at open()-time --
+            # never by re-deriving "what changed" from a fresh sys.modules
+            # scan. `self._managed_parents` already includes preserved
+            # parents and prefix-only base packages (R10's namespace-derived
+            # discovery), so this loop handles them uniformly with ordinary
+            # parents: the parent OBJECT and the leaf NAME were captured
+            # directly at open()-time, regardless of whether the parent
+            # itself is ever deleted from sys.modules (preserved parents
+            # never are). `self._parent_attr_originals` now captures EVERY
+            # leaf's original value (R17), not only leaves whose original
+            # value already looked like a managed module -- so a leaf whose
+            # original value was a plain object/function/class/out-of-
+            # namespace module is restored exactly, not merely deleted.
             for parent_name, parent_module in self._managed_parents.items():
                 # First, restore/clear every leaf that was captured at
                 # open()-time for this parent.
                 captured_leaves_for_parent = {
                     leaf
-                    for (p, leaf) in self._managed_attr_originals
+                    for (p, leaf) in self._parent_attr_originals
                     if p == parent_name
                 }
                 for leaf in captured_leaves_for_parent:
-                    original_value = self._managed_attr_originals[(parent_name, leaf)]
+                    original_value = self._parent_attr_originals[(parent_name, leaf)]
                     if original_value is _SENTINEL:
                         if hasattr(parent_module, leaf):
                             delattr(parent_module, leaf)
@@ -403,7 +525,11 @@ class ModuleIsolationScope:
                         setattr(parent_module, leaf, original_value)
                 # Then, strip any NEW managed attribute introduced during the
                 # scope that was never captured (it did not exist
-                # originally, so there is nothing to restore it to).
+                # originally, so there is nothing to restore it to). A leaf
+                # that was captured above is never reconsidered here, so an
+                # unrelated, never-managed attribute that stayed untouched
+                # the whole time is never touched (R17's
+                # UNRELATED_NONMANAGED_ATTRIBUTE_UNTOUCHED requirement).
                 for leaf, value in list(vars(parent_module).items()):
                     if leaf.startswith("__") and leaf.endswith("__"):
                         continue
@@ -411,7 +537,20 @@ class ModuleIsolationScope:
                         continue
                     if _is_managed_attribute_value(value, self._prefixes):
                         delattr(parent_module, leaf)
-        finally:
+        except BaseException:
+            # R1D/R20: a failure here means restoration did not complete --
+            # release the guard and mark _is_open False (so this object is
+            # inert), but poison it so a caller cannot reuse it believing
+            # its snapshots are still valid. Snapshots are intentionally
+            # NOT cleared here (unlike the normal-exit path): clearing them
+            # would let a subsequent (rejected) open() attempt start from a
+            # falsely "clean" object; poisoning makes reuse impossible
+            # regardless, so there is no need to also race to scrub state.
+            self._is_open = False
+            _active.engaged = False
+            self._poisoned = True
+            raise
+        else:
             self._clear_internal_state()
 
     def close(self) -> None:

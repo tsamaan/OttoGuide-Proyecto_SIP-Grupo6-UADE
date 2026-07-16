@@ -410,6 +410,136 @@ class PreservedParentAttributeRestorationTests(unittest.TestCase):
             sys.modules.pop(child_name, None)
 
 
+class ExactValueAndPreservedKeyRestorationTests(unittest.TestCase):
+    """TEST-INFRA-R1D: defects D15 (a parent attribute's ORIGINAL value was
+    never captured unless that original value already looked like a managed
+    module, so replacing it with a managed module during the scope left the
+    attribute deleted rather than restored to its true original value -- a
+    plain object, a ModuleType outside the namespace, etc.) and D16 (a
+    PRESERVED name's own sys.modules key/identity was never captured or
+    restored -- only its attributes were -- so replacing (D16A) or removing
+    (D16B) that key during the scope left the substitution/removal in
+    place)."""
+
+    def test_original_nonmodule_parent_attribute_is_restored(self):
+        base = "sentinel_r1d_regression_d15_nonmodule"
+        child_name = f"{base}.child"
+        for name in (base, child_name):
+            sys.modules.pop(name, None)
+        parent = types.ModuleType(base)
+        original_value = object()
+        parent.child = original_value
+        sys.modules[base] = parent
+        try:
+            scope = ModuleIsolationScope(
+                frozenset({base, f"{base}."}), preserve=frozenset({base})
+            )
+            scope.open()
+            try:
+                child = types.ModuleType(child_name)
+                sys.modules[child_name] = child
+                parent.child = child
+            finally:
+                scope.close()
+
+            self.assertIs(parent.child, original_value)
+            self.assertNotIn(child_name, sys.modules)
+        finally:
+            sys.modules.pop(base, None)
+            sys.modules.pop(child_name, None)
+
+    def test_original_out_of_namespace_module_attribute_is_restored(self):
+        base = "sentinel_r1d_regression_d15_out_of_ns"
+        child_name = f"{base}.child"
+        out_of_ns_name = "sentinel_r1d_regression_d15_UNRELATED_NAMESPACE"
+        for name in (base, child_name, out_of_ns_name):
+            sys.modules.pop(name, None)
+        parent = types.ModuleType(base)
+        out_of_ns_module = types.ModuleType(out_of_ns_name)
+        parent.child = out_of_ns_module
+        sys.modules[base] = parent
+        try:
+            scope = ModuleIsolationScope(
+                frozenset({base, f"{base}."}), preserve=frozenset({base})
+            )
+            scope.open()
+            try:
+                child = types.ModuleType(child_name)
+                sys.modules[child_name] = child
+                parent.child = child
+            finally:
+                scope.close()
+
+            self.assertIs(parent.child, out_of_ns_module)
+
+            # R17's UNRELATED_NONMANAGED_ATTRIBUTE_UNTOUCHED requirement: a
+            # second, wholly unrelated non-managed attribute present both
+            # before and after the scope must never be touched.
+        finally:
+            sys.modules.pop(base, None)
+            sys.modules.pop(child_name, None)
+            sys.modules.pop(out_of_ns_name, None)
+
+    def test_unrelated_nonmanaged_attribute_is_never_touched(self):
+        base = "sentinel_r1d_regression_r17_untouched"
+        sys.modules.pop(base, None)
+        parent = types.ModuleType(base)
+        parent.plain_data = {"unchanged": True}
+
+        def unrelated_function():
+            return "unrelated"
+
+        parent.helper = unrelated_function
+        sys.modules[base] = parent
+        try:
+            scope = ModuleIsolationScope(frozenset({base}), preserve=frozenset({base}))
+            scope.open()
+            scope.close()
+
+            self.assertEqual(parent.plain_data, {"unchanged": True})
+            self.assertIs(parent.helper, unrelated_function)
+        finally:
+            sys.modules.pop(base, None)
+
+    def test_preserved_module_replacement_is_restored_by_identity(self):
+        """D16A: a preserved name's sys.modules entry replaced with a
+        DIFFERENT object during the scope must be restored to the exact
+        original object by identity at close()."""
+        base = "sentinel_r1d_regression_d16a"
+        sys.modules.pop(base, None)
+        original_parent = types.ModuleType(base)
+        sys.modules[base] = original_parent
+        try:
+            scope = ModuleIsolationScope(frozenset({base}), preserve=frozenset({base}))
+            scope.open()
+            replacement_parent = types.ModuleType(base)
+            sys.modules[base] = replacement_parent
+            scope.close()
+
+            self.assertIs(sys.modules.get(base), original_parent)
+            self.assertIsNot(sys.modules.get(base), replacement_parent)
+        finally:
+            sys.modules.pop(base, None)
+
+    def test_removed_preserved_module_is_restored_by_identity(self):
+        """D16B: a preserved name's sys.modules entry removed entirely
+        during the scope must be restored (the exact original object put
+        back) at close()."""
+        base = "sentinel_r1d_regression_d16b"
+        sys.modules.pop(base, None)
+        original_parent = types.ModuleType(base)
+        sys.modules[base] = original_parent
+        try:
+            scope = ModuleIsolationScope(frozenset({base}), preserve=frozenset({base}))
+            scope.open()
+            del sys.modules[base]
+            scope.close()
+
+            self.assertIs(sys.modules.get(base), original_parent)
+        finally:
+            sys.modules.pop(base, None)
+
+
 class OpenRollbackTests(unittest.TestCase):
     """TEST-INFRA-R1B: defects D7 (exception masking during rollback) and
     the R6 requirement that open()'s failure path restore from its own
@@ -624,6 +754,65 @@ class PoisonedScopeTests(unittest.TestCase):
         fresh_scope.close()
         self.assertIn(name_a, sys.modules)
         self.assertIn(name_b, sys.modules)
+
+        sys.modules.pop(name_a, None)
+        sys.modules.pop(name_b, None)
+
+    def test_failed_close_poisoned_scope_cannot_be_reused(self):
+        """TEST-INFRA-R1D: defect D18 -- if close()'s own restoration
+        (_restore_and_reset(), following a SUCCESSFUL open()) fails, the
+        scope must be poisoned exactly like a failed open()-rollback (R12),
+        not merely have its internal state cleared as if the close had
+        succeeded. Forces the failure via a monkeypatch on
+        _current_matching_names() (called early inside
+        _restore_and_reset()), so this exercises "restoration failed after
+        open() had already succeeded" -- a distinct code path from
+        PoisonedScopeTests' D11 case (open() itself failing)."""
+        name_a = "sentinel_r1d_regression_d18_a"
+        name_b = "sentinel_r1d_regression_d18_b"
+        for name in (name_a, name_b):
+            sys.modules.pop(name, None)
+        real_a = types.ModuleType(name_a)
+        real_b = types.ModuleType(name_b)
+        sys.modules[name_a] = real_a
+        sys.modules[name_b] = real_b
+
+        scope = ModuleIsolationScope(frozenset({name_a, name_b}))
+        scope.open()
+
+        original_current_matching = _smi_module.ModuleIsolationScope._current_matching_names
+
+        def _raise_during_restore(self):
+            raise RuntimeError("simulated_failure_during_restore")
+
+        _smi_module.ModuleIsolationScope._current_matching_names = _raise_during_restore
+        try:
+            with self.assertRaises(RuntimeError) as ctx:
+                scope.close()
+            self.assertEqual(str(ctx.exception), "simulated_failure_during_restore")
+        finally:
+            _smi_module.ModuleIsolationScope._current_matching_names = original_current_matching
+
+        self.assertTrue(scope._poisoned)
+        self.assertFalse(getattr(_smi_module._active, "engaged", False))
+        self.assertFalse(scope._is_open)
+
+        with self.assertRaises(RuntimeError) as ctx:
+            scope.open()
+        self.assertIn("poisoned", str(ctx.exception))
+
+        # Manually restore sys.modules (the failed close() left names
+        # deleted -- this scope's own restoration never completed, which is
+        # exactly why it must never be trusted again), then confirm a BRAND
+        # NEW scope object over the same names still works normally.
+        sys.modules[name_a] = real_a
+        sys.modules[name_b] = real_b
+
+        fresh_scope = ModuleIsolationScope(frozenset({name_a, name_b}))
+        fresh_scope.open()
+        fresh_scope.close()
+        self.assertIs(sys.modules.get(name_a), real_a)
+        self.assertIs(sys.modules.get(name_b), real_b)
 
         sys.modules.pop(name_a, None)
         sys.modules.pop(name_b, None)
@@ -980,6 +1169,99 @@ finally:
 
 assert raised, "expected _purge_app_modules() to propagate close()'s failure"
 assert mod._module_isolation_scope is None, "global scope reference must be None even when close() raised"
+print("OK")
+""".format(code_root=str(self._CODE_ROOT))
+        result = self._run(script)
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"stdout={result.stdout!r}\nstderr={result.stderr!r}",
+        )
+
+
+class InitialGlobalNullingTests(unittest.TestCase):
+    """TEST-INFRA-R1D: defect D17 -- the INITIAL nulling step at the top of
+    _fresh_import_main() (cleaning up a scope remaining from a previous
+    call, before constructing a new one) still cleared the global scope
+    reference AFTER calling close(), not before -- the same ordering bug R15
+    already fixed in _purge_app_modules(), left unfixed here. If that
+    initial close() failed, the exception propagated correctly, but the
+    global reference was left pointing at the stale scope instead of None,
+    and nothing stopped the call from continuing to open a brand new scope
+    and attempt `import main` anyway. R19 fixes this with the same
+    read-into-local-then-None-then-close pattern, and an immediate
+    propagation with no further scope/import attempted."""
+
+    _CODE_ROOT = _TESTS_ROOT.parent
+
+    def _run(self, script: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=str(self._CODE_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    def test_navigation_fresh_import_clears_previous_global_before_close(self):
+        script = r"""
+import sys
+sys.path.insert(0, r"{code_root}")
+import tests.unit.test_navigation_runtime_selection as mod
+
+class FakeScope:
+    def close(self):
+        raise RuntimeError("fake_close_failure_at_initial_nulling")
+
+mod._module_isolation_scope = FakeScope()
+
+install_attempted = {{"called": False}}
+original_install = mod._install_interaction_dependency_mocks
+def _tracking_install(installed):
+    install_attempted["called"] = True
+    return original_install(installed)
+mod._install_interaction_dependency_mocks = _tracking_install
+
+raised = False
+try:
+    mod._fresh_import_main()
+except RuntimeError:
+    raised = True
+finally:
+    mod._install_interaction_dependency_mocks = original_install
+
+assert raised, "expected the initial close() failure to propagate"
+assert mod._module_isolation_scope is None, "global scope reference must be None even when the initial close() raised"
+assert not install_attempted["called"], "must not attempt a new scope/import after the initial close() failed"
+print("OK")
+""".format(code_root=str(self._CODE_ROOT))
+        result = self._run(script)
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"stdout={result.stdout!r}\nstderr={result.stderr!r}",
+        )
+
+    def test_qr_fresh_import_clears_previous_global_before_close(self):
+        script = r"""
+import sys
+sys.path.insert(0, r"{code_root}")
+import tests.integration.test_u2_qr_lifespan_wiring as mod
+
+class FakeScope:
+    def close(self):
+        raise RuntimeError("fake_close_failure_at_initial_nulling")
+
+mod._module_isolation_scope = FakeScope()
+
+raised = False
+try:
+    mod._fresh_import_main()
+except RuntimeError:
+    raised = True
+
+assert raised, "expected the initial close() failure to propagate"
+assert mod._module_isolation_scope is None, "global scope reference must be None even when the initial close() raised"
 print("OK")
 """.format(code_root=str(self._CODE_ROOT))
         result = self._run(script)

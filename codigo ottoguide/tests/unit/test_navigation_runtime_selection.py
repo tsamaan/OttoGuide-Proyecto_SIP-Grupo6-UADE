@@ -176,11 +176,26 @@ def _fresh_import_main():
     primero falla; y la excepcion PRIMARIA siempre es la que se propaga,
     con la primera excepcion secundaria (si la hubo) encadenada como causa
     via `from` -- nunca reemplazada. Compatible con Python 3.10; no usa
-    ExceptionGroup ni BaseException.add_note()."""
+    ExceptionGroup ni BaseException.add_note().
+
+    R1D/R19: D17 mostro que el nulling INICIAL de arriba (el de un scope
+    remanente de una llamada previa, antes de siquiera construir uno nuevo)
+    seguia limpiando la referencia global DESPUES de llamar a close(), no
+    antes -- el mismo patron que R15 ya habia corregido en
+    _purge_app_modules(), pero sin aplicar aqui. Si ese close() inicial
+    fallaba, la excepcion se propagaba correctamente, pero la referencia
+    global quedaba apuntando al scope previo (potencialmente inconsistente)
+    en vez de None, y ademas nada impedia que este mismo llamado continuara
+    despues abriendo un scope nuevo e importando main igual. Ahora: la
+    referencia global se lee a una variable local y se pone en None ANTES
+    de llamar a close() sobre esa local (igual que en _purge_app_modules),
+    y si ese close() falla, la excepcion se propaga inmediatamente sin
+    construir ningun scope nuevo ni intentar ningun import."""
     global _module_isolation_scope
-    if _module_isolation_scope is not None:
-        _module_isolation_scope.close()
-        _module_isolation_scope = None
+    previous_scope = _module_isolation_scope
+    _module_isolation_scope = None
+    if previous_scope is not None:
+        previous_scope.close()
     scope = ModuleIsolationScope(
         _FRESH_IMPORT_PREFIXES, preserve=PRESERVED_CORE_IDENTITY_MODULES
     )
