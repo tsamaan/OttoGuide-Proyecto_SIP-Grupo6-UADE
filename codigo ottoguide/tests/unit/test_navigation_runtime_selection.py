@@ -44,6 +44,9 @@ from tests.support.core_module_identity import (  # noqa: E402
     PRESERVED_CORE_IDENTITY_MODULES,
     ensure_core_event_modules,
 )
+from tests.support.scoped_module_isolation import ModuleIsolationScope  # noqa: E402
+
+_FRESH_IMPORT_PREFIXES = frozenset({"main", "src", "src.", "config", "config."})
 
 # U2R2: cargar events.py/event_bus.py bajo su identidad canonica ANTES de la
 # primera purga/reimport de main, para que ningun reimport posterior de este
@@ -96,23 +99,35 @@ def _remove_interaction_dependency_mocks(installed: dict) -> None:
         sys.modules.pop(name, None)
 
 
+_module_isolation_scope: ModuleIsolationScope | None = None
+
+
 def _purge_app_modules() -> None:
-    """Purga main/src.*/config.* para forzar un reimport fresco, preservando
-    explicitamente src.core.events/event_bus/tour_orchestrator (U2R2): esos
-    tres modulos sostienen la identidad canonica de EventType/OttoEventBus
-    compartida por todo el proceso de pytest, y purgarlos incondicionalmente
-    rompia esa identidad segun el orden de coleccion de tests."""
-    for mod in list(sys.modules):
-        if mod in PRESERVED_CORE_IDENTITY_MODULES:
-            continue
-        if mod == "main" or mod == "src" or mod.startswith("src.") or mod == "config" or mod.startswith("config."):
-            del sys.modules[mod]
+    """Cierra el scope de aislamiento abierto por _fresh_import_main(),
+    restaurando exactamente los objetos main/src.*/config.* que existian
+    antes de ese import fresco (U2R2: preserva explicitamente
+    src.core.events/event_bus/tour_orchestrator via PRESERVED_CORE_IDENTITY_MODULES,
+    que sostienen la identidad canonica de EventType/OttoEventBus compartida
+    por todo el proceso de pytest). A diferencia del purge anterior, esto NO
+    deja main/src.*/config.* borrados indefinidamente: los restaura a los
+    objetos exactos previos al scope, en vez de dejar que el siguiente
+    reimport los recree desde cero."""
+    global _module_isolation_scope
+    if _module_isolation_scope is not None:
+        _module_isolation_scope.close()
+        _module_isolation_scope = None
 
 
 def _fresh_import_main():
     """Reimport main.py from scratch with the interaction dependency mocks
     installed, returning (main_module, installed_mocks) for cleanup."""
-    _purge_app_modules()
+    global _module_isolation_scope
+    if _module_isolation_scope is not None:
+        _module_isolation_scope.close()
+    _module_isolation_scope = ModuleIsolationScope(
+        _FRESH_IMPORT_PREFIXES, preserve=PRESERVED_CORE_IDENTITY_MODULES
+    )
+    _module_isolation_scope.open()
     installed = _install_interaction_dependency_mocks()
     import main  # noqa: PLC0415
     return main, installed

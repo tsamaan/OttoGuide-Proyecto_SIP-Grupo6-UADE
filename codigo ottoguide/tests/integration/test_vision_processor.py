@@ -21,11 +21,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-for loaded_module in list(sys.modules):
-    if loaded_module == "src" or loaded_module.startswith("src."):
-        del sys.modules[loaded_module]
-
 from src.vision import CameraModel, PoseEstimate, VisionProcessor
+
+# @TASK: Confirmar identidad local sin purgar sys.modules
+# @CONTEXT: en vez de borrar src.* de sys.modules (lo cual rompe la identidad
+# de clases ya capturadas por otros archivos de test collectados antes que
+# este), se confirma que el modulo resuelto proviene efectivamente del
+# workspace actual. Si algun dia colisiona con un "src" de otro origen, esto
+# falla ruidosamente en vez de purgar estado global para taparlo.
+_vision_module = sys.modules["src.vision"]
+assert Path(_vision_module.__file__).resolve().is_relative_to(PROJECT_ROOT), (
+    f"src.vision resolved from unexpected location: {_vision_module.__file__}"
+)
 
 
 @pytest.mark.asyncio

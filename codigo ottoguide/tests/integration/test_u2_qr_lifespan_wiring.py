@@ -32,6 +32,9 @@ from tests.support.core_module_identity import (
     PRESERVED_CORE_IDENTITY_MODULES,
     ensure_core_event_modules,
 )
+from tests.support.scoped_module_isolation import ModuleIsolationScope
+
+_FRESH_IMPORT_PREFIXES = frozenset({"main", "src", "src.", "config", "config."})
 
 # AI_CONTEXT: un (re)import agresivo de main.py recarga src.core, lo que recrea
 # src.core.events/src.core.event_bus desde cero. Si otro archivo de test en el
@@ -48,22 +51,29 @@ from tests.support.core_module_identity import (
 ensure_core_event_modules()
 
 
+_module_isolation_scope: ModuleIsolationScope | None = None
+
+
 def _purge_app_modules() -> None:
-    for mod in list(sys.modules):
-        if mod in PRESERVED_CORE_IDENTITY_MODULES:
-            continue
-        if (
-            mod == "main"
-            or mod == "src"
-            or mod.startswith("src.")
-            or mod == "config"
-            or mod.startswith("config.")
-        ):
-            del sys.modules[mod]
+    """Cierra el scope de aislamiento abierto por _fresh_import_main(),
+    restaurando exactamente los objetos main/src.*/config.* previos a ese
+    import fresco (preserva PRESERVED_CORE_IDENTITY_MODULES, igual que
+    antes). A diferencia del purge anterior, no deja main/src.*/config.*
+    borrados indefinidamente."""
+    global _module_isolation_scope
+    if _module_isolation_scope is not None:
+        _module_isolation_scope.close()
+        _module_isolation_scope = None
 
 
 def _fresh_import_main():
-    _purge_app_modules()
+    global _module_isolation_scope
+    if _module_isolation_scope is not None:
+        _module_isolation_scope.close()
+    _module_isolation_scope = ModuleIsolationScope(
+        _FRESH_IMPORT_PREFIXES, preserve=PRESERVED_CORE_IDENTITY_MODULES
+    )
+    _module_isolation_scope.open()
     import main  # noqa: PLC0415
 
     return main
