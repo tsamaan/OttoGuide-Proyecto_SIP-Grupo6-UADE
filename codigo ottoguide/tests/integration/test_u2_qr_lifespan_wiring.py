@@ -59,11 +59,16 @@ def _purge_app_modules() -> None:
     restaurando exactamente los objetos main/src.*/config.* previos a ese
     import fresco (preserva PRESERVED_CORE_IDENTITY_MODULES, igual que
     antes). A diferencia del purge anterior, no deja main/src.*/config.*
-    borrados indefinidamente."""
+    borrados indefinidamente.
+
+    R1C/R15: la referencia global se retira ANTES de llamar a close(), no
+    despues -- si close() lanza, la referencia global igual debe quedar en
+    None."""
     global _module_isolation_scope
-    if _module_isolation_scope is not None:
-        _module_isolation_scope.close()
-        _module_isolation_scope = None
+    scope = _module_isolation_scope
+    _module_isolation_scope = None
+    if scope is not None:
+        scope.close()
 
 
 def _fresh_import_main():
@@ -80,7 +85,16 @@ def _fresh_import_main():
     asigna DESPUES de un open() exitoso. Si open() falla, la referencia
     global queda en None (ModuleIsolationScope.open() ya garantiza -- R6/R7
     -- que no deja estado interno colgante ni el guard de hilo activado en
-    ese caso)."""
+    ese caso).
+
+    R1C/R14: D14 mostro que si `import main` fallaba con una excepcion
+    PRIMARIA y el cleanup posterior (`scope.close()`) tambien fallaba con
+    una excepcion SECUNDARIA, la secundaria reemplazaba silenciosamente a la
+    primaria. Ahora: la referencia global se limpia ANTES de intentar el
+    cleanup fallible (R15), y la excepcion PRIMARIA siempre es la que se
+    propaga, con cualquier fallo de `scope.close()` encadenado como causa
+    via `from` -- nunca reemplazada. Compatible con Python 3.10; no usa
+    ExceptionGroup ni BaseException.add_note()."""
     global _module_isolation_scope
     if _module_isolation_scope is not None:
         _module_isolation_scope.close()
@@ -96,9 +110,12 @@ def _fresh_import_main():
     _module_isolation_scope = scope
     try:
         import main  # noqa: PLC0415
-    except BaseException:
-        scope.close()
+    except BaseException as primary:
         _module_isolation_scope = None
+        try:
+            scope.close()
+        except BaseException as cleanup_error:
+            raise primary.with_traceback(primary.__traceback__) from cleanup_error
         raise
 
     return main

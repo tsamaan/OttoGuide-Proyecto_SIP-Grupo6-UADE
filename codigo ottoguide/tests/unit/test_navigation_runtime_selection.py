@@ -95,11 +95,20 @@ def _install_interaction_dependency_mocks(installed: dict) -> None:
     caller's existing except-block cleanup removes all of it. Returning a
     dict only at the end (the R1A shape) left anything installed before a
     mid-loop failure invisible to the caller, since the exception propagates
-    before any `return` executes."""
+    before any `return` executes.
+
+    R1C/R13: `installed[name] = True` now runs BEFORE `sys.modules[name] =
+    MagicMock()`, not after. D12 showed that if registering into `installed`
+    itself fails (e.g. a caller-supplied dict-like object whose __setitem__
+    raises), the OLD ordering had already mutated sys.modules by that point,
+    leaving a mock the registry never recorded -- invisible to any cleanup
+    that relies on the registry to know what to pop(). Registering first
+    means a failed registration never lets a corresponding sys.modules
+    mutation happen at all for that name."""
     for name in _INTERACTION_DEPENDENCY_MOCKS:
         if name not in sys.modules:
-            sys.modules[name] = MagicMock()
             installed[name] = True
+            sys.modules[name] = MagicMock()
 
 
 def _remove_interaction_dependency_mocks(installed: dict) -> None:
@@ -119,11 +128,18 @@ def _purge_app_modules() -> None:
     por todo el proceso de pytest). A diferencia del purge anterior, esto NO
     deja main/src.*/config.* borrados indefinidamente: los restaura a los
     objetos exactos previos al scope, en vez de dejar que el siguiente
-    reimport los recree desde cero."""
+    reimport los recree desde cero.
+
+    R1C/R15: la referencia global se retira ANTES de llamar a close(), no
+    despues. Si close() lanza, la referencia global igual debe quedar en
+    None -- de lo contrario un llamador posterior veria
+    _module_isolation_scope apuntando a un scope potencialmente
+    inconsistente en vez de None."""
     global _module_isolation_scope
-    if _module_isolation_scope is not None:
-        _module_isolation_scope.close()
-        _module_isolation_scope = None
+    scope = _module_isolation_scope
+    _module_isolation_scope = None
+    if scope is not None:
+        scope.close()
 
 
 def _fresh_import_main():
@@ -145,7 +161,22 @@ def _fresh_import_main():
     global queda en None (ModuleIsolationScope.open() ya garantiza -- R6/R7
     -- que no deja estado interno colgante ni el guard de hilo activado en
     ese caso, asi que no hay nada mas que "limpiar" del lado de la
-    referencia global; simplemente nunca se asigno)."""
+    referencia global; simplemente nunca se asigno).
+
+    R1C/R14: D14 mostro que si `import main` (o la instalacion de mocks)
+    fallaba con una excepcion PRIMARIA, y el cleanup posterior
+    (`_remove_interaction_dependency_mocks` o `scope.close()`) tambien
+    fallaba con una excepcion SECUNDARIA, la secundaria reemplazaba
+    silenciosamente a la primaria en lo que efectivamente se propagaba --
+    exactamente el mismo patron que D7 corrigio dentro de
+    ModuleIsolationScope.open(), pero aqui a nivel de caller. Ahora: la
+    referencia global se limpia ANTES de intentar cualquier cleanup
+    fallible (R15); se intentan AMBOS cleanups aplicables
+    (`_remove_interaction_dependency_mocks` y `scope.close()`) incluso si el
+    primero falla; y la excepcion PRIMARIA siempre es la que se propaga,
+    con la primera excepcion secundaria (si la hubo) encadenada como causa
+    via `from` -- nunca reemplazada. Compatible con Python 3.10; no usa
+    ExceptionGroup ni BaseException.add_note()."""
     global _module_isolation_scope
     if _module_isolation_scope is not None:
         _module_isolation_scope.close()
@@ -163,10 +194,20 @@ def _fresh_import_main():
     try:
         _install_interaction_dependency_mocks(installed)
         import main  # noqa: PLC0415
-    except BaseException:
-        _remove_interaction_dependency_mocks(installed)
-        scope.close()
+    except BaseException as primary:
         _module_isolation_scope = None
+        secondary: BaseException | None = None
+        try:
+            _remove_interaction_dependency_mocks(installed)
+        except BaseException as cleanup_error:
+            secondary = cleanup_error
+        try:
+            scope.close()
+        except BaseException as cleanup_error:
+            if secondary is None:
+                secondary = cleanup_error
+        if secondary is not None:
+            raise primary.with_traceback(primary.__traceback__) from secondary
         raise
     return main, installed
 
