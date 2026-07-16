@@ -73,14 +73,26 @@ def _fresh_import_main():
     ModuleIsolationScope queda activado para siempre, haciendo que todo test
     posterior en el mismo proceso falle con un RuntimeError de anidamiento
     en vez del error de import real. No se degrada el fallo a skip ni a
-    fallback: la excepcion original siempre se re-lanza sin cambios."""
+    fallback: la excepcion original siempre se re-lanza sin cambios.
+
+    R1B/R9: scope.open() en si mismo ahora esta cubierto por su propio
+    try/except -- la referencia global _module_isolation_scope solo se
+    asigna DESPUES de un open() exitoso. Si open() falla, la referencia
+    global queda en None (ModuleIsolationScope.open() ya garantiza -- R6/R7
+    -- que no deja estado interno colgante ni el guard de hilo activado en
+    ese caso)."""
     global _module_isolation_scope
     if _module_isolation_scope is not None:
         _module_isolation_scope.close()
+        _module_isolation_scope = None
     scope = ModuleIsolationScope(
         _FRESH_IMPORT_PREFIXES, preserve=PRESERVED_CORE_IDENTITY_MODULES
     )
-    scope.open()
+    try:
+        scope.open()
+    except BaseException:
+        _module_isolation_scope = None
+        raise
     _module_isolation_scope = scope
     try:
         import main  # noqa: PLC0415

@@ -80,18 +80,26 @@ if _PYDANTIC_SETTINGS_AVAILABLE:
 _INTERACTION_DEPENDENCY_MOCKS = ("pyttsx3", "speech_recognition", "aiohttp")
 
 
-def _install_interaction_dependency_mocks() -> dict:
+def _install_interaction_dependency_mocks(installed: dict) -> None:
     """Install minimal fakes for the three pre-existing, unrelated missing
     packages (pyttsx3/speech_recognition/aiohttp) so that `import main` can
     walk its real src.core -> src.interaction import chain on a workstation
-    without them. Returns the set of names actually installed (vs already
-    present), so the caller can remove only what it added."""
-    installed = {}
+    without them.
+
+    R1B/R8: `installed` is now a caller-owned mutable dict passed IN, updated
+    immediately after each individual mock is installed -- not built up
+    locally and returned only at the end. If this function raises partway
+    through (D8: e.g. after installing pyttsx3 but before finishing
+    speech_recognition), the caller's `installed` dict already reflects
+    everything installed up to and including the point of failure, so the
+    caller's existing except-block cleanup removes all of it. Returning a
+    dict only at the end (the R1A shape) left anything installed before a
+    mid-loop failure invisible to the caller, since the exception propagates
+    before any `return` executes."""
     for name in _INTERACTION_DEPENDENCY_MOCKS:
         if name not in sys.modules:
             sys.modules[name] = MagicMock()
             installed[name] = True
-    return installed
 
 
 def _remove_interaction_dependency_mocks(installed: dict) -> None:
@@ -129,18 +137,31 @@ def _fresh_import_main():
     activado para siempre, haciendo que todo test posterior en el mismo
     proceso falle con un RuntimeError de anidamiento en vez del error de
     import real. No se degrada el fallo a skip ni a fallback: la excepcion
-    original siempre se re-lanza sin cambios."""
+    original siempre se re-lanza sin cambios.
+
+    R1B/R9: scope.open() en si mismo ahora esta cubierto por su propio
+    try/except -- la referencia global _module_isolation_scope solo se
+    asigna DESPUES de un open() exitoso. Si open() falla, la referencia
+    global queda en None (ModuleIsolationScope.open() ya garantiza -- R6/R7
+    -- que no deja estado interno colgante ni el guard de hilo activado en
+    ese caso, asi que no hay nada mas que "limpiar" del lado de la
+    referencia global; simplemente nunca se asigno)."""
     global _module_isolation_scope
     if _module_isolation_scope is not None:
         _module_isolation_scope.close()
+        _module_isolation_scope = None
     scope = ModuleIsolationScope(
         _FRESH_IMPORT_PREFIXES, preserve=PRESERVED_CORE_IDENTITY_MODULES
     )
-    scope.open()
+    try:
+        scope.open()
+    except BaseException:
+        _module_isolation_scope = None
+        raise
     _module_isolation_scope = scope
     installed: dict = {}
     try:
-        installed = _install_interaction_dependency_mocks()
+        _install_interaction_dependency_mocks(installed)
         import main  # noqa: PLC0415
     except BaseException:
         _remove_interaction_dependency_mocks(installed)

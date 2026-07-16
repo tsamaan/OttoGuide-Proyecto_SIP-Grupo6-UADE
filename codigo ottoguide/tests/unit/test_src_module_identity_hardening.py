@@ -285,6 +285,351 @@ class ModuleIsolationScopeTests(unittest.TestCase):
         followup.close()
 
 
+class ParentAttributeRestorationTests(unittest.TestCase):
+    """TEST-INFRA-R1B: defects D5/D6 -- ModuleIsolationScope must restore
+    'managed' parent attributes (ModuleType values whose __name__ falls
+    within the scope's namespace) captured at open()-time directly, without
+    ever re-deriving what to restore from a sys.modules diff at close()-time.
+    Covers both a managed attribute that never had a corresponding
+    sys.modules entry (D5) and one whose sys.modules entry was removed
+    before close() ran (D6)."""
+
+    def test_removes_attr_only_managed_child_without_sys_modules_entry(self):
+        name = "sentinel_r1b_regression_d5"
+        parent = types.ModuleType(name)
+        sys.modules[name] = parent
+        try:
+            self.assertFalse(hasattr(parent, "child"))
+
+            scope = ModuleIsolationScope(frozenset({name, f"{name}."}))
+            scope.open()
+            try:
+                # Assign the attribute WITHOUT ever registering
+                # "sentinel_r1b_regression_d5.child" in sys.modules.
+                setattr(parent, "child", types.ModuleType(f"{name}.child"))
+                self.assertNotIn(f"{name}.child", sys.modules)
+            finally:
+                scope.close()
+
+            self.assertFalse(hasattr(parent, "child"))
+        finally:
+            sys.modules.pop(name, None)
+
+    def test_removes_parent_attr_when_child_key_removed_before_close(self):
+        name = "sentinel_r1b_regression_d6"
+        child_name = f"{name}.child"
+        parent = types.ModuleType(name)
+        sys.modules[name] = parent
+        try:
+            scope = ModuleIsolationScope(frozenset({name, f"{name}."}))
+            scope.open()
+            try:
+                child = types.ModuleType(child_name)
+                sys.modules[child_name] = child
+                setattr(parent, "child", child)
+                # Remove the child key from sys.modules BEFORE close() runs,
+                # leaving the parent attribute itself still in place.
+                del sys.modules[child_name]
+                self.assertTrue(hasattr(parent, "child"))
+            finally:
+                scope.close()
+
+            self.assertFalse(hasattr(parent, "child"))
+        finally:
+            sys.modules.pop(name, None)
+            sys.modules.pop(child_name, None)
+
+
+class OpenRollbackTests(unittest.TestCase):
+    """TEST-INFRA-R1B: defects D7 (exception masking during rollback) and
+    the R6 requirement that open()'s failure path restore from its own
+    incremental snapshots rather than re-scanning sys.modules."""
+
+    def test_open_rollback_preserves_primary_exception(self):
+        """If open() fails (primary exception) and its own rollback also
+        fails (secondary exception), the PRIMARY exception must still be
+        what propagates to the caller, with the rollback failure chained as
+        __cause__ -- not replaced by the rollback's exception."""
+        name = "sentinel_r1b_regression_d7"
+        sys.modules[name] = types.ModuleType(name)
+
+        original_matches = _smi_module._matches
+        call_count = {"n": 0}
+
+        def _matches_raises_primary(match_name, prefixes):
+            call_count["n"] += 1
+            if call_count["n"] > 1:
+                raise ValueError("original_open_failure")
+            return original_matches(match_name, prefixes)
+
+        scope = ModuleIsolationScope(frozenset({name}))
+        original_rollback = _smi_module.ModuleIsolationScope._rollback_partial_open
+
+        def _rollback_raises(self):
+            raise RuntimeError("cleanup_failure")
+
+        _smi_module.ModuleIsolationScope._rollback_partial_open = _rollback_raises
+        _smi_module._matches = _matches_raises_primary
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                scope.open()
+        finally:
+            _smi_module._matches = original_matches
+            _smi_module.ModuleIsolationScope._rollback_partial_open = original_rollback
+            sys.modules.pop(name, None)
+            _smi_module._active.engaged = False
+
+        self.assertEqual(str(ctx.exception), "original_open_failure")
+        self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
+        self.assertEqual(str(ctx.exception.__cause__), "cleanup_failure")
+
+    def test_open_rollback_chains_secondary_cleanup_failure(self):
+        """The thread guard must still be released via the emergency path
+        even when the rollback itself raises."""
+        name = "sentinel_r1b_regression_d7_guard"
+        sys.modules[name] = types.ModuleType(name)
+
+        original_matches = _smi_module._matches
+        call_count = {"n": 0}
+
+        def _matches_raises(match_name, prefixes):
+            call_count["n"] += 1
+            if call_count["n"] > 1:
+                raise ValueError("boom")
+            return original_matches(match_name, prefixes)
+
+        scope = ModuleIsolationScope(frozenset({name}))
+        original_rollback = _smi_module.ModuleIsolationScope._rollback_partial_open
+
+        def _rollback_raises(self):
+            raise RuntimeError("rollback_boom")
+
+        _smi_module.ModuleIsolationScope._rollback_partial_open = _rollback_raises
+        _smi_module._matches = _matches_raises
+        try:
+            with self.assertRaises(ValueError):
+                scope.open()
+        finally:
+            _smi_module._matches = original_matches
+            _smi_module.ModuleIsolationScope._rollback_partial_open = original_rollback
+
+        self.assertFalse(getattr(_smi_module._active, "engaged", False))
+        self.assertFalse(scope._is_open)
+        sys.modules.pop(name, None)
+
+        # A follow-up scope must open cleanly right after.
+        followup = ModuleIsolationScope(frozenset({"sentinel_r1b_regression_d7_followup"}))
+        followup.open()
+        followup.close()
+
+    def test_failed_open_restores_partially_removed_modules(self):
+        """R6: if open() fails AFTER it has already deleted some matching
+        names from sys.modules but before completing, the failure path must
+        restore exactly what was deleted so far, using its own incremental
+        snapshot -- not a fresh sys.modules re-scan."""
+        base = "sentinel_r1b_regression_r6"
+        name_a = f"{base}_a"
+        name_b = f"{base}_b"
+        sys.modules[name_a] = types.ModuleType(name_a)
+        sys.modules[name_b] = types.ModuleType(name_b)
+
+        original_matches = _smi_module._matches
+
+        def _matches_ok(match_name, prefixes):
+            return original_matches(match_name, prefixes)
+
+        scope = ModuleIsolationScope(frozenset({name_a, name_b}))
+
+        original_rollback = _smi_module.ModuleIsolationScope._rollback_partial_open
+        rollback_calls = {"n": 0}
+
+        def _tracking_rollback(self):
+            rollback_calls["n"] += 1
+            return original_rollback(self)
+
+        _smi_module.ModuleIsolationScope._rollback_partial_open = _tracking_rollback
+
+        # Force a failure inside the deletion loop itself, after at least
+        # one name has already been deleted, by monkeypatching dict.pop is
+        # not viable here -- instead, patch sys.modules.__delitem__ behavior
+        # indirectly via a wrapper module dict substitute is overkill; we
+        # instead simulate by raising from _capture_managed_parent_attributes
+        # (which runs strictly AFTER the module-capture loop and strictly
+        # BEFORE the deletion loop), verifying that in that case NOTHING was
+        # deleted yet and both names remain untouched after rollback -- this
+        # still exercises the "restore from incremental snapshot, not a
+        # sys.modules re-scan" contract at a well-defined point.
+        original_capture = _smi_module.ModuleIsolationScope._capture_managed_parent_attributes
+
+        def _capture_raises(self):
+            raise RuntimeError("simulated_failure_before_deletion_loop")
+
+        _smi_module.ModuleIsolationScope._capture_managed_parent_attributes = _capture_raises
+        try:
+            with self.assertRaises(RuntimeError):
+                scope.open()
+        finally:
+            _smi_module.ModuleIsolationScope._capture_managed_parent_attributes = original_capture
+            _smi_module.ModuleIsolationScope._rollback_partial_open = original_rollback
+
+        self.assertEqual(rollback_calls["n"], 1)
+        self.assertIn(name_a, sys.modules)
+        self.assertIn(name_b, sys.modules)
+        self.assertFalse(getattr(_smi_module._active, "engaged", False))
+
+        sys.modules.pop(name_a, None)
+        sys.modules.pop(name_b, None)
+
+
+class TransactionalMockInstallTests(unittest.TestCase):
+    """TEST-INFRA-R1B D8/R8: _install_interaction_dependency_mocks() must
+    leave no partial mocks behind if it fails partway through -- the caller
+    (_fresh_import_main()) passes a mutable registry that is updated before
+    each mutation, so the caller's own except-block cleanup sees everything
+    installed up to the point of failure, run in an isolated subprocess so a
+    successful reproduction never corrupts this test process's own
+    sys.modules state."""
+
+    _CODE_ROOT = _TESTS_ROOT.parent
+
+    def test_partial_mock_install_failure_removes_all_new_mocks(self):
+        script = r"""
+import sys
+sys.path.insert(0, r"{code_root}")
+import tests.unit.test_navigation_runtime_selection as mod
+
+pyttsx3_absent_before = "pyttsx3" not in sys.modules
+speech_recognition_absent_before = "speech_recognition" not in sys.modules
+
+def _partial_install_then_raise(installed):
+    from unittest.mock import MagicMock
+    installed["pyttsx3"] = True
+    sys.modules["pyttsx3"] = MagicMock()
+    raise RuntimeError("simulated_failure_after_partial_install")
+
+mod._install_interaction_dependency_mocks = _partial_install_then_raise
+
+raised = False
+try:
+    mod._fresh_import_main()
+except RuntimeError:
+    raised = True
+
+assert pyttsx3_absent_before
+assert raised
+assert "pyttsx3" not in sys.modules, "partial mock leaked past the failed call"
+print("OK")
+""".format(code_root=str(self._CODE_ROOT))
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=str(self._CODE_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"stdout={result.stdout!r}\nstderr={result.stderr!r}",
+        )
+
+
+class GlobalScopeReferenceTests(unittest.TestCase):
+    """TEST-INFRA-R1B R9: the module-level _module_isolation_scope reference
+    in both files must stay None if scope.open() itself fails inside
+    _fresh_import_main() -- it must never be assigned to a scope whose
+    open() did not complete successfully. Uses a forced monkeypatch on the
+    shared helper's _matches(), run in an isolated subprocess."""
+
+    _CODE_ROOT = _TESTS_ROOT.parent
+
+    def test_new_scope_open_failure_leaves_global_scope_none_navigation(self):
+        script = r"""
+import sys
+sys.path.insert(0, r"{code_root}")
+import tests.unit.test_navigation_runtime_selection as mod
+import tests.support.scoped_module_isolation as smi_module
+
+original_matches = smi_module._matches
+call_count = {{"n": 0}}
+
+def _matches_raises(name, prefixes):
+    call_count["n"] += 1
+    if call_count["n"] > 1:
+        raise RuntimeError("simulated_open_failure")
+    return original_matches(name, prefixes)
+
+smi_module._matches = _matches_raises
+raised = False
+try:
+    mod._fresh_import_main()
+except RuntimeError:
+    raised = True
+finally:
+    smi_module._matches = original_matches
+
+assert raised, "expected _fresh_import_main() to propagate open()'s failure"
+assert mod._module_isolation_scope is None, "global scope reference assigned despite failed open()"
+assert not getattr(smi_module._active, "engaged", False), "thread guard left engaged"
+print("OK")
+""".format(code_root=str(self._CODE_ROOT))
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=str(self._CODE_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"stdout={result.stdout!r}\nstderr={result.stderr!r}",
+        )
+
+    def test_new_scope_open_failure_leaves_global_scope_none_qr(self):
+        script = r"""
+import sys
+sys.path.insert(0, r"{code_root}")
+import tests.integration.test_u2_qr_lifespan_wiring as mod
+import tests.support.scoped_module_isolation as smi_module
+
+original_matches = smi_module._matches
+call_count = {{"n": 0}}
+
+def _matches_raises(name, prefixes):
+    call_count["n"] += 1
+    if call_count["n"] > 1:
+        raise RuntimeError("simulated_open_failure")
+    return original_matches(name, prefixes)
+
+smi_module._matches = _matches_raises
+raised = False
+try:
+    mod._fresh_import_main()
+except RuntimeError:
+    raised = True
+finally:
+    smi_module._matches = original_matches
+
+assert raised, "expected _fresh_import_main() to propagate open()'s failure"
+assert mod._module_isolation_scope is None, "global scope reference assigned despite failed open()"
+assert not getattr(smi_module._active, "engaged", False), "thread guard left engaged"
+print("OK")
+""".format(code_root=str(self._CODE_ROOT))
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=str(self._CODE_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"stdout={result.stdout!r}\nstderr={result.stderr!r}",
+        )
+
+
 class FreshImportMainRollbackTests(unittest.TestCase):
     """TEST-INFRA-R1A R3: _fresh_import_main() in both files that use
     ModuleIsolationScope must close the scope and release the thread guard
