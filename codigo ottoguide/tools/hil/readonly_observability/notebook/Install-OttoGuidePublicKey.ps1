@@ -100,5 +100,5 @@ if ($LASTEXITCODE -ne 0) { throw "Instalacion de la clave publica fallo (rc=$LAS
 
 Write-Host "[install-key] Listo. Verificando auth por clave (BatchMode, alias 'ottoguide-batch')..."
 & ssh -F $genConf ottoguide-batch "echo BATCH_AUTH_OK"
-if ($LASTEXITCODE -eq 0) { Write-Host "[install-key] BATCH_AUTH = PASS" }
-else { Write-Warning "[install-key] BatchMode todavia falla (rc=$LASTEXITCODE); revisar host key / permisos." }
+if ($LASTEXITCODE -ne 0) { throw "BatchMode fallo despues de instalar la clave publica (rc=$LASTEXITCODE); revisar host key / permisos. Instalacion NO confirmada (fail-closed)." }
+Write-Host "[install-key] BATCH_AUTH = PASS"

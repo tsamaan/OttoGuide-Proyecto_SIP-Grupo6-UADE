@@ -240,6 +240,121 @@ Remove-Item Env:\OG_TEST_SSH_CAPTURE -ErrorAction SilentlyContinue
 Remove-Item Env:\OG_TEST_SSH_STDIN_PROBE -ErrorAction SilentlyContinue
 Remove-Item Env:\PUBLIC_KEY_B64 -ErrorAction SilentlyContinue
 
+# ============================================================================
+# 6. WEB-HIL-R1C: verificacion BatchMode fail-closed (no un warning con exit 0).
+#    Dos escenarios con un shim de ssh que distingue la 1a invocacion (instalacion,
+#    debe pasar) de la 2a (verificacion BatchMode, alias 'ottoguide-batch'):
+#    - rc BatchMode = 0  -> el script debe completar y reportar BATCH_AUTH = PASS.
+#    - rc BatchMode != 0 -> el script debe LANZAR (throw), nunca terminar con
+#      exit 0 ni solo un warning (regresion confirmada de WEB-HIL-R1C seccion 6.C).
+# ============================================================================
+function Invoke-BatchModeScenario([int]$batchExitCode) {
+  $sc = Join-Path $env:TEMP ("og_installer_batchmode_" + [guid]::NewGuid().ToString('N'))
+  $scBin = Join-Path $sc 'bin'
+  $scSshRoot = Join-Path $sc 'sshroot'
+  New-Item -ItemType Directory -Path $scBin -Force | Out-Null
+  New-Item -ItemType Directory -Path $scSshRoot -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $scSshRoot 'state') -Force | Out-Null
+
+  $callCounterPath = Join-Path $sc 'call_count.txt'
+  '0' | Out-File -Encoding ascii $callCounterPath
+
+  # El shim distingue invocaciones por orden: la 1a (instalacion) siempre exit 0 e
+  # imprime INSTALADO_OK; la 2a (BatchMode, 'ottoguide-batch') devuelve $batchExitCode.
+  $dumpHelper2 = Join-Path $scBin '_dump_ssh_args_batchmode.ps1'
+  @"
+param([Parameter(ValueFromRemainingArguments=`$true)][string[]]`$A)
+`$count = [int](Get-Content `$env:OG_TEST_CALL_COUNTER)
+`$count += 1
+`$count | Out-File -Encoding ascii `$env:OG_TEST_CALL_COUNTER
+if (`$count -eq 1) {
+  Write-Host 'INSTALADO_OK'
+  exit 0
+} else {
+  exit $batchExitCode
+}
+"@ | Out-File -Encoding utf8 $dumpHelper2
+
+  @"
+@echo off
+powershell -NoProfile -ExecutionPolicy Bypass -File "$dumpHelper2" %*
+"@ | Out-File -Encoding ascii (Join-Path $scBin 'ssh.cmd')
+
+  $fakeTarget2 = 'fake-installer-target-batchmode'
+  @"
+param([string]`$SshRoot, [string]`$ExpectedFingerprint)
+`$stateDir = Join-Path `$SshRoot 'state'
+if (-not (Test-Path `$stateDir)) { New-Item -ItemType Directory -Path `$stateDir -Force | Out-Null }
+@{ target = '$fakeTarget2'; interface = 'FAKE'; ifindex = 0; utc = (Get-Date).ToUniversalTime().ToString('o'); key_type='ssh-ed25519'; key_base64='FAKEBASE64KEY'; fingerprint='SHA256:FAKE' } |
+  ConvertTo-Json | Out-File -Encoding ascii (Join-Path `$stateDir 'target.json')
+'$fakeTarget2'
+"@ | Out-File -Encoding ascii (Join-Path $scBin 'Resolve-OttoGuideTarget.ps1')
+
+  @"
+param([string]`$SshRoot, [switch]`$Force)
+Write-Output 'HOSTKEYPIN_SHIM_CALLED'
+"@ | Out-File -Encoding ascii (Join-Path $scBin 'Write-OttoGuideHostKeyPin.ps1')
+
+  @"
+param([string]`$SshRoot, [string]`$IdentityName, [string]`$RemoteUser)
+`$conf = Join-Path `$SshRoot 'generated_target.conf'
+'Host ottoguide' | Out-File -Encoding ascii `$conf
+`$conf
+"@ | Out-File -Encoding ascii (Join-Path $scBin 'Write-OttoGuideSshConfig.ps1')
+
+  $scInstallCopy = Join-Path $scBin 'Install-OttoGuidePublicKey.ps1'
+  Set-Content -Encoding utf8 $scInstallCopy (Get-Content $installScript -Raw)
+
+  $scFakeHome = Join-Path $sc 'userprofile'
+  New-Item -ItemType Directory -Path (Join-Path $scFakeHome '.ssh') -Force | Out-Null
+  $scIdentityName = 'id_ed25519_ottoguide_robot'
+  $scTestKeyPath = Join-Path $scFakeHome ".ssh\$scIdentityName"
+  . (Join-Path $notebookDir 'OttoGuideKeygenHelpers.ps1')
+  New-OttoGuideEd25519KeyNoPassphrase -KeyPath $scTestKeyPath -Comment 'batchmode-scenario-test' *> (Join-Path $sc 'keygen_for_test.log')
+
+  $env:OG_TEST_CALL_COUNTER = $callCounterPath
+  $scOldPath = $env:PATH
+  $scOldUserProfile = $env:USERPROFILE
+  $env:PATH = "$scBin;$scOldPath"
+  $env:USERPROFILE = $scFakeHome
+
+  $threw = $false
+  $errMsg = $null
+  try {
+    & $scInstallCopy -SshRoot $scSshRoot -IdentityName $scIdentityName -RemoteUser 'unitree' -ExpectedFingerprint 'SHA256:FAKE' *> (Join-Path $sc 'install_output.log')
+    if ($LASTEXITCODE -ne 0) { $threw = $true }
+  } catch {
+    $threw = $true
+    $errMsg = $_.Exception.Message
+  } finally {
+    $env:PATH = $scOldPath
+    $env:USERPROFILE = $scOldUserProfile
+    Remove-Item Env:\OG_TEST_CALL_COUNTER -ErrorAction SilentlyContinue
+    Remove-Item Env:\PUBLIC_KEY_B64 -ErrorAction SilentlyContinue
+  }
+
+  Remove-Item -Recurse -Force $sc -ErrorAction SilentlyContinue
+  return @{ Threw = $threw; ErrorMessage = $errMsg }
+}
+
+$passResult = Invoke-BatchModeScenario -batchExitCode 0
+if ($passResult.Threw) {
+  $fail += "item 'batch auth exit 0 -> PASS': el script lanzo/fallo aun cuando BatchMode devolvio rc=0 ($($passResult.ErrorMessage))"
+}
+
+$failResult = Invoke-BatchModeScenario -batchExitCode 5
+if (-not $failResult.Threw) {
+  $fail += "item 'batch auth exit != 0 -> script falla': Install-OttoGuidePublicKey.ps1 NO fallo cuando BatchMode devolvio rc!=0 (regresion: solo advertia con Write-Warning y exit 0)"
+} elseif ($failResult.ErrorMessage -notmatch 'BatchMode fallo') {
+  $fail += "item 'batch auth exit != 0 -> script falla': fallo pero sin el mensaje esperado ('BatchMode fallo...'): $($failResult.ErrorMessage)"
+}
+
+# 6b. no password en variables de entorno del proceso hijo, no ssh directo usuario@IP,
+#     stdin permanece libre -- ya cubiertos estructuralmente en el paso 1 y por la sonda
+#     del paso 2b; se re-confirma aqui que ninguno de los dos escenarios BatchMode
+#     necesito ni establecio ninguna variable de contrasena.
+if (Test-Path Env:\OG_SSH_PASSWORD) { $fail += "variable de entorno de contrasena detectada tras escenarios BatchMode (no deberia existir nunca)" }
+
 if ($fail.Count -gt 0) {
   Write-Host "INSTALLER_TRANSPORT_OFFLINE_TESTED = false"
   $fail | ForEach-Object { Write-Host "FAIL: $_" }

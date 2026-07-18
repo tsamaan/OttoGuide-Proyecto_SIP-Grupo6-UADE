@@ -60,15 +60,20 @@ bind = 127.0.0.1 (loopback only)
 
 ## 5. Dónde vive y cómo se despliega
 
-- **Companion (robot)**: 9 archivos Python/bash bajo `companion/`, ejecutados
-  con un intérprete descubierto dinámicamente
-  (`companion/discover_companion_python.sh`) — nunca un path de venv fijo.
+- **Companion (robot)**: 9 archivos funcionales Python/bash bajo `companion/`
+  (7 `.py` + 2 `.sh`), más `companion/discover_companion_python.sh` como
+  script de descubrimiento de intérprete (nunca un path de venv fijo) — 10
+  archivos en total con hash verificado en `companion/REMOTE_RUNTIME_SHA256SUMS.txt`.
 - **Notebook**: scripts PowerShell portátiles bajo `notebook/`, que usan
   `%USERPROFILE%` y una raíz SSH configurable (`C:\OG\OttoGuide-SSH` por
   defecto), nunca un nombre de equipo o usuario fijo.
-- **Frontend**: React/Vite bajo `frontend/`, con un build REAL precompilado en
-  `frontend/dist/` para que una Notebook sin Node pueda servirlo con
-  `python -m http.server`.
+- **Frontend**: React/Vite bajo `frontend/`, con dos builds precompilados
+  separados — `frontend/dist-real/` y `frontend/dist-replay/` — para que una
+  Notebook sin Node pueda servir cualquiera de los dos con
+  `python -m http.server`. `notebook/Start-OttoGuideFrontend.ps1
+  -Profile real|replay` selecciona explícitamente cuál build servir; no hay
+  default implícito ambiguo ni un directorio `dist/` compartido entre
+  perfiles.
 - **Replay offline**: `replay/ottoguide_replay_server.py`, sin dependencias de
   terceros, para validar la interfaz sin robot ni SSH.
 

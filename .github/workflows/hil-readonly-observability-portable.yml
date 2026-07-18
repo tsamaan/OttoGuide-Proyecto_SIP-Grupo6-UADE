@@ -66,6 +66,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Verify COMMITTED dist-real/dist-replay manifests (before any rebuild) [WEB-HIL-R1C]
+        run: |
+          python frontend\generate_dist_manifest.py --dist-dir frontend\dist-real --sums-out frontend\DIST_REAL_SHA256SUMS.txt --check
+          if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: el build REAL comprometido por git no coincide con su manifiesto"; exit 1 }
+          python frontend\generate_dist_manifest.py --dist-dir frontend\dist-replay --sums-out frontend\DIST_REPLAY_SHA256SUMS.txt --check
+          if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: el build REPLAY comprometido por git no coincide con su manifiesto"; exit 1 }
+          Write-Host "OK: artifacts comprometidos por git (dist-real, dist-replay) coinciden con sus manifiestos ANTES de reconstruir."
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"

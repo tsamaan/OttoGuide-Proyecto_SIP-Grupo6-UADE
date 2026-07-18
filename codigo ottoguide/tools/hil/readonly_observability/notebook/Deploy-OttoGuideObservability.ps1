@@ -1,8 +1,10 @@
 <#
   WEB-HIL-R1 — Deploy-OttoGuideObservability.ps1 (fail-closed, portable)
-  Transfiere EXCLUSIVAMENTE los 9 archivos de la allowlist del Companion runtime +
-  su manifiesto de hashes, valida hashes remotos (sha256sum -c), ejecuta el static
-  gate propagando el exit code, corre el probe BMS, arranca el supervisor
+  Transfiere EXCLUSIVAMENTE 9 archivos funcionales de la allowlist del
+  Companion runtime + discover_companion_python.sh (script de descubrimiento
+  de interprete) + REMOTE_RUNTIME_SHA256SUMS.txt (su manifiesto de hashes),
+  valida hashes remotos (sha256sum -c, 10 archivos), ejecuta el static gate
+  propagando el exit code, corre el probe BMS, arranca el supervisor
   desacoplado y EXIGE que postlaunch_gate.py pase antes de declarar listo.
 
   El interprete Python remoto se resuelve SIEMPRE en runtime via
