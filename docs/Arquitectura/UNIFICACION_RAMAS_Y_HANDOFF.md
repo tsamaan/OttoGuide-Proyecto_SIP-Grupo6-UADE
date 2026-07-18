@@ -880,3 +880,9 @@ NEXT_ACTION = PREPARE_U3C_RUNTIME_COMPOSITION_AND_FAIL_CLOSED_MODE_SELECTION_V2
 ```
 
 No ejecutar U3C desde este handoff. La siguiente etapa debe componer el runtime supervisado en el lifespan sin introducir worker real CXX17, audio real ni HIL salvo autorizacion explicita.
+
+## Anexo — Trabajo offline Nivel B (paralelo a la unificacion)
+
+Registro de checkpoints offline de Nivel B que no forman parte de la secuencia U*, no acceden al robot y no alteran el `NEXT_ACTION` de unificacion:
+
+- **MVP-ODOM-TF-R1** (offline, Nivel B): gate puro y fail-closed de readiness para `/odom` y `odom -> base_link` sobre la evidencia estacionaria MFR-R6. Resultado `NOT_READY` con blockers explicitos. Ver `docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md`. Estados: `/odom publication = NOT_STARTED`, `TF publication = NOT_STARTED`, `physical validation = PENDING`, `Nav2 physical = NOT_STARTED`. No hay publicacion ROS/TF, no hay captura dinamica, no hay acceso al robot. El `NEXT_ACTION` de unificacion permanece sin cambios.

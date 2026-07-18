@@ -621,6 +621,26 @@
       ]
     }
   },
+  "offline_level_b_checkpoints": [
+    {
+      "checkpoint": "MVP-ODOM-TF-R1-OFFLINE-READINESS-CONTRACT",
+      "risk_level": "B",
+      "robot_access": false,
+      "summary": "Offline fail-closed readiness gate for /odom and odom->base_link TF; result NOT_READY on current stationary evidence.",
+      "artifacts": [
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/readiness.py",
+        "codigo ottoguide/tools/hil/offline_navigation/verify_odom_tf_readiness.py",
+        "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
+        "docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md"
+      ],
+      "odom_publication": "NOT_STARTED",
+      "tf_publication": "NOT_STARTED",
+      "physical_validation": "PENDING",
+      "nav2_physical": "NOT_STARTED",
+      "stationary_source_capture": "AVAILABLE",
+      "dynamic_motion_capture": "MISSING"
+    }
+  ],
   "known_debts": [
     "ORDER_DEPENDENT_SYS_MODULES_IDENTITY",
     "QR_ONLY_STILL_INITIALIZES_ARUCO_AND_U2R1_CAPTURE_LOOP_TEST_IS_PARTIALLY_STRUCTURAL",
