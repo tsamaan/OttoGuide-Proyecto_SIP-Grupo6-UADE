@@ -33,6 +33,7 @@ from src.navigation.odometry_candidate_adapter import (  # noqa: E402
 )
 from src.navigation.odometry_candidate_adapter.readiness import (  # noqa: E402
     CLASSIFICATION_CONTRACT_READY,
+    PUBLICATION_CAPABILITY_WITHHELD,
     OdomTfEvidenceContract,
 )
 
@@ -106,6 +107,14 @@ def _consistency_errors(report, primary_count, secondary_count):
             f"{CLASSIFICATION_CONTRACT_READY!r}"
         )
 
+    # R1B: the publication capability must be structurally withheld by the R1
+    # boundary, independent of the fixture-specific blocker set.
+    if report.publication_capability != PUBLICATION_CAPABILITY_WITHHELD:
+        errors.append(
+            f"publication_capability {report.publication_capability!r} != "
+            f"expected {PUBLICATION_CAPABILITY_WITHHELD!r}"
+        )
+
     # Exact, ordered blocker set (Phase 6 strict).
     actual_codes = report.blocker_codes()
     if actual_codes != EXPECTED_BLOCKER_CODES:
@@ -147,8 +156,9 @@ def main(argv=None):
     errors = _consistency_errors(report, primary_count, secondary_count)
 
     out = {
-        "checkpoint": "MVP-ODOM-TF-R1",
+        "checkpoint": "MVP-ODOM-TF-R1B",
         "tool": "verify_odom_tf_readiness",
+        "publication_capability": report.publication_capability,
         "fixture_primary_count": primary_count,
         "fixture_secondary_count": secondary_count,
         "report": report.to_dict(),

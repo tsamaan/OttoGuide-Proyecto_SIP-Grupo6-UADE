@@ -72,7 +72,20 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
     imu_gyroscope, imu_accelerometer. Missing/malformed fields make the
     result invalid rather than raising -- callers get a typed, inspectable
     failure instead of an exception from untrusted input.
+
+    R1B: a non-mapping input (None, list, tuple, int, or any object without a
+    usable `get`) also fails closed to an invalid candidate with an explicit
+    error, never an exception.
     """
+    # Fix C (R1B): accept only a mapping-like input. Anything without a callable
+    # `get` (None / list / tuple / int / arbitrary object) is invalid input.
+    if not callable(getattr(sample, "get", None)):
+        return _invalid(
+            None, None, None, None, None,
+            [f"sample is not a mapping (got {type(sample).__name__}); "
+             f"a SportModeState_ sample dict is required"],
+        )
+
     channel = sample.get("channel")
     receipt_monotonic_ns = sample.get("receipt_monotonic_ns")
     receipt_wall_utc_ns = sample.get("receipt_wall_utc_ns")

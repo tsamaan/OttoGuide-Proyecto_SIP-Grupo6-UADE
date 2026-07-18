@@ -22,11 +22,32 @@ checks contract/evidence COHERENCE (a boolean flag can never override the typed
 evidence -- covariance/IMU/dynamic contradictions block), rejects unfiltered
 mixed-channel sequences, and verifies receipt-monotonic ordering per channel.
 Nothing here trusts a bare `valid=True` or a bare contract boolean.
+
+R1B boundary: the whole R1 series is a NON-PUBLISHABLE offline
+characterization gate. It carries no covariance model, no covariance
+provenance, no displacement ground truth, no typed dynamic-evidence object, and
+no physical validation of axes / scale / sign. Therefore NO combination of
+contract or candidate booleans can ever authorize publication:
+`odom_publication_ready`, `odom_to_base_link_tf_ready`, and `nav2_ready` are
+hard `False` invariants and `physical_validation_required` is a hard `True`
+invariant for R1/R1A/R1B -- even for a fully-satisfied synthetic contract with
+synthetic candidates. `offline_contract_ready` may still report that the input
+is processable; that is never permission to publish. R1B also: enforces a
+strict `isinstance(candidate, OdometryCandidate)` (a duck-typed fake is
+rejected), validates the FULL candidate structure (policies, quaternion norm,
+rpy, warnings/errors types), rejects non-mapping adapter input, and rejects
+whitespace-only / contradictory contract strings.
 """
 import math
 from dataclasses import dataclass, field
 
-from .validation import ALLOWED_SOURCE_CHANNELS
+from .models import OdometryCandidate
+from .validation import (
+    ALLOWED_SOURCE_CHANNELS,
+    COVARIANCE_POLICY,
+    FRAME_ID,
+    TIMESTAMP_POLICY,
+)
 
 # --- severities (deterministic, ordered most-severe first) -------------------
 
@@ -35,6 +56,11 @@ WARNING = "WARNING"
 OBSERVATION = "OBSERVATION"
 
 _SEVERITY_RANK = {BLOCKER: 0, WARNING: 1, OBSERVATION: 2}
+
+# R1B: the publication capability is structurally withheld by the R1 boundary,
+# not merely by the current fixtures. This is a fixed string, never a computed
+# "ready" value, so the CLI/tests can assert the boundary is in force.
+PUBLICATION_CAPABILITY_WITHHELD = "WITHHELD_BY_R1_BOUNDARY"
 
 # --- blocker codes (stable identifiers, never free text for the code) --------
 
@@ -212,6 +238,9 @@ class OdomTfReadinessReport:
     candidate_invalid_count: int
     channels: "tuple[str, ...]"
     blockers: "tuple[OdomTfBlocker, ...]" = field(default_factory=tuple)
+    # R1B: structurally fixed; publication capability is withheld by the R1
+    # boundary regardless of contract/candidate satisfaction.
+    publication_capability: str = PUBLICATION_CAPABILITY_WITHHELD
 
     @property
     def blocker_count(self):
@@ -233,6 +262,7 @@ class OdomTfReadinessReport:
             "candidate_count": self.candidate_count,
             "candidate_invalid_count": self.candidate_invalid_count,
             "channels": list(self.channels),
+            "publication_capability": self.publication_capability,
             "blocker_count": self.blocker_count,
             "blocker_codes": list(self.blocker_codes()),
             "blockers": [b.to_dict() for b in self.blockers],
@@ -296,62 +326,155 @@ def _validate_contract(contract):
         val = getattr(contract, name, "__missing__")
         if val is not None and not isinstance(val, str):
             return f"contract field '{name}' must be str or None, got {type(val).__name__}"
+
+    # --- Fix D (R1B): semantic validation of the optional strings ------------
+    # A whitespace-only resolved value is not a value; a resolved value present
+    # while its resolution flag is false is a contradiction; an authoritative
+    # channel that is resolved must be a non-empty allow-listed channel.
+    arb = contract.source_channel_arbitration_resolved
+    auth = contract.authoritative_source_channel
+    if arb:
+        if auth is None or not auth.strip():
+            return (
+                "source_channel_arbitration_resolved is true but "
+                "authoritative_source_channel is empty/whitespace"
+            )
+        if auth.strip() not in ALLOWED_SOURCE_CHANNELS:
+            return (
+                f"authoritative_source_channel '{auth}' is not in the allow-list "
+                f"{ALLOWED_SOURCE_CHANNELS}"
+            )
+    else:
+        # A resolved value present without the flag set is a contradiction.
+        if auth is not None and auth.strip():
+            return (
+                "authoritative_source_channel is set but "
+                "source_channel_arbitration_resolved is false (contradiction)"
+            )
+
+    child_flag = contract.child_frame_id_resolved
+    child_val = contract.resolved_child_frame_id
+    if child_flag:
+        if child_val is None or not child_val.strip():
+            return (
+                "child_frame_id_resolved is true but resolved_child_frame_id is "
+                "empty/whitespace"
+            )
+    else:
+        if child_val is not None and child_val.strip():
+            return (
+                "resolved_child_frame_id is set but child_frame_id_resolved is "
+                "false (contradiction)"
+            )
     return None
 
 
+def _finite_vector(vec, length):
+    """True iff `vec` is a list/tuple of exactly `length` finite numbers."""
+    if not isinstance(vec, (list, tuple)) or len(vec) != length:
+        return False
+    try:
+        return all(math.isfinite(v) for v in vec)
+    except TypeError:
+        return False
+
+
 def _is_structurally_valid_candidate(c):
-    """Structural check on one candidate. A bare `valid=True` is NOT trusted:
-    the object must be shaped like a real OdometryCandidate."""
-    # Required attributes.
-    required = (
-        "valid", "source_channel", "receipt_monotonic_ns",
-        "message_stamp_sec", "message_stamp_nanosec",
-        "position_xyz", "velocity_xyz", "yaw_speed",
-        "covariance_available", "gyro_reliable", "accel_reliable",
-    )
-    for attr in required:
-        if not hasattr(c, attr):
+    """Full structural check on one candidate.
+
+    R1B: a bare `valid=True` is NOT trusted, and neither is a duck-typed fake
+    that merely replicates the attributes -- the object must be an actual
+    `OdometryCandidate` instance AND carry a well-formed value in every field
+    (policies, quaternion norm, rpy, warnings/errors types). A dataclass
+    instance is not assumed valid solely by its type.
+    """
+    # Fix A (R1B): strict type. A duck-typed object is rejected outright.
+    if not isinstance(c, OdometryCandidate):
+        return False
+
+    # Fixed contract policies must match the module policies exactly.
+    if c.timestamp_policy != TIMESTAMP_POLICY:
+        return False
+    if c.frame_id != FRAME_ID:
+        return False
+    if c.covariance_policy != COVARIANCE_POLICY:
+        return False
+
+    # Boolean flags must be exact bools.
+    for flag_name in ("valid", "covariance_available", "gyro_reliable",
+                      "accel_reliable"):
+        if not isinstance(getattr(c, flag_name), bool):
             return False
-    if not isinstance(c.valid, bool):
-        return False
-    if not isinstance(c.covariance_available, bool):
-        return False
-    if not isinstance(c.gyro_reliable, bool) or not isinstance(c.accel_reliable, bool):
-        return False
+
+    # warnings / errors: lists of strings (checked for every candidate; a real
+    # OdometryCandidate always carries these, valid or not).
+    for coll_name in ("warnings", "errors"):
+        coll = getattr(c, coll_name)
+        if not isinstance(coll, list):
+            return False
+        if not all(isinstance(item, str) for item in coll):
+            return False
+
+    # A legitimately invalid adapter output (valid=False) is a real, typed
+    # failure -- it is structurally a well-formed OdometryCandidate and routes
+    # to EMPTY_OR_INVALID_SEQUENCE, not CANDIDATE_STRUCTURE_INVALID. The strict
+    # payload checks below apply to candidates that CLAIM to be valid; a bare
+    # valid=True must be backed by a coherent payload.
+    if not c.valid:
+        return True
+
     if c.source_channel not in ALLOWED_SOURCE_CHANNELS:
         return False
+
     # receipt monotonic: positive int (not bool).
     rm = c.receipt_monotonic_ns
     if not isinstance(rm, int) or isinstance(rm, bool) or rm <= 0:
         return False
-    # timestamps: ints in range.
+
+    # timestamps: non-negative ints, nanosec in range.
     for ts_name in ("message_stamp_sec", "message_stamp_nanosec"):
         ts = getattr(c, ts_name)
         if not isinstance(ts, int) or isinstance(ts, bool) or ts < 0:
             return False
     if c.message_stamp_nanosec >= 1_000_000_000:
         return False
-    # vectors: 3 finite components.
-    for vec_name, length in (("position_xyz", 3), ("velocity_xyz", 3)):
-        vec = getattr(c, vec_name)
-        if not isinstance(vec, (list, tuple)) or len(vec) != length:
-            return False
-        try:
-            if not all(math.isfinite(v) for v in vec):
-                return False
-        except TypeError:
-            return False
+
+    # position / velocity / rpy: exactly 3 finite components.
+    if not _finite_vector(c.position_xyz, 3):
+        return False
+    if not _finite_vector(c.velocity_xyz, 3):
+        return False
+    if not _finite_vector(c.rpy, 3):
+        return False
+
+    # yaw_speed: finite scalar.
     try:
         if not math.isfinite(c.yaw_speed):
             return False
     except TypeError:
         return False
+
+    # quaternion: exactly 4 finite components with non-zero norm.
+    q = c.orientation_quaternion_xyzw
+    if not _finite_vector(q, 4):
+        return False
+    if math.sqrt(sum(component * component for component in q)) <= 0.0:
+        return False
+
     return True
 
 
-def _has_observable_variation(candidates):
-    """True if position / velocity / yaw / rpy vary across the sequence -- a
-    single sample or a perfectly static sequence has no observable dynamics."""
+def _has_numeric_spread(candidates):
+    """Report ONLY whether the sequence shows any numeric spread in
+    position / yaw / velocity. This is an OBSERVATION, never authority.
+
+    R1B: this must never be treated as proof of dynamic motion. Stationary
+    micro-noise, a constant non-zero velocity, a difference between two
+    channels, or noise above 1e-6 are NOT dynamic evidence -- only a typed
+    dynamic-evidence object with ground truth (introduced by R2) can be. This
+    helper therefore does not gate readiness in any way; it exists so a caller
+    can note that the numbers are not bit-identical.
+    """
     if len(candidates) < 2:
         return False
 
@@ -366,7 +489,6 @@ def _has_observable_variation(candidates):
         (abs(c.velocity_xyz[0]) + abs(c.velocity_xyz[1]) + abs(c.velocity_xyz[2]))
         for c in candidates
     )
-    # Any meaningful spread in position or a non-trivial velocity magnitude.
     return (
         spread(xs) > 1e-6 or spread(ys) > 1e-6 or spread(zs) > 1e-6
         or spread(yaws) > 1e-6 or vmax > 1e-3
@@ -563,19 +685,20 @@ def assess_odom_tf_readiness(candidates, evidence_contract):
                 f"receipt_monotonic_ns is not non-decreasing for channel '{ch}'",
             ))
 
-    # --- Fix E: contract/evidence contradictions ----------------------------
-    # A boolean flag can never override the typed evidence.
+    # --- Fix E/F/G (R1B): contract/evidence contradictions ------------------
+    # A boolean flag can never override the typed evidence. In the R1 series the
+    # data model transports NO covariance values or provenance and NO typed
+    # dynamic-evidence object with ground truth, so an asserted covariance or
+    # dynamic flag is ALWAYS a contradiction here -- a synthetic candidate
+    # boolean is not evidence and cannot clear it. This is only cleared by R2
+    # introducing versioned evidence models.
     if c.covariance_available:
-        # Model carries no covariance values; a bare flag cannot clear it.
-        candidate_cov = all(
-            cd.covariance_available for cd in valid_candidates
-        ) if valid_candidates else False
-        if not candidate_cov:
-            blockers.append(OdomTfBlocker(
-                COVARIANCE_EVIDENCE_CONTRADICTION, BLOCKER,
-                "contract asserts covariance_available but the typed candidates "
-                "carry no covariance evidence (model has no covariance values)",
-            ))
+        blockers.append(OdomTfBlocker(
+            COVARIANCE_EVIDENCE_CONTRADICTION, BLOCKER,
+            "contract asserts covariance_available but the R1 data model "
+            "transports no covariance values or provenance; covariance must be "
+            "real or explicitly modeled (R2), never asserted by a lone flag",
+        ))
 
     if c.imu_crosscheck_available:
         imu_unreliable = any(
@@ -590,12 +713,15 @@ def assess_odom_tf_readiness(candidates, evidence_contract):
             ))
 
     if c.dynamic_motion_evidence_available:
-        if len(valid_candidates) < 2 or not _has_observable_variation(valid_candidates):
-            blockers.append(OdomTfBlocker(
-                DYNAMIC_EVIDENCE_CONTRADICTION, BLOCKER,
-                "contract asserts dynamic_motion_evidence_available but the "
-                "sequence shows no observable variation (single/static samples)",
-            ))
+        # R1B: there is no typed dynamic-evidence object with ground truth yet.
+        # Numeric spread (micro-noise, constant velocity, cross-channel deltas)
+        # is NOT dynamic proof, so this contradiction always fires in R1B.
+        blockers.append(OdomTfBlocker(
+            DYNAMIC_EVIDENCE_CONTRADICTION, BLOCKER,
+            "contract asserts dynamic_motion_evidence_available but R1 has no "
+            "typed dynamic-evidence object with displacement ground truth; "
+            "numeric spread is an observation, not dynamic proof (R2 required)",
+        ))
 
     # --- non-blocking, evidence-derived notes (never suppressed) ------------
     if len(channels) >= 2:
@@ -622,18 +748,21 @@ def assess_odom_tf_readiness(candidates, evidence_contract):
         ))
 
     sorted_blockers = _sorted_blockers(blockers)
-    has_blocker = any(b.severity == BLOCKER for b in sorted_blockers)
 
     offline_contract_ready = sequence_ok and invalid_count == 0
 
-    odom_publication_ready = offline_contract_ready and not has_blocker
-    odom_to_base_link_tf_ready = odom_publication_ready and (
-        c.child_frame_id_resolved and bool(c.resolved_child_frame_id)
-    )
-    nav2_ready = False  # invariant for this checkpoint
-    physical_validation_required = not (
-        odom_publication_ready and odom_to_base_link_tf_ready and nav2_ready
-    )
+    # --- Fix E (R1B): the R1 series is a NON-PUBLISHABLE boundary ------------
+    # No combination of contract/candidate booleans -- not even a fully
+    # satisfied synthetic contract with synthetic candidates and zero blockers
+    # -- can authorize publication in R1/R1A/R1B. The model carries no
+    # covariance, no provenance, no displacement ground truth, no typed dynamic
+    # evidence, and no physical axis/scale/sign validation. These four are hard
+    # invariants, independent of `has_blocker`. R2 must introduce versioned
+    # evidence models before any of them can change.
+    odom_publication_ready = False
+    odom_to_base_link_tf_ready = False
+    nav2_ready = False
+    physical_validation_required = True
 
     classification = (
         CLASSIFICATION_CONTRACT_READY if offline_contract_ready

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-07-18T20:02:06Z",
+  "updated_at": "2026-07-18T21:05:00Z",
   "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "remote_authority": "mirror",
@@ -648,10 +648,28 @@
       "artifacts": [
         "codigo ottoguide/src/navigation/odometry_candidate_adapter/readiness.py",
         "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",
-        "codigo ottoguide/src/navigation/odometry_candidate_adapter/validation.py",
         "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
         "codigo ottoguide/tests/unit/test_odometry_candidate_adapter.py"
       ],
+      "odom_publication": "NOT_STARTED",
+      "tf_publication": "NOT_STARTED",
+      "physical_validation": "PENDING",
+      "nav2_physical": "NOT_STARTED"
+    },
+    {
+      "checkpoint": "MVP-ODOM-TF-R1B-CLOSE-REMAINING-FALSE-READY-PATHS",
+      "risk_level": "B",
+      "robot_access": false,
+      "summary": "Closes remaining false-ready paths and declares the R1 series a non-publishable offline blocker-characterization gate: strict OdometryCandidate instance + full-structure validation, non-mapping adapter input fail-closed, contract string semantics (whitespace/allow-list/contradiction), covariance and dynamic flags always contradict (no covariance model, no typed dynamic-evidence object), and hard invariants odom/tf/nav2=false with publication_capability=WITHHELD_BY_R1_BOUNDARY. Result unchanged: NOT_READY (same 11 blockers). R2 must introduce versioned evidence models before publication is possible.",
+      "artifacts": [
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/readiness.py",
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/__init__.py",
+        "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
+        "codigo ottoguide/tools/hil/offline_navigation/verify_odom_tf_readiness.py",
+        "docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md"
+      ],
+      "publication_capability": "WITHHELD_BY_R1_BOUNDARY",
       "odom_publication": "NOT_STARTED",
       "tf_publication": "NOT_STARTED",
       "physical_validation": "PENDING",

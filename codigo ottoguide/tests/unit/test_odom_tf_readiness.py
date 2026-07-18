@@ -42,6 +42,7 @@ from src.navigation.odometry_candidate_adapter.readiness import (
     IMU_EVIDENCE_CONTRADICTION,
     MESSAGE_TIMESTAMP_ZERO,
     MIXED_CHANNEL_SEQUENCE_REQUIRES_FILTERING,
+    PUBLICATION_CAPABILITY_WITHHELD,
     RECEIPT_MONOTONIC_ORDER_INVALID,
     SOURCE_CHANNEL_ARBITRATION_UNRESOLVED,
     OdomTfEvidenceContract,
@@ -248,7 +249,10 @@ class TestChannelCoherence(unittest.TestCase):
         self.assertIn(AUTHORITATIVE_CHANNEL_NOT_PRESENT, report.blocker_codes())
         self.assertFalse(report.odom_publication_ready)
 
-    def test_authoritative_channel_not_in_allowlist_blocks(self):
+    def test_authoritative_channel_not_in_allowlist_is_contract_invalid(self):
+        # R1B: an out-of-allowlist authoritative channel is now rejected at
+        # contract validation (EVIDENCE_CONTRACT_INVALID), before the coherence
+        # stage -- a non-allow-listed channel can never be authoritative.
         contract = replace(
             _fully_satisfied_contract(),
             authoritative_source_channel="rt/bogus_channel",
@@ -257,7 +261,8 @@ class TestChannelCoherence(unittest.TestCase):
             _synthetic_candidate(receipt=10), _synthetic_candidate(receipt=20),
         ]
         report = assess_odom_tf_readiness(cands, contract)
-        self.assertIn(AUTHORITATIVE_CHANNEL_NOT_PRESENT, report.blocker_codes())
+        self.assertIn(EVIDENCE_CONTRACT_INVALID, report.blocker_codes())
+        self.assertFalse(report.odom_publication_ready)
 
     def test_mixed_channel_sequence_blocks_publication(self):
         contract = _fully_satisfied_contract()
@@ -337,11 +342,12 @@ class TestDeterminismAndSerialization(unittest.TestCase):
 class TestSyntheticContractBranches(unittest.TestCase):
     """SYNTHETIC ONLY. SYNTHETIC_TEST_ONLY=true / PHYSICAL_VALIDATION_CLAIM=false."""
 
-    def test_fully_satisfied_synthetic_contract_flips_readiness(self):
-        # Requires COHERENT synthetic candidates: single channel, covariance
-        # on the candidates, reliable IMU, observable dynamic variation,
-        # monotonic receipts, non-zero stamp. Only then may readiness flip --
-        # a bare contract boolean is never sufficient.
+    def test_fully_satisfied_synthetic_never_authorizes_publication(self):
+        # R1B boundary: even fully-satisfied synthetic flags + coherent
+        # synthetic candidates may make the input PROCESSABLE
+        # (offline_contract_ready True) but must NEVER authorize publication,
+        # TF, or nav2 in the R1 series. A synthetic test cannot produce
+        # operational readiness.
         contract = _fully_satisfied_contract()
         cands = [
             _synthetic_candidate(receipt=10, position=(0.0, 0.0, 0.0)),
@@ -349,11 +355,65 @@ class TestSyntheticContractBranches(unittest.TestCase):
             _synthetic_candidate(receipt=30, position=(1.2, 0.3, 0.0)),
         ]
         report = assess_odom_tf_readiness(cands, contract)
-        self.assertEqual(report.blocker_count, 0)
-        self.assertTrue(report.odom_publication_ready)
-        self.assertTrue(report.odom_to_base_link_tf_ready)
+        # Input is processable...
+        self.assertTrue(report.offline_contract_ready)
+        # ...but the R1 boundary withholds every operational readiness axis.
+        self.assertFalse(report.odom_publication_ready)
+        self.assertFalse(report.odom_to_base_link_tf_ready)
         self.assertFalse(report.nav2_ready)
         self.assertTrue(report.physical_validation_required)
+        self.assertEqual(
+            report.publication_capability, PUBLICATION_CAPABILITY_WITHHELD
+        )
+
+    def test_covariance_boolean_alone_never_authorizes_publication(self):
+        # A candidate covariance boolean (and a contract covariance flag) is
+        # not covariance evidence: the model carries no values. It must
+        # contradict and never reach publication.
+        contract = replace(
+            OdomTfEvidenceContract(),
+            covariance_available=True,
+        )
+        cands = [
+            _synthetic_candidate(receipt=10, covariance=True, position=(0.0, 0.0, 0.0)),
+            _synthetic_candidate(receipt=20, covariance=True, position=(1.0, 0.1, 0.0)),
+        ]
+        report = assess_odom_tf_readiness(cands, contract)
+        self.assertIn(COVARIANCE_EVIDENCE_CONTRADICTION, report.blocker_codes())
+        self.assertFalse(report.odom_publication_ready)
+
+    def test_stationary_micro_noise_never_authorizes_dynamic_evidence(self):
+        # Tiny stationary spread with dynamic flag asserted must still
+        # contradict -- micro-noise is not dynamic proof.
+        contract = replace(
+            OdomTfEvidenceContract(),
+            dynamic_motion_evidence_available=True,
+        )
+        cands = [
+            _synthetic_candidate(receipt=10, position=(0.0, 0.0, 0.0),
+                                 velocity=(0.0, 0.0, 0.0), yaw=0.0),
+            _synthetic_candidate(receipt=20, position=(1e-7, 0.0, 0.0),
+                                 velocity=(0.0, 0.0, 0.0), yaw=0.0),
+        ]
+        report = assess_odom_tf_readiness(cands, contract)
+        self.assertIn(DYNAMIC_EVIDENCE_CONTRADICTION, report.blocker_codes())
+        self.assertFalse(report.odom_publication_ready)
+
+    def test_constant_nonzero_velocity_never_authorizes_dynamic_evidence(self):
+        # A constant non-zero velocity is not ground-truth dynamic evidence.
+        contract = replace(
+            OdomTfEvidenceContract(),
+            dynamic_motion_evidence_available=True,
+        )
+        cands = [
+            _synthetic_candidate(receipt=10, position=(0.0, 0.0, 0.0),
+                                 velocity=(0.5, 0.0, 0.0), yaw=0.0),
+            _synthetic_candidate(receipt=20, position=(0.0, 0.0, 0.0),
+                                 velocity=(0.5, 0.0, 0.0), yaw=0.0),
+        ]
+        report = assess_odom_tf_readiness(cands, contract)
+        self.assertIn(DYNAMIC_EVIDENCE_CONTRADICTION, report.blocker_codes())
+        self.assertFalse(report.odom_publication_ready)
 
     def test_satisfied_contract_but_no_candidate_covariance_stays_blocked(self):
         # Even with a fully-satisfied contract, candidates lacking covariance
@@ -376,6 +436,183 @@ class TestSyntheticContractBranches(unittest.TestCase):
         report = assess_odom_tf_readiness(cands, contract)
         self.assertIn(MESSAGE_TIMESTAMP_ZERO, report.blocker_codes())
         self.assertFalse(report.odom_publication_ready)
+
+
+class _DuckCandidate:
+    """A complete duck-typed fake replicating every OdometryCandidate attribute
+    but NOT an OdometryCandidate instance. R1B must reject it."""
+
+    def __init__(self):
+        self.valid = True
+        self.source_channel = "rt/odommodestate"
+        self.receipt_monotonic_ns = 100
+        self.receipt_wall_utc_ns = 101
+        self.timestamp_policy = TIMESTAMP_POLICY
+        self.message_stamp_sec = 5
+        self.message_stamp_nanosec = 7
+        self.frame_id = FRAME_ID
+        self.child_frame_id = None
+        self.position_xyz = (1.0, 2.0, 0.5)
+        self.velocity_xyz = (0.0, 0.0, 0.0)
+        self.yaw_speed = 0.0
+        self.orientation_quaternion_xyzw = (0.0, 0.0, 0.0, 1.0)
+        self.rpy = (0.0, 0.0, 0.0)
+        self.covariance_policy = COVARIANCE_POLICY
+        self.covariance_available = False
+        self.gyro_reliable = False
+        self.accel_reliable = False
+        self.warnings = []
+        self.errors = []
+
+
+class TestR1BStructuralHardening(unittest.TestCase):
+    """R1B: strict instance + full-structure validation of candidates."""
+
+    def _reject(self, candidate):
+        report = assess_odom_tf_readiness([candidate], OdomTfEvidenceContract())
+        self.assertEqual(
+            report.classification, CLASSIFICATION_FAIL_CLOSED_INVALID_INPUT
+        )
+        self.assertIn(CANDIDATE_STRUCTURE_INVALID, report.blocker_codes())
+        self.assertFalse(report.odom_publication_ready)
+
+    def test_complete_duck_typed_fake_is_rejected(self):
+        self._reject(_DuckCandidate())
+
+    def test_wrong_timestamp_policy_rejected(self):
+        self._reject(replace(_synthetic_candidate(),
+                             timestamp_policy="SOMETHING_ELSE"))
+
+    def test_wrong_frame_id_rejected(self):
+        self._reject(replace(_synthetic_candidate(), frame_id="odom"))
+
+    def test_wrong_covariance_policy_rejected(self):
+        self._reject(replace(_synthetic_candidate(),
+                             covariance_policy="INVENTED_COVARIANCE"))
+
+    def test_malformed_quaternion_rejected(self):
+        self._reject(replace(_synthetic_candidate(),
+                             orientation_quaternion_xyzw=(0.0, 0.0, 1.0)))
+
+    def test_zero_norm_quaternion_rejected(self):
+        self._reject(replace(_synthetic_candidate(),
+                             orientation_quaternion_xyzw=(0.0, 0.0, 0.0, 0.0)))
+
+    def test_non_finite_rpy_rejected(self):
+        self._reject(replace(_synthetic_candidate(),
+                             rpy=(0.0, float("nan"), 0.0)))
+
+    def test_malformed_rpy_length_rejected(self):
+        self._reject(replace(_synthetic_candidate(), rpy=(0.0, 0.0)))
+
+    def test_warnings_wrong_type_rejected(self):
+        self._reject(replace(_synthetic_candidate(), warnings="not-a-list"))
+
+    def test_errors_wrong_type_rejected(self):
+        self._reject(replace(_synthetic_candidate(), errors=[123]))
+
+
+class TestR1BAdapterNonMappingFailClosed(unittest.TestCase):
+    """R1B: to_odometry_candidate never raises on non-mapping input."""
+
+    def test_none_input_invalid_no_exception(self):
+        c = to_odometry_candidate(None)
+        self.assertFalse(c.valid)
+        self.assertTrue(any("not a mapping" in e for e in c.errors))
+
+    def test_list_input_invalid_no_exception(self):
+        c = to_odometry_candidate([1, 2, 3])
+        self.assertFalse(c.valid)
+        self.assertTrue(any("not a mapping" in e for e in c.errors))
+
+    def test_int_input_invalid_no_exception(self):
+        c = to_odometry_candidate(42)
+        self.assertFalse(c.valid)
+        self.assertTrue(any("not a mapping" in e for e in c.errors))
+
+    def test_object_input_invalid_no_exception(self):
+        c = to_odometry_candidate(object())
+        self.assertFalse(c.valid)
+        self.assertTrue(any("not a mapping" in e for e in c.errors))
+
+
+class TestR1BContractStringSemantics(unittest.TestCase):
+    """R1B: whitespace-only / contradictory contract strings are invalid."""
+
+    def _contract_invalid(self, contract):
+        report = assess_odom_tf_readiness([], contract)
+        self.assertEqual(
+            report.classification, CLASSIFICATION_FAIL_CLOSED_INVALID_INPUT
+        )
+        self.assertIn(EVIDENCE_CONTRACT_INVALID, report.blocker_codes())
+
+    def test_whitespace_authoritative_channel_invalid(self):
+        bad = replace(
+            OdomTfEvidenceContract(),
+            source_channel_arbitration_resolved=True,
+            authoritative_source_channel="   ",
+        )
+        self._contract_invalid(bad)
+
+    def test_whitespace_child_frame_invalid(self):
+        bad = replace(
+            OdomTfEvidenceContract(),
+            child_frame_id_resolved=True,
+            resolved_child_frame_id="  ",
+        )
+        self._contract_invalid(bad)
+
+    def test_resolved_channel_with_false_flag_invalid(self):
+        bad = replace(
+            OdomTfEvidenceContract(),
+            source_channel_arbitration_resolved=False,
+            authoritative_source_channel="rt/odommodestate",
+        )
+        self._contract_invalid(bad)
+
+    def test_resolved_child_frame_with_false_flag_invalid(self):
+        bad = replace(
+            OdomTfEvidenceContract(),
+            child_frame_id_resolved=False,
+            resolved_child_frame_id="base_link",
+        )
+        self._contract_invalid(bad)
+
+    def test_authoritative_channel_not_in_allowlist_invalid_contract(self):
+        bad = replace(
+            OdomTfEvidenceContract(),
+            source_channel_arbitration_resolved=True,
+            authoritative_source_channel="rt/not_a_channel",
+        )
+        self._contract_invalid(bad)
+
+
+class TestR1BNonPublishableBoundary(unittest.TestCase):
+    """R1B: no boolean combination authorizes publication or TF."""
+
+    def test_real_fixtures_capability_withheld(self):
+        primary = load_jsonl(FIXTURES_DIR / "mfr_r6_primary_rt_odommodestate.jsonl")
+        secondary = load_jsonl(FIXTURES_DIR / "mfr_r6_secondary_rt_lf_odommodestate.jsonl")
+        candidates = [to_odometry_candidate(s) for s in primary + secondary]
+        report = assess_odom_tf_readiness(candidates, OdomTfEvidenceContract())
+        self.assertEqual(
+            report.publication_capability, PUBLICATION_CAPABILITY_WITHHELD
+        )
+        self.assertFalse(report.odom_publication_ready)
+        self.assertFalse(report.odom_to_base_link_tf_ready)
+        self.assertFalse(report.nav2_ready)
+        self.assertTrue(report.physical_validation_required)
+        # exact eleven blockers preserved
+        self.assertEqual(report.blocker_codes(), EXPECTED_FIXTURE_BLOCKERS)
+        self.assertEqual(report.candidate_count, 160)
+        self.assertEqual(report.candidate_invalid_count, 0)
+
+    def test_capability_in_serialization(self):
+        report = assess_odom_tf_readiness([], OdomTfEvidenceContract())
+        d = json.loads(json.dumps(report.to_dict(), sort_keys=True))
+        self.assertEqual(
+            d["publication_capability"], PUBLICATION_CAPABILITY_WITHHELD
+        )
 
 
 if __name__ == "__main__":

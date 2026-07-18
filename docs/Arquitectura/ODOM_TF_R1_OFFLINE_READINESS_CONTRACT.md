@@ -217,3 +217,69 @@ isolated boolean can bypass a real gap. The current-fixture result is unchanged
 
 `nav2_ready` remains false and `physical_validation_required` remains true
 throughout R1A; no path declares physical readiness.
+
+## 10. R1B — the R1 series is a non-publishable boundary
+
+MVP-ODOM-TF-R1B closes the remaining false-ready paths and makes explicit what
+R1 and R1A already intended: **the entire R1 series is a non-publishable,
+offline blocker-characterization gate.** It cannot authorize `/odom` or TF under
+any input.
+
+The R1 data model deliberately does **not** contain, and R1/R1A/R1B therefore
+cannot establish:
+
+- a covariance matrix or covariance model;
+- covariance provenance;
+- displacement ground truth;
+- a typed dynamic-motion-evidence object;
+- physical validation of axes, scale, or signs.
+
+Because none of that exists yet, **no combination of contract or candidate
+booleans can authorize publication.** These are hard invariants of the series,
+independent of the blocker set:
+
+```
+odom_publication_ready      = false
+odom_to_base_link_tf_ready  = false
+nav2_ready                  = false
+physical_validation_required = true
+publication_capability      = WITHHELD_BY_R1_BOUNDARY
+```
+
+`offline_contract_ready` may still be true — it means only that the input is
+well-formed and processable, never that publication is permitted. A
+fully-satisfied synthetic contract with synthetic candidates is explicitly
+tested to keep every operational readiness axis false.
+
+R1B also hardens the input boundary:
+
+- **Strict candidate type + full structure.** A candidate must be an actual
+  `OdometryCandidate` instance (a complete duck-typed fake is rejected with
+  `CANDIDATE_STRUCTURE_INVALID`), and — when it claims `valid=True` — must carry
+  a coherent payload: fixed `timestamp_policy` / `frame_id` / `covariance_policy`,
+  3-component finite position/velocity/rpy, a 4-component finite quaternion with
+  non-zero norm, in-range integer timestamps, and `warnings`/`errors` that are
+  lists of strings. A legitimately invalid adapter output (`valid=False`) stays a
+  well-formed typed failure and routes to `EMPTY_OR_INVALID_SEQUENCE`.
+- **Non-mapping adapter input fails closed.** `to_odometry_candidate(None |
+  list | int | object)` returns an invalid candidate with an explicit error and
+  never raises.
+- **Contract string semantics.** When arbitration/child-frame resolution flags
+  are set, the corresponding string must be non-empty after `strip()` and — for
+  the authoritative channel — in the adapter allow-list. A whitespace-only value,
+  an out-of-allow-list channel, or a resolved value present while its flag is
+  false all raise `EVIDENCE_CONTRACT_INVALID`.
+- **Covariance / dynamic flags always contradict in R1.** Because the model
+  carries no covariance values and no typed dynamic-evidence object, an asserted
+  `covariance_available` always raises `COVARIANCE_EVIDENCE_CONTRADICTION` and an
+  asserted `dynamic_motion_evidence_available` always raises
+  `DYNAMIC_EVIDENCE_CONTRADICTION`. Numeric spread (micro-noise, constant
+  velocity, cross-channel deltas) is an observation, never dynamic proof.
+
+**R2 is required** before any of the withheld axes can change: it must introduce
+**versioned evidence models** (a real covariance model with provenance, a typed
+dynamic-motion-evidence object with displacement ground truth, and physical
+axis/scale/sign validation). Until then, the boundary holds unconditionally.
+
+The current-fixture result is unchanged: the same eleven blockers in the same
+order, `NOT_READY`, `publication_capability = WITHHELD_BY_R1_BOUNDARY`.
