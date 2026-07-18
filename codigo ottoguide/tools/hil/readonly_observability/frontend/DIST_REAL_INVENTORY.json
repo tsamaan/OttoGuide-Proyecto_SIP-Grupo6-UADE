@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "phase": "WEB_HIL_R1B_DUAL_PROFILE_BUILD",
+  "profile": "real",
+  "build_mode": "vite build --mode real",
+  "out_dir": "frontend/dist-real",
+  "test_result": "7/7 node:test",
+  "file_count": 3,
+  "total_bytes": 562112,
+  "files": [
+    {
+      "path": "assets/index-CTQsxuZj.js",
+      "size_bytes": 553065,
+      "sha256": "971ad233d6d63ec180d67e2507d90f0a12a8efa02e4edbe7e1ffefe96da5e23f"
+    },
+    {
+      "path": "assets/index-D2qLg5dB.css",
+      "size_bytes": 8452,
+      "sha256": "a94faaee24a8e1e4a9892847808378640cd47c64251781788d4dca5cd1123eb6"
+    },
+    {
+      "path": "index.html",
+      "size_bytes": 595,
+      "sha256": "6042ea605f0508ca64631311dac5fa9558d45ffd707b8eccaa3bc31f9d2f8bb3"
+    }
+  ]
+}

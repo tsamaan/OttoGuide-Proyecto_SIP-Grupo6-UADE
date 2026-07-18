@@ -1,0 +1,23 @@
+{
+  "status": "ok",
+  "read_only_demo": true,
+  "source_profile": "REAL",
+  "dds_writers_created": 0,
+  "session_id": "r0b1-20260717T215047Z",
+  "seq": 445,
+  "ring_frames": 445,
+  "bms_enabled": true,
+  "counts": {
+    "lowstate": 22736,
+    "odom": 20894,
+    "lf_odom": 973,
+    "lidar": 485,
+    "bms": 990
+  },
+  "rates": {
+    "lowstate_hz": 451.8,
+    "odom_hz": 417.1,
+    "lf_odom_hz": 19.8,
+    "lidar_hz": 9.9
+  }
+}

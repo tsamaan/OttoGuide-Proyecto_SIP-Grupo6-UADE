@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "role": "HIL_READ_ONLY_OBSERVABILITY_TOOL",
+  "canonical_product_backend": "unchanged",
+  "second_product_fastapi_authority": "prohibited",
+  "allowlist": [
+    "ottoguide_bms_probe.py",
+    "ottoguide_common.py",
+    "ottoguide_observability_supervisor.py",
+    "ottoguide_readonly_bridge.py",
+    "ottoguide_remote_recorder.py",
+    "postlaunch_gate.py",
+    "static_gate.py",
+    "finalize_remote_session.sh",
+    "start_remote_supervisor.sh"
+  ],
+  "bootstrap_files": [
+    "discover_companion_python.sh"
+  ],
+  "hash_verified_files": [
+    "ottoguide_bms_probe.py",
+    "ottoguide_common.py",
+    "ottoguide_observability_supervisor.py",
+    "ottoguide_readonly_bridge.py",
+    "ottoguide_remote_recorder.py",
+    "postlaunch_gate.py",
+    "static_gate.py",
+    "finalize_remote_session.sh",
+    "start_remote_supervisor.sh",
+    "discover_companion_python.sh"
+  ],
+  "invariants": {
+    "dds_reader_only": true,
+    "dds_writers": 0,
+    "movement_clients": ["LocoClient", "SportClient", "MotionSwitcher", "AudioClient"],
+    "movement_clients_imported": 0,
+    "http_mutations_response": 405,
+    "bind_address": "127.0.0.1",
+    "loopback_only": true
+  },
+  "python_discovery": {
+    "mechanism": "companion/discover_companion_python.sh",
+    "note": "El deployment DEBE consumir el resultado del discovery en runtime; ningun path de venv es autoridad fija.",
+    "non_authoritative_candidate_example": "/home/unitree/.venvs/ottoguide-final-r1a/bin/python3",
+    "candidate_status": "observed working during physical validation 2026-07-17; listed only as a discovery candidate, not pinned"
+  },
+  "physical_validation_session": "r0b1-20260717T215047Z",
+  "physical_validation_date_utc": "2026-07-17"
+}

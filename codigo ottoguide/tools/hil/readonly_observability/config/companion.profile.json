@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "role": "HIL_READ_ONLY_OBSERVABILITY_TOOL_COMPANION_PROFILE",
+  "remote_user": "unitree",
+  "expected_hostname": "ubuntu",
+  "companion_ipv4_candidate": "192.168.123.164",
+  "locomotion_ip_never_ssh": "192.168.123.161",
+  "ed25519_fingerprint": "SHA256:b49bi+OYx/3BYWPsTlMZF1psSs5FW8FnpmFfHpfoDrk",
+  "ed25519_fingerprint_validated_utc": "2026-07-17",
+  "ed25519_fingerprint_validation_method": "TOFU controlado por el operador sobre cable Ethernet fisico directo, confirmado explicitamente (ver docs/Operaciones_HIL/Evidencia/WEB_R0B1_REAL_20260717/)",
+  "host_key_alias": "ottoguide-companion",
+  "note": "Este perfil documenta la identidad publica esperada del Companion (fingerprint), NUNCA una clave privada ni un secreto. Cada Notebook nueva debe re-confirmar el fingerprint la primera vez (ver Fase E/F del runbook) antes de pinearlo localmente."
+}

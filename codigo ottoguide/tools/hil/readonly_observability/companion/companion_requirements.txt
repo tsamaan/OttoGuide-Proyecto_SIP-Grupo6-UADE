@@ -1,0 +1,17 @@
+# WEB-HIL-R1 — dependencias esperadas del interprete Python en el Companion.
+# Referencia/documentacion. NO se instala automaticamente; discover_companion_python.sh
+# solo BUSCA un interprete existente que ya las tenga (import real), nunca instala.
+#
+# Versiones observadas en la validacion fisica del 2026-07-17 (venv
+# ottoguide-final-r1a, Python 3.10.20) -- documentadas como referencia, no como
+# version minima obligatoria:
+#   fastapi==0.139.0
+#   uvicorn==0.51.0
+#   starlette==1.3.1
+#   websockets==16.0
+#   cyclonedds (con binding nativo libddsc cargable)
+#   unitree_sdk2py (resuelto dinamicamente desde un deployment existente)
+fastapi
+uvicorn
+cyclonedds
+unitree_sdk2py
