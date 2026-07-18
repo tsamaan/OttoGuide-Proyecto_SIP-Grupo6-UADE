@@ -11,7 +11,7 @@ Recommended order of future work, built from the completion matrix and known-gap
    - `dynamic motion capture = missing`
    - `/odom and TF publication = missing`
 
-   The remaining work (harvest a dynamic capture, then clear the documented blockers in `docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md`) still requires a future robot session.
+   The remaining work (harvest a dynamic capture, then clear the documented blockers in `docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md`) still requires a future robot session. _MVP-ODOM-TF-R1A_ hardened the gate to be fail-closed on malformed contracts/candidates and to reject boolean flags that contradict the typed evidence (covariance/IMU/dynamic), plus rejecting unfiltered mixed-channel sequences and non-monotonic receipts; the current-fixture result is unchanged (`NOT_READY`, same 11 blockers).
 6. **NAV2-OFFLINE-R1.** Only after odometry/TF/mapping data exists offline; build sandboxed Nav2 configuration testing against recorded/simulated maps, never against a live robot from this workstation.
 7. **Future minimal, separate physical session.** A dedicated, scoped robot session to: (a) verify the SIGTERM/StopMove contract on the actual Jetson under Linux (this task could only document the claim, not execute it, on Windows); (b) re-confirm the `0d14de6` on-Jetson build/link/smoke claims with fresh raw logs; (c) harvest a longer/multi-mode lowstate window; (d) harvest the vision/QR/odometry source data needed to unblock checkpoints 4-6.
 

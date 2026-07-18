@@ -209,3 +209,88 @@ class TestOdometryCandidateAdapterInvalidInputs:
         c = to_odometry_candidate(self._base_sample())
         assert c.valid is True
         assert c.errors == []
+
+
+# --- R1A (MVP-ODOM-TF-R1A): IMU reliability hardening -----------------------
+# unittest.TestCase so `python -m unittest discover -p
+# "test_odometry_candidate_adapter.py"` actually exercises these. A missing,
+# malformed, or non-finite IMU vector must NEVER be reported reliable, while the
+# candidate itself stays valid when position/velocity/yaw remain usable.
+import unittest  # noqa: E402
+
+
+class TestAdapterImuReliabilityHardeningR1A(unittest.TestCase):
+    def _base_sample(self):
+        return {
+            "channel": "rt/odommodestate",
+            "receipt_monotonic_ns": 123456789,
+            "receipt_wall_utc_ns": 987654321,
+            "stamp_sec": 0, "stamp_nanosec": 0,
+            "position": [1.0, 2.0, 0.5],
+            "velocity": [0.0, 0.0, 0.0],
+            "yaw_speed": 0.0,
+            "imu_quaternion": [0.0, 0.0, 0.0, 1.0],
+            "imu_rpy": [0.0, 0.0, 0.0],
+            "imu_gyroscope": [0.01, 0.0, 0.02],
+            "imu_accelerometer": [0.0, 0.0, 9.81],
+        }
+
+    def test_missing_gyro_is_not_reliable(self):
+        s = self._base_sample()
+        del s["imu_gyroscope"]
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)  # candidate still valid
+        self.assertFalse(c.gyro_reliable)
+        self.assertTrue(any("gyroscope missing" in w for w in c.warnings))
+
+    def test_missing_accelerometer_is_not_reliable(self):
+        s = self._base_sample()
+        del s["imu_accelerometer"]
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertFalse(c.accel_reliable)
+        self.assertTrue(any("accelerometer missing" in w for w in c.warnings))
+
+    def test_malformed_gyro_is_not_reliable(self):
+        s = self._base_sample()
+        s["imu_gyroscope"] = [0.1, 0.2]  # wrong length
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertFalse(c.gyro_reliable)
+        self.assertTrue(any("gyroscope malformed" in w for w in c.warnings))
+
+    def test_non_finite_accel_is_not_reliable(self):
+        s = self._base_sample()
+        s["imu_accelerometer"] = [0.0, float("inf"), 9.81]
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertFalse(c.accel_reliable)
+        self.assertTrue(any("accelerometer malformed" in w for w in c.warnings))
+
+    def test_all_zero_gyro_is_not_reliable(self):
+        s = self._base_sample()
+        s["imu_gyroscope"] = [0.0, 0.0, 0.0]
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertFalse(c.gyro_reliable)
+        self.assertTrue(any("gyroscope reads all-zero" in w for w in c.warnings))
+
+    def test_good_imu_is_reliable(self):
+        c = to_odometry_candidate(self._base_sample())
+        self.assertTrue(c.valid)
+        self.assertTrue(c.gyro_reliable)
+        self.assertTrue(c.accel_reliable)
+
+    def test_candidate_valid_despite_unreliable_imu(self):
+        # Separation: unusable IMU does not invalidate the candidate.
+        s = self._base_sample()
+        del s["imu_gyroscope"]
+        del s["imu_accelerometer"]
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertFalse(c.gyro_reliable)
+        self.assertFalse(c.accel_reliable)
+
+
+if __name__ == "__main__":
+    unittest.main()

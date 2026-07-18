@@ -64,11 +64,30 @@ def build_report():
     return report, len(primary), len(secondary)
 
 
+# The exact, ordered set of BLOCKER codes the current MFR-R6 fixtures must
+# produce. Any disappearance, addition, or reordering forces a non-zero exit.
+EXPECTED_BLOCKER_CODES = (
+    "DYNAMIC_MOTION_EVIDENCE_MISSING",
+    "SOURCE_CHANNEL_ARBITRATION_UNRESOLVED",
+    "SOURCE_FRAME_SEMANTICS_UNVERIFIED",
+    "CHILD_FRAME_ID_UNRESOLVED",
+    "AXIS_CONVENTION_UNVERIFIED",
+    "SCALE_AND_SIGN_UNVERIFIED",
+    "MESSAGE_TIMESTAMP_ZERO",
+    "RECEIPT_TIME_TO_ROS_TIME_UNRESOLVED",
+    "COVARIANCE_UNAVAILABLE",
+    "IMU_CROSSCHECK_UNAVAILABLE",
+    "RESET_AND_DISCONTINUITY_BEHAVIOR_UNVERIFIED",
+)
+EXPECTED_CHANNELS = ("rt/lf/odommodestate", "rt/odommodestate")
+
+
 def _consistency_errors(report, primary_count, secondary_count):
     """Return a list of internal-consistency violations (empty == consistent).
 
     Any accidental readiness, or a shape that contradicts the checkpoint's
-    fixed expectations, is an error that must force a non-zero exit.
+    fixed expectations (exact ordered blocker set, exact counts/channels), is
+    an error that must force a non-zero exit.
     """
     errors = []
 
@@ -81,16 +100,27 @@ def _consistency_errors(report, primary_count, secondary_count):
         errors.append("nav2_ready is True (must always be False)")
     if not report.physical_validation_required:
         errors.append("physical_validation_required is False (must be True)")
-    if report.blocker_count < 1:
-        errors.append("no BLOCKER present (fail-closed gate must block)")
     if report.classification != CLASSIFICATION_CONTRACT_READY:
         errors.append(
             f"classification {report.classification!r} != expected "
             f"{CLASSIFICATION_CONTRACT_READY!r}"
         )
 
-    # Expected fixture shape (160 samples, two channels, all valid).
-    expected_total = primary_count + secondary_count
+    # Exact, ordered blocker set (Phase 6 strict).
+    actual_codes = report.blocker_codes()
+    if actual_codes != EXPECTED_BLOCKER_CODES:
+        errors.append(
+            "blocker set/order mismatch:\n"
+            f"  expected ({len(EXPECTED_BLOCKER_CODES)}): {list(EXPECTED_BLOCKER_CODES)}\n"
+            f"  actual   ({len(actual_codes)}): {list(actual_codes)}"
+        )
+
+    # Expected fixture shape (exact counts and channels).
+    if primary_count != 80:
+        errors.append(f"primary_count {primary_count} != 80")
+    if secondary_count != 80:
+        errors.append(f"secondary_count {secondary_count} != 80")
+    expected_total = 160
     if report.candidate_count != expected_total:
         errors.append(
             f"candidate_count {report.candidate_count} != {expected_total}"
@@ -99,8 +129,10 @@ def _consistency_errors(report, primary_count, secondary_count):
         errors.append(
             f"candidate_invalid_count {report.candidate_invalid_count} != 0"
         )
-    if len(report.channels) != 2:
-        errors.append(f"channels count {len(report.channels)} != 2")
+    if tuple(report.channels) != EXPECTED_CHANNELS:
+        errors.append(
+            f"channels {list(report.channels)} != {list(EXPECTED_CHANNELS)}"
+        )
 
     # offline_contract_ready must be True (input processable) while publication
     # is still withheld -- the two axes must not collapse into one.

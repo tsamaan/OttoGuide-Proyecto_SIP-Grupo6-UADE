@@ -16,10 +16,25 @@ from .validation import (
     FRAME_ID,
     TIMESTAMP_POLICY,
     all_finite,
-    is_all_zero,
     is_finite_number,
     is_positive_int,
 )
+
+
+def _is_reliable_imu_vector(values) -> bool:
+    """A 3-component IMU vector is reliable only when it exists, has exactly
+    three finite numeric components, and is not entirely zero.
+
+    A missing (None), malformed (wrong length / non-numeric), or non-finite
+    vector is NOT reliable -- absence is never silently promoted to reliable.
+    """
+    if not isinstance(values, (list, tuple)):
+        return False
+    if len(values) != 3:
+        return False
+    if not all_finite(values):
+        return False
+    return not all(v == 0.0 for v in values)
 
 
 def _invalid(source_channel, receipt_monotonic_ns, receipt_wall_utc_ns,
@@ -111,12 +126,26 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
             "not sensor timestamp (see MESSAGE_STAMP_ZERO_USE_RECEIPT_TIME_REQUIRED)"
         )
 
-    gyro_reliable = not (gyroscope is not None and is_all_zero(gyroscope))
-    accel_reliable = not (accelerometer is not None and is_all_zero(accelerometer))
+    # An IMU vector is reliable only when it exists, has exactly three finite
+    # components and is not entirely zero. A missing / malformed / non-finite
+    # vector is NOT reliable (absence is never promoted to reliable). This does
+    # NOT invalidate the whole candidate: position/velocity/yaw remain usable.
+    gyro_reliable = _is_reliable_imu_vector(gyroscope)
+    accel_reliable = _is_reliable_imu_vector(accelerometer)
     if not gyro_reliable:
-        warnings.append("imu gyroscope reads all-zero; not treated as reliable")
+        if gyroscope is None:
+            warnings.append("imu gyroscope missing; not treated as reliable")
+        elif not (isinstance(gyroscope, (list, tuple)) and len(gyroscope) == 3 and all_finite(gyroscope)):
+            warnings.append("imu gyroscope malformed or non-finite; not treated as reliable")
+        else:
+            warnings.append("imu gyroscope reads all-zero; not treated as reliable")
     if not accel_reliable:
-        warnings.append("imu accelerometer reads all-zero; not treated as reliable")
+        if accelerometer is None:
+            warnings.append("imu accelerometer missing; not treated as reliable")
+        elif not (isinstance(accelerometer, (list, tuple)) and len(accelerometer) == 3 and all_finite(accelerometer)):
+            warnings.append("imu accelerometer malformed or non-finite; not treated as reliable")
+        else:
+            warnings.append("imu accelerometer reads all-zero; not treated as reliable")
 
     quaternion_tuple = tuple(quaternion) if quaternion else (0.0, 0.0, 0.0, 0.0)
     rpy_tuple = tuple(rpy) if rpy else (0.0, 0.0, 0.0)

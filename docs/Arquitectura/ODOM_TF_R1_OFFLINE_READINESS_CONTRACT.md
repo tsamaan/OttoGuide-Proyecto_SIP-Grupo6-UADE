@@ -171,3 +171,49 @@ publisher, and performs no movement. The offline CLI
 `codigo ottoguide/tools/hil/offline_navigation/verify_odom_tf_readiness.py`
 prints the gate's JSON verdict and returns exit 0 only when publication is
 correctly refused.
+
+## 9. R1A hardening — fail-closed input and evidence coherence
+
+MVP-ODOM-TF-R1A tightens the gate so that neither a malformed input nor an
+isolated boolean can bypass a real gap. The current-fixture result is unchanged
+(the same eleven blockers, `NOT_READY`).
+
+- **Type validation (fail closed).** `assess_odom_tf_readiness` accepts only a
+  real `OdomTfEvidenceContract` whose boolean fields are actual `bool` (a
+  truthy `"false"` string or `1` is rejected, not trusted). A `None`,
+  wrong-type, or malformed contract returns a fail-closed report with
+  `EVIDENCE_CONTRACT_INVALID` and never raises to the caller. Each candidate is
+  structurally validated (type, allowed channel, positive integer receipt,
+  finite 3-vectors, integer in-range timestamps, boolean covariance/IMU flags);
+  a bare `valid=True` on an arbitrary object yields
+  `CANDIDATE_STRUCTURE_INVALID`.
+
+- **Candidate/contract coherence.** A contract boolean can never override the
+  typed evidence:
+  - `covariance_available=true` cannot clear the covariance blocker unless the
+    selected candidates carry covariance evidence. Because the current model
+    transports no covariance values, an isolated boolean instead raises
+    `COVARIANCE_EVIDENCE_CONTRADICTION`. **Covariance must be real or explicitly
+    modeled** in a future model change — never asserted by a lone flag.
+  - `imu_crosscheck_available=true` with unreliable gyro/accel candidates raises
+    `IMU_EVIDENCE_CONTRADICTION`.
+  - `dynamic_motion_evidence_available=true` with a single or observably-static
+    sequence raises `DYNAMIC_EVIDENCE_CONTRADICTION`. **Dynamic evidence must be
+    verifiable variation in the candidates**, not a boolean.
+
+- **No mixed-channel publication.** When arbitration is asserted resolved, a
+  sequence mixing both channels raises
+  `MIXED_CHANNEL_SEQUENCE_REQUIRES_FILTERING`, and an authoritative channel
+  absent from the sequence or the adapter allow-list raises
+  `AUTHORITATIVE_CHANNEL_NOT_PRESENT`. A future stage must pass a sequence
+  explicitly filtered to the selected channel.
+
+- **Temporal coherence.** A receipt-monotonic inversion within a channel raises
+  `RECEIPT_MONOTONIC_ORDER_INVALID` (no wall-clock is read).
+
+- **Adapter IMU reliability.** A missing, malformed, or non-finite IMU vector is
+  never reported reliable; the candidate stays valid when position/velocity/yaw
+  remain usable (valid-candidate vs. unreliable-IMU stay separate).
+
+`nav2_ready` remains false and `physical_validation_required` remains true
+throughout R1A; no path declares physical readiness.

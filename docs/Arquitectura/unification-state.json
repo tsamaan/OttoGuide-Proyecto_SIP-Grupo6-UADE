@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-06-30T03:00:00Z",
+  "updated_at": "2026-07-18T20:02:06Z",
   "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "remote_authority": "mirror",
@@ -639,6 +639,23 @@
       "nav2_physical": "NOT_STARTED",
       "stationary_source_capture": "AVAILABLE",
       "dynamic_motion_capture": "MISSING"
+    },
+    {
+      "checkpoint": "MVP-ODOM-TF-R1A-FAIL-CLOSED-EVIDENCE-COHERENCE-HARDENING",
+      "risk_level": "B",
+      "robot_access": false,
+      "summary": "Hardening of the R1 readiness gate: fail-closed contract/candidate type validation, candidate-vs-contract coherence (covariance/IMU/dynamic contradictions), no mixed-channel publication, temporal-order check, adapter IMU reliability fix. Result unchanged: NOT_READY (same 11 blockers).",
+      "artifacts": [
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/readiness.py",
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/validation.py",
+        "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
+        "codigo ottoguide/tests/unit/test_odometry_candidate_adapter.py"
+      ],
+      "odom_publication": "NOT_STARTED",
+      "tf_publication": "NOT_STARTED",
+      "physical_validation": "PENDING",
+      "nav2_physical": "NOT_STARTED"
     }
   ],
   "known_debts": [
