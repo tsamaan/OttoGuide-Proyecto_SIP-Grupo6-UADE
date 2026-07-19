@@ -746,5 +746,39 @@ class TestR1CBooleanNumericRejected(unittest.TestCase):
         self._reject(replace(_synthetic_candidate(), yaw_speed=True))
 
 
+class TestR1DAdapterMalformedPayloadIntegration(unittest.TestCase):
+    """R1D: a malformed adapter payload (bool imu_quaternion, missing
+    timestamps) must produce an invalid candidate that the readiness gate
+    fails closed on -- never an exception -- with publication still
+    withheld by the R1 boundary."""
+
+    def test_malformed_quaternion_payload_fails_closed_through_readiness(self):
+        # The exact payload shape reported for R1D: imu_quaternion=True would
+        # previously reach tuple(True) inside the adapter and raise TypeError.
+        sample = {
+            "channel": "rt/odommodestate",
+            "receipt_monotonic_ns": 1,
+            "position": [0.0, 0.0, 0.0],
+            "velocity": [0.0, 0.0, 0.0],
+            "yaw_speed": 0.0,
+            "imu_quaternion": True,
+            "imu_rpy": [0.0, 0.0, 0.0],
+        }
+
+        candidate = to_odometry_candidate(sample)
+        self.assertFalse(candidate.valid)
+
+        report = assess_odom_tf_readiness([candidate], OdomTfEvidenceContract())
+        self.assertEqual(
+            report.classification, CLASSIFICATION_FAIL_CLOSED_INVALID_INPUT)
+        self.assertIn(EMPTY_OR_INVALID_SEQUENCE, report.blocker_codes())
+        self.assertFalse(report.odom_publication_ready)
+        self.assertFalse(report.odom_to_base_link_tf_ready)
+        self.assertFalse(report.nav2_ready)
+        self.assertTrue(report.physical_validation_required)
+        self.assertEqual(
+            report.publication_capability, PUBLICATION_CAPABILITY_WITHHELD)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -292,5 +292,274 @@ class TestAdapterImuReliabilityHardeningR1A(unittest.TestCase):
         self.assertFalse(c.accel_reliable)
 
 
+# --- R1D (MVP-ODOM-TF-R1D): malformed payload normalization paths closed ----
+# unittest.TestCase so `python -m unittest discover -p
+# "test_odometry_candidate_adapter.py"` actually exercises these. A malformed
+# imu_quaternion/imu_rpy/timestamp must never raise and must never yield a
+# valid=True candidate; a bool must never be accepted as a number anywhere.
+
+class _RaisingIterOnlyList(list):
+    """A list subclass whose __iter__ raises mid-iteration. isinstance(_,
+    list) is True and len() still works (inherited from list), only
+    iteration breaks -- this is what a "sequence defectuosa" looks like."""
+
+    def __iter__(self):
+        raise RuntimeError("broken iterator")
+
+
+class TestAdapterR1DMalformedPayloadNormalization(unittest.TestCase):
+    def _base_sample(self):
+        return {
+            "channel": "rt/odommodestate",
+            "receipt_monotonic_ns": 123456789,
+            "receipt_wall_utc_ns": 987654321,
+            "stamp_sec": 0, "stamp_nanosec": 0,
+            "position": [1.0, 2.0, 0.5],
+            "velocity": [0.0, 0.0, 0.0],
+            "yaw_speed": 0.0,
+            "imu_quaternion": [0.0, 0.0, 0.0, 1.0],
+            "imu_rpy": [0.0, 0.0, 0.0],
+            "imu_gyroscope": [0.01, 0.0, 0.02],
+            "imu_accelerometer": [0.0, 0.0, 9.81],
+        }
+
+    def test_good_sample_still_valid(self):
+        c = to_odometry_candidate(self._base_sample())
+        self.assertTrue(c.valid)
+        self.assertEqual(c.errors, [])
+
+    # --- imu_quaternion malformed: never raises, never valid=True ----------
+
+    def test_quaternion_bool_true_invalid_no_exception(self):
+        s = self._base_sample()
+        s["imu_quaternion"] = True
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_quaternion_int_invalid_no_exception(self):
+        s = self._base_sample()
+        s["imu_quaternion"] = 1
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_quaternion_object_invalid_no_exception(self):
+        s = self._base_sample()
+        s["imu_quaternion"] = object()
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_quaternion_missing_invalid(self):
+        s = self._base_sample()
+        del s["imu_quaternion"]
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_quaternion_wrong_length_invalid(self):
+        s = self._base_sample()
+        s["imu_quaternion"] = [0.0, 0.0, 1.0]
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_quaternion_nan_component_invalid(self):
+        s = self._base_sample()
+        s["imu_quaternion"] = [0.0, 0.0, 0.0, float("nan")]
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_quaternion_bool_component_invalid(self):
+        s = self._base_sample()
+        s["imu_quaternion"] = [0.0, 0.0, 0.0, True]
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_quaternion_zero_norm_invalid(self):
+        s = self._base_sample()
+        s["imu_quaternion"] = [0.0, 0.0, 0.0, 0.0]
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+        self.assertTrue(any("zero norm" in e for e in c.errors))
+
+    # --- imu_rpy malformed: never raises, never valid=True ------------------
+
+    def test_rpy_bool_true_invalid_no_exception(self):
+        s = self._base_sample()
+        s["imu_rpy"] = True
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_rpy_int_invalid_no_exception(self):
+        s = self._base_sample()
+        s["imu_rpy"] = 1
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_rpy_object_invalid_no_exception(self):
+        s = self._base_sample()
+        s["imu_rpy"] = object()
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_rpy_missing_invalid(self):
+        s = self._base_sample()
+        del s["imu_rpy"]
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_rpy_inf_component_invalid(self):
+        s = self._base_sample()
+        s["imu_rpy"] = [0.0, float("inf"), 0.0]
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_rpy_bool_component_invalid(self):
+        s = self._base_sample()
+        s["imu_rpy"] = [0.0, 0.0, True]
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    # --- bool rejected as a number everywhere -------------------------------
+
+    def test_bool_in_position_invalid(self):
+        s = self._base_sample()
+        s["position"] = [True, 0.0, 0.0]
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_bool_in_velocity_invalid(self):
+        s = self._base_sample()
+        s["velocity"] = [0.0, False, 0.0]
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_bool_yaw_speed_invalid(self):
+        s = self._base_sample()
+        s["yaw_speed"] = True
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_bool_in_gyro_not_reliable(self):
+        s = self._base_sample()
+        s["imu_gyroscope"] = [True, False, True]
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertFalse(c.gyro_reliable)
+
+    def test_bool_in_accelerometer_not_reliable(self):
+        s = self._base_sample()
+        s["imu_accelerometer"] = [True, False, True]
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertFalse(c.accel_reliable)
+
+    # --- timestamps ----------------------------------------------------------
+
+    def test_bool_receipt_monotonic_ns_invalid(self):
+        s = self._base_sample()
+        s["receipt_monotonic_ns"] = True
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_bool_stamp_sec_invalid(self):
+        s = self._base_sample()
+        s["stamp_sec"] = True
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_bool_stamp_nanosec_invalid(self):
+        s = self._base_sample()
+        s["stamp_nanosec"] = True
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_bool_receipt_wall_utc_ns_invalid(self):
+        s = self._base_sample()
+        s["receipt_wall_utc_ns"] = True
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_stamp_sec_negative_invalid(self):
+        s = self._base_sample()
+        s["stamp_sec"] = -1
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_stamp_nanosec_out_of_range_invalid(self):
+        s = self._base_sample()
+        s["stamp_nanosec"] = 1_000_000_000
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_stamp_nanosec_negative_invalid(self):
+        s = self._base_sample()
+        s["stamp_nanosec"] = -1
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_receipt_wall_utc_ns_negative_invalid(self):
+        s = self._base_sample()
+        s["receipt_wall_utc_ns"] = -5
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_receipt_wall_utc_ns_string_invalid(self):
+        s = self._base_sample()
+        s["receipt_wall_utc_ns"] = "not-a-number"
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_receipt_wall_utc_ns_none_allowed(self):
+        s = self._base_sample()
+        s["receipt_wall_utc_ns"] = None
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+
+    # --- wrong length (position/velocity) -----------------------------------
+
+    def test_position_wrong_length_invalid(self):
+        s = self._base_sample()
+        s["position"] = [1.0, 2.0]
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_velocity_wrong_length_invalid(self):
+        s = self._base_sample()
+        s["velocity"] = [1.0, 2.0, 3.0, 4.0]
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    # --- defective sequences: never raise -----------------------------------
+
+    def test_raising_iterator_in_position_invalid_no_exception(self):
+        s = self._base_sample()
+        s["position"] = _RaisingIterOnlyList([1.0, 2.0, 3.0])
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_raising_iterator_in_velocity_invalid_no_exception(self):
+        s = self._base_sample()
+        s["velocity"] = _RaisingIterOnlyList([1.0, 2.0, 3.0])
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_raising_iterator_in_quaternion_invalid_no_exception(self):
+        s = self._base_sample()
+        s["imu_quaternion"] = _RaisingIterOnlyList([0.0, 0.0, 0.0, 1.0])
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_raising_iterator_in_rpy_invalid_no_exception(self):
+        s = self._base_sample()
+        s["imu_rpy"] = _RaisingIterOnlyList([0.0, 0.0, 0.0])
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_raising_iterator_in_gyroscope_no_exception(self):
+        s = self._base_sample()
+        s["imu_gyroscope"] = _RaisingIterOnlyList([0.01, 0.0, 0.02])
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertFalse(c.gyro_reliable)
+
+
 if __name__ == "__main__":
     unittest.main()

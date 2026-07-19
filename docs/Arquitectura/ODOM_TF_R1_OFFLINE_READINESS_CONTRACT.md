@@ -286,10 +286,14 @@ order, `NOT_READY`, `publication_capability = WITHHELD_BY_R1_BOUNDARY`.
 
 ## 11. R1C — malformed-sequence and mapping exception paths closed
 
-MVP-ODOM-TF-R1C removes the last input paths where a malformed sequence or a
-defective mapping could raise instead of returning a fail-closed report. The
-`Never raises on malformed input` contract now holds for these cases too, and
-the R1 non-publishable boundary is unchanged.
+MVP-ODOM-TF-R1C removes further input paths where a malformed sequence or a
+defective mapping could raise instead of returning a fail-closed report --
+specifically the *sample-shape* and *sequence-iteration* paths (a non-Mapping
+sample, a Mapping whose `get()` raises, a candidate sequence whose iterator
+raises). It does not close every value-normalization path inside an
+otherwise-well-formed `Mapping`; see section 12 (R1D) for the paths R1C left
+open. The `Never raises on malformed input` contract now holds for the cases
+above, and the R1 non-publishable boundary is unchanged.
 
 - **Channels derived from valid candidates only.** An invalid candidate can
   carry `source_channel = None` (e.g. from a non-mapping input). The report's
@@ -310,6 +314,73 @@ the R1 non-publishable boundary is unchanged.
   `get()` method is not sufficient — and wraps the field extraction fail-closed,
   so a defective `Mapping` subclass whose `get()` raises still returns an invalid
   candidate with a bounded error message instead of propagating.
-- **Strict numeric components.** `bool` is rejected everywhere a real number is
-  required (position, velocity, rpy, quaternion, and `yaw_speed`); `True`/`False`
-  no longer pass as `1`/`0`. Only real finite `int`/`float` are accepted.
+- **Strict numeric components (readiness gate only).** The readiness gate's
+  own structural validator (`assess_odom_tf_readiness`) rejects `bool`
+  wherever a real number is required (position, velocity, rpy, quaternion,
+  `yaw_speed`) via a private, gate-local check; `True`/`False` no longer pass
+  as `1`/`0` there. This did **not** yet extend to the adapter's own shared
+  numeric helpers in `validation.py`: `to_odometry_candidate` could still
+  build a `valid=True` candidate carrying a `bool` component, relying on this
+  gate-local check to catch it later -- a real, if narrow, contradiction of
+  the adapter's own contract. R1D (section 12) closes that gap at the source.
+
+## 12. R1D — malformed payload normalization paths closed
+
+MVP-ODOM-TF-R1D closes the residual paths where a `Mapping` sample with
+malformed *values* -- not a malformed sample shape, which R1C already
+covered -- could make `to_odometry_candidate()` raise, or let a `bool` pass as
+a valid number. R1C hardened field **extraction** (a non-Mapping input, a
+`Mapping` whose `get()` raises, a broken candidate-sequence iterator); it did
+not close every **value-normalization** path for the fields once extracted
+from an otherwise well-formed `Mapping`. The R1 non-publishable boundary and
+the current-fixture result are unchanged (the same eleven blockers,
+`NOT_READY`, `publication_capability = WITHHELD_BY_R1_BOUNDARY`).
+
+- **`imu_quaternion` / `imu_rpy` are required and validated before
+  `tuple()`.** Previously
+  `quaternion_tuple = tuple(quaternion) if quaternion else (0.0, 0.0, 0.0, 0.0)`
+  ran unconditionally: a truthy non-iterable (e.g. `imu_quaternion = True`)
+  reached `tuple(True)` and raised `TypeError`, and a missing value silently
+  defaulted to a zero orientation on a `valid=True` candidate instead of being
+  rejected. Both fields are now validated with the same fail-closed,
+  exception-safe shape/finiteness check used for position/velocity (list/tuple
+  of the exact length, finite non-bool components) *before* any `tuple()`
+  conversion; a missing, wrong-length, non-finite, or non-sequence value
+  yields an invalid candidate, never an exception. A `valid=True` candidate's
+  quaternion must additionally have a non-zero norm.
+- **`bool` rejected as a number everywhere, in both the adapter and the
+  readiness gate.** `is_finite_number()` used bare `math.isfinite()`, and
+  `bool` is a subclass of `int` in Python, so `True`/`False` passed as `1`/`0`.
+  This let a `bool` in position, velocity, yaw_speed, or an IMU vector produce
+  a `valid=True` adapter candidate that only the readiness gate's separate,
+  stricter structural check would later reject -- the adapter's own contract
+  was violated in the meantime (see the corrected claim in section 11).
+  `is_finite_number()` now explicitly rejects `bool` before checking
+  `math.isfinite()`, and `all_finite()` and the new `is_finite_vector()` helper
+  share that fix, so `_is_reliable_imu_vector()` (gyro/accel reliability) and
+  the adapter's own position/velocity/yaw_speed/quaternion/rpy checks all
+  reject `bool` consistently, matching the readiness gate. No NumPy was
+  introduced.
+- **Timestamps validated instead of silently defaulted.** `stamp_sec` and
+  `stamp_nanosec` were previously coerced to `0` on any non-`int` value
+  (including `bool`) rather than invalidating the candidate, and
+  `receipt_wall_utc_ns` was passed through completely unchecked. All three are
+  now validated as non-negative, non-bool integers (`stamp_nanosec`
+  additionally bounded to `[0, 999999999]`; `receipt_wall_utc_ns` may be
+  `None`); a malformed timestamp yields `valid=False` instead of a silently
+  substituted default.
+- **Exception-safe by construction, not by patchwork.** The shared vector
+  helper (`is_finite_vector`) and `all_finite()` fail closed against a
+  defective sequence (e.g. a list subclass whose `__iter__` raises) on their
+  own, and the adapter's validation/construction step is wrapped in a final
+  `except Exception` that converts any residual ordinary exception into an
+  invalid candidate. `BaseException`, `KeyboardInterrupt`, `SystemExit`, and
+  `GeneratorExit` are never swallowed. Error messages stay bounded (field name
+  and exception type only, never a full `repr()` of the offending value).
+
+The real MFR-R6 fixtures are unaffected: all 160 samples already carry
+finite, non-bool position/velocity/yaw_speed, a unit-norm `imu_quaternion`,
+and a well-formed `imu_rpy`, with valid (zero) timestamps, so they remain
+`valid=True` and the readiness gate's result is unchanged (same eleven
+blockers, same two channels, `publication_capability =
+WITHHELD_BY_R1_BOUNDARY`).

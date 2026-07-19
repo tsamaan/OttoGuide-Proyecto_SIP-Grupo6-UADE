@@ -684,8 +684,26 @@
         "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",
         "codigo ottoguide/src/navigation/odometry_candidate_adapter/readiness.py",
         "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
-        "codigo ottoguide/tests/unit/test_odometry_candidate_adapter.py",
         "docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md"
+      ],
+      "publication_capability": "WITHHELD_BY_R1_BOUNDARY",
+      "odom_publication": "NOT_STARTED",
+      "tf_publication": "NOT_STARTED",
+      "physical_validation": "PENDING",
+      "nav2_physical": "NOT_STARTED"
+    },
+    {
+      "checkpoint": "MVP-ODOM-TF-R1D-CLOSE-MALFORMED-PAYLOAD-NORMALIZATION-PATHS",
+      "risk_level": "B",
+      "robot_access": false,
+      "summary": "Closes residual value-normalization paths inside an otherwise well-formed Mapping that R1C did not cover: imu_quaternion/imu_rpy are now required fields validated (shape, finiteness, non-zero quaternion norm) before any tuple() conversion instead of defaulting to a zero orientation or reaching tuple(True); stamp_sec/stamp_nanosec/receipt_wall_utc_ns are validated as non-negative non-bool integers instead of being silently defaulted or passed through unchecked; and bool is now rejected as a number in the adapter's own shared validation helpers (validation.py), not only in the readiness gate's private structural check. R1 non-publishable boundary unchanged; current-fixture result unchanged: NOT_READY (same 11 blockers, publication_capability=WITHHELD_BY_R1_BOUNDARY).",
+      "artifacts": [
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/validation.py",
+        "codigo ottoguide/tests/unit/test_odometry_candidate_adapter.py",
+        "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
+        "docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md",
+        "docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md"
       ],
       "publication_capability": "WITHHELD_BY_R1_BOUNDARY",
       "odom_publication": "NOT_STARTED",
