@@ -25,22 +25,68 @@ from .validation import (
 )
 
 
-def _is_reliable_imu_vector(values) -> bool:
-    """A 3-component IMU vector is reliable only when it exists, has exactly
-    three finite numeric components, and is not entirely zero.
+_IMU_MISSING = "MISSING"
+_IMU_MALFORMED = "MALFORMED"
+_IMU_NON_FINITE = "NON_FINITE"
+_IMU_ALL_ZERO = "ALL_ZERO"
+_IMU_RELIABLE = "RELIABLE"
 
-    A missing (None), malformed (wrong length / non-numeric / bool), or
-    non-finite vector is NOT reliable -- absence is never silently promoted
-    to reliable. R1D: `all_finite` itself now rejects `bool` components, so
-    a vector of booleans can never be reported reliable.
+_IMU_WARNING_TEMPLATES = {
+    _IMU_MISSING: "imu {name} missing; not treated as reliable",
+    _IMU_MALFORMED: (
+        "imu {name} malformed (wrong type, shape, or non-numeric/bool "
+        "component); not treated as reliable"
+    ),
+    _IMU_NON_FINITE: "imu {name} malformed (non-finite component); not treated as reliable",
+    _IMU_ALL_ZERO: "imu {name} reads all-zero; not treated as reliable",
+}
+
+
+def _classify_imu_vector(values):
+    """Classify an auxiliary IMU vector (gyroscope/accelerometer) as exactly
+    one of MISSING / MALFORMED / NON_FINITE / ALL_ZERO / RELIABLE. Only
+    RELIABLE means "safe to trust".
+
+    This is the single place `len()`/iteration is attempted on `values` --
+    no unsafe `len(values)` / `all_finite(values)` / `tuple(values)` on this
+    same value is repeated anywhere else. The one narrow `try` below is what
+    makes this fail-closed: an ordinary exception from a defective sequence
+    (a broken `__len__` or `__iter__`) classifies as MALFORMED instead of
+    propagating, so a pathological auxiliary vector degrades only this
+    classification -- it can never reach a wider boundary and invalidate the
+    whole candidate.
     """
-    if not isinstance(values, (list, tuple)):
-        return False
-    if len(values) != 3:
-        return False
-    if not all_finite(values):
-        return False
-    return not all(v == 0.0 for v in values)
+    if values is None:
+        return _IMU_MISSING
+    try:
+        if not isinstance(values, (list, tuple)):
+            return _IMU_MALFORMED
+        if len(values) != 3:
+            return _IMU_MALFORMED
+        components = list(values)
+    except Exception:
+        return _IMU_MALFORMED
+
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in components):
+        return _IMU_MALFORMED
+    if not all_finite(components):
+        return _IMU_NON_FINITE
+    if all(v == 0.0 for v in components):
+        return _IMU_ALL_ZERO
+    return _IMU_RELIABLE
+
+
+def _imu_reliability_and_warning(name, values):
+    """Return `(reliable, warning)` for one auxiliary IMU vector from a
+    single fail-closed classification. `reliable` is `True` only for
+    `_IMU_RELIABLE`; `warning` is `None` in that case and a bounded,
+    field-scoped message otherwise. `name` (e.g. "gyroscope") only feeds the
+    warning text, never a `repr()` of `values` itself.
+    """
+    classification = _classify_imu_vector(values)
+    if classification == _IMU_RELIABLE:
+        return True, None
+    return False, _IMU_WARNING_TEMPLATES[classification].format(name=name)
 
 
 def _vector_error(name, value, length):
@@ -59,14 +105,33 @@ def _vector_error(name, value, length):
 
 def _invalid(source_channel, receipt_monotonic_ns, receipt_wall_utc_ns,
              message_stamp_sec, message_stamp_nanosec, errors, warnings=None):
+    """Build an invalid candidate. R1D-R1: every numeric field is normalized
+    through `is_nonnegative_int` (which excludes `bool`) rather than the bare
+    `isinstance(x, int)` that would accept a `bool` unchanged, so an invalid
+    candidate never stores a raw `bool` or an arbitrary object where the
+    model declares `int` / `int | None` -- it stays a well-typed, JSON-
+    serializable `OdometryCandidate` no matter how malformed the input was.
+    `source_channel` is intentionally left untouched: no reproducible defect
+    has been found there, and it is out of this checkpoint's scope.
+    """
+    normalized_wall_utc_ns = (
+        receipt_wall_utc_ns
+        if receipt_wall_utc_ns is None or is_nonnegative_int(receipt_wall_utc_ns)
+        else None
+    )
+    normalized_stamp_nanosec = (
+        message_stamp_nanosec
+        if is_nonnegative_int(message_stamp_nanosec) and message_stamp_nanosec <= 999_999_999
+        else 0
+    )
     return OdometryCandidate(
         valid=False,
         source_channel=source_channel,
-        receipt_monotonic_ns=receipt_monotonic_ns if isinstance(receipt_monotonic_ns, int) else 0,
-        receipt_wall_utc_ns=receipt_wall_utc_ns,
+        receipt_monotonic_ns=receipt_monotonic_ns if is_nonnegative_int(receipt_monotonic_ns) else 0,
+        receipt_wall_utc_ns=normalized_wall_utc_ns,
         timestamp_policy=TIMESTAMP_POLICY,
-        message_stamp_sec=message_stamp_sec if isinstance(message_stamp_sec, int) else 0,
-        message_stamp_nanosec=message_stamp_nanosec if isinstance(message_stamp_nanosec, int) else 0,
+        message_stamp_sec=message_stamp_sec if is_nonnegative_int(message_stamp_sec) else 0,
+        message_stamp_nanosec=normalized_stamp_nanosec,
         frame_id=FRAME_ID,
         child_frame_id=None,
         position_xyz=(0.0, 0.0, 0.0),
@@ -112,11 +177,24 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
     unchecked. The shared numeric helpers reject `bool` as a valid number
     (`bool` is a subclass of `int` and would otherwise pass as `0`/`1`), so a
     bool in position, velocity, yaw_speed, or an IMU vector fails closed here
-    rather than only being caught later by the readiness gate. Every
-    validation step in this function is exception-safe, so an ordinary
-    exception raised by a malformed value (e.g. a defective sequence that
-    raises during iteration) yields an invalid candidate, never a propagated
-    exception.
+    rather than only being caught later by the readiness gate.
+
+    R1D-R1: an independent pre-push audit of R1D found two residual defects,
+    closed here. First, `_invalid()` no longer stores a raw `bool` or an
+    arbitrary object in a timestamp field of an invalid candidate (see its
+    docstring). Second, a pathological `imu_gyroscope`/`imu_accelerometer`
+    (e.g. a value whose `__len__` or `__iter__` raises) is now classified by
+    a single, narrow, fail-closed helper (`_classify_imu_vector` /
+    `_imu_reliability_and_warning`) that degrades only that sensor's own
+    reliability flag and warning -- it can no longer invalidate the whole
+    candidate. The function-wide `except Exception` this checkpoint
+    previously relied on as a catch-all safety net is removed: every
+    payload-dependent operation (vector shape/finiteness via
+    `_vector_error`/`is_finite_vector`, IMU classification via
+    `_classify_imu_vector`) is protected at its own narrow, purpose-built
+    helper instead, so a genuine internal programming bug elsewhere in this
+    function is no longer silently converted into an "invalid candidate"
+    result.
     """
     # Fix C (R1C): accept only a strict Mapping. An object with a callable `get`
     # that is not a Mapping (None / list / int / duck-typed object) is invalid.
@@ -150,118 +228,103 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
              f"extraction; treated as invalid input"],
         )
 
-    try:
-        errors = []
+    errors = []
 
-        if channel not in ALLOWED_SOURCE_CHANNELS:
-            errors.append(
-                f"source_channel '{channel}' not in allowed set {ALLOWED_SOURCE_CHANNELS}"
-            )
-
-        if not is_positive_int(receipt_monotonic_ns):
-            errors.append("receipt_monotonic_ns missing or not a positive integer")
-
-        if not is_nonnegative_int(stamp_sec):
-            errors.append("stamp_sec missing, not an integer, or negative")
-
-        if not is_nonnegative_int(stamp_nanosec) or stamp_nanosec > 999_999_999:
-            errors.append(
-                "stamp_nanosec missing, not an integer, negative, or out of "
-                "range [0, 999999999]"
-            )
-
-        if receipt_wall_utc_ns is not None and not is_nonnegative_int(receipt_wall_utc_ns):
-            errors.append("receipt_wall_utc_ns must be a non-negative integer or None")
-
-        if position is None or velocity is None or yaw_speed is None:
-            errors.append("position, velocity, or yaw_speed missing")
-        else:
-            pos_error = _vector_error("position", position, 3)
-            if pos_error:
-                errors.append(pos_error)
-            vel_error = _vector_error("velocity", velocity, 3)
-            if vel_error:
-                errors.append(vel_error)
-            if not is_finite_number(yaw_speed):
-                errors.append("yaw_speed is not a finite number")
-
-        # R1D: imu_quaternion / imu_rpy are required and validated with the
-        # same fail-closed shape/finiteness check BEFORE any tuple()
-        # conversion -- a bool, a wrong-length sequence, or a non-iterable
-        # value must never reach tuple() and must never yield valid=True.
-        quat_error = _vector_error("imu_quaternion", quaternion, 4)
-        if quat_error:
-            errors.append(quat_error)
-        elif sum(component * component for component in quaternion) <= 0.0:
-            errors.append("imu_quaternion has zero norm")
-
-        rpy_error = _vector_error("imu_rpy", rpy, 3)
-        if rpy_error:
-            errors.append(rpy_error)
-
-        if errors:
-            return _invalid(
-                channel, receipt_monotonic_ns, receipt_wall_utc_ns,
-                stamp_sec, stamp_nanosec, errors,
-            )
-
-        warnings = []
-        stamp_is_zero = (stamp_sec == 0 and stamp_nanosec == 0)
-        if stamp_is_zero:
-            warnings.append(
-                "message stamp is zero; ordering/timing relies on receipt_monotonic_ns, "
-                "not sensor timestamp (see MESSAGE_STAMP_ZERO_USE_RECEIPT_TIME_REQUIRED)"
-            )
-
-        # An IMU vector is reliable only when it exists, has exactly three finite
-        # components and is not entirely zero. A missing / malformed / non-finite
-        # vector is NOT reliable (absence is never promoted to reliable). This does
-        # NOT invalidate the whole candidate: position/velocity/yaw remain usable.
-        gyro_reliable = _is_reliable_imu_vector(gyroscope)
-        accel_reliable = _is_reliable_imu_vector(accelerometer)
-        if not gyro_reliable:
-            if gyroscope is None:
-                warnings.append("imu gyroscope missing; not treated as reliable")
-            elif not (isinstance(gyroscope, (list, tuple)) and len(gyroscope) == 3 and all_finite(gyroscope)):
-                warnings.append("imu gyroscope malformed or non-finite; not treated as reliable")
-            else:
-                warnings.append("imu gyroscope reads all-zero; not treated as reliable")
-        if not accel_reliable:
-            if accelerometer is None:
-                warnings.append("imu accelerometer missing; not treated as reliable")
-            elif not (isinstance(accelerometer, (list, tuple)) and len(accelerometer) == 3 and all_finite(accelerometer)):
-                warnings.append("imu accelerometer malformed or non-finite; not treated as reliable")
-            else:
-                warnings.append("imu accelerometer reads all-zero; not treated as reliable")
-
-        return OdometryCandidate(
-            valid=True,
-            source_channel=channel,
-            receipt_monotonic_ns=receipt_monotonic_ns,
-            receipt_wall_utc_ns=receipt_wall_utc_ns,
-            timestamp_policy=TIMESTAMP_POLICY,
-            message_stamp_sec=stamp_sec,
-            message_stamp_nanosec=stamp_nanosec,
-            frame_id=FRAME_ID,
-            child_frame_id=None,
-            position_xyz=tuple(position),
-            velocity_xyz=tuple(velocity),
-            yaw_speed=float(yaw_speed),
-            orientation_quaternion_xyzw=tuple(quaternion),
-            rpy=tuple(rpy),
-            covariance_policy=COVARIANCE_POLICY,
-            covariance_available=False,
-            gyro_reliable=gyro_reliable,
-            accel_reliable=accel_reliable,
-            warnings=warnings,
-            errors=[],
+    if channel not in ALLOWED_SOURCE_CHANNELS:
+        errors.append(
+            f"source_channel '{channel}' not in allowed set {ALLOWED_SOURCE_CHANNELS}"
         )
-    except Exception as exc:
+
+    if not is_positive_int(receipt_monotonic_ns):
+        errors.append("receipt_monotonic_ns missing or not a positive integer")
+
+    if not is_nonnegative_int(stamp_sec):
+        errors.append("stamp_sec missing, not an integer, or negative")
+
+    if not is_nonnegative_int(stamp_nanosec) or stamp_nanosec > 999_999_999:
+        errors.append(
+            "stamp_nanosec missing, not an integer, negative, or out of "
+            "range [0, 999999999]"
+        )
+
+    if receipt_wall_utc_ns is not None and not is_nonnegative_int(receipt_wall_utc_ns):
+        errors.append("receipt_wall_utc_ns must be a non-negative integer or None")
+
+    if position is None or velocity is None or yaw_speed is None:
+        errors.append("position, velocity, or yaw_speed missing")
+    else:
+        pos_error = _vector_error("position", position, 3)
+        if pos_error:
+            errors.append(pos_error)
+        vel_error = _vector_error("velocity", velocity, 3)
+        if vel_error:
+            errors.append(vel_error)
+        if not is_finite_number(yaw_speed):
+            errors.append("yaw_speed is not a finite number")
+
+    # R1D: imu_quaternion / imu_rpy are required and validated with the
+    # same fail-closed shape/finiteness check BEFORE any tuple()
+    # conversion -- a bool, a wrong-length sequence, or a non-iterable
+    # value must never reach tuple() and must never yield valid=True.
+    quat_error = _vector_error("imu_quaternion", quaternion, 4)
+    if quat_error:
+        errors.append(quat_error)
+    elif sum(component * component for component in quaternion) <= 0.0:
+        errors.append("imu_quaternion has zero norm")
+
+    rpy_error = _vector_error("imu_rpy", rpy, 3)
+    if rpy_error:
+        errors.append(rpy_error)
+
+    if errors:
         return _invalid(
-            channel, receipt_monotonic_ns, receipt_wall_utc_ns, stamp_sec, stamp_nanosec,
-            [f"{type(exc).__name__} raised during candidate validation; "
-             f"treated as invalid"],
+            channel, receipt_monotonic_ns, receipt_wall_utc_ns,
+            stamp_sec, stamp_nanosec, errors,
         )
+
+    warnings = []
+    stamp_is_zero = (stamp_sec == 0 and stamp_nanosec == 0)
+    if stamp_is_zero:
+        warnings.append(
+            "message stamp is zero; ordering/timing relies on receipt_monotonic_ns, "
+            "not sensor timestamp (see MESSAGE_STAMP_ZERO_USE_RECEIPT_TIME_REQUIRED)"
+        )
+
+    # R1D-R1: a pathological gyro/accelerometer (missing, malformed, non-finite,
+    # all-zero, or a defective sequence that raises during len()/iteration) is
+    # classified by one fail-closed helper and only ever degrades that sensor's
+    # own reliability flag and warning -- it can never invalidate the whole
+    # candidate. position/velocity/yaw/orientation remain the only fields that
+    # gate validity.
+    gyro_reliable, gyro_warning = _imu_reliability_and_warning("gyroscope", gyroscope)
+    accel_reliable, accel_warning = _imu_reliability_and_warning("accelerometer", accelerometer)
+    if gyro_warning:
+        warnings.append(gyro_warning)
+    if accel_warning:
+        warnings.append(accel_warning)
+
+    return OdometryCandidate(
+        valid=True,
+        source_channel=channel,
+        receipt_monotonic_ns=receipt_monotonic_ns,
+        receipt_wall_utc_ns=receipt_wall_utc_ns,
+        timestamp_policy=TIMESTAMP_POLICY,
+        message_stamp_sec=stamp_sec,
+        message_stamp_nanosec=stamp_nanosec,
+        frame_id=FRAME_ID,
+        child_frame_id=None,
+        position_xyz=tuple(position),
+        velocity_xyz=tuple(velocity),
+        yaw_speed=float(yaw_speed),
+        orientation_quaternion_xyzw=tuple(quaternion),
+        rpy=tuple(rpy),
+        covariance_policy=COVARIANCE_POLICY,
+        covariance_available=False,
+        gyro_reliable=gyro_reliable,
+        accel_reliable=accel_reliable,
+        warnings=warnings,
+        errors=[],
+    )
 
 
 def validate_candidate_sequence(candidates: "list[OdometryCandidate]") -> dict:

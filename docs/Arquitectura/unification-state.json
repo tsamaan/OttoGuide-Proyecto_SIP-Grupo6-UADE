@@ -696,10 +696,35 @@
       "checkpoint": "MVP-ODOM-TF-R1D-CLOSE-MALFORMED-PAYLOAD-NORMALIZATION-PATHS",
       "risk_level": "B",
       "robot_access": false,
+      "pre_push_audit": "MVP_ODOM_TF_R1D_PRE_PUSH_AUDIT_NO_GO_INVALID_CANDIDATE_NORMALIZATION_AND_AUXILIARY_IMU_ISOLATION",
       "summary": "Closes residual value-normalization paths inside an otherwise well-formed Mapping that R1C did not cover: imu_quaternion/imu_rpy are now required fields validated (shape, finiteness, non-zero quaternion norm) before any tuple() conversion instead of defaulting to a zero orientation or reaching tuple(True); stamp_sec/stamp_nanosec/receipt_wall_utc_ns are validated as non-negative non-bool integers instead of being silently defaulted or passed through unchecked; and bool is now rejected as a number in the adapter's own shared validation helpers (validation.py), not only in the readiness gate's private structural check. R1 non-publishable boundary unchanged; current-fixture result unchanged: NOT_READY (same 11 blockers, publication_capability=WITHHELD_BY_R1_BOUNDARY).",
       "artifacts": [
         "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",
         "codigo ottoguide/src/navigation/odometry_candidate_adapter/validation.py",
+        "codigo ottoguide/tests/unit/test_odometry_candidate_adapter.py",
+        "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
+        "docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md",
+        "docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md"
+      ],
+      "publication_capability": "WITHHELD_BY_R1_BOUNDARY",
+      "odom_publication": "NOT_STARTED",
+      "tf_publication": "NOT_STARTED",
+      "physical_validation": "PENDING",
+      "nav2_physical": "NOT_STARTED"
+    },
+    {
+      "checkpoint": "MVP-ODOM-TF-R1D-R1-INVALID-CANDIDATE-NORMALIZATION-AND-IMU-FAULT-ISOLATION",
+      "risk_level": "B",
+      "robot_access": false,
+      "r1d_pre_push_audit": "MVP_ODOM_TF_R1D_PRE_PUSH_AUDIT_NO_GO",
+      "r1d_r1_remediation": "LOCAL_IMPLEMENTATION_COMPLETED_PENDING_INDEPENDENT_AUDIT",
+      "summary": "Closes the two reproducible defects an independent pre-push audit of R1D found. (1) _invalid() no longer stores a raw bool or an arbitrary object in a timestamp field: receipt_monotonic_ns/message_stamp_sec/message_stamp_nanosec/receipt_wall_utc_ns are normalized through is_nonnegative_int (bool-excluding) with canonical int/None fallbacks, so every invalid candidate stays well-typed and JSON-serializable. (2) A pathological imu_gyroscope/imu_accelerometer (e.g. a value whose __len__ or __iter__ raises) no longer invalidates the whole candidate: a single fail-closed classifier (_classify_imu_vector / _imu_reliability_and_warning, distinguishing MISSING/MALFORMED/NON_FINITE/ALL_ZERO/RELIABLE) degrades only that sensor's own reliability flag and warning. The function-wide except Exception this checkpoint previously relied on as a catch-all is removed in favor of these narrow, purpose-built helpers, so a genuine internal programming bug can no longer be silently converted into an invalid-candidate result. R1 non-publishable boundary unchanged; real-fixture result unchanged: NOT_READY (same 11 blockers, same 2 channels, publication_capability=WITHHELD_BY_R1_BOUNDARY).",
+      "closed_defects": [
+        "INVALID_CANDIDATE_TIMESTAMP_FIELDS_NOT_NORMALIZED",
+        "AUXILIARY_IMU_VECTOR_EXCEPTION_INVALIDATES_WHOLE_CANDIDATE"
+      ],
+      "artifacts": [
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",
         "codigo ottoguide/tests/unit/test_odometry_candidate_adapter.py",
         "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
         "docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md",

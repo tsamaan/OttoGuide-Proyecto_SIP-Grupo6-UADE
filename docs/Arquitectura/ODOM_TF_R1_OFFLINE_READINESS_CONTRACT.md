@@ -384,3 +384,54 @@ and a well-formed `imu_rpy`, with valid (zero) timestamps, so they remain
 `valid=True` and the readiness gate's result is unchanged (same eleven
 blockers, same two channels, `publication_capability =
 WITHHELD_BY_R1_BOUNDARY`).
+
+## 13. R1D-R1 — invalid-candidate normalization and IMU fault isolation
+
+An independent pre-push audit of the R1D local commit (`490c2c49...`) found
+two reproducible defects before any push, both closed here without touching
+the R1D commit itself. The R1 non-publishable boundary and the real-fixture
+result are unchanged (same eleven blockers, `NOT_READY`,
+`publication_capability = WITHHELD_BY_R1_BOUNDARY`).
+
+- **Invalid-candidate timestamp fields are now normalized.** `_invalid()`
+  used bare `isinstance(x, int)` for `receipt_monotonic_ns` /
+  `message_stamp_sec` / `message_stamp_nanosec` -- which accepts `bool`
+  unchanged, since `bool` is a subclass of `int` -- and passed
+  `receipt_wall_utc_ns` through with no validation at all. An invalid
+  candidate could therefore store a literal `True`/`False` where the model
+  declares `int`, or an arbitrary, non-JSON-serializable object where it
+  declares `int | None`. All four fields are now normalized through
+  `is_nonnegative_int` (which excludes `bool`), with canonical `0` / `None`
+  fallbacks and `message_stamp_nanosec` additionally range-checked; every
+  invalid candidate is now a well-typed, deterministic, JSON-serializable
+  `OdometryCandidate` regardless of how malformed the input was.
+  `source_channel` was intentionally left untouched -- no reproducible
+  defect was found there.
+- **A pathological auxiliary gyro/accelerometer no longer invalidates the
+  whole candidate.** The former `_is_reliable_imu_vector()` called
+  `len(values)` unprotected; a value whose `__len__` raised propagated an
+  exception that the adapter's function-wide `except Exception` then caught,
+  demoting the *entire* candidate to `valid=False` even when
+  position/velocity/yaw/orientation were all valid -- contradicting the
+  R1A-established, R1D-restated contract that a malformed/unreliable
+  auxiliary sensor must only degrade its own reliability flag. A single
+  fail-closed classifier, `_classify_imu_vector()` /
+  `_imu_reliability_and_warning()`, replaces it: it distinguishes `MISSING` /
+  `MALFORMED` / `NON_FINITE` / `ALL_ZERO` / `RELIABLE` in one narrow `try`
+  block (the only place `len()`/iteration is attempted on that value), and
+  only ever feeds the sensor's own reliability flag and warning text.
+- **The function-wide `except Exception` safety net is removed.** R1D
+  introduced a `try`/`except Exception` wrapping the adapter's entire
+  validation-and-construction body as a catch-all. Now that every
+  payload-dependent operation is protected at its own narrow, purpose-built
+  helper (`is_finite_vector` via `_vector_error` for position/velocity/
+  quaternion/rpy, `_classify_imu_vector` for the auxiliary IMU vectors), that
+  blanket boundary is no longer needed and has been removed, so a genuine
+  internal programming bug elsewhere in the function can no longer be
+  silently converted into an "invalid candidate" result. `BaseException`,
+  `KeyboardInterrupt`, `SystemExit`, and `GeneratorExit` were never caught by
+  the removed boundary either, and remain uncaught.
+
+The real MFR-R6 fixtures are unaffected: none of their 160 samples exercise
+either defect, so they remain `valid=True` with the readiness gate's result
+unchanged.

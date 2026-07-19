@@ -12,6 +12,7 @@
 @SECURITY: Cero imports de rclpy/nav_msgs/geometry_msgs/tf2_ros/tf2/unitree_sdk2.
            Sin I/O de red, sin reloj de sistema dentro del adapter.
 """
+import dataclasses
 import json
 import math
 from pathlib import Path
@@ -559,6 +560,299 @@ class TestAdapterR1DMalformedPayloadNormalization(unittest.TestCase):
         c = to_odometry_candidate(s)
         self.assertTrue(c.valid)
         self.assertFalse(c.gyro_reliable)
+
+
+# --- R1D-R1: independent pre-push audit remediation -------------------------
+# Closes two defects the R1D pre-push audit found: (1) an invalid candidate
+# could store a raw bool or an arbitrary object in a timestamp field instead
+# of a canonical int/None; (2) a pathological gyro/accelerometer (whose
+# __len__ or __iter__ raises) invalidated the WHOLE candidate instead of only
+# degrading that sensor's own reliability flag.
+
+class TestAdapterR1DR1InvalidCandidateNormalization(unittest.TestCase):
+    """Every invalid candidate must stay typed, deterministic, and JSON-
+    serializable: no bool stored where int is expected, no arbitrary object
+    stored where int/None is expected."""
+
+    def _base_sample(self):
+        return {
+            "channel": "rt/odommodestate",
+            "receipt_monotonic_ns": 123456789,
+            "receipt_wall_utc_ns": 987654321,
+            "stamp_sec": 0, "stamp_nanosec": 0,
+            "position": [1.0, 2.0, 0.5],
+            "velocity": [0.0, 0.0, 0.0],
+            "yaw_speed": 0.0,
+            "imu_quaternion": [0.0, 0.0, 0.0, 1.0],
+            "imu_rpy": [0.0, 0.0, 0.0],
+            "imu_gyroscope": [0.01, 0.0, 0.02],
+            "imu_accelerometer": [0.0, 0.0, 9.81],
+        }
+
+    def _assert_normalized_invalid(self, sample):
+        c = to_odometry_candidate(sample)
+        self.assertFalse(c.valid)
+
+        self.assertIs(type(c.receipt_monotonic_ns), int)
+        self.assertIs(type(c.message_stamp_sec), int)
+        self.assertIs(type(c.message_stamp_nanosec), int)
+        self.assertTrue(
+            c.receipt_wall_utc_ns is None or type(c.receipt_wall_utc_ns) is int
+        )
+
+        # json.dumps(dataclasses.asdict(...)) across the whole candidate:
+        # proves no arbitrary/non-serializable object survived anywhere.
+        payload = json.dumps(dataclasses.asdict(c))
+        self.assertIsInstance(payload, str)
+        return c
+
+    def test_receipt_monotonic_ns_bool_true_normalized(self):
+        s = self._base_sample()
+        s["receipt_monotonic_ns"] = True
+        self._assert_normalized_invalid(s)
+
+    def test_receipt_monotonic_ns_bool_false_normalized(self):
+        s = self._base_sample()
+        s["receipt_monotonic_ns"] = False
+        self._assert_normalized_invalid(s)
+
+    def test_receipt_monotonic_ns_negative_normalized(self):
+        s = self._base_sample()
+        s["receipt_monotonic_ns"] = -1
+        self._assert_normalized_invalid(s)
+
+    def test_receipt_monotonic_ns_object_normalized(self):
+        s = self._base_sample()
+        s["receipt_monotonic_ns"] = object()
+        self._assert_normalized_invalid(s)
+
+    def test_stamp_sec_bool_true_normalized(self):
+        s = self._base_sample()
+        s["stamp_sec"] = True
+        self._assert_normalized_invalid(s)
+
+    def test_stamp_sec_negative_normalized(self):
+        s = self._base_sample()
+        s["stamp_sec"] = -1
+        self._assert_normalized_invalid(s)
+
+    def test_stamp_sec_object_normalized(self):
+        s = self._base_sample()
+        s["stamp_sec"] = object()
+        self._assert_normalized_invalid(s)
+
+    def test_stamp_nanosec_bool_true_normalized(self):
+        s = self._base_sample()
+        s["stamp_nanosec"] = True
+        self._assert_normalized_invalid(s)
+
+    def test_stamp_nanosec_negative_normalized(self):
+        s = self._base_sample()
+        s["stamp_nanosec"] = -1
+        self._assert_normalized_invalid(s)
+
+    def test_stamp_nanosec_out_of_range_normalized(self):
+        s = self._base_sample()
+        s["stamp_nanosec"] = 1_000_000_000
+        self._assert_normalized_invalid(s)
+
+    def test_stamp_nanosec_object_normalized(self):
+        s = self._base_sample()
+        s["stamp_nanosec"] = object()
+        self._assert_normalized_invalid(s)
+
+    def test_receipt_wall_utc_ns_bool_true_normalized(self):
+        s = self._base_sample()
+        s["receipt_wall_utc_ns"] = True
+        self._assert_normalized_invalid(s)
+
+    def test_receipt_wall_utc_ns_negative_normalized(self):
+        s = self._base_sample()
+        s["receipt_wall_utc_ns"] = -1
+        self._assert_normalized_invalid(s)
+
+    def test_receipt_wall_utc_ns_object_normalized(self):
+        s = self._base_sample()
+        s["receipt_wall_utc_ns"] = object()
+        self._assert_normalized_invalid(s)
+
+    def test_receipt_wall_utc_ns_none_stays_valid_and_none(self):
+        # None is a legitimately allowed value on an otherwise-valid sample --
+        # must NOT be treated as malformed by the R1D-R1 normalization.
+        s = self._base_sample()
+        s["receipt_wall_utc_ns"] = None
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertIsNone(c.receipt_wall_utc_ns)
+        payload = json.dumps(dataclasses.asdict(c))
+        self.assertIsInstance(payload, str)
+
+
+class _LenRaises(list):
+    """A list subclass whose __len__ raises. This was the exact defect the
+    R1D pre-push audit found: len(values) was unprotected inside the old
+    _is_reliable_imu_vector and its exception reached a function-wide
+    boundary that invalidated the whole candidate."""
+
+    def __len__(self):
+        raise RuntimeError("boom-len")
+
+
+class _IterRaises(list):
+    """A list subclass whose __iter__ raises mid-iteration."""
+
+    def __iter__(self):
+        raise RuntimeError("boom-iter")
+
+
+class _GetItemRaises:
+    """Deliberately NOT a list/tuple: exposes only __len__/__getitem__ (the
+    legacy sequence protocol, no __iter__). Must be rejected as malformed by
+    the isinstance(list/tuple) gate before __getitem__ is ever invoked --
+    list/tuple iteration in CPython goes through __iter__, never
+    __getitem__, so making __getitem__ raise on an actual list subclass would
+    not exercise anything; a genuine duck-typed non-list sequence is the
+    faithful adversarial case for this protocol."""
+
+    def __len__(self):
+        return 3
+
+    def __getitem__(self, index):
+        raise RuntimeError("boom-getitem")
+
+
+class TestAdapterR1DR1AuxiliaryImuFaultIsolation(unittest.TestCase):
+    """A pathological auxiliary gyro/accelerometer must never invalidate an
+    otherwise-valid candidate -- only degrade that sensor's own reliability
+    flag, with an explicit warning, errors staying empty."""
+
+    def _base_sample(self):
+        return {
+            "channel": "rt/odommodestate",
+            "receipt_monotonic_ns": 123456789,
+            "receipt_wall_utc_ns": 987654321,
+            "stamp_sec": 0, "stamp_nanosec": 0,
+            "position": [1.0, 2.0, 0.5],
+            "velocity": [0.0, 0.0, 0.0],
+            "yaw_speed": 0.0,
+            "imu_quaternion": [0.0, 0.0, 0.0, 1.0],
+            "imu_rpy": [0.0, 0.0, 0.0],
+            "imu_gyroscope": [0.01, 0.0, 0.02],
+            "imu_accelerometer": [0.0, 0.0, 9.81],
+        }
+
+    def _assert_isolated(self, sample, field):
+        c = to_odometry_candidate(sample)
+        self.assertTrue(c.valid)
+        self.assertEqual(c.errors, [])
+        reliable = c.gyro_reliable if field == "imu_gyroscope" else c.accel_reliable
+        self.assertFalse(reliable)
+        name = "gyroscope" if field == "imu_gyroscope" else "accelerometer"
+        self.assertTrue(any(name in w for w in c.warnings))
+
+    # --- adversarial exception classes: gyroscope ---
+    def test_gyro_len_raises_isolated_no_exception(self):
+        s = self._base_sample()
+        s["imu_gyroscope"] = _LenRaises([0.01, 0.0, 0.02])
+        self._assert_isolated(s, "imu_gyroscope")
+
+    def test_gyro_iter_raises_isolated_no_exception(self):
+        s = self._base_sample()
+        s["imu_gyroscope"] = _IterRaises([0.01, 0.0, 0.02])
+        self._assert_isolated(s, "imu_gyroscope")
+
+    def test_gyro_getitem_raises_isolated_no_exception(self):
+        s = self._base_sample()
+        s["imu_gyroscope"] = _GetItemRaises()
+        self._assert_isolated(s, "imu_gyroscope")
+
+    # --- adversarial exception classes: accelerometer ---
+    def test_accel_len_raises_isolated_no_exception(self):
+        s = self._base_sample()
+        s["imu_accelerometer"] = _LenRaises([0.0, 0.0, 9.81])
+        self._assert_isolated(s, "imu_accelerometer")
+
+    def test_accel_iter_raises_isolated_no_exception(self):
+        s = self._base_sample()
+        s["imu_accelerometer"] = _IterRaises([0.0, 0.0, 9.81])
+        self._assert_isolated(s, "imu_accelerometer")
+
+    def test_accel_getitem_raises_isolated_no_exception(self):
+        s = self._base_sample()
+        s["imu_accelerometer"] = _GetItemRaises()
+        self._assert_isolated(s, "imu_accelerometer")
+
+    # --- bool / NaN / Inf / wrong length / all-zero / missing: gyroscope ---
+    def test_gyro_bool_component_isolated(self):
+        s = self._base_sample()
+        s["imu_gyroscope"] = [True, False, True]
+        self._assert_isolated(s, "imu_gyroscope")
+
+    def test_gyro_nan_component_isolated(self):
+        s = self._base_sample()
+        s["imu_gyroscope"] = [float("nan"), 0.0, 0.0]
+        self._assert_isolated(s, "imu_gyroscope")
+
+    def test_gyro_inf_component_isolated(self):
+        s = self._base_sample()
+        s["imu_gyroscope"] = [float("inf"), 0.0, 0.0]
+        self._assert_isolated(s, "imu_gyroscope")
+
+    def test_gyro_wrong_length_isolated(self):
+        s = self._base_sample()
+        s["imu_gyroscope"] = [0.01, 0.0]
+        self._assert_isolated(s, "imu_gyroscope")
+
+    def test_gyro_all_zero_isolated(self):
+        s = self._base_sample()
+        s["imu_gyroscope"] = [0.0, 0.0, 0.0]
+        self._assert_isolated(s, "imu_gyroscope")
+
+    def test_gyro_missing_isolated(self):
+        s = self._base_sample()
+        del s["imu_gyroscope"]
+        self._assert_isolated(s, "imu_gyroscope")
+
+    def test_gyro_valid_nonzero_is_reliable(self):
+        c = to_odometry_candidate(self._base_sample())
+        self.assertTrue(c.valid)
+        self.assertTrue(c.gyro_reliable)
+
+    # --- bool / NaN / Inf / wrong length / all-zero / missing: accelerometer ---
+    def test_accel_bool_component_isolated(self):
+        s = self._base_sample()
+        s["imu_accelerometer"] = [True, False, True]
+        self._assert_isolated(s, "imu_accelerometer")
+
+    def test_accel_nan_component_isolated(self):
+        s = self._base_sample()
+        s["imu_accelerometer"] = [float("nan"), 0.0, 9.81]
+        self._assert_isolated(s, "imu_accelerometer")
+
+    def test_accel_inf_component_isolated(self):
+        s = self._base_sample()
+        s["imu_accelerometer"] = [float("inf"), 0.0, 9.81]
+        self._assert_isolated(s, "imu_accelerometer")
+
+    def test_accel_wrong_length_isolated(self):
+        s = self._base_sample()
+        s["imu_accelerometer"] = [0.0, 0.0]
+        self._assert_isolated(s, "imu_accelerometer")
+
+    def test_accel_all_zero_isolated(self):
+        s = self._base_sample()
+        s["imu_accelerometer"] = [0.0, 0.0, 0.0]
+        self._assert_isolated(s, "imu_accelerometer")
+
+    def test_accel_missing_isolated(self):
+        s = self._base_sample()
+        del s["imu_accelerometer"]
+        self._assert_isolated(s, "imu_accelerometer")
+
+    def test_accel_valid_nonzero_is_reliable(self):
+        c = to_odometry_candidate(self._base_sample())
+        self.assertTrue(c.valid)
+        self.assertTrue(c.accel_reliable)
 
 
 if __name__ == "__main__":
