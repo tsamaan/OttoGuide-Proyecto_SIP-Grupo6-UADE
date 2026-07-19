@@ -402,11 +402,13 @@ result are unchanged (same eleven blockers, `NOT_READY`,
   declares `int`, or an arbitrary, non-JSON-serializable object where it
   declares `int | None`. All four fields are now normalized through
   `is_nonnegative_int` (which excludes `bool`), with canonical `0` / `None`
-  fallbacks and `message_stamp_nanosec` additionally range-checked; every
-  invalid candidate is now a well-typed, deterministic, JSON-serializable
-  `OdometryCandidate` regardless of how malformed the input was.
-  `source_channel` was intentionally left untouched -- no reproducible
-  defect was found there.
+  fallbacks and `message_stamp_nanosec` additionally range-checked; these
+  four fields are now well-typed and JSON-serializable regardless of how
+  malformed the input was. **`source_channel` was intentionally left
+  untouched at this point** -- no reproducible defect had been found there
+  yet. R1D-R1's own pre-push audit then found one (see section 14, R1D-R2):
+  the full "every invalid candidate is canonical and JSON-serializable"
+  guarantee was not actually true until R1D-R2 closed that gap too.
 - **A pathological auxiliary gyro/accelerometer no longer invalidates the
   whole candidate.** The former `_is_reliable_imu_vector()` called
   `len(values)` unprotected; a value whose `__len__` raised propagated an
@@ -435,3 +437,65 @@ result are unchanged (same eleven blockers, `NOT_READY`,
 The real MFR-R6 fixtures are unaffected: none of their 160 samples exercise
 either defect, so they remain `valid=True` with the readiness gate's result
 unchanged.
+
+## 14. R1D-R2 — source_channel normalization and safe validation
+
+An independent pre-push audit of the R1D-R1 local commit (`ceeb7259...`) ran
+its own canary test (a hostile `channel` on an otherwise-valid sample) and
+found that R1D-R1's "every invalid candidate is canonical and
+JSON-serializable" claim did not actually hold for `source_channel`, which
+R1D-R1 had explicitly left untouched. Further inspection in this checkpoint
+confirmed three more exception paths through the same root cause. All four
+are closed here, without touching the R1D or R1D-R1 commits. The R1
+non-publishable boundary and the real-fixture result are unchanged (same
+eleven blockers, `NOT_READY`, `publication_capability =
+WITHHELD_BY_R1_BOUNDARY`).
+
+- **`SOURCE_CHANNEL_SERIALIZATION_CANARY_FAILED`.** `_invalid()` passed
+  `source_channel` straight through unchanged; a non-string `channel`
+  (`object()`, a list, a dict, ...) survived into the invalid candidate and
+  broke `json.dumps(dataclasses.asdict(candidate))`.
+- **`SOURCE_CHANNEL_EQ_EXCEPTION_PROPAGATES`.** `channel not in
+  ALLOWED_SOURCE_CHANNELS` calls `channel.__eq__` against each allowed
+  string; an object (or a `str` subclass) whose `__eq__` raises propagated
+  that exception straight out of `to_odometry_candidate`.
+- **`SOURCE_CHANNEL_STR_EXCEPTION_PROPAGATES`.** The old error message,
+  `f"source_channel '{channel}' not in allowed set ..."`, implicitly calls
+  `format(channel)` (which falls back to `__str__`); an object whose
+  `__str__` raises propagated that exception the same way.
+- **`UNHASHABLE_SOURCE_CHANNEL_BREAKS_SEQUENCE_AGGREGATION`.** A `channel`
+  of an unhashable type (a list or dict) reached `to_odometry_candidate`
+  fine (`type(channel) is str` was already false, so it correctly became
+  `valid=False`), but `validate_candidate_sequence` then used the invalid
+  candidate's stored `source_channel` directly as a `dict` key via
+  `by_channel.setdefault(...)`, which raises `TypeError: unhashable type`
+  for a list or dict.
+
+Fixes:
+
+- `to_odometry_candidate` now checks `type(channel) is str` **before** any
+  `in`/`==` membership test, short-circuiting so a hostile object's (or `str`
+  subclass's) `__eq__` is never called. The error message is now the fixed
+  constant `"source_channel missing, not a plain string, or outside allowed
+  set"` -- never an f-string of `channel` -- so a hostile `__str__` can't
+  raise either.
+- `_invalid()` normalizes `source_channel` the same way it already
+  normalizes the timestamp fields: only a value that is both exactly `str`
+  and a member of `ALLOWED_SOURCE_CHANNELS` is preserved; anything else
+  (wrong type, a hostile `str` subclass, an empty/whitespace/unknown
+  string) becomes the fixed sentinel `_INVALID_SOURCE_CHANNEL = "<invalid>"`.
+  `models.py` is unchanged -- `source_channel` remains typed `str`, and the
+  sentinel satisfies that type.
+- `validate_candidate_sequence` no longer trusts every candidate it
+  receives came from the adapter: before using `source_channel` as a `dict`
+  key it checks `type(source_channel) is str`, bucketing anything else under
+  the same `_INVALID_SOURCE_CHANNEL` sentinel, so `hash()` is never
+  attempted on an arbitrary value -- this defends a manually-constructed
+  `OdometryCandidate` too, not just adapter output.
+
+With this checkpoint, the "every invalid candidate is canonical, hashable,
+and JSON-serializable, no matter how malformed the input was" guarantee
+R1D-R1 stated is now actually true for every field, including
+`source_channel`. The real MFR-R6 fixtures are unaffected: both real channel
+strings (`rt/odommodestate`, `rt/lf/odommodestate`) are preserved unchanged,
+and none of the 160 samples exercise any of these four defects.

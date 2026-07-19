@@ -103,17 +103,36 @@ def _vector_error(name, value, length):
     return f"{name} must be a list/tuple of exactly {length} finite, non-bool numbers"
 
 
+_INVALID_SOURCE_CHANNEL = "<invalid>"
+
+
 def _invalid(source_channel, receipt_monotonic_ns, receipt_wall_utc_ns,
              message_stamp_sec, message_stamp_nanosec, errors, warnings=None):
-    """Build an invalid candidate. R1D-R1: every numeric field is normalized
-    through `is_nonnegative_int` (which excludes `bool`) rather than the bare
-    `isinstance(x, int)` that would accept a `bool` unchanged, so an invalid
-    candidate never stores a raw `bool` or an arbitrary object where the
-    model declares `int` / `int | None` -- it stays a well-typed, JSON-
-    serializable `OdometryCandidate` no matter how malformed the input was.
-    `source_channel` is intentionally left untouched: no reproducible defect
-    has been found there, and it is out of this checkpoint's scope.
+    """Build an invalid candidate. Every field is normalized to a canonical,
+    bounded, hashable, JSON-serializable value, no matter how malformed the
+    input was.
+
+    R1D-R1: `receipt_monotonic_ns` / `message_stamp_sec` /
+    `message_stamp_nanosec` / `receipt_wall_utc_ns` are normalized through
+    `is_nonnegative_int` (which excludes `bool`, unlike a bare
+    `isinstance(x, int)`), so none of them can store a raw `bool` or an
+    arbitrary object.
+
+    R1D-R2: `source_channel` gets the same treatment. Only an allowed
+    channel of exact type `str` is preserved; any other value -- wrong
+    type, a hostile `str` subclass, an empty/whitespace/unknown string, or
+    an object whose `__eq__`/`__str__` raises -- normalizes to the fixed
+    sentinel `_INVALID_SOURCE_CHANNEL` instead of the raw value. This closes
+    the gap R1D-R1's own audit found: `_invalid()` previously left
+    `source_channel` completely untouched, so an invalid candidate could
+    still carry a non-serializable, unhashable, or exception-raising object
+    there even though every numeric field was already canonical.
     """
+    normalized_source_channel = (
+        source_channel
+        if type(source_channel) is str and source_channel in ALLOWED_SOURCE_CHANNELS
+        else _INVALID_SOURCE_CHANNEL
+    )
     normalized_wall_utc_ns = (
         receipt_wall_utc_ns
         if receipt_wall_utc_ns is None or is_nonnegative_int(receipt_wall_utc_ns)
@@ -126,7 +145,7 @@ def _invalid(source_channel, receipt_monotonic_ns, receipt_wall_utc_ns,
     )
     return OdometryCandidate(
         valid=False,
-        source_channel=source_channel,
+        source_channel=normalized_source_channel,
         receipt_monotonic_ns=receipt_monotonic_ns if is_nonnegative_int(receipt_monotonic_ns) else 0,
         receipt_wall_utc_ns=normalized_wall_utc_ns,
         timestamp_policy=TIMESTAMP_POLICY,
@@ -195,6 +214,20 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
     helper instead, so a genuine internal programming bug elsewhere in this
     function is no longer silently converted into an "invalid candidate"
     result.
+
+    R1D-R2: the R1D-R1 audit's own canary test (a hostile `channel`) found
+    that `source_channel` was the one field left out of the "every invalid
+    candidate is canonical and JSON-serializable" guarantee. `channel not in
+    ALLOWED_SOURCE_CHANNELS` propagated whatever ordinary exception a hostile
+    object's `__eq__` raised, and the old error message's f-string
+    interpolation of `channel` did the same for a hostile `__str__`; neither
+    is evaluated anymore. The check is now `type(channel) is str and channel
+    in ALLOWED_SOURCE_CHANNELS` (type-gated before any comparison, rejecting
+    a hostile `str` subclass too), the error message is a fixed constant, and
+    `_invalid()` normalizes any disallowed/wrong-type channel to the fixed
+    sentinel `_INVALID_SOURCE_CHANNEL` -- never the raw value. See
+    `validate_candidate_sequence` for the matching defense against a
+    manually-constructed candidate whose `source_channel` is unhashable.
     """
     # Fix C (R1C): accept only a strict Mapping. An object with a callable `get`
     # that is not a Mapping (None / list / int / duck-typed object) is invalid.
@@ -230,9 +263,16 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
 
     errors = []
 
-    if channel not in ALLOWED_SOURCE_CHANNELS:
+    # R1D-R2: check the exact type FIRST, short-circuiting before any `in`/
+    # `==` membership test. A hostile object (or a str subclass) whose
+    # __eq__ raises would otherwise crash `channel in ALLOWED_SOURCE_CHANNELS`;
+    # `type(channel) is str` rejects it (and any str subclass) without ever
+    # touching __eq__. The message is a fixed constant -- never `str(channel)`
+    # / `repr(channel)` / an f-string of `channel` -- so a hostile __str__
+    # can't raise here either.
+    if not (type(channel) is str and channel in ALLOWED_SOURCE_CHANNELS):
         errors.append(
-            f"source_channel '{channel}' not in allowed set {ALLOWED_SOURCE_CHANNELS}"
+            "source_channel missing, not a plain string, or outside allowed set"
         )
 
     if not is_positive_int(receipt_monotonic_ns):
@@ -333,10 +373,20 @@ def validate_candidate_sequence(candidates: "list[OdometryCandidate]") -> dict:
     Does not assume all candidates share a channel; buckets by
     source_channel and reports per-channel stats plus an overall
     invalid_count / warning_count.
+
+    R1D-R2: `to_odometry_candidate` always normalizes `source_channel` to a
+    `str`, but this function does not assume every candidate came from the
+    adapter -- a manually-constructed `OdometryCandidate` could carry an
+    unhashable `source_channel` (a list or dict), which would otherwise
+    crash `dict.setdefault` with `TypeError`. `type(source_channel) is str`
+    is checked before ever using it as a key; anything else buckets under
+    the same fixed sentinel `_INVALID_SOURCE_CHANNEL` the adapter itself
+    uses, so `hash()` is never attempted on an arbitrary value.
     """
     by_channel: "dict[str, list[OdometryCandidate]]" = {}
     for c in candidates:
-        by_channel.setdefault(c.source_channel, []).append(c)
+        channel_key = c.source_channel if type(c.source_channel) is str else _INVALID_SOURCE_CHANNEL
+        by_channel.setdefault(channel_key, []).append(c)
 
     result = {
         "total_count": len(candidates),

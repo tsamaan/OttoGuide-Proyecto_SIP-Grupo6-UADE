@@ -18,6 +18,7 @@ import math
 from pathlib import Path
 
 from src.navigation.odometry_candidate_adapter import (
+    OdometryCandidate,
     to_odometry_candidate,
     validate_candidate_sequence,
 )
@@ -853,6 +854,206 @@ class TestAdapterR1DR1AuxiliaryImuFaultIsolation(unittest.TestCase):
         c = to_odometry_candidate(self._base_sample())
         self.assertTrue(c.valid)
         self.assertTrue(c.accel_reliable)
+
+
+# --- R1D-R2: source_channel sanitization and safe validation -----------------
+# Closes four defects an independent pre-push audit of R1D-R1 found: a hostile
+# `channel` could (1) leave a non-serializable object stored in an invalid
+# candidate, (2) crash to_odometry_candidate via a raising __eq__, (3) crash it
+# via a raising __str__ in the old f-string error message, and (4) crash
+# validate_candidate_sequence via an unhashable channel used as a dict key.
+
+class _EqRaises:
+    """Not a str at all -- type(channel) is str rejects this before __eq__
+    is ever consulted, so this raising __eq__ should never actually run."""
+
+    def __eq__(self, other):
+        raise RuntimeError("eq boom")
+
+    def __hash__(self):
+        return id(self)
+
+
+class _StrRaises:
+    def __str__(self):
+        raise RuntimeError("str boom")
+
+
+class _StrSubclassEqRaises(str):
+    """A str SUBCLASS, not exactly str -- type(channel) is str is False for
+    this (type() is an exact match, not isinstance), so this raising __eq__
+    should never actually run either."""
+
+    def __eq__(self, other):
+        raise RuntimeError("str-subclass eq boom")
+
+    def __hash__(self):
+        return str.__hash__(self)
+
+
+class TestAdapterR1DR2SourceChannelSanitization(unittest.TestCase):
+    def _base_sample(self):
+        return {
+            "channel": "rt/odommodestate",
+            "receipt_monotonic_ns": 123456789,
+            "receipt_wall_utc_ns": 987654321,
+            "stamp_sec": 0, "stamp_nanosec": 0,
+            "position": [1.0, 2.0, 0.5],
+            "velocity": [0.0, 0.0, 0.0],
+            "yaw_speed": 0.0,
+            "imu_quaternion": [0.0, 0.0, 0.0, 1.0],
+            "imu_rpy": [0.0, 0.0, 0.0],
+            "imu_gyroscope": [0.01, 0.0, 0.02],
+            "imu_accelerometer": [0.0, 0.0, 9.81],
+        }
+
+    def _assert_channel_sanitized(self, sample):
+        c = to_odometry_candidate(sample)
+        self.assertFalse(c.valid)
+        self.assertEqual(c.source_channel, "<invalid>")
+        self.assertIs(type(c.source_channel), str)
+        hash(c.source_channel)  # must not raise
+        payload = json.dumps(dataclasses.asdict(c))
+        self.assertIsInstance(payload, str)
+        return c
+
+    def test_channel_object_sanitized_no_exception(self):
+        s = self._base_sample()
+        s["channel"] = object()
+        self._assert_channel_sanitized(s)
+
+    def test_channel_list_sanitized_no_exception(self):
+        s = self._base_sample()
+        s["channel"] = []
+        self._assert_channel_sanitized(s)
+
+    def test_channel_dict_sanitized_no_exception(self):
+        s = self._base_sample()
+        s["channel"] = {}
+        self._assert_channel_sanitized(s)
+
+    def test_channel_int_sanitized(self):
+        s = self._base_sample()
+        s["channel"] = 1
+        self._assert_channel_sanitized(s)
+
+    def test_channel_bool_sanitized(self):
+        s = self._base_sample()
+        s["channel"] = True
+        self._assert_channel_sanitized(s)
+
+    def test_channel_none_sanitized(self):
+        s = self._base_sample()
+        s["channel"] = None
+        self._assert_channel_sanitized(s)
+
+    def test_channel_empty_string_sanitized(self):
+        s = self._base_sample()
+        s["channel"] = ""
+        self._assert_channel_sanitized(s)
+
+    def test_channel_whitespace_string_sanitized(self):
+        s = self._base_sample()
+        s["channel"] = "   "
+        self._assert_channel_sanitized(s)
+
+    def test_channel_unknown_string_sanitized(self):
+        s = self._base_sample()
+        s["channel"] = "rt/unknown"
+        self._assert_channel_sanitized(s)
+
+    def test_channel_eq_raises_no_exception(self):
+        s = self._base_sample()
+        s["channel"] = _EqRaises()
+        self._assert_channel_sanitized(s)
+
+    def test_channel_str_raises_no_exception(self):
+        s = self._base_sample()
+        s["channel"] = _StrRaises()
+        self._assert_channel_sanitized(s)
+
+    def test_channel_str_subclass_eq_raises_no_exception(self):
+        s = self._base_sample()
+        s["channel"] = _StrSubclassEqRaises("rt/odommodestate")
+        self._assert_channel_sanitized(s)
+
+    def test_valid_channel_rt_odommodestate_preserved(self):
+        s = self._base_sample()
+        s["channel"] = "rt/odommodestate"
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertEqual(c.source_channel, "rt/odommodestate")
+
+    def test_valid_channel_rt_lf_odommodestate_preserved(self):
+        s = self._base_sample()
+        s["channel"] = "rt/lf/odommodestate"
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertEqual(c.source_channel, "rt/lf/odommodestate")
+
+    # --- aggregation safety (validate_candidate_sequence) -------------------
+
+    def _manual_invalid_candidate(self, source_channel):
+        # Bypasses the adapter entirely -- validate_candidate_sequence must
+        # not assume every candidate it sees was built by to_odometry_candidate.
+        return OdometryCandidate(
+            valid=False,
+            source_channel=source_channel,
+            receipt_monotonic_ns=0,
+            receipt_wall_utc_ns=None,
+            timestamp_policy=TIMESTAMP_POLICY,
+            message_stamp_sec=0,
+            message_stamp_nanosec=0,
+            frame_id=FRAME_ID,
+            child_frame_id=None,
+            position_xyz=(0.0, 0.0, 0.0),
+            velocity_xyz=(0.0, 0.0, 0.0),
+            yaw_speed=0.0,
+            orientation_quaternion_xyzw=(0.0, 0.0, 0.0, 0.0),
+            rpy=(0.0, 0.0, 0.0),
+            covariance_policy=COVARIANCE_POLICY,
+            covariance_available=False,
+            gyro_reliable=False,
+            accel_reliable=False,
+            warnings=[],
+            errors=["manually constructed for aggregation test"],
+        )
+
+    def test_aggregation_adapter_candidate_channel_list_no_exception(self):
+        s = self._base_sample()
+        s["channel"] = []
+        c = to_odometry_candidate(s)
+        result = validate_candidate_sequence([c])
+        self.assertEqual(list(result["channels"].keys()), ["<invalid>"])
+        self.assertEqual(result["invalid_count"], 1)
+        payload = json.dumps(result)
+        self.assertIsInstance(payload, str)
+
+    def test_aggregation_adapter_candidate_channel_dict_no_exception(self):
+        s = self._base_sample()
+        s["channel"] = {}
+        c = to_odometry_candidate(s)
+        result = validate_candidate_sequence([c])
+        self.assertEqual(list(result["channels"].keys()), ["<invalid>"])
+        self.assertEqual(result["invalid_count"], 1)
+        payload = json.dumps(result)
+        self.assertIsInstance(payload, str)
+
+    def test_aggregation_manual_candidate_channel_list_no_exception(self):
+        c = self._manual_invalid_candidate([])
+        result = validate_candidate_sequence([c])
+        self.assertEqual(list(result["channels"].keys()), ["<invalid>"])
+        self.assertEqual(result["invalid_count"], 1)
+        payload = json.dumps(result)
+        self.assertIsInstance(payload, str)
+
+    def test_aggregation_manual_candidate_channel_dict_no_exception(self):
+        c = self._manual_invalid_candidate({})
+        result = validate_candidate_sequence([c])
+        self.assertEqual(list(result["channels"].keys()), ["<invalid>"])
+        self.assertEqual(result["invalid_count"], 1)
+        payload = json.dumps(result)
+        self.assertIsInstance(payload, str)
 
 
 if __name__ == "__main__":

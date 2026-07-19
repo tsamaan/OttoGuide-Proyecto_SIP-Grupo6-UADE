@@ -815,5 +815,39 @@ class TestR1DR1HostileTimestampIntegration(unittest.TestCase):
         self.assertTrue(report.physical_validation_required)
 
 
+class TestR1DR2HostileChannelIntegration(unittest.TestCase):
+    """R1D-R2: an invalid candidate built from a hostile (unhashable)
+    channel must still flow through assess_odom_tf_readiness without
+    raising, landing on EMPTY_OR_INVALID_SEQUENCE with the R1 boundary
+    fully withheld."""
+
+    def test_hostile_channel_payload_fails_closed_through_readiness(self):
+        sample = {
+            "channel": [],
+            "receipt_monotonic_ns": 1,
+            "position": [0.0, 0.0, 0.0],
+            "velocity": [0.0, 0.0, 0.0],
+            "yaw_speed": 0.0,
+            "imu_quaternion": [0.0, 0.0, 0.0, 1.0],
+            "imu_rpy": [0.0, 0.0, 0.0],
+            "stamp_sec": 0, "stamp_nanosec": 0,
+        }
+
+        candidate = to_odometry_candidate(sample)
+        self.assertFalse(candidate.valid)
+        self.assertEqual(candidate.source_channel, "<invalid>")
+
+        report = assess_odom_tf_readiness([candidate], OdomTfEvidenceContract())
+        self.assertEqual(report.candidate_invalid_count, 1)
+        self.assertEqual(report.channels, ())
+        self.assertIn(EMPTY_OR_INVALID_SEQUENCE, report.blocker_codes())
+        self.assertEqual(
+            report.publication_capability, PUBLICATION_CAPABILITY_WITHHELD)
+        self.assertFalse(report.odom_publication_ready)
+        self.assertFalse(report.odom_to_base_link_tf_ready)
+        self.assertFalse(report.nav2_ready)
+        self.assertTrue(report.physical_validation_required)
+
+
 if __name__ == "__main__":
     unittest.main()
