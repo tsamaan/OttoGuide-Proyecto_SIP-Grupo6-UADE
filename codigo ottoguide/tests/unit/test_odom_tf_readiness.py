@@ -518,22 +518,22 @@ class TestR1BAdapterNonMappingFailClosed(unittest.TestCase):
     def test_none_input_invalid_no_exception(self):
         c = to_odometry_candidate(None)
         self.assertFalse(c.valid)
-        self.assertTrue(any("not a mapping" in e for e in c.errors))
+        self.assertTrue(any("not a mapping" in e.lower() for e in c.errors))
 
     def test_list_input_invalid_no_exception(self):
         c = to_odometry_candidate([1, 2, 3])
         self.assertFalse(c.valid)
-        self.assertTrue(any("not a mapping" in e for e in c.errors))
+        self.assertTrue(any("not a mapping" in e.lower() for e in c.errors))
 
     def test_int_input_invalid_no_exception(self):
         c = to_odometry_candidate(42)
         self.assertFalse(c.valid)
-        self.assertTrue(any("not a mapping" in e for e in c.errors))
+        self.assertTrue(any("not a mapping" in e.lower() for e in c.errors))
 
     def test_object_input_invalid_no_exception(self):
         c = to_odometry_candidate(object())
         self.assertFalse(c.valid)
-        self.assertTrue(any("not a mapping" in e for e in c.errors))
+        self.assertTrue(any("not a mapping" in e.lower() for e in c.errors))
 
 
 class TestR1BContractStringSemantics(unittest.TestCase):
@@ -613,6 +613,137 @@ class TestR1BNonPublishableBoundary(unittest.TestCase):
         self.assertEqual(
             d["publication_capability"], PUBLICATION_CAPABILITY_WITHHELD
         )
+
+
+class _RaisingIterable:
+    """An iterable whose iterator raises a chosen exception mid-iteration."""
+
+    def __init__(self, exc_type):
+        self._exc_type = exc_type
+
+    def __iter__(self):
+        raise self._exc_type("broken iterator")
+
+
+class _RaisingMapping(dict):
+    """A Mapping subclass whose get() raises. isinstance(_, Mapping) is True."""
+
+    def get(self, *args, **kwargs):
+        raise ValueError("get is broken")
+
+
+class _GetOnlyObject:
+    """Has a callable get() but is NOT a Mapping."""
+
+    def get(self, key, default=None):
+        return default
+
+
+def _invalid_none_candidate():
+    """A real adapter output for a non-mapping input: valid=False,
+    source_channel=None."""
+    return to_odometry_candidate(None)
+
+
+class TestR1CMixedSequenceNoException(unittest.TestCase):
+    """R1C: mixed valid/invalid sequences never raise; channels come from valid
+    candidates only."""
+
+    def _valid(self, receipt=100):
+        return _synthetic_candidate(receipt=receipt)
+
+    def test_valid_plus_invalid_none_no_exception(self):
+        cands = [self._valid(), _invalid_none_candidate()]
+        report = assess_odom_tf_readiness(cands, OdomTfEvidenceContract())
+        self.assertEqual(report.candidate_count, 2)
+        self.assertEqual(report.candidate_invalid_count, 1)
+        self.assertEqual(report.channels, ("rt/odommodestate",))
+        self.assertIn(EMPTY_OR_INVALID_SEQUENCE, report.blocker_codes())
+        self.assertFalse(report.odom_publication_ready)
+
+    def test_invalid_first_valid_second_same_result(self):
+        cands = [_invalid_none_candidate(), self._valid()]
+        report = assess_odom_tf_readiness(cands, OdomTfEvidenceContract())
+        self.assertEqual(report.candidate_count, 2)
+        self.assertEqual(report.candidate_invalid_count, 1)
+        self.assertEqual(report.channels, ("rt/odommodestate",))
+        self.assertIn(EMPTY_OR_INVALID_SEQUENCE, report.blocker_codes())
+
+    def test_valid_first_invalid_second_same_result(self):
+        cands = [self._valid(), _invalid_none_candidate()]
+        report = assess_odom_tf_readiness(cands, OdomTfEvidenceContract())
+        self.assertEqual(report.channels, ("rt/odommodestate",))
+        self.assertEqual(report.candidate_invalid_count, 1)
+
+    def test_two_invalid_incompatible_channels_no_exception(self):
+        # invalid candidates carrying None and an int-like channel: must not try
+        # to sort None with str; channels must end up ().
+        none_inv = _invalid_none_candidate()
+        int_inv = to_odometry_candidate(42)  # source_channel=None too
+        report = assess_odom_tf_readiness([none_inv, int_inv], OdomTfEvidenceContract())
+        self.assertEqual(report.candidate_count, 2)
+        self.assertEqual(report.candidate_invalid_count, 2)
+        self.assertEqual(report.channels, ())
+        self.assertIn(EMPTY_OR_INVALID_SEQUENCE, report.blocker_codes())
+        self.assertFalse(report.offline_contract_ready)
+
+
+class TestR1CBrokenIterableFailClosed(unittest.TestCase):
+    def test_iterable_raising_valueerror_fails_closed(self):
+        report = assess_odom_tf_readiness(
+            _RaisingIterable(ValueError), OdomTfEvidenceContract())
+        self.assertEqual(
+            report.classification, CLASSIFICATION_FAIL_CLOSED_INVALID_INPUT)
+        self.assertIn(EMPTY_OR_INVALID_SEQUENCE, report.blocker_codes())
+        self.assertEqual(
+            report.publication_capability, PUBLICATION_CAPABILITY_WITHHELD)
+
+    def test_iterable_raising_runtimeerror_fails_closed(self):
+        report = assess_odom_tf_readiness(
+            _RaisingIterable(RuntimeError), OdomTfEvidenceContract())
+        self.assertEqual(
+            report.classification, CLASSIFICATION_FAIL_CLOSED_INVALID_INPUT)
+        self.assertIn(EMPTY_OR_INVALID_SEQUENCE, report.blocker_codes())
+
+
+class TestR1CBrokenMappingFailClosed(unittest.TestCase):
+    def test_get_only_object_not_mapping_invalid(self):
+        c = to_odometry_candidate(_GetOnlyObject())
+        self.assertFalse(c.valid)
+        self.assertTrue(any("not a mapping" in e.lower() for e in c.errors))
+
+    def test_mapping_subclass_get_raises_invalid_no_exception(self):
+        c = to_odometry_candidate(_RaisingMapping())
+        self.assertFalse(c.valid)
+        self.assertTrue(any("extraction" in e.lower() or "raised" in e.lower()
+                            for e in c.errors))
+
+
+class TestR1CBooleanNumericRejected(unittest.TestCase):
+    def _reject(self, candidate):
+        report = assess_odom_tf_readiness([candidate], OdomTfEvidenceContract())
+        self.assertEqual(
+            report.classification, CLASSIFICATION_FAIL_CLOSED_INVALID_INPUT)
+        self.assertIn(CANDIDATE_STRUCTURE_INVALID, report.blocker_codes())
+
+    def test_bool_in_position_rejected(self):
+        self._reject(replace(_synthetic_candidate(),
+                             position_xyz=(True, 0.0, 0.0)))
+
+    def test_bool_in_velocity_rejected(self):
+        self._reject(replace(_synthetic_candidate(),
+                             velocity_xyz=(0.0, False, 0.0)))
+
+    def test_bool_in_rpy_rejected(self):
+        self._reject(replace(_synthetic_candidate(),
+                             rpy=(0.0, 0.0, True)))
+
+    def test_bool_in_quaternion_rejected(self):
+        self._reject(replace(_synthetic_candidate(),
+                             orientation_quaternion_xyzw=(0.0, 0.0, 0.0, True)))
+
+    def test_bool_yaw_speed_rejected(self):
+        self._reject(replace(_synthetic_candidate(), yaw_speed=True))
 
 
 if __name__ == "__main__":

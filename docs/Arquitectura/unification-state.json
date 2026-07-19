@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-07-18T21:05:00Z",
+  "updated_at": "2026-07-19T15:40:00Z",
   "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "remote_authority": "mirror",
@@ -667,6 +667,24 @@
         "codigo ottoguide/src/navigation/odometry_candidate_adapter/__init__.py",
         "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
         "codigo ottoguide/tools/hil/offline_navigation/verify_odom_tf_readiness.py",
+        "docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md"
+      ],
+      "publication_capability": "WITHHELD_BY_R1_BOUNDARY",
+      "odom_publication": "NOT_STARTED",
+      "tf_publication": "NOT_STARTED",
+      "physical_validation": "PENDING",
+      "nav2_physical": "NOT_STARTED"
+    },
+    {
+      "checkpoint": "MVP-ODOM-TF-R1C-CLOSE-MALFORMED-SEQUENCE-EXCEPTION-PATHS",
+      "risk_level": "B",
+      "robot_access": false,
+      "summary": "Closes residual exception paths on malformed input: report channels are derived from valid candidates only (no None/str sort TypeError on mixed valid/invalid sequences; fully-invalid sequence -> channels=()), broken iterables fail closed (except Exception, never BaseException), the adapter requires a strict collections.abc.Mapping with fail-closed protected field extraction (defective Mapping.get no longer propagates), and bool is rejected in every numeric component (position/velocity/rpy/quaternion/yaw_speed). R1 non-publishable boundary unchanged; current-fixture result unchanged: NOT_READY (same 11 blockers, publication_capability=WITHHELD_BY_R1_BOUNDARY).",
+      "artifacts": [
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/readiness.py",
+        "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
+        "codigo ottoguide/tests/unit/test_odometry_candidate_adapter.py",
         "docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md"
       ],
       "publication_capability": "WITHHELD_BY_R1_BOUNDARY",

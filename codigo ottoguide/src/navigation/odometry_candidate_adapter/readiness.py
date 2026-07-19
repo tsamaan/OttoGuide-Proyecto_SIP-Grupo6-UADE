@@ -369,14 +369,28 @@ def _validate_contract(contract):
     return None
 
 
-def _finite_vector(vec, length):
-    """True iff `vec` is a list/tuple of exactly `length` finite numbers."""
-    if not isinstance(vec, (list, tuple)) or len(vec) != length:
+def _is_real_finite_number(v):
+    """True iff `v` is a real finite int/float and NOT a bool.
+
+    R1C: `bool` is a subclass of `int`, so `True`/`False` would otherwise pass a
+    numeric/finite check. A boolean is never a valid numeric component here.
+    """
+    if isinstance(v, bool):
+        return False
+    if not isinstance(v, (int, float)):
         return False
     try:
-        return all(math.isfinite(v) for v in vec)
+        return math.isfinite(v)
     except TypeError:
         return False
+
+
+def _finite_vector(vec, length):
+    """True iff `vec` is a list/tuple of exactly `length` real finite numbers
+    (bool components rejected)."""
+    if not isinstance(vec, (list, tuple)) or len(vec) != length:
+        return False
+    return all(_is_real_finite_number(v) for v in vec)
 
 
 def _is_structurally_valid_candidate(c):
@@ -447,11 +461,8 @@ def _is_structurally_valid_candidate(c):
     if not _finite_vector(c.rpy, 3):
         return False
 
-    # yaw_speed: finite scalar.
-    try:
-        if not math.isfinite(c.yaw_speed):
-            return False
-    except TypeError:
+    # yaw_speed: real finite scalar (bool rejected).
+    if not _is_real_finite_number(c.yaw_speed):
         return False
 
     # quaternion: exactly 4 finite components with non-zero norm.
@@ -524,12 +535,18 @@ def assess_odom_tf_readiness(candidates, evidence_contract):
         return _fail_closed_report(EVIDENCE_CONTRACT_INVALID, contract_error)
     c = evidence_contract
 
-    # --- iterate candidates (fail-closed if not iterable) --------------------
+    # --- iterate candidates (fail-closed if not iterable / broken iterator) --
+    # R1C: a non-iterable input, or an iterable whose __iter__/__next__ raises an
+    # ordinary exception (ValueError, RuntimeError, ...), must fail closed with a
+    # bounded message -- never propagate. Only ordinary exceptions are caught;
+    # BaseException / KeyboardInterrupt / SystemExit / GeneratorExit propagate.
     try:
         candidate_list = list(candidates)
-    except TypeError:
+    except Exception as exc:
         return _fail_closed_report(
-            EMPTY_OR_INVALID_SEQUENCE, "candidate sequence is not iterable"
+            EMPTY_OR_INVALID_SEQUENCE,
+            f"candidate sequence is not iterable or its iterator raised "
+            f"{type(exc).__name__}",
         )
 
     candidate_count = len(candidate_list)
@@ -550,7 +567,16 @@ def assess_odom_tf_readiness(candidates, evidence_contract):
 
     invalid_count = sum(1 for cd in candidate_list if not cd.valid)
     valid_candidates = [cd for cd in candidate_list if cd.valid]
-    channels = tuple(sorted({cd.source_channel for cd in candidate_list}))
+    # --- Fix A (R1C): channels derived ONLY from VALID candidates, restricted
+    # to the allow-list. An invalid candidate may carry source_channel=None (or
+    # any non-str), so sorting the raw union of all candidates' channels could
+    # raise TypeError on a mixed valid/invalid sequence. Deriving from valid
+    # candidates only yields a deterministic tuple[str, ...] with no None/int,
+    # and a fully-invalid sequence reports channels=().
+    channels = tuple(sorted({
+        cd.source_channel for cd in valid_candidates
+        if cd.source_channel in ALLOWED_SOURCE_CHANNELS
+    }))
 
     blockers = []
 

@@ -283,3 +283,33 @@ axis/scale/sign validation). Until then, the boundary holds unconditionally.
 
 The current-fixture result is unchanged: the same eleven blockers in the same
 order, `NOT_READY`, `publication_capability = WITHHELD_BY_R1_BOUNDARY`.
+
+## 11. R1C — malformed-sequence and mapping exception paths closed
+
+MVP-ODOM-TF-R1C removes the last input paths where a malformed sequence or a
+defective mapping could raise instead of returning a fail-closed report. The
+`Never raises on malformed input` contract now holds for these cases too, and
+the R1 non-publishable boundary is unchanged.
+
+- **Channels derived from valid candidates only.** An invalid candidate can
+  carry `source_channel = None` (e.g. from a non-mapping input). The report's
+  `channels` are now built solely from **valid** candidates restricted to the
+  adapter allow-list, so a mixed valid/invalid sequence never sorts `None`
+  against `str`. `channels` is always a deterministic `tuple[str, ...]` with no
+  `None`/int/object; a mixed sequence reports only the valid channel(s), and a
+  fully-invalid sequence reports `channels = ()`. `candidate_count` and
+  `candidate_invalid_count` are unchanged by this.
+- **Broken iterables fail closed.** Materializing the candidate sequence now
+  catches ordinary exceptions (`except Exception`), so an iterable whose
+  `__iter__`/`__next__` raises `ValueError`/`RuntimeError` yields a fail-closed
+  `EMPTY_OR_INVALID_SEQUENCE` report (bounded message, no secrets or large
+  `repr()`), never a propagated exception. `BaseException`,
+  `KeyboardInterrupt`, `SystemExit`, and `GeneratorExit` are never swallowed.
+- **Strict Mapping and protected extraction.** `to_odometry_candidate` now
+  requires a real `collections.abc.Mapping` — an object that merely exposes a
+  `get()` method is not sufficient — and wraps the field extraction fail-closed,
+  so a defective `Mapping` subclass whose `get()` raises still returns an invalid
+  candidate with a bounded error message instead of propagating.
+- **Strict numeric components.** `bool` is rejected everywhere a real number is
+  required (position, velocity, rpy, quaternion, and `yaw_speed`); `True`/`False`
+  no longer pass as `1`/`0`. Only real finite `int`/`float` are accepted.

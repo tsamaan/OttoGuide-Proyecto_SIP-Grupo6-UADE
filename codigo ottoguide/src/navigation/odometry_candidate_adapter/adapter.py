@@ -9,6 +9,8 @@ This module does not publish anything and does not construct nav_msgs or TF
 transforms. See MFR_R6_SPORTMODESTATE_ODOM_CONTRACT.md for the full contract
 this implements.
 """
+from collections.abc import Mapping
+
 from .models import OdometryCandidate
 from .validation import (
     ALLOWED_SOURCE_CHANNELS,
@@ -76,28 +78,43 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
     R1B: a non-mapping input (None, list, tuple, int, or any object without a
     usable `get`) also fails closed to an invalid candidate with an explicit
     error, never an exception.
+
+    R1C: input must be a strict `collections.abc.Mapping` (an object that merely
+    exposes a `get` method is not enough), and the field extraction itself is
+    wrapped fail-closed so a defective Mapping subclass whose `get` raises still
+    yields an invalid candidate instead of propagating the exception.
     """
-    # Fix C (R1B): accept only a mapping-like input. Anything without a callable
-    # `get` (None / list / tuple / int / arbitrary object) is invalid input.
-    if not callable(getattr(sample, "get", None)):
+    # Fix C (R1C): accept only a strict Mapping. An object with a callable `get`
+    # that is not a Mapping (None / list / int / duck-typed object) is invalid.
+    if not isinstance(sample, Mapping):
         return _invalid(
             None, None, None, None, None,
-            [f"sample is not a mapping (got {type(sample).__name__}); "
+            [f"sample is not a Mapping (got {type(sample).__name__}); "
              f"a SportModeState_ sample dict is required"],
         )
 
-    channel = sample.get("channel")
-    receipt_monotonic_ns = sample.get("receipt_monotonic_ns")
-    receipt_wall_utc_ns = sample.get("receipt_wall_utc_ns")
-    stamp_sec = sample.get("stamp_sec")
-    stamp_nanosec = sample.get("stamp_nanosec")
-    position = sample.get("position")
-    velocity = sample.get("velocity")
-    yaw_speed = sample.get("yaw_speed")
-    quaternion = sample.get("imu_quaternion")
-    rpy = sample.get("imu_rpy")
-    gyroscope = sample.get("imu_gyroscope")
-    accelerometer = sample.get("imu_accelerometer")
+    # Fix C (R1C): protect the extraction -- a defective Mapping subclass whose
+    # `get` raises must fail closed, never propagate. Only ordinary exceptions
+    # are caught (never BaseException / KeyboardInterrupt / SystemExit).
+    try:
+        channel = sample.get("channel")
+        receipt_monotonic_ns = sample.get("receipt_monotonic_ns")
+        receipt_wall_utc_ns = sample.get("receipt_wall_utc_ns")
+        stamp_sec = sample.get("stamp_sec")
+        stamp_nanosec = sample.get("stamp_nanosec")
+        position = sample.get("position")
+        velocity = sample.get("velocity")
+        yaw_speed = sample.get("yaw_speed")
+        quaternion = sample.get("imu_quaternion")
+        rpy = sample.get("imu_rpy")
+        gyroscope = sample.get("imu_gyroscope")
+        accelerometer = sample.get("imu_accelerometer")
+    except Exception as exc:
+        return _invalid(
+            None, None, None, None, None,
+            [f"sample.get() raised {type(exc).__name__} during field "
+             f"extraction; treated as invalid input"],
+        )
 
     errors = []
 
