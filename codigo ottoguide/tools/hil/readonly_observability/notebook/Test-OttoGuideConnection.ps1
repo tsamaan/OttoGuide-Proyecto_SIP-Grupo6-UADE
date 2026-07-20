@@ -9,13 +9,17 @@ param(
   [string]$IdentityName = 'id_ed25519_ottoguide_robot',
   [string]$RemoteUser = 'unitree',
   [string]$ExpectedFingerprint,
-  [string]$ExpectedHostname = 'ubuntu'
+  [string]$ExpectedHostname = 'ubuntu',
+  [string]$PreferredInterfaceAlias,
+  [System.Nullable[int]]$PreferredIfIndex,
+  [switch]$ReUseVerifiedTarget
 )
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $stateDir = Join-Path $SshRoot 'state'
 
-& (Join-Path $here 'Resolve-OttoGuideTarget.ps1') -SshRoot $SshRoot -ExpectedFingerprint $ExpectedFingerprint | Out-Null
+& (Join-Path $here 'Resolve-OttoGuideTarget.ps1') -SshRoot $SshRoot -ExpectedFingerprint $ExpectedFingerprint `
+  -PreferredInterfaceAlias $PreferredInterfaceAlias -PreferredIfIndex $PreferredIfIndex -ReUseVerifiedTarget:$ReUseVerifiedTarget | Out-Null
 & (Join-Path $here 'Write-OttoGuideHostKeyPin.ps1') -SshRoot $SshRoot | Out-Null
 & (Join-Path $here 'Write-OttoGuideSshConfig.ps1') -SshRoot $SshRoot -IdentityName $IdentityName -RemoteUser $RemoteUser | Out-Null
 

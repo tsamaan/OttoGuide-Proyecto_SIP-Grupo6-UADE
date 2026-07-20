@@ -33,6 +33,8 @@ New-Item -ItemType Directory -Path (Join-Path $sshRoot 'state') -Force | Out-Nul
 New-Item -ItemType Directory -Path (Join-Path $sshRoot 'logs') -Force | Out-Null
 
 $fakeTarget = 'fake-target-does-not-change'
+$fakePreferredAlias = 'FAKE-PREFERRED-ETH'
+$preferredAliasLog = Join-Path $sandbox 'preferred_alias_calls.log'
 
 # ---- Shim de ssh: sale solo tras un breve retardo (simula el hijo SSH
 #      terminando), sin abrir ninguna conexion real y sin encadenar procesos
@@ -49,13 +51,18 @@ echo EXIT  %RANDOM% %TIME%>> "$sshLog"
 "@ | Out-File -Encoding ascii (Join-Path $binDir 'ssh.cmd')
 
 # ---- Shims de resolucion: siempre devuelven el MISMO target falso (identidad estable). ----
+# WEB-HIL-R2E regla 8: el shim ahora TAMBIEN acepta -PreferredInterfaceAlias/-PreferredIfIndex
+# (mismo contrato que el real Resolve-OttoGuideTarget.ps1) y registra el valor recibido en
+# CADA invocacion, para verificar que el watchdog lo reenvia en cada reconexion -- nunca un
+# ifIndex/alias historico fijo cacheado de la primera vuelta.
 $resolveShim = Join-Path $binDir 'Resolve-OttoGuideTarget.ps1'
 @"
-param([string]`$SshRoot, [string]`$ExpectedFingerprint)
+param([string]`$SshRoot, [string]`$ExpectedFingerprint, [string]`$PreferredInterfaceAlias, [System.Nullable[int]]`$PreferredIfIndex)
 `$stateDir = Join-Path `$SshRoot 'state'
 if (-not (Test-Path `$stateDir)) { New-Item -ItemType Directory -Path `$stateDir -Force | Out-Null }
 @{ target = '$fakeTarget'; interface = 'FAKE'; ifindex = 0; utc = (Get-Date).ToUniversalTime().ToString('o') } |
   ConvertTo-Json | Out-File -Encoding ascii (Join-Path `$stateDir 'target.json')
+"PreferredInterfaceAlias=`$PreferredInterfaceAlias" | Out-File -Append -Encoding ascii '$preferredAliasLog'
 '$fakeTarget'
 "@ | Out-File -Encoding ascii $resolveShim
 
@@ -88,11 +95,11 @@ $oldPath = $env:PATH
 $env:PATH = "$binDir;$oldPath"
 
 $job = Start-Job -ScriptBlock {
-  param($script, $sshRoot, $binDir, $sshLog)
+  param($script, $sshRoot, $binDir, $sshLog, $preferredAlias)
   $env:PATH = "$binDir;$env:PATH"
   $env:OG_TEST_SSH_LOG = $sshLog
-  & $script -SshRoot $sshRoot -RetrySeconds 1 -ExpectedFingerprint 'unused'
-} -ArgumentList $watchdogTestCopy, $sshRoot, $binDir, $sshLog
+  & $script -SshRoot $sshRoot -RetrySeconds 1 -ExpectedFingerprint 'unused' -PreferredInterfaceAlias $preferredAlias
+} -ArgumentList $watchdogTestCopy, $sshRoot, $binDir, $sshLog, $fakePreferredAlias
 
 Start-Sleep -Seconds 8
 Stop-Job -Job $job -ErrorAction SilentlyContinue | Out-Null
@@ -130,6 +137,17 @@ else {
 
 $pidLog = Join-Path $sshRoot 'state\tunnel_pid.json'
 if (-not (Test-Path $pidLog)) { $fail += "sin tunnel_pid.json (el watchdog no registro PIDs)" }
+
+# (R2E, regla 8) el watchdog debe reenviar -PreferredInterfaceAlias en CADA re-resolucion
+# (no solo la primera), con el mismo valor -- nunca un ifIndex/alias historico fijo.
+if (-not (Test-Path $preferredAliasLog)) {
+  $fail += "el watchdog nunca invoco Resolve-OttoGuideTarget.ps1 con -PreferredInterfaceAlias (regla 8)"
+} else {
+  $prefCalls = @(Get-Content $preferredAliasLog | Where-Object { $_.Trim() -ne '' })
+  if ($prefCalls.Count -lt 2) { $fail += "-PreferredInterfaceAlias solo se envio $($prefCalls.Count) vez/veces, se esperaban >= 2 re-resoluciones (regla 8)" }
+  $wrongValue = $prefCalls | Where-Object { $_ -ne "PreferredInterfaceAlias=$fakePreferredAlias" }
+  if ($wrongValue) { $fail += "-PreferredInterfaceAlias se envio con un valor distinto/vacio en alguna re-resolucion (regla 8): $($wrongValue -join '; ')" }
+}
 
 Remove-Item -Recurse -Force $sandbox -ErrorAction SilentlyContinue
 

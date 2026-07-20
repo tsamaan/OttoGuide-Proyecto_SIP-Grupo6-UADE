@@ -18,7 +18,10 @@ param(
   [string]$RemoteUser = 'unitree',
   [string]$ExpectedFingerprint,
   [string]$RemoteBase = '/home/unitree/OttoGuide-Agent-Runs/LIVE_OBSERVABILITY_HIL_R1',
-  [string]$SessionId
+  [string]$SessionId,
+  [string]$PreferredInterfaceAlias,
+  [System.Nullable[int]]$PreferredIfIndex,
+  [switch]$ReUseVerifiedTarget
 )
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
@@ -26,7 +29,11 @@ $companionDir = Join-Path $RepoRoot 'companion'
 $stateDir = Join-Path $SshRoot 'state'
 if (-not $SessionId) { $SessionId = 'hilr1-' + (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ') }
 
-& (Join-Path $here 'Resolve-OttoGuideTarget.ps1') -SshRoot $SshRoot -ExpectedFingerprint $ExpectedFingerprint | Out-Null
+# WEB-HIL-R2E regla 7: Deploy no debe sobrescribir silenciosamente un target ya
+# verificado -- -ReUseVerifiedTarget se propaga a Resolve-OttoGuideTarget.ps1, que
+# es el UNICO punto que decide si reutiliza target.json o vuelve a escanear.
+& (Join-Path $here 'Resolve-OttoGuideTarget.ps1') -SshRoot $SshRoot -ExpectedFingerprint $ExpectedFingerprint `
+  -PreferredInterfaceAlias $PreferredInterfaceAlias -PreferredIfIndex $PreferredIfIndex -ReUseVerifiedTarget:$ReUseVerifiedTarget | Out-Null
 & (Join-Path $here 'Write-OttoGuideHostKeyPin.ps1') -SshRoot $SshRoot | Out-Null
 & (Join-Path $here 'Write-OttoGuideSshConfig.ps1') -SshRoot $SshRoot -IdentityName $IdentityName -RemoteUser $RemoteUser | Out-Null
 $genConf = Join-Path $SshRoot 'generated_target.conf'

@@ -21,7 +21,12 @@
   10. uso de '-F ... generated_target.conf' en el script de instalacion
   11. generacion temporal de clave ED25519 realmente sin passphrase
   12. manifiesto remoto con diez hashes
-  13. (R1B) duplicacion de fingerprint entre candidatos -> se elige el primero en orden
+  13. (R2E) duplicacion de fingerprint SIN preferencia -> FAIL_CLOSED_AMBIGUOUS (Status=AMBIGUOUS),
+      NUNCA se elige el primero de una lista ambigua
+  13b.(R2E) la misma ambiguedad CON -PreferredInterfaceAlias -> desambigua deterministicamente
+  13c.(R2E) -PreferredInterfaceAlias ausente entre candidatos -> PREFERENCE_NOT_FOUND
+  13d.(R2E) preferencia valida sin el fingerprint esperado -> PREFERENCE_FINGERPRINT_MISMATCH
+  13e.(R2E) -PreferredIfIndex desambigua igual que -PreferredInterfaceAlias
   14. (R1B) candidato sin clave (fingerprint $null) -> nunca matchea
   15. (R1B) candidato con fingerprint vacio ('') -> nunca matchea
 
@@ -41,57 +46,88 @@ $fail = @()
 # REAL de produccion (Select-OttoGuideVerifiedCandidate), no una reimplementacion.
 # ============================================================================
 $expectedFp = 'SHA256:b49bi+OYx/3BYWPsTlMZF1psSs5FW8FnpmFfHpfoDrk'
+# NOTA (WEB-HIL-R2E): los candidatos ahora usan 'interface'/'ifindex' (no 'adapter'),
+# para que coincidan con las propiedades reales que produce Resolve-OttoGuideTarget.ps1
+# y que Select-OttoGuideVerifiedCandidate usa para filtrar por preferencia.
 $simulatedCandidates = @(
-  [pscustomobject]@{ adapter = 'Ethernet';  target = 'fe80::1%5';  fingerprint = 'SHA256:WRONG_FIRST_ADAPTER_NEIGHBOR_1' }
-  [pscustomobject]@{ adapter = 'Ethernet';  target = 'fe80::2%5';  fingerprint = 'SHA256:WRONG_FIRST_ADAPTER_NEIGHBOR_2' }
-  [pscustomobject]@{ adapter = 'Ethernet 2'; target = 'fe80::3%7'; fingerprint = $expectedFp }
-  [pscustomobject]@{ adapter = 'Ethernet 2'; target = 'fe80::4%7'; fingerprint = 'SHA256:WRONG_SECOND_ADAPTER_NEIGHBOR' }
+  [pscustomobject]@{ interface = 'Ethernet';  ifindex = 5; target = 'fe80::1%5';  fingerprint = 'SHA256:WRONG_FIRST_ADAPTER_NEIGHBOR_1' }
+  [pscustomobject]@{ interface = 'Ethernet';  ifindex = 5; target = 'fe80::2%5';  fingerprint = 'SHA256:WRONG_FIRST_ADAPTER_NEIGHBOR_2' }
+  [pscustomobject]@{ interface = 'Ethernet 2'; ifindex = 7; target = 'fe80::3%7'; fingerprint = $expectedFp }
+  [pscustomobject]@{ interface = 'Ethernet 2'; ifindex = 7; target = 'fe80::4%7'; fingerprint = 'SHA256:WRONG_SECOND_ADAPTER_NEIGHBOR' }
 )
-$adaptersInvolved = ($simulatedCandidates | Select-Object -ExpandProperty adapter -Unique)
+$adaptersInvolved = ($simulatedCandidates | Select-Object -ExpandProperty interface -Unique)
 if ($adaptersInvolved.Count -lt 2) { $fail += "fixture de candidatos no cubre mas de un adaptador (test invalido)" }
 
-$selected = Select-OttoGuideVerifiedCandidate -Candidates $simulatedCandidates -ExpectedFingerprint $expectedFp
-if (-not $selected) { $fail += "seleccion por fingerprint no encontro el candidato correcto (item 1/2)" }
-elseif ($selected.target -ne 'fe80::3%7') { $fail += "seleccion por fingerprint eligio '$($selected.target)' en vez de 'fe80::3%7' (no selecciono por fingerprint, item 2)" }
-elseif ($selected.adapter -ne 'Ethernet 2') { $fail += "el candidato correcto estaba en el SEGUNDO adaptador y no fue alcanzado (item 1: no recorre mas de un adaptador)" }
+$selection = Select-OttoGuideVerifiedCandidate -Candidates $simulatedCandidates -ExpectedFingerprint $expectedFp
+if ($selection.Status -ne 'MATCHED') { $fail += "seleccion por fingerprint no encontro el candidato correcto (item 1/2, status=$($selection.Status))" }
+elseif ($selection.Candidate.target -ne 'fe80::3%7') { $fail += "seleccion por fingerprint eligio '$($selection.Candidate.target)' en vez de 'fe80::3%7' (no selecciono por fingerprint, item 2)" }
+elseif ($selection.Candidate.interface -ne 'Ethernet 2') { $fail += "el candidato correcto estaba en el SEGUNDO adaptador y no fue alcanzado (item 1: no recorre mas de un adaptador)" }
 
 $wrongFp = 'SHA256:THIS_DOES_NOT_MATCH_ANYTHING'
-$rejected = Select-OttoGuideVerifiedCandidate -Candidates $simulatedCandidates -ExpectedFingerprint $wrongFp
-if ($rejected) { $fail += "seleccion acepto un fingerprint que no deberia matchear ningun candidato (item 3)" }
+$rejectedSel = Select-OttoGuideVerifiedCandidate -Candidates $simulatedCandidates -ExpectedFingerprint $wrongFp
+if ($rejectedSel.Status -eq 'MATCHED') { $fail += "seleccion acepto un fingerprint que no deberia matchear ningun candidato (item 3)" }
 
-# (13) Duplicacion de fingerprint entre dos candidatos: debe elegir el PRIMERO en el
-# orden recibido (determinista), no un match ambiguo/aleatorio/el ultimo.
+# (13, WEB-HIL-R2E) Duplicacion de fingerprint entre dos candidatos SIN preferencia:
+# debe ser FAIL_CLOSED_AMBIGUOUS (Status=AMBIGUOUS, Candidate=$null), NUNCA elegir el
+# primero de una lista ambigua -- este es exactamente el defecto real que produjo un
+# target no enrutable (adaptador Hyper-V/WSL puenteado) en produccion.
 $dupCandidates = @(
-  [pscustomobject]@{ adapter = 'A'; target = 'first-dup';  fingerprint = $expectedFp }
-  [pscustomobject]@{ adapter = 'A'; target = 'second-dup'; fingerprint = $expectedFp }
+  [pscustomobject]@{ interface = 'A'; ifindex = 1; target = 'first-dup';  fingerprint = $expectedFp }
+  [pscustomobject]@{ interface = 'B'; ifindex = 2; target = 'second-dup'; fingerprint = $expectedFp }
 )
-$dupSelected = Select-OttoGuideVerifiedCandidate -Candidates $dupCandidates -ExpectedFingerprint $expectedFp
-if (-not $dupSelected -or $dupSelected.target -ne 'first-dup') {
-  $fail += "con fingerprints duplicados, no se eligio el PRIMER candidato en el orden recibido (item 13, eligio: $($dupSelected.target))"
+$dupSelection = Select-OttoGuideVerifiedCandidate -Candidates $dupCandidates -ExpectedFingerprint $expectedFp
+if ($dupSelection.Status -ne 'AMBIGUOUS' -or $dupSelection.Candidate) {
+  $fail += "con fingerprints duplicados y SIN preferencia, no se fallo cerrado como AMBIGUOUS (item 13, status=$($dupSelection.Status))"
+}
+if (@($dupSelection.Matches).Count -ne 2) { $fail += "AMBIGUOUS deberia reportar los 2 candidatos en Matches (item 13)" }
+
+# (13b, WEB-HIL-R2E) La MISMA ambiguedad, pero CON -PreferredInterfaceAlias: debe
+# desambiguar deterministicamente al candidato de esa interfaz, nunca FAIL_CLOSED.
+$dupWithPref = Select-OttoGuideVerifiedCandidate -Candidates $dupCandidates -ExpectedFingerprint $expectedFp -PreferredInterfaceAlias 'B'
+if ($dupWithPref.Status -ne 'MATCHED' -or $dupWithPref.Candidate.target -ne 'second-dup') {
+  $fail += "con -PreferredInterfaceAlias 'B', deberia elegir 'second-dup' deterministicamente (item 13b, status=$($dupWithPref.Status) target=$($dupWithPref.Candidate.target))"
+}
+
+# (13c) -PreferredInterfaceAlias que no existe entre los candidatos -> PREFERENCE_NOT_FOUND.
+$prefMissing = Select-OttoGuideVerifiedCandidate -Candidates $dupCandidates -ExpectedFingerprint $expectedFp -PreferredInterfaceAlias 'NoExiste'
+if ($prefMissing.Status -ne 'PREFERENCE_NOT_FOUND') {
+  $fail += "una preferencia de interfaz ausente entre los candidatos deberia dar PREFERENCE_NOT_FOUND (item 13c, status=$($prefMissing.Status))"
+}
+
+# (13d) -PreferredInterfaceAlias que existe pero con fingerprint incorrecto -> PREFERENCE_FINGERPRINT_MISMATCH.
+$prefWrongFp = Select-OttoGuideVerifiedCandidate -Candidates $simulatedCandidates -ExpectedFingerprint $wrongFp -PreferredInterfaceAlias 'Ethernet 2'
+if ($prefWrongFp.Status -ne 'PREFERENCE_FINGERPRINT_MISMATCH') {
+  $fail += "una preferencia valida sin fingerprint correcto deberia dar PREFERENCE_FINGERPRINT_MISMATCH (item 13d, status=$($prefWrongFp.Status))"
+}
+
+# (13e) -PreferredIfIndex funciona igual que -PreferredInterfaceAlias.
+$dupWithIfIndex = Select-OttoGuideVerifiedCandidate -Candidates $dupCandidates -ExpectedFingerprint $expectedFp -PreferredIfIndex 1
+if ($dupWithIfIndex.Status -ne 'MATCHED' -or $dupWithIfIndex.Candidate.target -ne 'first-dup') {
+  $fail += "con -PreferredIfIndex 1, deberia elegir 'first-dup' deterministicamente (item 13e, status=$($dupWithIfIndex.Status))"
 }
 
 # (14) Candidato sin clave (fingerprint $null, p.ej. ssh-keyscan no respondio): nunca matchea.
 $noKeyCandidates = @(
-  [pscustomobject]@{ adapter = 'A'; target = 'no-key-host'; fingerprint = $null }
-  [pscustomobject]@{ adapter = 'A'; target = 'good-host';   fingerprint = $expectedFp }
+  [pscustomobject]@{ interface = 'A'; ifindex = 1; target = 'no-key-host'; fingerprint = $null }
+  [pscustomobject]@{ interface = 'A'; ifindex = 1; target = 'good-host';   fingerprint = $expectedFp }
 )
-$noKeySelected = Select-OttoGuideVerifiedCandidate -Candidates $noKeyCandidates -ExpectedFingerprint $expectedFp
-if (-not $noKeySelected -or $noKeySelected.target -ne 'good-host') {
+$noKeySelection = Select-OttoGuideVerifiedCandidate -Candidates $noKeyCandidates -ExpectedFingerprint $expectedFp
+if ($noKeySelection.Status -ne 'MATCHED' -or $noKeySelection.Candidate.target -ne 'good-host') {
   $fail += "un candidato sin clave (fingerprint `$null) interfirio con la seleccion del candidato valido (item 14)"
 }
 # Verifica ademas que un candidato SOLO sin clave (sin ningun match posible) no rompe nada.
-$onlyNoKey = @([pscustomobject]@{ adapter = 'A'; target = 'no-key-host'; fingerprint = $null })
-if (Select-OttoGuideVerifiedCandidate -Candidates $onlyNoKey -ExpectedFingerprint $expectedFp) {
+$onlyNoKey = @([pscustomobject]@{ interface = 'A'; ifindex = 1; target = 'no-key-host'; fingerprint = $null })
+if ((Select-OttoGuideVerifiedCandidate -Candidates $onlyNoKey -ExpectedFingerprint $expectedFp).Status -eq 'MATCHED') {
   $fail += "un candidato con fingerprint `$null fue seleccionado como match (item 14)"
 }
 
 # (15) Candidato con fingerprint vacio (''): tampoco debe matchear NUNCA, incluso si
 # ExpectedFingerprint tambien estuviera vacio (fail-closed, no "vacio == vacio").
-$emptyFpCandidates = @([pscustomobject]@{ adapter = 'A'; target = 'empty-fp-host'; fingerprint = '' })
-if (Select-OttoGuideVerifiedCandidate -Candidates $emptyFpCandidates -ExpectedFingerprint '') {
+$emptyFpCandidates = @([pscustomobject]@{ interface = 'A'; ifindex = 1; target = 'empty-fp-host'; fingerprint = '' })
+if ((Select-OttoGuideVerifiedCandidate -Candidates $emptyFpCandidates -ExpectedFingerprint '').Status -eq 'MATCHED') {
   $fail += "un candidato con fingerprint vacio matcheo contra un ExpectedFingerprint vacio (item 15, debe ser fail-closed)"
 }
-if (Select-OttoGuideVerifiedCandidate -Candidates $emptyFpCandidates -ExpectedFingerprint $expectedFp) {
+if ((Select-OttoGuideVerifiedCandidate -Candidates $emptyFpCandidates -ExpectedFingerprint $expectedFp).Status -eq 'MATCHED') {
   $fail += "un candidato con fingerprint vacio matcheo contra el fingerprint esperado real (item 15)"
 }
 

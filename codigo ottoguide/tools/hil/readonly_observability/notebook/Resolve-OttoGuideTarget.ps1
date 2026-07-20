@@ -20,11 +20,25 @@
 
   Portable: usa $env:USERPROFILE nunca un nombre de usuario fijo; el SSH_ROOT y el
   fingerprint son parametros (con defaults documentados en config/).
+
+  WEB-HIL-R2E: agrega -PreferredInterfaceAlias / -PreferredIfIndex (sin defaults --
+  nunca hardcodeados aqui; se pasan como argumento en cada sesion) para eliminar la
+  ambiguedad quirofano-detectada entre un adaptador fisico real y un adaptador
+  virtual (p.ej. Hyper-V/WSL) que puentea el mismo segmento y por lo tanto tambien
+  supera la validacion de fingerprint sin enrutar trafico real. Con preferencia
+  dada, SOLO se considera un candidato que coincida con esa interfaz/ifIndex; sin
+  preferencia y con mas de un candidato valido, FAIL_CLOSED_AMBIGUOUS_TARGET (nunca
+  se elige el primero de una lista ambigua). Tambien agrega -ReUseVerifiedTarget
+  para no volver a escanear adaptadores si el target ya persistido en target.json
+  sigue siendo functional (ver Test-OttoGuideConnection-equivalente inline abajo).
 #>
 param(
   [string]$SshRoot = 'C:\OG\OttoGuide-SSH',
   [string]$ExpectedFingerprint,
-  [string]$CompanionIPv4 = '192.168.123.164'
+  [string]$CompanionIPv4 = '192.168.123.164',
+  [string]$PreferredInterfaceAlias,
+  [System.Nullable[int]]$PreferredIfIndex,
+  [switch]$ReUseVerifiedTarget
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'OttoGuideSshBootstrapHelpers.ps1')
@@ -40,6 +54,46 @@ if (-not $ExpectedFingerprint) { throw "Sin ExpectedFingerprint (ni parametro ni
 $stateDir = Join-Path $SshRoot 'state'
 if (-not (Test-Path $stateDir)) { New-Item -ItemType Directory -Path $stateDir -Force | Out-Null }
 $utc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+
+# ---- WEB-HIL-R2E: reutilizacion de un target ya verificado (regla 6/7) ----
+# Nunca sobrescribe silenciosamente: solo reutiliza si TODAS las condiciones
+# pasan; si cualquiera falla, cae al escaneo normal de adaptadores (abajo) en
+# vez de fallar duro, para que -ReUseVerifiedTarget sea un atajo, no un nuevo
+# modo fragil.
+if ($ReUseVerifiedTarget) {
+  $existingTargetPath = Join-Path $stateDir 'target.json'
+  $genConfPath = Join-Path $SshRoot 'generated_target.conf'
+  $khPath = Join-Path $SshRoot 'known_hosts'
+  $reuseOk = $false
+  try {
+    if ((Test-Path $existingTargetPath) -and (Test-Path $genConfPath) -and (Test-Path $khPath)) {
+      $existing = Get-Content $existingTargetPath -Raw | ConvertFrom-Json
+      $fingerprintOk = $existing.fingerprint -and ($existing.fingerprint -eq $ExpectedFingerprint)
+      $keyBase64Ok = $false
+      if ($fingerprintOk -and $existing.key_base64) {
+        $khLine = Get-Content $khPath | Where-Object { $_ -match '^ottoguide-companion\s+ssh-ed25519\s+(\S+)' } | Select-Object -First 1
+        if ($khLine -and ($Matches[1] -eq $existing.key_base64)) { $keyBase64Ok = $true }
+      }
+      if ($fingerprintOk -and $keyBase64Ok) {
+        $probeOut = & cmd /c "ssh -F `"$genConfPath`" ottoguide-batch `"echo AUTH_OK; hostname; whoami`" 2>nul"
+        $probeText = ($probeOut -join "`n")
+        $authOk = $probeText -match 'AUTH_OK'
+        $hostOk = $probeText -match '(?m)^ubuntu$'
+        $userOk = $probeText -match '(?m)^unitree$'
+        if ($authOk -and $hostOk -and $userOk) { $reuseOk = $true }
+      }
+    }
+  } catch { $reuseOk = $false }
+
+  if ($reuseOk) {
+    $existing.utc = $utc
+    $existing | ConvertTo-Json | Out-File -Encoding ascii $existingTargetPath
+    Write-Host "[resolve] REUSE_VERIFIED_TARGET=true target=$($existing.target) iface=$($existing.interface) ifIndex=$($existing.ifindex) fingerprint=OK"
+    $existing.target
+    exit 0
+  }
+  Write-Host "[resolve] REUSE_VERIFIED_TARGET=false (no reutilizable o inexistente) -> escaneo normal de adaptadores."
+}
 
 function Get-Ed25519HostKey([string]$hostArg) {
   # Se ejecuta via cmd /c: en PowerShell 5.1, una native command con stderr (banner
@@ -101,9 +155,11 @@ if (-not $ipv4ok -or -not ($candidates | Where-Object { $_.fingerprint -eq $Expe
   }
 }
 
-$selected = Select-OttoGuideVerifiedCandidate -Candidates $candidates -ExpectedFingerprint $ExpectedFingerprint
+$selection = Select-OttoGuideVerifiedCandidate -Candidates $candidates -ExpectedFingerprint $ExpectedFingerprint `
+  -PreferredInterfaceAlias $PreferredInterfaceAlias -PreferredIfIndex $PreferredIfIndex
 $chosen = $null; $chosenIface = $null; $chosenIfIndex = $null; $chosenKey = $null
-if ($selected) {
+if ($selection.Status -eq 'MATCHED') {
+  $selected = $selection.Candidate
   $meta = $candidateKeys[$selected.target]
   $chosen = $selected.target; $chosenIface = $meta.interface; $chosenIfIndex = $meta.ifindex; $chosenKey = $meta.keyInfo
 }
@@ -112,14 +168,33 @@ $candidates = @($candidates | ForEach-Object { [pscustomobject]@{ target = $_.ta
 $resolution = [ordered]@{
   utc = $utc; chosen_target = $chosen; interface = $chosenIface; ifindex = $chosenIfIndex
   expected_fingerprint = $ExpectedFingerprint; ipv4_tcp22 = $ipv4ok
+  preferred_interface_alias = $PreferredInterfaceAlias; preferred_ifindex = $PreferredIfIndex
+  selection_status = $selection.Status
   adapters_scanned = @($ethAdapters | ForEach-Object { $_.Name })
   candidates = $candidates
 }
 $resolution | ConvertTo-Json -Depth 6 | Out-File -Encoding ascii (Join-Path $stateDir 'last_resolution.json')
 
 if (-not $chosen) {
-  Write-Error "No se resolvio ningun target cuyo fingerprint ED25519 coincida con $ExpectedFingerprint (adaptadores recorridos: $($ethAdapters.Count), candidatos IPv6: $($candidates.Count))."
-  exit 2
+  switch ($selection.Status) {
+    'AMBIGUOUS' {
+      $ambiguousSummary = ($selection.Matches | ForEach-Object { "$($_.interface)(ifIndex=$($_.ifindex))=$($_.target)" }) -join '; '
+      Write-Error "FAIL_CLOSED_AMBIGUOUS_TARGET: $($selection.Matches.Count) candidatos distintos coinciden con el fingerprint $ExpectedFingerprint sin -PreferredInterfaceAlias/-PreferredIfIndex para desambiguar. Candidatos: $ambiguousSummary"
+      exit 3
+    }
+    'PREFERENCE_NOT_FOUND' {
+      Write-Error "FAIL_CLOSED: la preferencia (PreferredInterfaceAlias='$PreferredInterfaceAlias' PreferredIfIndex=$PreferredIfIndex) no coincide con ningun candidato observado (adaptadores recorridos: $($ethAdapters.Count))."
+      exit 4
+    }
+    'PREFERENCE_FINGERPRINT_MISMATCH' {
+      Write-Error "FAIL_CLOSED: la interfaz/ifIndex preferida existe pero no expone el fingerprint esperado $ExpectedFingerprint."
+      exit 5
+    }
+    default {
+      Write-Error "No se resolvio ningun target cuyo fingerprint ED25519 coincida con $ExpectedFingerprint (adaptadores recorridos: $($ethAdapters.Count), candidatos IPv6: $($candidates.Count))."
+      exit 2
+    }
+  }
 }
 
 $targetObj = [ordered]@{

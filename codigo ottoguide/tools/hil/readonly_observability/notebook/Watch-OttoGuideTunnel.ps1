@@ -20,7 +20,9 @@ param(
   [string]$ExpectedFingerprint,
   [int]$LocalPort = 8000,
   [int]$RemotePort = 8000,
-  [int]$RetrySeconds = 2
+  [int]$RetrySeconds = 2,
+  [string]$PreferredInterfaceAlias,
+  [System.Nullable[int]]$PreferredIfIndex
 )
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
@@ -31,9 +33,14 @@ foreach ($d in @($stateDir, $logDir)) { if (-not (Test-Path $d)) { New-Item -Ite
 Write-Host "[watchdog] $(Get-Date -Format o) iniciando (watchdog PID=$PID)"
 
 while ($true) {
-  # Re-resolver ANTES de cada intento: soporta cable desconectado/reconectado e ifIndex nuevo.
+  # Re-resolver ANTES de cada intento: soporta cable desconectado/reconectado.
+  # WEB-HIL-R2E regla 8: re-resuelve usando -PreferredInterfaceAlias (si se dio),
+  # NUNCA un ifIndex historico fijo cacheado de una iteracion anterior -- el ifIndex
+  # de un mismo alias de interfaz puede cambiar entre reconexiones (p.ej. tras
+  # replug), y fijarlo reintroduciria la misma ambiguedad que este checkpoint corrige.
   try {
-    & (Join-Path $here 'Resolve-OttoGuideTarget.ps1') -SshRoot $SshRoot -ExpectedFingerprint $ExpectedFingerprint | Out-Null
+    & (Join-Path $here 'Resolve-OttoGuideTarget.ps1') -SshRoot $SshRoot -ExpectedFingerprint $ExpectedFingerprint `
+      -PreferredInterfaceAlias $PreferredInterfaceAlias -PreferredIfIndex $PreferredIfIndex | Out-Null
     & (Join-Path $here 'Write-OttoGuideHostKeyPin.ps1') -SshRoot $SshRoot | Out-Null
     & (Join-Path $here 'Write-OttoGuideSshConfig.ps1') -SshRoot $SshRoot -IdentityName $IdentityName -RemoteUser $RemoteUser | Out-Null
   } catch {
