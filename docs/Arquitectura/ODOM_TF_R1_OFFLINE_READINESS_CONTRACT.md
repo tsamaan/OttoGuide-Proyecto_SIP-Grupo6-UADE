@@ -499,3 +499,94 @@ R1D-R1 stated is now actually true for every field, including
 `source_channel`. The real MFR-R6 fixtures are unaffected: both real channel
 strings (`rt/odommodestate`, `rt/lf/odommodestate`) are preserved unchanged,
 and none of the 160 samples exercise any of these four defects.
+
+## 15. R1D-R3 — single-pass vector normalization and readiness structural exception safety
+
+R1D-R2 (`8cbbfed7...`) was pushed to the `mirror-lucas` remote after a `GO`
+pre-push audit. A subsequent GitHub-side independent audit of that published
+commit found three further residual defects, none touching `source_channel`
+or the timestamp/IMU-auxiliary fixes R1D/R1D-R1/R1D-R2 already closed. All
+three are fixed here, without reinterpreting the R1D-R2 pre-push audit's `GO`
+verdict (it was correct for what it checked) or rewriting any earlier
+section of this document.
+
+- **`UNTRUSTED_VECTOR_REITERATION_CAN_PROPAGATE`.** `position`, `velocity`,
+  `imu_quaternion`, and `imu_rpy` were each shape/finiteness-checked once
+  (via `is_finite_vector`, which itself iterated the raw value once
+  internally) and then iterated AGAIN via `tuple(...)` when building the
+  final candidate -- a third time for `imu_quaternion`, which was also
+  re-iterated separately for its norm computation. A sequence whose
+  `__iter__` succeeds on its first call and raises starting on the second
+  (`SecondIterRaises`) broke on that later, redundant pass, propagating an
+  exception out of `to_odometry_candidate` for an otherwise well-formed
+  input.
+- **`READINESS_STRUCTURAL_VALIDATION_CAN_RAISE`.** `assess_odom_tf_readiness`
+  does not trust that every candidate it receives came from the adapter (see
+  section 11's R1B hardening) -- it re-validates the full structure of any
+  `valid=True` candidate, including one built manually. That re-validation
+  (`_is_structurally_valid_candidate` / `_finite_vector` /
+  `_is_real_finite_number`) used `isinstance()` and unprotected
+  `len()`/iteration/comparison on the candidate's own fields
+  (`position_xyz`, `velocity_xyz`, `rpy`, `orientation_quaternion_xyzw`,
+  `source_channel`, `receipt_monotonic_ns`, the message-stamp fields), so a
+  hostile field on a manually-constructed candidate (a `__len__` that
+  raises, a `source_channel` whose `__eq__` raises before the allow-list
+  membership test) could raise from inside the readiness gate itself --
+  the exact function this checkpoint series exists to make fail-closed.
+- **`HOSTILE_BUILTIN_SUBCLASSES_NOT_STRICTLY_REJECTED`.** The shared numeric
+  helpers (`is_finite_number`, `is_positive_int`, `is_nonnegative_int`) and
+  the readiness gate's own numeric checks used `isinstance()`, which is
+  `True` for a subclass. An `int`/`float` subclass with a hostile
+  comparison or conversion dunder (`__gt__`/`__ge__`/`__lt__`/`__le__`/
+  `__float__` that raises) passed the `isinstance` type gate and then raised
+  on the comparison/conversion itself -- on `receipt_monotonic_ns`,
+  `stamp_sec`, `stamp_nanosec`, `receipt_wall_utc_ns`, `yaw_speed`, and
+  individual vector components, in both the adapter and the readiness gate.
+
+Fixes:
+
+- A new shared, pure helper, `normalize_finite_vector(value, length)` in
+  `validation.py`, is now the ONLY place any of these four vector fields'
+  raw value is ever touched: `type(value) is list`/`tuple` is checked FIRST
+  -- before any method on it is invoked -- so a list/tuple SUBCLASS
+  (however hostile its own `__len__`/`__iter__`) is rejected without ever
+  running its overridden methods; only then is the value converted to a
+  canonical tuple in one pass. `to_odometry_candidate` calls this exactly
+  once per field and reuses the returned tuple everywhere downstream (the
+  quaternion norm, the final `OdometryCandidate` construction) -- the raw
+  `position`/`velocity`/`imu_quaternion`/`imu_rpy` value is never iterated a
+  second time. The former `is_finite_vector` boolean check (which itself
+  had this exact multi-iteration shape) is removed; nothing else used it.
+- `is_finite_number`, `is_positive_int`, and `is_nonnegative_int` now gate on
+  `type(x) is int`/`float` exactly, not `isinstance()`. This rejects `bool`
+  (its type is `bool`, never `int`) and any int/float SUBCLASS in the same
+  step, before any of the subclass's own comparison/conversion dunders is
+  ever invoked -- closing `HOSTILE_BUILTIN_SUBCLASSES_NOT_STRICTLY_REJECTED`
+  for every caller of these shared helpers, adapter and readiness gate
+  alike.
+- `readiness.py`'s `_is_structurally_valid_candidate` no longer duplicates
+  its own numeric/vector logic (`_is_real_finite_number` / `_finite_vector`
+  are removed); it now calls the same hardened shared helpers
+  (`is_finite_number`, `is_positive_int`, `is_nonnegative_int`,
+  `normalize_finite_vector`) the adapter uses. `type(c) is OdometryCandidate`
+  replaces `isinstance(c, OdometryCandidate)` (a genuine `OdometryCandidate`
+  SUBCLASS is now rejected too, not just a duck-typed fake), and
+  `type(c.source_channel) is str` is checked before the allow-list
+  membership test (a hostile `source_channel` with a raising `__eq__` can no
+  longer reach `in`). `warnings`/`errors` are checked for exact `list` of
+  exact `str` items.
+- `assess_odom_tf_readiness`'s structural-validation loop now wraps each
+  `_is_structurally_valid_candidate(cd)` call in its own narrow
+  `try`/`except Exception` (never `BaseException`/`KeyboardInterrupt`/
+  `SystemExit`/`GeneratorExit`): an unexpected ordinary exception from a
+  genuine programming bug in the inspection degrades only that one
+  candidate to `CANDIDATE_STRUCTURE_INVALID` instead of propagating out of
+  the whole assessment. This boundary wraps only that one call, never the
+  rest of report generation.
+
+The R1D/R1D-R1/R1D-R2 fixes (timestamp normalization, IMU auxiliary fault
+isolation, `source_channel` sanitization) are untouched and continue to pass
+their existing test matrices. The real MFR-R6 fixtures are unaffected: none
+of the 160 samples exercise any of these three defects, so the eleven
+blockers, `publication_capability = WITHHELD_BY_R1_BOUNDARY`, and the hard
+`False` odom/TF/nav2 readiness invariants are unchanged.

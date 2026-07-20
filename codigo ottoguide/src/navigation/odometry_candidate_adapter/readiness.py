@@ -47,6 +47,10 @@ from .validation import (
     COVARIANCE_POLICY,
     FRAME_ID,
     TIMESTAMP_POLICY,
+    is_finite_number,
+    is_nonnegative_int,
+    is_positive_int,
+    normalize_finite_vector,
 )
 
 # --- severities (deterministic, ordered most-severe first) -------------------
@@ -369,30 +373,6 @@ def _validate_contract(contract):
     return None
 
 
-def _is_real_finite_number(v):
-    """True iff `v` is a real finite int/float and NOT a bool.
-
-    R1C: `bool` is a subclass of `int`, so `True`/`False` would otherwise pass a
-    numeric/finite check. A boolean is never a valid numeric component here.
-    """
-    if isinstance(v, bool):
-        return False
-    if not isinstance(v, (int, float)):
-        return False
-    try:
-        return math.isfinite(v)
-    except TypeError:
-        return False
-
-
-def _finite_vector(vec, length):
-    """True iff `vec` is a list/tuple of exactly `length` real finite numbers
-    (bool components rejected)."""
-    if not isinstance(vec, (list, tuple)) or len(vec) != length:
-        return False
-    return all(_is_real_finite_number(v) for v in vec)
-
-
 def _is_structurally_valid_candidate(c):
     """Full structural check on one candidate.
 
@@ -401,9 +381,27 @@ def _is_structurally_valid_candidate(c):
     `OdometryCandidate` instance AND carry a well-formed value in every field
     (policies, quaternion norm, rpy, warnings/errors types). A dataclass
     instance is not assumed valid solely by its type.
+
+    R1D-R3: every check here now gates on an EXACT type before any
+    comparison or iteration ever touches the untrusted field value:
+    `type(c) is OdometryCandidate` (a genuine subclass is rejected too, not
+    just a duck-typed fake), `type(source_channel) is str` before the
+    allow-list membership test, the shared `is_positive_int` /
+    `is_nonnegative_int` / `is_finite_number` / `normalize_finite_vector`
+    helpers (each gated on `type(x) is int`/`float`/`list`/`tuple`, so a
+    hostile subclass's own comparison/iteration dunders are never invoked),
+    and exact `list`/`str` for warnings/errors and their items. Vector
+    fields are normalized in a single pass and the resulting canonical
+    tuple -- never the raw field -- is what any further computation (the
+    quaternion norm) uses. This closes both
+    `READINESS_STRUCTURAL_VALIDATION_CAN_RAISE` (a hostile field on a
+    manually-constructed candidate previously could raise inside this very
+    function) and, for candidate fields, `HOSTILE_BUILTIN_SUBCLASSES_NOT_
+    STRICTLY_REJECTED`.
     """
-    # Fix A (R1B): strict type. A duck-typed object is rejected outright.
-    if not isinstance(c, OdometryCandidate):
+    # Fix A (R1B); R1D-R3: exact type, not isinstance -- a genuine
+    # OdometryCandidate SUBCLASS is rejected too, not just a duck-typed fake.
+    if type(c) is not OdometryCandidate:
         return False
 
     # Fixed contract policies must match the module policies exactly.
@@ -414,19 +412,23 @@ def _is_structurally_valid_candidate(c):
     if c.covariance_policy != COVARIANCE_POLICY:
         return False
 
-    # Boolean flags must be exact bools.
+    # Boolean flags must be exact bools. `bool` cannot be subclassed in
+    # Python, so `isinstance` is already an exact-type check here.
     for flag_name in ("valid", "covariance_available", "gyro_reliable",
                       "accel_reliable"):
         if not isinstance(getattr(c, flag_name), bool):
             return False
 
-    # warnings / errors: lists of strings (checked for every candidate; a real
-    # OdometryCandidate always carries these, valid or not).
+    # warnings / errors: exact `list` of exact `str` items (checked for
+    # every candidate; a real OdometryCandidate always carries these,
+    # valid or not). `type(...) is list` is checked before the collection
+    # is ever iterated, so a list subclass with a hostile `__iter__` is
+    # rejected without running it.
     for coll_name in ("warnings", "errors"):
         coll = getattr(c, coll_name)
-        if not isinstance(coll, list):
+        if type(coll) is not list:
             return False
-        if not all(isinstance(item, str) for item in coll):
+        if not all(type(item) is str for item in coll):
             return False
 
     # A legitimately invalid adapter output (valid=False) is a real, typed
@@ -437,39 +439,41 @@ def _is_structurally_valid_candidate(c):
     if not c.valid:
         return True
 
-    if c.source_channel not in ALLOWED_SOURCE_CHANNELS:
+    # R1D-R3: type(source_channel) is str BEFORE the allow-list membership
+    # test -- a hostile object (or a str SUBCLASS) with a raising `__eq__`
+    # must never reach `in`.
+    if type(c.source_channel) is not str or c.source_channel not in ALLOWED_SOURCE_CHANNELS:
         return False
 
-    # receipt monotonic: positive int (not bool).
-    rm = c.receipt_monotonic_ns
-    if not isinstance(rm, int) or isinstance(rm, bool) or rm <= 0:
+    # receipt monotonic / timestamps: exact, plain ints via the shared
+    # helpers -- type-gated before any comparison touches the value.
+    if not is_positive_int(c.receipt_monotonic_ns):
+        return False
+    if not is_nonnegative_int(c.message_stamp_sec):
+        return False
+    if not is_nonnegative_int(c.message_stamp_nanosec) or c.message_stamp_nanosec >= 1_000_000_000:
         return False
 
-    # timestamps: non-negative ints, nanosec in range.
-    for ts_name in ("message_stamp_sec", "message_stamp_nanosec"):
-        ts = getattr(c, ts_name)
-        if not isinstance(ts, int) or isinstance(ts, bool) or ts < 0:
-            return False
-    if c.message_stamp_nanosec >= 1_000_000_000:
+    # position / velocity / rpy: exactly 3 finite components, normalized in
+    # a single pass -- the raw field is never touched again afterward.
+    if normalize_finite_vector(c.position_xyz, 3) is None:
+        return False
+    if normalize_finite_vector(c.velocity_xyz, 3) is None:
+        return False
+    if normalize_finite_vector(c.rpy, 3) is None:
         return False
 
-    # position / velocity / rpy: exactly 3 finite components.
-    if not _finite_vector(c.position_xyz, 3):
-        return False
-    if not _finite_vector(c.velocity_xyz, 3):
-        return False
-    if not _finite_vector(c.rpy, 3):
+    # yaw_speed: real finite scalar (bool/subclass rejected before compare).
+    if not is_finite_number(c.yaw_speed):
         return False
 
-    # yaw_speed: real finite scalar (bool rejected).
-    if not _is_real_finite_number(c.yaw_speed):
+    # quaternion: exactly 4 finite components with non-zero norm, computed
+    # from the SAME canonical tuple `normalize_finite_vector` returns -- the
+    # raw `orientation_quaternion_xyzw` is never iterated a second time.
+    quaternion_normalized = normalize_finite_vector(c.orientation_quaternion_xyzw, 4)
+    if quaternion_normalized is None:
         return False
-
-    # quaternion: exactly 4 finite components with non-zero norm.
-    q = c.orientation_quaternion_xyzw
-    if not _finite_vector(q, 4):
-        return False
-    if math.sqrt(sum(component * component for component in q)) <= 0.0:
+    if math.sqrt(sum(component * component for component in quaternion_normalized)) <= 0.0:
         return False
 
     return True
@@ -552,9 +556,21 @@ def assess_odom_tf_readiness(candidates, evidence_contract):
     candidate_count = len(candidate_list)
 
     # --- Fix B: structural validation of every candidate ---------------------
+    # R1D-R3: a narrow, per-candidate boundary -- ONLY around this one call,
+    # never around the rest of report generation. `_is_structurally_valid_
+    # candidate` is itself now exception-safe by design (see its docstring),
+    # but an unexpected ordinary exception from a genuine programming bug
+    # here must still degrade to "structurally invalid" for that one
+    # candidate rather than propagate out of the whole assessment. Only
+    # ordinary `Exception` is caught; `BaseException` / `KeyboardInterrupt` /
+    # `SystemExit` / `GeneratorExit` are never swallowed.
     structural_bad = 0
     for cd in candidate_list:
-        if not _is_structurally_valid_candidate(cd):
+        try:
+            candidate_ok = _is_structurally_valid_candidate(cd)
+        except Exception:
+            candidate_ok = False
+        if not candidate_ok:
             structural_bad += 1
     if structural_bad > 0:
         return _fail_closed_report(

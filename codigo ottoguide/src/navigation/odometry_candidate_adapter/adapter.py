@@ -19,9 +19,9 @@ from .validation import (
     TIMESTAMP_POLICY,
     all_finite,
     is_finite_number,
-    is_finite_vector,
     is_nonnegative_int,
     is_positive_int,
+    normalize_finite_vector,
 )
 
 
@@ -89,16 +89,16 @@ def _imu_reliability_and_warning(name, values):
     return False, _IMU_WARNING_TEMPLATES[classification].format(name=name)
 
 
-def _vector_error(name, value, length):
-    """Bounded error message if `value` is not a list/tuple of exactly
-    `length` finite, non-bool numbers; else None.
+def _vector_error(name, normalized, length):
+    """Bounded error message if `normalized` (the result of
+    `normalize_finite_vector(value, length)`) is `None`; else `None`.
 
-    Never raises: `is_finite_vector` fails closed on its own (wrong type,
-    wrong length, non-numeric/bool component, or a defective sequence that
-    raises during `len()`/iteration all yield False, never an exception), so
-    this wrapper only needs to turn that boolean into a field-scoped message.
+    R1D-R3: takes the already-normalized result, never the raw value --
+    `normalize_finite_vector` is the only place that ever touches the raw
+    value's own `len()`/iteration (see its docstring), so nothing here
+    re-touches it.
     """
-    if is_finite_vector(value, length):
+    if normalized is not None:
         return None
     return f"{name} must be a list/tuple of exactly {length} finite, non-bool numbers"
 
@@ -228,6 +228,25 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
     sentinel `_INVALID_SOURCE_CHANNEL` -- never the raw value. See
     `validate_candidate_sequence` for the matching defense against a
     manually-constructed candidate whose `source_channel` is unhashable.
+
+    R1D-R3: a GitHub-side audit of the published R1D-R2 commit found two
+    further residual defects. First, `position`/`velocity`/`imu_quaternion`/
+    `imu_rpy` were each checked for shape/finiteness (one iteration) and then
+    iterated AGAIN via `tuple(...)` when building the candidate (a third time
+    for the quaternion, which was also re-iterated for its norm) -- a
+    sequence whose `__iter__` starts raising only on its second call broke on
+    that later pass. `normalize_finite_vector` (see `validation.py`) is now
+    the single place any of these four raw values is ever touched: it
+    validates and returns a canonical tuple in one pass, and every
+    downstream use here (quaternion norm, candidate construction) uses only
+    that tuple, never the raw value again. Second, the shared numeric
+    helpers (`is_finite_number`, `is_positive_int`, `is_nonnegative_int`)
+    used `isinstance()`, so an `int`/`float` SUBCLASS with a hostile
+    comparison or conversion dunder (e.g. `__gt__`/`__float__` that raises)
+    passed the type gate and then raised on the comparison itself; they now
+    gate on `type(x) is int`/`float` exactly, rejecting any subclass (and
+    `bool`, whose type is never `int`) before any dunder of the untrusted
+    value is ever invoked.
     """
     # Fix C (R1C): accept only a strict Mapping. An object with a callable `get`
     # that is not a Mapping (None / list / int / duck-typed object) is invalid.
@@ -290,13 +309,20 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
     if receipt_wall_utc_ns is not None and not is_nonnegative_int(receipt_wall_utc_ns):
         errors.append("receipt_wall_utc_ns must be a non-negative integer or None")
 
+    # R1D-R3: normalize each raw vector EXACTLY ONCE via
+    # `normalize_finite_vector`; every check and the final candidate below
+    # use only the resulting canonical tuple, never the raw value again.
+    position_normalized = None
+    velocity_normalized = None
     if position is None or velocity is None or yaw_speed is None:
         errors.append("position, velocity, or yaw_speed missing")
     else:
-        pos_error = _vector_error("position", position, 3)
+        position_normalized = normalize_finite_vector(position, 3)
+        pos_error = _vector_error("position", position_normalized, 3)
         if pos_error:
             errors.append(pos_error)
-        vel_error = _vector_error("velocity", velocity, 3)
+        velocity_normalized = normalize_finite_vector(velocity, 3)
+        vel_error = _vector_error("velocity", velocity_normalized, 3)
         if vel_error:
             errors.append(vel_error)
         if not is_finite_number(yaw_speed):
@@ -306,13 +332,15 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
     # same fail-closed shape/finiteness check BEFORE any tuple()
     # conversion -- a bool, a wrong-length sequence, or a non-iterable
     # value must never reach tuple() and must never yield valid=True.
-    quat_error = _vector_error("imu_quaternion", quaternion, 4)
+    quaternion_normalized = normalize_finite_vector(quaternion, 4)
+    quat_error = _vector_error("imu_quaternion", quaternion_normalized, 4)
     if quat_error:
         errors.append(quat_error)
-    elif sum(component * component for component in quaternion) <= 0.0:
+    elif sum(component * component for component in quaternion_normalized) <= 0.0:
         errors.append("imu_quaternion has zero norm")
 
-    rpy_error = _vector_error("imu_rpy", rpy, 3)
+    rpy_normalized = normalize_finite_vector(rpy, 3)
+    rpy_error = _vector_error("imu_rpy", rpy_normalized, 3)
     if rpy_error:
         errors.append(rpy_error)
 
@@ -353,11 +381,13 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
         message_stamp_nanosec=stamp_nanosec,
         frame_id=FRAME_ID,
         child_frame_id=None,
-        position_xyz=tuple(position),
-        velocity_xyz=tuple(velocity),
+        # R1D-R3: reuse the tuples `normalize_finite_vector` already built --
+        # never re-iterate the raw position/velocity/quaternion/rpy values.
+        position_xyz=position_normalized,
+        velocity_xyz=velocity_normalized,
         yaw_speed=float(yaw_speed),
-        orientation_quaternion_xyzw=tuple(quaternion),
-        rpy=tuple(rpy),
+        orientation_quaternion_xyzw=quaternion_normalized,
+        rpy=rpy_normalized,
         covariance_policy=COVARIANCE_POLICY,
         covariance_available=False,
         gyro_reliable=gyro_reliable,

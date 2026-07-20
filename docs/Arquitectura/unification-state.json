@@ -743,6 +743,14 @@
       "robot_access": false,
       "r1d_r1_pre_push_audit": "MVP_ODOM_TF_R1D_R1_PRE_PUSH_AUDIT_NO_GO",
       "r1d_r2_remediation": "LOCAL_IMPLEMENTATION_COMPLETED_PENDING_INDEPENDENT_AUDIT",
+      "r1d_r2_pre_push_audit": "GO",
+      "r1d_r2_mirror_push": "PASS",
+      "r1d_r2_github_independent_audit": "NO_GO_FOR_CANONICAL",
+      "r1d_r2_github_independent_audit_defects": [
+        "UNTRUSTED_VECTOR_REITERATION_CAN_PROPAGATE",
+        "READINESS_STRUCTURAL_VALIDATION_CAN_RAISE",
+        "HOSTILE_BUILTIN_SUBCLASSES_NOT_STRICTLY_REJECTED"
+      ],
       "summary": "Closes the four reproducible defects an independent pre-push audit of R1D-R1 found, all rooted in an untrusted source_channel. to_odometry_candidate now checks type(channel) is str before any in/== membership test (rejecting a hostile str subclass too, without ever touching its __eq__) with a fixed constant error message (never an f-string of channel, so a hostile __str__ can't raise either). _invalid() normalizes source_channel the same way it already normalizes timestamps: only an allowed channel of exact type str is preserved, anything else becomes the fixed sentinel _INVALID_SOURCE_CHANNEL = \"<invalid>\". validate_candidate_sequence() no longer trusts every candidate came from the adapter: it checks type(source_channel) is str before using it as a dict key, so a manually-constructed candidate with an unhashable channel can no longer crash it. models.py is unchanged. R1 non-publishable boundary unchanged; real-fixture result unchanged: NOT_READY (same 11 blockers, same 2 channels, publication_capability=WITHHELD_BY_R1_BOUNDARY).",
       "closed_defects": [
         "SOURCE_CHANNEL_SERIALIZATION_CANARY_FAILED",
@@ -752,6 +760,33 @@
       ],
       "artifacts": [
         "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",
+        "codigo ottoguide/tests/unit/test_odometry_candidate_adapter.py",
+        "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
+        "docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md",
+        "docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md"
+      ],
+      "publication_capability": "WITHHELD_BY_R1_BOUNDARY",
+      "odom_publication": "NOT_STARTED",
+      "tf_publication": "NOT_STARTED",
+      "physical_validation": "PENDING",
+      "nav2_physical": "NOT_STARTED"
+    },
+    {
+      "checkpoint": "MVP-ODOM-TF-R1D-R3-STRICT-CANDIDATE-NORMALIZATION-AND-READINESS-EXCEPTION-SAFETY",
+      "risk_level": "B",
+      "robot_access": false,
+      "r1d_r2_github_independent_audit": "NO_GO_FOR_CANONICAL",
+      "r1d_r3_remediation": "LOCAL_IMPLEMENTATION_COMPLETED_PENDING_INDEPENDENT_AUDIT",
+      "summary": "Closes the three defects a GitHub-side independent audit of the published R1D-R2 commit found, without reinterpreting R1D-R2's own pre-push GO verdict. A new shared pure helper, normalize_finite_vector(), is now the only place position/velocity/imu_quaternion/imu_rpy's raw value is ever touched: it validates and canonicalizes in a single pass, closing the re-iteration that broke a sequence whose __iter__ only started raising on its second call. The shared numeric helpers (is_finite_number, is_positive_int, is_nonnegative_int) now gate on type(x) is int/float exactly instead of isinstance(), rejecting any hostile int/float subclass before its own comparison/conversion dunders ever run. The readiness gate's structural check (_is_structurally_valid_candidate) now reuses these same hardened shared helpers instead of duplicating its own numeric/vector logic, requires type(c) is OdometryCandidate exactly (rejecting a genuine subclass, not just a duck-typed fake) and type(source_channel) is str before the allow-list membership test; the structural-validation loop also wraps each per-candidate check in its own narrow except Exception (never BaseException) so an unexpected bug degrades only that one candidate instead of propagating out of the whole assessment. R1 non-publishable boundary unchanged; real-fixture result unchanged: NOT_READY (same 11 blockers, same 2 channels, publication_capability=WITHHELD_BY_R1_BOUNDARY).",
+      "closed_defects": [
+        "UNTRUSTED_VECTOR_REITERATION_CAN_PROPAGATE",
+        "READINESS_STRUCTURAL_VALIDATION_CAN_RAISE",
+        "HOSTILE_BUILTIN_SUBCLASSES_NOT_STRICTLY_REJECTED"
+      ],
+      "artifacts": [
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/validation.py",
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/readiness.py",
         "codigo ottoguide/tests/unit/test_odometry_candidate_adapter.py",
         "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
         "docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md",

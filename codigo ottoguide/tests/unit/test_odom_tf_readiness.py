@@ -849,5 +849,204 @@ class TestR1DR2HostileChannelIntegration(unittest.TestCase):
         self.assertTrue(report.physical_validation_required)
 
 
+# --- R1D-R3: readiness structural check is exception-safe & strictly typed --
+# A GitHub-side audit of the published R1D-R2 commit found: (1) a hostile
+# field on a manually-constructed valid=True OdometryCandidate could raise
+# INSIDE assess_odom_tf_readiness (source_channel membership test, vector
+# len()/iteration, quaternion norm re-iteration); (2) the structural check's
+# own numeric helpers used isinstance(), so a hostile int/float subclass
+# passed the type gate and then raised on comparison/conversion. Both are
+# closed by exact-type gates in `_is_structurally_valid_candidate` plus a
+# narrow per-candidate exception boundary in the structural loop itself.
+
+class _PosLenRaises(tuple):
+    def __len__(self):
+        raise RuntimeError("boom-len-position")
+
+
+class _VelIterRaises(tuple):
+    def __iter__(self):
+        raise RuntimeError("boom-iter-velocity")
+
+
+class _RpyIterRaises(tuple):
+    def __iter__(self):
+        raise RuntimeError("boom-iter-rpy")
+
+
+class _QuatSecondIterRaises(tuple):
+    """A tuple subclass whose __iter__ succeeds once and raises starting on
+    the second call -- exercises the quaternion-norm re-iteration defect."""
+
+    def __new__(cls, values):
+        obj = super().__new__(cls, values)
+        obj._calls = 0
+        return obj
+
+    def __iter__(self):
+        self._calls += 1
+        if self._calls >= 2:
+            raise RuntimeError("boom-second-iter-quaternion")
+        return super().__iter__()
+
+
+class _ChannelEqRaises(str):
+    def __eq__(self, other):
+        raise RuntimeError("boom-eq-channel")
+
+    def __hash__(self):
+        return str.__hash__(self)
+
+
+class _ReceiptComparisonRaises(int):
+    def __gt__(self, other):
+        raise RuntimeError("gt")
+
+    def __ge__(self, other):
+        raise RuntimeError("ge")
+
+    def __lt__(self, other):
+        raise RuntimeError("lt")
+
+    def __le__(self, other):
+        raise RuntimeError("le")
+
+
+class _YawFloatConversionRaises(float):
+    def __float__(self):
+        raise RuntimeError("float")
+
+
+class _WarningsIterRaises(list):
+    def __iter__(self):
+        raise RuntimeError("boom-iter-warnings")
+
+
+class _OdometryCandidateSubclass(OdometryCandidate):
+    """A genuine OdometryCandidate SUBCLASS -- R1D-R3 hardens the structural
+    check to `type(c) is OdometryCandidate` exactly, so this must be
+    rejected too, not just a duck-typed fake."""
+
+
+def _hostile_candidate(cls=OdometryCandidate, **overrides):
+    base = dict(
+        valid=True,
+        source_channel="rt/odommodestate",
+        receipt_monotonic_ns=100,
+        receipt_wall_utc_ns=101,
+        timestamp_policy=TIMESTAMP_POLICY,
+        message_stamp_sec=5,
+        message_stamp_nanosec=7,
+        frame_id=FRAME_ID,
+        child_frame_id=None,
+        position_xyz=(1.0, 2.0, 0.5),
+        velocity_xyz=(0.0, 0.0, 0.0),
+        yaw_speed=0.05,
+        orientation_quaternion_xyzw=(0.0, 0.0, 0.0, 1.0),
+        rpy=(0.0, 0.0, 0.1),
+        covariance_policy=COVARIANCE_POLICY,
+        covariance_available=False,
+        gyro_reliable=True,
+        accel_reliable=True,
+        warnings=[],
+        errors=[],
+    )
+    base.update(overrides)
+    return cls(**base)
+
+
+class TestR1DR3ReadinessStructuralExceptionSafety(unittest.TestCase):
+    """A hostile field on a manually-constructed valid=True candidate must
+    never raise inside assess_odom_tf_readiness -- it must fail closed with
+    CANDIDATE_STRUCTURE_INVALID, and the R1 boundary must stay withheld."""
+
+    def _assert_fails_closed(self, candidate):
+        report = assess_odom_tf_readiness([candidate], OdomTfEvidenceContract())
+        self.assertEqual(report.classification, CLASSIFICATION_FAIL_CLOSED_INVALID_INPUT)
+        self.assertIn(CANDIDATE_STRUCTURE_INVALID, report.blocker_codes())
+        self.assertEqual(report.publication_capability, PUBLICATION_CAPABILITY_WITHHELD)
+        self.assertFalse(report.odom_publication_ready)
+        self.assertFalse(report.odom_to_base_link_tf_ready)
+        self.assertFalse(report.nav2_ready)
+        self.assertTrue(report.physical_validation_required)
+
+    def test_hostile_source_channel_fails_closed_no_exception(self):
+        c = _hostile_candidate(source_channel=_ChannelEqRaises("rt/odommodestate"))
+        self._assert_fails_closed(c)
+
+    def test_hostile_receipt_monotonic_ns_fails_closed_no_exception(self):
+        c = _hostile_candidate(receipt_monotonic_ns=_ReceiptComparisonRaises(100))
+        self._assert_fails_closed(c)
+
+    def test_hostile_stamp_sec_fails_closed_no_exception(self):
+        c = _hostile_candidate(message_stamp_sec=_ReceiptComparisonRaises(5))
+        self._assert_fails_closed(c)
+
+    def test_hostile_stamp_nanosec_fails_closed_no_exception(self):
+        c = _hostile_candidate(message_stamp_nanosec=_ReceiptComparisonRaises(7))
+        self._assert_fails_closed(c)
+
+    def test_hostile_position_len_raises_fails_closed_no_exception(self):
+        c = _hostile_candidate(position_xyz=_PosLenRaises((1.0, 2.0, 3.0)))
+        self._assert_fails_closed(c)
+
+    def test_hostile_velocity_iter_raises_fails_closed_no_exception(self):
+        c = _hostile_candidate(velocity_xyz=_VelIterRaises((1.0, 2.0, 3.0)))
+        self._assert_fails_closed(c)
+
+    def test_hostile_rpy_iter_raises_fails_closed_no_exception(self):
+        c = _hostile_candidate(rpy=_RpyIterRaises((0.0, 0.0, 0.0)))
+        self._assert_fails_closed(c)
+
+    def test_hostile_quaternion_second_iter_raises_fails_closed_no_exception(self):
+        c = _hostile_candidate(
+            orientation_quaternion_xyzw=_QuatSecondIterRaises((0.0, 0.0, 0.0, 1.0)))
+        self._assert_fails_closed(c)
+
+    def test_hostile_yaw_speed_fails_closed_no_exception(self):
+        c = _hostile_candidate(yaw_speed=_YawFloatConversionRaises(0.05))
+        self._assert_fails_closed(c)
+
+    def test_hostile_warnings_collection_fails_closed_no_exception(self):
+        c = _hostile_candidate(warnings=_WarningsIterRaises(["ok"]))
+        self._assert_fails_closed(c)
+
+    def test_hostile_errors_collection_fails_closed_no_exception(self):
+        c = _hostile_candidate(errors=_WarningsIterRaises([]))
+        self._assert_fails_closed(c)
+
+    def test_odometry_candidate_subclass_rejected_no_exception(self):
+        c = _hostile_candidate(cls=_OdometryCandidateSubclass)
+        self._assert_fails_closed(c)
+
+    def test_malformed_candidate_never_raises_contract(self):
+        """Textual contract check: every hostile-field case above, run
+        through assess_odom_tf_readiness, must complete without raising."""
+        hostile_candidates = [
+            _hostile_candidate(source_channel=_ChannelEqRaises("rt/odommodestate")),
+            _hostile_candidate(receipt_monotonic_ns=_ReceiptComparisonRaises(100)),
+            _hostile_candidate(message_stamp_sec=_ReceiptComparisonRaises(5)),
+            _hostile_candidate(message_stamp_nanosec=_ReceiptComparisonRaises(7)),
+            _hostile_candidate(position_xyz=_PosLenRaises((1.0, 2.0, 3.0))),
+            _hostile_candidate(velocity_xyz=_VelIterRaises((1.0, 2.0, 3.0))),
+            _hostile_candidate(rpy=_RpyIterRaises((0.0, 0.0, 0.0))),
+            _hostile_candidate(
+                orientation_quaternion_xyzw=_QuatSecondIterRaises((0.0, 0.0, 0.0, 1.0))),
+            _hostile_candidate(yaw_speed=_YawFloatConversionRaises(0.05)),
+            _hostile_candidate(warnings=_WarningsIterRaises(["ok"])),
+            _hostile_candidate(cls=_OdometryCandidateSubclass),
+        ]
+        try:
+            for c in hostile_candidates:
+                assess_odom_tf_readiness([c], OdomTfEvidenceContract())
+        except Exception as exc:
+            self.fail(f"assess_odom_tf_readiness raised {type(exc).__name__}: {exc}")
+
+    def test_good_manual_candidate_still_processable(self):
+        c = _hostile_candidate()
+        report = assess_odom_tf_readiness([c], OdomTfEvidenceContract())
+        self.assertNotIn(CANDIDATE_STRUCTURE_INVALID, report.blocker_codes())
+
+
 if __name__ == "__main__":
     unittest.main()

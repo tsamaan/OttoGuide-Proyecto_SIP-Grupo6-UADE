@@ -1056,5 +1056,236 @@ class TestAdapterR1DR2SourceChannelSanitization(unittest.TestCase):
         self.assertIsInstance(payload, str)
 
 
+# --- R1D-R3: single-pass vector normalization & strict builtin numeric types
+# A GitHub-side audit of the published R1D-R2 commit found two further
+# defects: (1) position/velocity/imu_quaternion/imu_rpy were each validated
+# once and then iterated AGAIN when building the candidate (a third time for
+# the quaternion, re-iterated again for its norm) -- a sequence whose
+# __iter__ succeeds once and raises starting on the SECOND call broke on
+# that later pass; (2) the shared numeric helpers used isinstance(), so a
+# hostile int/float SUBCLASS with a raising comparison/conversion dunder
+# passed the type gate and then raised on the comparison/conversion itself.
+
+class _SecondIterRaises(list):
+    """A list subclass whose __iter__ succeeds on the FIRST call and raises
+    starting on the SECOND -- exactly what "validate once, then iterate the
+    raw value again to build the candidate" breaks on."""
+
+    def __init__(self, values):
+        super().__init__(values)
+        self.calls = 0
+
+    def __iter__(self):
+        self.calls += 1
+        if self.calls >= 2:
+            raise RuntimeError("second iteration")
+        return super().__iter__()
+
+
+class _ListSubclassVector(list):
+    """A well-behaved list subclass. normalize_finite_vector requires the
+    EXACT builtin `list` type, so this must still be rejected -- not
+    because it misbehaves, but because it is not exactly `list`."""
+
+
+class _TupleSubclassVector(tuple):
+    """A well-behaved tuple subclass; same exact-type rejection as
+    _ListSubclassVector."""
+
+
+class TestAdapterR1DR3VectorSinglePassNormalization(unittest.TestCase):
+    """Closes UNTRUSTED_VECTOR_REITERATION_CAN_PROPAGATE: no hostile
+    position/velocity/imu_quaternion/imu_rpy value may ever raise, and every
+    resulting invalid candidate stays canonical and JSON-serializable."""
+
+    def _base_sample(self):
+        return {
+            "channel": "rt/odommodestate",
+            "receipt_monotonic_ns": 123456789,
+            "receipt_wall_utc_ns": 987654321,
+            "stamp_sec": 0, "stamp_nanosec": 0,
+            "position": [1.0, 2.0, 0.5],
+            "velocity": [0.0, 0.0, 0.0],
+            "yaw_speed": 0.0,
+            "imu_quaternion": [0.0, 0.0, 0.0, 1.0],
+            "imu_rpy": [0.0, 0.0, 0.0],
+            "imu_gyroscope": [0.01, 0.0, 0.02],
+            "imu_accelerometer": [0.0, 0.0, 9.81],
+        }
+
+    _VECTOR_FIELDS = (
+        ("position", [1.0, 2.0, 0.5]),
+        ("velocity", [0.0, 0.0, 0.0]),
+        ("imu_quaternion", [0.0, 0.0, 0.0, 1.0]),
+        ("imu_rpy", [0.0, 0.0, 0.0]),
+    )
+
+    def _assert_safe_invalid(self, sample):
+        c = to_odometry_candidate(sample)
+        self.assertFalse(c.valid)
+        self.assertIs(type(c.source_channel), str)
+        payload = json.dumps(dataclasses.asdict(c))
+        self.assertIsInstance(payload, str)
+        return c
+
+    def test_len_raises_no_exception(self):
+        for field, good in self._VECTOR_FIELDS:
+            with self.subTest(field=field):
+                s = self._base_sample()
+                s[field] = _LenRaises(good)
+                self._assert_safe_invalid(s)
+
+    def test_iter_raises_no_exception(self):
+        for field, good in self._VECTOR_FIELDS:
+            with self.subTest(field=field):
+                s = self._base_sample()
+                s[field] = _IterRaises(good)
+                self._assert_safe_invalid(s)
+
+    def test_second_iter_raises_no_exception(self):
+        for field, good in self._VECTOR_FIELDS:
+            with self.subTest(field=field):
+                s = self._base_sample()
+                s[field] = _SecondIterRaises(good)
+                self._assert_safe_invalid(s)
+
+    def test_list_subclass_rejected_no_exception(self):
+        for field, good in self._VECTOR_FIELDS:
+            with self.subTest(field=field):
+                s = self._base_sample()
+                s[field] = _ListSubclassVector(good)
+                self._assert_safe_invalid(s)
+
+    def test_tuple_subclass_rejected_no_exception(self):
+        for field, good in self._VECTOR_FIELDS:
+            with self.subTest(field=field):
+                s = self._base_sample()
+                s[field] = _TupleSubclassVector(good)
+                self._assert_safe_invalid(s)
+
+    def test_good_sample_with_plain_tuple_vectors_valid(self):
+        # An exact `tuple` (not just exact `list`) must still be accepted.
+        s = self._base_sample()
+        s["position"] = tuple(s["position"])
+        s["velocity"] = tuple(s["velocity"])
+        s["imu_quaternion"] = tuple(s["imu_quaternion"])
+        s["imu_rpy"] = tuple(s["imu_rpy"])
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertEqual(c.errors, [])
+
+
+class _IntComparisonRaises(int):
+    """An int subclass whose ordering dunders raise. type(x) is int must
+    reject this before any comparison is attempted."""
+
+    def __gt__(self, other):
+        raise RuntimeError("gt")
+
+    def __ge__(self, other):
+        raise RuntimeError("ge")
+
+    def __lt__(self, other):
+        raise RuntimeError("lt")
+
+    def __le__(self, other):
+        raise RuntimeError("le")
+
+
+class _FloatConversionRaises(float):
+    """A float subclass whose __float__ raises. type(x) is float must
+    reject this before any conversion is attempted."""
+
+    def __float__(self):
+        raise RuntimeError("float")
+
+
+class TestAdapterR1DR3StrictBuiltinNumericTypes(unittest.TestCase):
+    """Closes HOSTILE_BUILTIN_SUBCLASSES_NOT_STRICTLY_REJECTED: a hostile
+    int/float subclass on any scalar field must be rejected by an exact
+    type() gate before any of its own dunders run, never raise."""
+
+    def _base_sample(self):
+        return {
+            "channel": "rt/odommodestate",
+            "receipt_monotonic_ns": 123456789,
+            "receipt_wall_utc_ns": 987654321,
+            "stamp_sec": 0, "stamp_nanosec": 0,
+            "position": [1.0, 2.0, 0.5],
+            "velocity": [0.0, 0.0, 0.0],
+            "yaw_speed": 0.0,
+            "imu_quaternion": [0.0, 0.0, 0.0, 1.0],
+            "imu_rpy": [0.0, 0.0, 0.0],
+            "imu_gyroscope": [0.01, 0.0, 0.02],
+            "imu_accelerometer": [0.0, 0.0, 9.81],
+        }
+
+    def _assert_safe_invalid(self, sample):
+        c = to_odometry_candidate(sample)
+        self.assertFalse(c.valid)
+        payload = json.dumps(dataclasses.asdict(c))
+        self.assertIsInstance(payload, str)
+        return c
+
+    def test_receipt_monotonic_ns_hostile_int_subclass_no_exception(self):
+        s = self._base_sample()
+        s["receipt_monotonic_ns"] = _IntComparisonRaises(5)
+        self._assert_safe_invalid(s)
+
+    def test_stamp_sec_hostile_int_subclass_no_exception(self):
+        s = self._base_sample()
+        s["stamp_sec"] = _IntComparisonRaises(5)
+        self._assert_safe_invalid(s)
+
+    def test_stamp_nanosec_hostile_int_subclass_no_exception(self):
+        s = self._base_sample()
+        s["stamp_nanosec"] = _IntComparisonRaises(5)
+        self._assert_safe_invalid(s)
+
+    def test_receipt_wall_utc_ns_hostile_int_subclass_no_exception(self):
+        s = self._base_sample()
+        s["receipt_wall_utc_ns"] = _IntComparisonRaises(5)
+        self._assert_safe_invalid(s)
+
+    def test_yaw_speed_hostile_float_subclass_no_exception(self):
+        s = self._base_sample()
+        s["yaw_speed"] = _FloatConversionRaises(1.0)
+        self._assert_safe_invalid(s)
+
+    def test_yaw_speed_hostile_int_subclass_no_exception(self):
+        s = self._base_sample()
+        s["yaw_speed"] = _IntComparisonRaises(1)
+        self._assert_safe_invalid(s)
+
+    def test_position_component_hostile_int_subclass_invalid_no_exception(self):
+        s = self._base_sample()
+        s["position"] = [_IntComparisonRaises(1), 0.0, 0.0]
+        c = self._assert_safe_invalid(s)
+        self.assertTrue(any("position" in e for e in c.errors))
+
+    def test_velocity_component_hostile_float_subclass_invalid_no_exception(self):
+        s = self._base_sample()
+        s["velocity"] = [_FloatConversionRaises(1.0), 0.0, 0.0]
+        c = self._assert_safe_invalid(s)
+        self.assertTrue(any("velocity" in e for e in c.errors))
+
+    def test_quaternion_component_hostile_int_subclass_invalid_no_exception(self):
+        s = self._base_sample()
+        s["imu_quaternion"] = [_IntComparisonRaises(0), 0.0, 0.0, 1.0]
+        c = self._assert_safe_invalid(s)
+        self.assertTrue(any("imu_quaternion" in e for e in c.errors))
+
+    def test_rpy_component_hostile_int_subclass_invalid_no_exception(self):
+        s = self._base_sample()
+        s["imu_rpy"] = [_IntComparisonRaises(0), 0.0, 0.0]
+        c = self._assert_safe_invalid(s)
+        self.assertTrue(any("imu_rpy" in e for e in c.errors))
+
+    def test_good_sample_still_valid_after_hardening(self):
+        c = to_odometry_candidate(self._base_sample())
+        self.assertTrue(c.valid)
+        self.assertEqual(c.errors, [])
+
+
 if __name__ == "__main__":
     unittest.main()
