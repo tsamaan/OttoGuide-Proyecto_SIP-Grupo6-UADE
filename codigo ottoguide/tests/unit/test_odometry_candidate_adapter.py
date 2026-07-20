@@ -25,6 +25,7 @@ from src.navigation.odometry_candidate_adapter import (
 from src.navigation.odometry_candidate_adapter.validation import (
     COVARIANCE_POLICY,
     FRAME_ID,
+    MAX_SIGNED_64,
     TIMESTAMP_POLICY,
 )
 
@@ -1282,6 +1283,149 @@ class TestAdapterR1DR3StrictBuiltinNumericTypes(unittest.TestCase):
         self.assertTrue(any("imu_rpy" in e for e in c.errors))
 
     def test_good_sample_still_valid_after_hardening(self):
+        c = to_odometry_candidate(self._base_sample())
+        self.assertTrue(c.valid)
+        self.assertEqual(c.errors, [])
+
+
+# --- R1D-R4: bounded numerics and policy-contract safety --------------------
+# An independent pre-push audit of the R1D-R3 local commit found three
+# defects: (1) an arbitrary-precision plain `int` (e.g. `10**10000`) raised
+# `OverflowError` from `math.isfinite()`/`float()` in yaw_speed and every
+# vector component -- not a subclass, a genuine exact int, so R1D-R3's
+# type()-only gate didn't catch it; (2) the integer timestamp helpers had no
+# upper bound, so a huge timestamp produced a valid=True candidate whose
+# json.dumps(dataclasses.asdict(...)) then raised ValueError; (3) (see
+# test_odom_tf_readiness.py) policy fields in the readiness gate compared
+# via bare `!=` without a type gate first.
+
+HUGE_INT = 10 ** 10000
+
+
+class TestAdapterR1DR4BoundedNumericsAndPolicyContract(unittest.TestCase):
+    def _base_sample(self):
+        return {
+            "channel": "rt/odommodestate",
+            "receipt_monotonic_ns": 123456789,
+            "receipt_wall_utc_ns": 987654321,
+            "stamp_sec": 0, "stamp_nanosec": 0,
+            "position": [1.0, 2.0, 0.5],
+            "velocity": [0.0, 0.0, 0.0],
+            "yaw_speed": 0.0,
+            "imu_quaternion": [0.0, 0.0, 0.0, 1.0],
+            "imu_rpy": [0.0, 0.0, 0.0],
+            "imu_gyroscope": [0.01, 0.0, 0.02],
+            "imu_accelerometer": [0.0, 0.0, 9.81],
+        }
+
+    def _assert_safe_invalid(self, sample):
+        c = to_odometry_candidate(sample)
+        self.assertFalse(c.valid)
+        payload = json.dumps(dataclasses.asdict(c))
+        self.assertIsInstance(payload, str)
+        return c
+
+    # --- HUGE_INT: yaw_speed and every vector field -------------------------
+
+    def test_yaw_speed_huge_int_no_exception_invalid(self):
+        s = self._base_sample()
+        s["yaw_speed"] = HUGE_INT
+        self._assert_safe_invalid(s)
+
+    def test_position_component_huge_int_no_exception_invalid(self):
+        s = self._base_sample()
+        s["position"] = [HUGE_INT, 0.0, 0.0]
+        self._assert_safe_invalid(s)
+
+    def test_velocity_component_huge_int_no_exception_invalid(self):
+        s = self._base_sample()
+        s["velocity"] = [HUGE_INT, 0.0, 0.0]
+        self._assert_safe_invalid(s)
+
+    def test_quaternion_component_huge_int_no_exception_invalid(self):
+        s = self._base_sample()
+        s["imu_quaternion"] = [HUGE_INT, 0.0, 0.0, 1.0]
+        self._assert_safe_invalid(s)
+
+    def test_rpy_component_huge_int_no_exception_invalid(self):
+        s = self._base_sample()
+        s["imu_rpy"] = [HUGE_INT, 0.0, 0.0]
+        self._assert_safe_invalid(s)
+
+    # --- HUGE_INT: every timestamp field, fields normalized and serializable
+
+    def test_receipt_monotonic_ns_huge_int_no_exception_normalized(self):
+        s = self._base_sample()
+        s["receipt_monotonic_ns"] = HUGE_INT
+        c = self._assert_safe_invalid(s)
+        self.assertIs(type(c.receipt_monotonic_ns), int)
+        self.assertEqual(c.receipt_monotonic_ns, 0)
+
+    def test_receipt_wall_utc_ns_huge_int_no_exception_normalized(self):
+        s = self._base_sample()
+        s["receipt_wall_utc_ns"] = HUGE_INT
+        c = self._assert_safe_invalid(s)
+        self.assertIsNone(c.receipt_wall_utc_ns)
+
+    def test_stamp_sec_huge_int_no_exception_normalized(self):
+        s = self._base_sample()
+        s["stamp_sec"] = HUGE_INT
+        c = self._assert_safe_invalid(s)
+        self.assertIs(type(c.message_stamp_sec), int)
+        self.assertEqual(c.message_stamp_sec, 0)
+
+    def test_stamp_nanosec_huge_int_no_exception_normalized(self):
+        s = self._base_sample()
+        s["stamp_nanosec"] = HUGE_INT
+        c = self._assert_safe_invalid(s)
+        self.assertIs(type(c.message_stamp_nanosec), int)
+        self.assertEqual(c.message_stamp_nanosec, 0)
+
+    # --- MAX_SIGNED_64 boundary ----------------------------------------------
+
+    def test_receipt_monotonic_ns_max_signed_64_accepted(self):
+        s = self._base_sample()
+        s["receipt_monotonic_ns"] = MAX_SIGNED_64
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertEqual(c.receipt_monotonic_ns, MAX_SIGNED_64)
+
+    def test_receipt_monotonic_ns_max_signed_64_plus_one_rejected(self):
+        s = self._base_sample()
+        s["receipt_monotonic_ns"] = MAX_SIGNED_64 + 1
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    def test_stamp_sec_max_signed_64_accepted(self):
+        s = self._base_sample()
+        s["stamp_sec"] = MAX_SIGNED_64
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertEqual(c.message_stamp_sec, MAX_SIGNED_64)
+
+    def test_stamp_sec_max_signed_64_plus_one_rejected(self):
+        s = self._base_sample()
+        s["stamp_sec"] = MAX_SIGNED_64 + 1
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+
+    # --- stamp_nanosec exact boundary (unambiguous, isolated) ---------------
+
+    def test_stamp_nanosec_999999999_accepted(self):
+        s = self._base_sample()
+        s["stamp_nanosec"] = 999_999_999
+        c = to_odometry_candidate(s)
+        self.assertTrue(c.valid)
+        self.assertEqual(c.message_stamp_nanosec, 999_999_999)
+
+    def test_stamp_nanosec_1000000000_rejected(self):
+        s = self._base_sample()
+        s["stamp_nanosec"] = 1_000_000_000
+        c = to_odometry_candidate(s)
+        self.assertFalse(c.valid)
+        self.assertEqual(c.message_stamp_nanosec, 0)
+
+    def test_good_sample_still_valid_after_bounding(self):
         c = to_odometry_candidate(self._base_sample())
         self.assertTrue(c.valid)
         self.assertEqual(c.errors, [])

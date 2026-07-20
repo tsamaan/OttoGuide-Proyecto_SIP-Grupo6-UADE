@@ -9,6 +9,7 @@ This module does not publish anything and does not construct nav_msgs or TF
 transforms. See MFR_R6_SPORTMODESTATE_ODOM_CONTRACT.md for the full contract
 this implements.
 """
+import math
 from collections.abc import Mapping
 
 from .models import OdometryCandidate
@@ -16,11 +17,13 @@ from .validation import (
     ALLOWED_SOURCE_CHANNELS,
     COVARIANCE_POLICY,
     FRAME_ID,
+    MAX_MESSAGE_NANOSEC,
     TIMESTAMP_POLICY,
     all_finite,
+    is_bounded_nonnegative_int,
+    is_bounded_positive_int,
     is_finite_number,
-    is_nonnegative_int,
-    is_positive_int,
+    normalize_finite_number,
     normalize_finite_vector,
 )
 
@@ -114,9 +117,14 @@ def _invalid(source_channel, receipt_monotonic_ns, receipt_wall_utc_ns,
 
     R1D-R1: `receipt_monotonic_ns` / `message_stamp_sec` /
     `message_stamp_nanosec` / `receipt_wall_utc_ns` are normalized through
-    `is_nonnegative_int` (which excludes `bool`, unlike a bare
+    `is_bounded_nonnegative_int` (which excludes `bool`, unlike a bare
     `isinstance(x, int)`), so none of them can store a raw `bool` or an
     arbitrary object.
+
+    R1D-R4: `is_bounded_nonnegative_int` (see `validation.py`) also rejects
+    any magnitude outside `[0, MAX_SIGNED_64]`, so an invalid candidate can
+    no longer store an integer so large it would break
+    `json.dumps(dataclasses.asdict(candidate))` later.
 
     R1D-R2: `source_channel` gets the same treatment. Only an allowed
     channel of exact type `str` is preserved; any other value -- wrong
@@ -135,21 +143,21 @@ def _invalid(source_channel, receipt_monotonic_ns, receipt_wall_utc_ns,
     )
     normalized_wall_utc_ns = (
         receipt_wall_utc_ns
-        if receipt_wall_utc_ns is None or is_nonnegative_int(receipt_wall_utc_ns)
+        if receipt_wall_utc_ns is None or is_bounded_nonnegative_int(receipt_wall_utc_ns)
         else None
     )
     normalized_stamp_nanosec = (
         message_stamp_nanosec
-        if is_nonnegative_int(message_stamp_nanosec) and message_stamp_nanosec <= 999_999_999
+        if is_bounded_nonnegative_int(message_stamp_nanosec) and message_stamp_nanosec <= MAX_MESSAGE_NANOSEC
         else 0
     )
     return OdometryCandidate(
         valid=False,
         source_channel=normalized_source_channel,
-        receipt_monotonic_ns=receipt_monotonic_ns if is_nonnegative_int(receipt_monotonic_ns) else 0,
+        receipt_monotonic_ns=receipt_monotonic_ns if is_bounded_nonnegative_int(receipt_monotonic_ns) else 0,
         receipt_wall_utc_ns=normalized_wall_utc_ns,
         timestamp_policy=TIMESTAMP_POLICY,
-        message_stamp_sec=message_stamp_sec if is_nonnegative_int(message_stamp_sec) else 0,
+        message_stamp_sec=message_stamp_sec if is_bounded_nonnegative_int(message_stamp_sec) else 0,
         message_stamp_nanosec=normalized_stamp_nanosec,
         frame_id=FRAME_ID,
         child_frame_id=None,
@@ -247,6 +255,23 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
     gate on `type(x) is int`/`float` exactly, rejecting any subclass (and
     `bool`, whose type is never `int`) before any dunder of the untrusted
     value is ever invoked.
+
+    R1D-R4: an independent pre-push audit of R1D-R3 found the exact-type
+    gate alone was not enough. First, `math.isfinite()` raises
+    `OverflowError` (never caught before) for an arbitrary-precision plain
+    `int` whose magnitude exceeds a C double (e.g. `10**10000`) -- this hit
+    `yaw_speed` and every vector component. `normalize_finite_number`/
+    `normalize_finite_vector` (see `validation.py`) now catch `OverflowError`
+    alongside `TypeError`/`ValueError`, so such a value normalizes to
+    `None`/rejected instead of propagating. Second, the integer timestamp
+    helpers had no upper bound, so a huge-but-plain `receipt_monotonic_ns` /
+    `stamp_sec` / `receipt_wall_utc_ns` produced a `valid=True` candidate
+    whose `json.dumps(dataclasses.asdict(candidate))` then raised `ValueError`
+    (Python's int-to-str conversion digit limit). `is_bounded_positive_int`/
+    `is_bounded_nonnegative_int` now also reject any magnitude outside
+    `[0/1, MAX_SIGNED_64]` (an internal storage/serialization bound only --
+    it does not resolve ROS Time mapping, message-to-ROS-clock conversion,
+    or timestamp authority; those blockers remain open).
     """
     # Fix C (R1C): accept only a strict Mapping. An object with a callable `get`
     # that is not a Mapping (None / list / int / duck-typed object) is invalid.
@@ -294,26 +319,39 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
             "source_channel missing, not a plain string, or outside allowed set"
         )
 
-    if not is_positive_int(receipt_monotonic_ns):
-        errors.append("receipt_monotonic_ns missing or not a positive integer")
-
-    if not is_nonnegative_int(stamp_sec):
-        errors.append("stamp_sec missing, not an integer, or negative")
-
-    if not is_nonnegative_int(stamp_nanosec) or stamp_nanosec > 999_999_999:
+    if not is_bounded_positive_int(receipt_monotonic_ns):
         errors.append(
-            "stamp_nanosec missing, not an integer, negative, or out of "
-            "range [0, 999999999]"
+            "receipt_monotonic_ns missing, not a positive integer, or out of "
+            "range [1, MAX_SIGNED_64]"
         )
 
-    if receipt_wall_utc_ns is not None and not is_nonnegative_int(receipt_wall_utc_ns):
-        errors.append("receipt_wall_utc_ns must be a non-negative integer or None")
+    if not is_bounded_nonnegative_int(stamp_sec):
+        errors.append(
+            "stamp_sec missing, not an integer, negative, or out of range "
+            "[0, MAX_SIGNED_64]"
+        )
+
+    if not is_bounded_nonnegative_int(stamp_nanosec) or stamp_nanosec > MAX_MESSAGE_NANOSEC:
+        errors.append(
+            "stamp_nanosec missing, not an integer, negative, or out of "
+            f"range [0, {MAX_MESSAGE_NANOSEC}]"
+        )
+
+    if receipt_wall_utc_ns is not None and not is_bounded_nonnegative_int(receipt_wall_utc_ns):
+        errors.append(
+            "receipt_wall_utc_ns must be a non-negative integer within "
+            "[0, MAX_SIGNED_64], or None"
+        )
 
     # R1D-R3: normalize each raw vector EXACTLY ONCE via
     # `normalize_finite_vector`; every check and the final candidate below
     # use only the resulting canonical tuple, never the raw value again.
+    # R1D-R4: `yaw_speed` is normalized the same way via
+    # `normalize_finite_number` -- a HUGE_INT no longer reaches `float()`
+    # unprotected.
     position_normalized = None
     velocity_normalized = None
+    yaw_speed_normalized = None
     if position is None or velocity is None or yaw_speed is None:
         errors.append("position, velocity, or yaw_speed missing")
     else:
@@ -325,7 +363,8 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
         vel_error = _vector_error("velocity", velocity_normalized, 3)
         if vel_error:
             errors.append(vel_error)
-        if not is_finite_number(yaw_speed):
+        yaw_speed_normalized = normalize_finite_number(yaw_speed)
+        if yaw_speed_normalized is None:
             errors.append("yaw_speed is not a finite number")
 
     # R1D: imu_quaternion / imu_rpy are required and validated with the
@@ -336,8 +375,14 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
     quat_error = _vector_error("imu_quaternion", quaternion_normalized, 4)
     if quat_error:
         errors.append(quat_error)
-    elif sum(component * component for component in quaternion_normalized) <= 0.0:
-        errors.append("imu_quaternion has zero norm")
+    else:
+        # R1D-R4: math.hypot is exception-safe against overflow in the
+        # intermediate sum-of-squares (unlike `sum(c*c for c in ...)`, which
+        # can overflow to inf for large-but-finite components) and a
+        # non-finite result is explicitly rejected rather than trusted.
+        quat_norm = math.hypot(*quaternion_normalized)
+        if not math.isfinite(quat_norm) or quat_norm <= 0.0:
+            errors.append("imu_quaternion has zero norm")
 
     rpy_normalized = normalize_finite_vector(rpy, 3)
     rpy_error = _vector_error("imu_rpy", rpy_normalized, 3)
@@ -381,11 +426,12 @@ def to_odometry_candidate(sample: dict) -> OdometryCandidate:
         message_stamp_nanosec=stamp_nanosec,
         frame_id=FRAME_ID,
         child_frame_id=None,
-        # R1D-R3: reuse the tuples `normalize_finite_vector` already built --
-        # never re-iterate the raw position/velocity/quaternion/rpy values.
+        # R1D-R3/R1D-R4: reuse the values normalize_finite_vector /
+        # normalize_finite_number already built -- never re-derive them from
+        # the raw position/velocity/quaternion/rpy/yaw_speed values.
         position_xyz=position_normalized,
         velocity_xyz=velocity_normalized,
-        yaw_speed=float(yaw_speed),
+        yaw_speed=yaw_speed_normalized,
         orientation_quaternion_xyzw=quaternion_normalized,
         rpy=rpy_normalized,
         covariance_policy=COVARIANCE_POLICY,

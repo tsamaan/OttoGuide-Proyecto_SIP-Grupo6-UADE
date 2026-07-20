@@ -590,3 +590,116 @@ their existing test matrices. The real MFR-R6 fixtures are unaffected: none
 of the 160 samples exercise any of these three defects, so the eleven
 blockers, `publication_capability = WITHHELD_BY_R1_BOUNDARY`, and the hard
 `False` odom/TF/nav2 readiness invariants are unchanged.
+
+An independent pre-push audit of this local commit
+(`R1D_R3_PRE_PUSH_AUDIT = MVP_ODOM_TF_R1D_R3_PRE_PUSH_AUDIT_NO_GO`) found
+three further reproducible defects R1D-R3 did not close, without
+reinterpreting R1D-R3's section 15 claims (they were accurate for what they
+tested). See section 16 (R1D-R4) for the remediation.
+
+## 16. R1D-R4 — bounded numerics and typed policy/contract safety
+
+R1D-R3's own independent pre-push audit found three defects and, while
+auditing adjacent code in the same domain, three further gaps -- none
+reinterpreting R1D-R3's `NO_GO` as a `PASS`, and none touching the R1D-R3
+commit itself.
+
+- **`HUGE_INT_MATH_ISFINITE_OVERFLOW`.** `math.isfinite()` raises
+  `OverflowError` -- never caught before -- for an arbitrary-precision plain
+  `int` (not a subclass, not `bool`) whose magnitude exceeds what a C double
+  can represent (e.g. `10**10000`). This hit `yaw_speed` and every
+  `position`/`velocity`/`imu_quaternion`/`imu_rpy` component, propagating an
+  exception straight out of `to_odometry_candidate`.
+- **`UNBOUNDED_TIMESTAMP_INT_BREAKS_JSON_SERIALIZATION`.** `is_positive_int`/
+  `is_nonnegative_int` had no upper bound, so a huge but plain
+  `receipt_monotonic_ns`/`stamp_sec`/`receipt_wall_utc_ns` produced a
+  `valid=True` candidate whose own `json.dumps(dataclasses.asdict(candidate))`
+  then raised `ValueError` (Python's integer-to-string conversion digit
+  limit) -- reopening exactly the "every candidate stays JSON-serializable"
+  guarantee R1D-R1/R1D-R2 established. `stamp_nanosec` was already protected
+  by its explicit range check.
+- **`POLICY_STRING_SUBCLASS_COMPARISON_CAN_RAISE`.** `timestamp_policy`/
+  `frame_id`/`covariance_policy` in the readiness gate's structural check
+  were compared via a bare `!=`, unlike `source_channel` (which R1D-R3
+  correctly type-gated before its `in` test). A hostile `str` subclass on
+  any of the three policy fields caused `_is_structurally_valid_candidate`
+  to raise internally when its `__eq__`/`__ne__` ran; this was masked from
+  callers only by the separate per-candidate exception boundary, which was
+  designed as a last-resort net for genuine bugs, not primary defense for a
+  named, explicitly-tested adversarial input class.
+
+Three adjacent gaps in the same domain, found while auditing the above:
+
+- **`RECEIPT_WALL_UTC_NS_NOT_STRUCTURALLY_VALIDATED`.** The readiness gate's
+  structural check never touched `receipt_wall_utc_ns` at all (true since
+  before R1D-R3), so a hostile or out-of-range value there was silently
+  accepted as structurally valid.
+- **`MALFORMED_EVIDENCE_CONTRACT_CAN_RAISE`.** `_validate_contract` used
+  `isinstance()` for the contract type and its bool/optional-string fields,
+  so a contract SUBCLASS, or a hostile `str` subclass on
+  `authoritative_source_channel`/`resolved_child_frame_id`, could pass the
+  type gate and then raise when the coherence logic used the raw field value
+  in a membership test.
+- **`MALFORMED_CANDIDATE_TEST_LACKS_OUTCOME_ASSERTIONS`.**
+  `test_malformed_candidate_never_raises_contract` (added in R1D-R3) only
+  asserted the absence of an exception, with no assertion on the actual
+  outcome -- matching the audit's own explicitly-flagged anti-pattern.
+
+Fixes:
+
+- A new pure helper, `normalize_finite_number(value)`, is the single
+  definition of "finite number" every other helper now reuses: `type(value)
+  is int`/`float` gates first (rejecting `bool` and any subclass), then
+  `float(value)` is attempted inside a `try` that also catches
+  `OverflowError` (alongside `TypeError`/`ValueError`), returning `None`
+  instead of propagating. `is_finite_number` is now a one-line wrapper
+  around it; `normalize_finite_vector` normalizes each component through it
+  too, so a `HUGE_INT` vector component fails closed instead of raising.
+- `MAX_SIGNED_64` (`9_223_372_036_854_775_807`) and `MAX_MESSAGE_NANOSEC`
+  (`999_999_999`) are new module-level constants in `validation.py`: an
+  internal storage/serialization bound for THIS offline model only. They do
+  **not** resolve ROS Time mapping, message-to-ROS-clock conversion, or
+  timestamp authority -- `RECEIPT_TIME_TO_ROS_TIME_UNRESOLVED` and the other
+  timestamp-related blockers remain open regardless. `is_positive_int`/
+  `is_nonnegative_int` are renamed to `is_bounded_positive_int`/
+  `is_bounded_nonnegative_int` and now also reject any magnitude outside
+  `[1/0, MAX_SIGNED_64]`; every adapter and readiness timestamp check uses
+  the bounded versions, and `_invalid()` normalizes any out-of-range integer
+  to its canonical fallback (`0` or `None`), same as before for `bool`/wrong
+  type.
+- The adapter's quaternion norm is now computed via `math.hypot(*tuple)`
+  (rejecting a non-finite result explicitly) instead of a manual
+  sum-of-squares, avoiding the intermediate-overflow risk of squaring
+  large-but-finite components; the readiness gate's quaternion-norm check
+  does the same.
+- `readiness.py`'s `_is_structurally_valid_candidate` is reorganized into a
+  COMMON baseline applied to every candidate (valid or not) plus additional
+  stricter checks applied only when `valid=True`. The common baseline now
+  covers `timestamp_policy`/`frame_id`/`covariance_policy`/`source_channel`
+  (exact `type(...) is str` before any `!=`/`in`), `child_frame_id` (`None`
+  or exact `str`, never `strip()`-ed before that gate), and
+  `receipt_wall_utc_ns` (`None` or bounded exact int) -- closing both
+  `POLICY_STRING_SUBCLASS_COMPARISON_CAN_RAISE` and
+  `RECEIPT_WALL_UTC_NS_NOT_STRUCTURALLY_VALIDATED`.
+- `_validate_contract` now gates on `type(contract) is OdomTfEvidenceContract`
+  (not `isinstance`) and `type(value) is bool`/`str` for every field, before
+  any `strip()`/membership/comparison -- closing
+  `MALFORMED_EVIDENCE_CONTRACT_CAN_RAISE`. Error messages no longer
+  interpolate raw field values. `assess_odom_tf_readiness` also wraps the
+  `_validate_contract` call in its own narrow `try`/`except Exception`
+  (never `BaseException`), matching the existing per-candidate structural
+  boundary as defense-in-depth; the message includes only
+  `type(exc).__name__`.
+- `test_malformed_candidate_never_raises_contract` now asserts the full
+  fail-closed outcome (classification, blocker code, candidate counts,
+  publication capability, all four readiness booleans) for every hostile
+  case, not merely the absence of an exception.
+
+The R1D/R1D-R1/R1D-R2/R1D-R3 fixes (timestamp normalization, IMU auxiliary
+fault isolation, `source_channel` sanitization, single-pass vector
+normalization) are untouched and continue to pass their existing test
+matrices, independently re-verified against this commit. The real MFR-R6
+fixtures are unaffected: none of the 160 samples exercise any of these
+defects, so the eleven blockers, `publication_capability =
+WITHHELD_BY_R1_BOUNDARY`, and the hard `False` odom/TF/nav2 readiness
+invariants remain unchanged.

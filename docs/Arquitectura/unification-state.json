@@ -777,11 +777,42 @@
       "robot_access": false,
       "r1d_r2_github_independent_audit": "NO_GO_FOR_CANONICAL",
       "r1d_r3_remediation": "LOCAL_IMPLEMENTATION_COMPLETED_PENDING_INDEPENDENT_AUDIT",
+      "r1d_r3_pre_push_audit": "NO_GO_HUGE_INT_AND_POLICY_CONTRACT_GAPS",
       "summary": "Closes the three defects a GitHub-side independent audit of the published R1D-R2 commit found, without reinterpreting R1D-R2's own pre-push GO verdict. A new shared pure helper, normalize_finite_vector(), is now the only place position/velocity/imu_quaternion/imu_rpy's raw value is ever touched: it validates and canonicalizes in a single pass, closing the re-iteration that broke a sequence whose __iter__ only started raising on its second call. The shared numeric helpers (is_finite_number, is_positive_int, is_nonnegative_int) now gate on type(x) is int/float exactly instead of isinstance(), rejecting any hostile int/float subclass before its own comparison/conversion dunders ever run. The readiness gate's structural check (_is_structurally_valid_candidate) now reuses these same hardened shared helpers instead of duplicating its own numeric/vector logic, requires type(c) is OdometryCandidate exactly (rejecting a genuine subclass, not just a duck-typed fake) and type(source_channel) is str before the allow-list membership test; the structural-validation loop also wraps each per-candidate check in its own narrow except Exception (never BaseException) so an unexpected bug degrades only that one candidate instead of propagating out of the whole assessment. R1 non-publishable boundary unchanged; real-fixture result unchanged: NOT_READY (same 11 blockers, same 2 channels, publication_capability=WITHHELD_BY_R1_BOUNDARY).",
       "closed_defects": [
         "UNTRUSTED_VECTOR_REITERATION_CAN_PROPAGATE",
         "READINESS_STRUCTURAL_VALIDATION_CAN_RAISE",
         "HOSTILE_BUILTIN_SUBCLASSES_NOT_STRICTLY_REJECTED"
+      ],
+      "artifacts": [
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/validation.py",
+        "codigo ottoguide/src/navigation/odometry_candidate_adapter/readiness.py",
+        "codigo ottoguide/tests/unit/test_odometry_candidate_adapter.py",
+        "codigo ottoguide/tests/unit/test_odom_tf_readiness.py",
+        "docs/Arquitectura/ODOM_TF_R1_OFFLINE_READINESS_CONTRACT.md",
+        "docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md"
+      ],
+      "publication_capability": "WITHHELD_BY_R1_BOUNDARY",
+      "odom_publication": "NOT_STARTED",
+      "tf_publication": "NOT_STARTED",
+      "physical_validation": "PENDING",
+      "nav2_physical": "NOT_STARTED"
+    },
+    {
+      "checkpoint": "MVP-ODOM-TF-R1D-R4-BOUNDED-NUMERIC-AND-POLICY-CONTRACT-SAFETY",
+      "risk_level": "B",
+      "robot_access": false,
+      "r1d_r3_pre_push_audit": "NO_GO_HUGE_INT_AND_POLICY_CONTRACT_GAPS",
+      "r1d_r4_remediation": "LOCAL_IMPLEMENTATION_COMPLETED_PENDING_INDEPENDENT_AUDIT",
+      "summary": "Closes the three defects the R1D-R3 pre-push audit found plus three adjacent gaps in the same domain found during that same audit, without reinterpreting R1D-R3's NO_GO. A new pure helper, normalize_finite_number(), is the single definition of finite-number every other helper reuses: type(value) is int/float gates first, then float(value) is attempted inside a try that also catches OverflowError (alongside TypeError/ValueError) -- closing the real OverflowError math.isfinite() raised for an arbitrary-precision int (10**10000) in yaw_speed and every vector component. Two new constants, MAX_SIGNED_64 and MAX_MESSAGE_NANOSEC, bound the integer helpers (now is_bounded_positive_int/is_bounded_nonnegative_int) -- an internal storage/serialization limit only, not a resolution of ROS Time mapping or timestamp authority -- closing the json.dumps ValueError an unbounded timestamp integer produced. The readiness structural check now gates on type(...) is str before comparing timestamp_policy/frame_id/covariance_policy (matching source_channel's existing treatment), structurally validates receipt_wall_utc_ns for the first time, and _validate_contract() requires type(contract) is OdomTfEvidenceContract and type(value) is bool/str before any strip()/comparison, with an added narrow boundary in assess_odom_tf_readiness() around that call. test_malformed_candidate_never_raises_contract now asserts the full fail-closed outcome, not just the absence of an exception. R1 non-publishable boundary unchanged; real-fixture result unchanged: NOT_READY (same 11 blockers, same 2 channels, publication_capability=WITHHELD_BY_R1_BOUNDARY).",
+      "closed_defects": [
+        "HUGE_INT_MATH_ISFINITE_OVERFLOW",
+        "UNBOUNDED_TIMESTAMP_INT_BREAKS_JSON_SERIALIZATION",
+        "POLICY_STRING_SUBCLASS_COMPARISON_CAN_RAISE",
+        "RECEIPT_WALL_UTC_NS_NOT_STRUCTURALLY_VALIDATED",
+        "MALFORMED_EVIDENCE_CONTRACT_CAN_RAISE",
+        "MALFORMED_CANDIDATE_TEST_LACKS_OUTCOME_ASSERTIONS"
       ],
       "artifacts": [
         "codigo ottoguide/src/navigation/odometry_candidate_adapter/adapter.py",

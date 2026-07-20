@@ -1021,7 +1021,11 @@ class TestR1DR3ReadinessStructuralExceptionSafety(unittest.TestCase):
 
     def test_malformed_candidate_never_raises_contract(self):
         """Textual contract check: every hostile-field case above, run
-        through assess_odom_tf_readiness, must complete without raising."""
+        through assess_odom_tf_readiness, must complete without raising --
+        AND each result must satisfy the full fail-closed outcome contract
+        (classification, blocker, candidate_count, invalid_count,
+        publication capability, odom/TF/Nav2 false, physical validation
+        true), not merely "no exception"."""
         hostile_candidates = [
             _hostile_candidate(source_channel=_ChannelEqRaises("rt/odommodestate")),
             _hostile_candidate(receipt_monotonic_ns=_ReceiptComparisonRaises(100)),
@@ -1036,16 +1040,265 @@ class TestR1DR3ReadinessStructuralExceptionSafety(unittest.TestCase):
             _hostile_candidate(warnings=_WarningsIterRaises(["ok"])),
             _hostile_candidate(cls=_OdometryCandidateSubclass),
         ]
-        try:
-            for c in hostile_candidates:
-                assess_odom_tf_readiness([c], OdomTfEvidenceContract())
-        except Exception as exc:
-            self.fail(f"assess_odom_tf_readiness raised {type(exc).__name__}: {exc}")
+        for c in hostile_candidates:
+            try:
+                report = assess_odom_tf_readiness([c], OdomTfEvidenceContract())
+            except Exception as exc:
+                self.fail(f"assess_odom_tf_readiness raised {type(exc).__name__}: {exc}")
+            self.assertEqual(
+                report.classification, CLASSIFICATION_FAIL_CLOSED_INVALID_INPUT)
+            self.assertIn(CANDIDATE_STRUCTURE_INVALID, report.blocker_codes())
+            self.assertEqual(report.candidate_count, 1)
+            self.assertEqual(report.candidate_invalid_count, 1)
+            self.assertEqual(
+                report.publication_capability, PUBLICATION_CAPABILITY_WITHHELD)
+            self.assertFalse(report.odom_publication_ready)
+            self.assertFalse(report.odom_to_base_link_tf_ready)
+            self.assertFalse(report.nav2_ready)
+            self.assertTrue(report.physical_validation_required)
 
     def test_good_manual_candidate_still_processable(self):
         c = _hostile_candidate()
         report = assess_odom_tf_readiness([c], OdomTfEvidenceContract())
         self.assertNotIn(CANDIDATE_STRUCTURE_INVALID, report.blocker_codes())
+
+
+# --- R1D-R4: bounded numerics and policy-contract safety --------------------
+# An independent pre-push audit of R1D-R3 found three defects and three
+# adjacent gaps in the same domain: (1) HUGE_INT (an arbitrary-precision
+# plain int, not a subclass) raised OverflowError from math.isfinite();
+# (2) unbounded integer timestamps produced a "valid" candidate whose own
+# JSON serialization then failed; (3) timestamp_policy/frame_id/
+# covariance_policy compared via bare `!=` let a hostile str subclass's
+# __eq__/__ne__ run before rejection; (4) receipt_wall_utc_ns was never
+# structurally validated at all; (5) a malformed OdomTfEvidenceContract
+# (subclass, or a hostile str subclass on an optional-string field) could
+# raise inside _validate_contract; (6) the R1D-R3 contractual test only
+# checked for the absence of an exception.
+
+HUGE_INT = 10 ** 10000
+
+
+class _PolicyEqNeRaises(str):
+    def __eq__(self, other):
+        raise RuntimeError("policy eq boom")
+
+    def __ne__(self, other):
+        raise RuntimeError("policy ne boom")
+
+    def __hash__(self):
+        return str.__hash__(self)
+
+
+class _HugeIntSubclass(int):
+    """Not used directly as HUGE_INT (plain int is enough), but kept for
+    symmetry/clarity in field names below."""
+
+
+class TestR1DR4BoundedNumericsAndPolicyValidation(unittest.TestCase):
+    """Closes HUGE_INT_MATH_ISFINITE_OVERFLOW,
+    UNBOUNDED_TIMESTAMP_INT_BREAKS_JSON_SERIALIZATION,
+    POLICY_STRING_SUBCLASS_COMPARISON_CAN_RAISE, and
+    RECEIPT_WALL_UTC_NS_NOT_STRUCTURALLY_VALIDATED for manually-constructed
+    candidates passed directly to assess_odom_tf_readiness."""
+
+    def _assert_fails_closed(self, candidate):
+        report = assess_odom_tf_readiness([candidate], OdomTfEvidenceContract())
+        self.assertEqual(report.classification, CLASSIFICATION_FAIL_CLOSED_INVALID_INPUT)
+        self.assertIn(CANDIDATE_STRUCTURE_INVALID, report.blocker_codes())
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.candidate_invalid_count, 1)
+        self.assertEqual(report.publication_capability, PUBLICATION_CAPABILITY_WITHHELD)
+        self.assertFalse(report.odom_publication_ready)
+        self.assertFalse(report.odom_to_base_link_tf_ready)
+        self.assertFalse(report.nav2_ready)
+        self.assertTrue(report.physical_validation_required)
+
+    # --- policy string subclass: timestamp_policy / frame_id / covariance_policy
+
+    def test_hostile_timestamp_policy_fails_closed_no_exception(self):
+        c = _hostile_candidate(timestamp_policy=_PolicyEqNeRaises(TIMESTAMP_POLICY))
+        self._assert_fails_closed(c)
+
+    def test_hostile_frame_id_fails_closed_no_exception(self):
+        c = _hostile_candidate(frame_id=_PolicyEqNeRaises(FRAME_ID))
+        self._assert_fails_closed(c)
+
+    def test_hostile_covariance_policy_fails_closed_no_exception(self):
+        c = _hostile_candidate(covariance_policy=_PolicyEqNeRaises(COVARIANCE_POLICY))
+        self._assert_fails_closed(c)
+
+    # --- warning/error item hostile str subclass ----------------------------
+
+    def test_hostile_warning_item_str_subclass_fails_closed_no_exception(self):
+        c = _hostile_candidate(warnings=[_PolicyEqNeRaises("some warning")])
+        self._assert_fails_closed(c)
+
+    def test_hostile_error_item_str_subclass_on_invalid_fails_closed_no_exception(self):
+        c = _hostile_candidate(valid=False, errors=[_PolicyEqNeRaises("some error")])
+        self._assert_fails_closed(c)
+
+    # --- child_frame_id hostile ----------------------------------------------
+
+    def test_hostile_child_frame_id_fails_closed_no_exception(self):
+        c = _hostile_candidate(child_frame_id=_PolicyEqNeRaises("base_link"))
+        self._assert_fails_closed(c)
+
+    # --- receipt_wall_utc_ns structural gap ---------------------------------
+
+    def test_receipt_wall_utc_ns_object_fails_closed_no_exception(self):
+        c = _hostile_candidate(receipt_wall_utc_ns=object())
+        self._assert_fails_closed(c)
+
+    def test_receipt_wall_utc_ns_bool_fails_closed_no_exception(self):
+        c = _hostile_candidate(receipt_wall_utc_ns=True)
+        self._assert_fails_closed(c)
+
+    def test_receipt_wall_utc_ns_negative_fails_closed_no_exception(self):
+        c = _hostile_candidate(receipt_wall_utc_ns=-1)
+        self._assert_fails_closed(c)
+
+    def test_receipt_wall_utc_ns_huge_int_fails_closed_no_exception(self):
+        c = _hostile_candidate(receipt_wall_utc_ns=HUGE_INT)
+        self._assert_fails_closed(c)
+
+    def test_receipt_wall_utc_ns_none_still_valid(self):
+        c = _hostile_candidate(receipt_wall_utc_ns=None)
+        report = assess_odom_tf_readiness([c], OdomTfEvidenceContract())
+        self.assertNotIn(CANDIDATE_STRUCTURE_INVALID, report.blocker_codes())
+
+    # --- HUGE_INT across every temporal / numeric field ---------------------
+
+    def test_huge_int_receipt_monotonic_ns_fails_closed_no_exception(self):
+        c = _hostile_candidate(receipt_monotonic_ns=HUGE_INT)
+        self._assert_fails_closed(c)
+
+    def test_huge_int_message_stamp_sec_fails_closed_no_exception(self):
+        c = _hostile_candidate(message_stamp_sec=HUGE_INT)
+        self._assert_fails_closed(c)
+
+    def test_huge_int_message_stamp_nanosec_fails_closed_no_exception(self):
+        c = _hostile_candidate(message_stamp_nanosec=HUGE_INT)
+        self._assert_fails_closed(c)
+
+    def test_huge_int_yaw_speed_fails_closed_no_exception(self):
+        c = _hostile_candidate(yaw_speed=HUGE_INT)
+        self._assert_fails_closed(c)
+
+    def test_huge_int_position_component_fails_closed_no_exception(self):
+        c = _hostile_candidate(position_xyz=(HUGE_INT, 0.0, 0.0))
+        self._assert_fails_closed(c)
+
+    def test_huge_int_velocity_component_fails_closed_no_exception(self):
+        c = _hostile_candidate(velocity_xyz=(HUGE_INT, 0.0, 0.0))
+        self._assert_fails_closed(c)
+
+    def test_huge_int_rpy_component_fails_closed_no_exception(self):
+        c = _hostile_candidate(rpy=(HUGE_INT, 0.0, 0.0))
+        self._assert_fails_closed(c)
+
+    def test_huge_int_quaternion_component_fails_closed_no_exception(self):
+        c = _hostile_candidate(orientation_quaternion_xyzw=(HUGE_INT, 0.0, 0.0, 1.0))
+        self._assert_fails_closed(c)
+
+    # --- an invalid (valid=False) candidate with hostile internal fields ----
+
+    def test_invalid_candidate_with_hostile_position_fails_closed_no_exception(self):
+        c = _hostile_candidate(valid=False, position_xyz=_PosLenRaises((1.0, 2.0, 3.0)))
+        self._assert_fails_closed(c)
+
+    def test_invalid_candidate_with_huge_int_receipt_fails_closed_no_exception(self):
+        c = _hostile_candidate(valid=False, receipt_monotonic_ns=HUGE_INT)
+        self._assert_fails_closed(c)
+
+    def test_invalid_candidate_with_hostile_policy_fails_closed_no_exception(self):
+        c = _hostile_candidate(valid=False, frame_id=_PolicyEqNeRaises(FRAME_ID))
+        self._assert_fails_closed(c)
+
+    # --- structurally-valid invalid candidate stays processable -------------
+
+    def test_legitimate_invalid_candidate_still_processable(self):
+        c = _hostile_candidate(
+            valid=False, receipt_monotonic_ns=0, source_channel="<invalid>",
+            orientation_quaternion_xyzw=(0.0, 0.0, 0.0, 0.0),
+            errors=["manually constructed"],
+        )
+        report = assess_odom_tf_readiness([c], OdomTfEvidenceContract())
+        self.assertNotIn(CANDIDATE_STRUCTURE_INVALID, report.blocker_codes())
+        self.assertEqual(report.candidate_invalid_count, 1)
+
+
+class _ContractSubclass(OdomTfEvidenceContract):
+    """A genuine OdomTfEvidenceContract SUBCLASS -- must be rejected by
+    `type(contract) is OdomTfEvidenceContract`, not just `isinstance`."""
+
+
+class TestR1DR4EvidenceContractHostileInputFailClosed(unittest.TestCase):
+    """Closes MALFORMED_EVIDENCE_CONTRACT_CAN_RAISE: a hostile or malformed
+    OdomTfEvidenceContract must never raise inside assess_odom_tf_readiness."""
+
+    def _assert_contract_invalid(self, contract):
+        try:
+            report = assess_odom_tf_readiness([], contract)
+        except Exception as exc:
+            self.fail(f"assess_odom_tf_readiness raised {type(exc).__name__}: {exc}")
+        self.assertEqual(report.classification, CLASSIFICATION_FAIL_CLOSED_INVALID_INPUT)
+        self.assertIn(EVIDENCE_CONTRACT_INVALID, report.blocker_codes())
+
+    def test_contract_subclass_rejected_no_exception(self):
+        self._assert_contract_invalid(_ContractSubclass())
+
+    def test_hostile_authoritative_source_channel_no_exception(self):
+        contract = OdomTfEvidenceContract(
+            source_channel_arbitration_resolved=True,
+            authoritative_source_channel=_PolicyEqNeRaises("rt/odommodestate"),
+        )
+        self._assert_contract_invalid(contract)
+
+    def test_hostile_resolved_child_frame_id_no_exception(self):
+        contract = OdomTfEvidenceContract(
+            child_frame_id_resolved=True,
+            resolved_child_frame_id=_PolicyEqNeRaises("base_link"),
+        )
+        self._assert_contract_invalid(contract)
+
+    def test_hostile_optional_string_subclass_generic_no_exception(self):
+        # Neither flag set -- the subclass alone must still be rejected by
+        # the exact-type gate before any strip()/comparison is attempted.
+        contract = OdomTfEvidenceContract(
+            authoritative_source_channel=_PolicyEqNeRaises("rt/odommodestate"),
+        )
+        self._assert_contract_invalid(contract)
+
+    def test_keyboard_interrupt_not_swallowed_by_contract_validation(self):
+        class _KeyboardInterruptOnStrip(str):
+            def strip(self):
+                raise KeyboardInterrupt("synthetic ctrl-c during strip")
+
+        contract = OdomTfEvidenceContract(
+            source_channel_arbitration_resolved=True,
+            authoritative_source_channel=_KeyboardInterruptOnStrip("rt/odommodestate"),
+        )
+        # A hostile str SUBCLASS is rejected by the exact-type gate before
+        # strip() is ever called -- so this must fail closed, not raise.
+        self._assert_contract_invalid(contract)
+
+    def test_keyboard_interrupt_from_bool_field_not_swallowed(self):
+        class _BoolLikeRaisesOnBool(int):
+            def __bool__(self):
+                raise KeyboardInterrupt("synthetic ctrl-c")
+
+        # type(value) is bool rejects this outright (its type is
+        # _BoolLikeRaisesOnBool, never bool) -- __bool__ is never invoked,
+        # so this must fail closed via EVIDENCE_CONTRACT_INVALID, not raise.
+        from dataclasses import replace as _replace
+        contract = _replace(
+            OdomTfEvidenceContract(), dynamic_motion_evidence_available=_BoolLikeRaisesOnBool(1))
+        self._assert_contract_invalid(contract)
+
+    def test_good_contract_still_processable(self):
+        report = assess_odom_tf_readiness([], OdomTfEvidenceContract())
+        self.assertNotIn(EVIDENCE_CONTRACT_INVALID, report.blocker_codes())
 
 
 if __name__ == "__main__":

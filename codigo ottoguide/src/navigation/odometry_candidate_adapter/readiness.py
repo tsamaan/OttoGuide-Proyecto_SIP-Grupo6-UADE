@@ -46,10 +46,11 @@ from .validation import (
     ALLOWED_SOURCE_CHANNELS,
     COVARIANCE_POLICY,
     FRAME_ID,
+    MAX_MESSAGE_NANOSEC,
     TIMESTAMP_POLICY,
+    is_bounded_nonnegative_int,
+    is_bounded_positive_int,
     is_finite_number,
-    is_nonnegative_int,
-    is_positive_int,
     normalize_finite_vector,
 )
 
@@ -318,23 +319,37 @@ def _fail_closed_report(code, message, candidate_count=0, invalid_count=0,
 
 def _validate_contract(contract):
     """Return an error message if the contract is not a well-formed
-    OdomTfEvidenceContract with strict bool / optional-str fields; else None."""
-    if not isinstance(contract, OdomTfEvidenceContract):
+    OdomTfEvidenceContract with strict bool / optional-str fields; else None.
+
+    R1D-R4: closes `POLICY_STRING_SUBCLASS_COMPARISON_CAN_RAISE` for the
+    contract's own optional-string fields. `type(contract) is
+    OdomTfEvidenceContract` (not `isinstance`) rejects a genuine subclass
+    too, not just a duck-typed fake. Every bool/optional-str field is gated
+    on `type(value) is bool`/`str` -- an exact-type check -- BEFORE `strip()`,
+    membership, or any comparison ever touches it, so a hostile subclass
+    (whose own `strip()`/`__eq__` might raise or misbehave) is rejected
+    outright. Error messages never interpolate the raw field value.
+    """
+    if type(contract) is not OdomTfEvidenceContract:
         return f"evidence_contract is not an OdomTfEvidenceContract (got {type(contract).__name__})"
     for name in _CONTRACT_BOOL_FIELDS:
         val = getattr(contract, name, None)
         # Reject truthy non-bool (e.g. "false", 1, 0) -- must be a real bool.
-        if not isinstance(val, bool):
+        if type(val) is not bool:
             return f"contract field '{name}' must be bool, got {type(val).__name__}"
     for name in _CONTRACT_OPT_STR_FIELDS:
         val = getattr(contract, name, "__missing__")
-        if val is not None and not isinstance(val, str):
+        if val is not None and type(val) is not str:
             return f"contract field '{name}' must be str or None, got {type(val).__name__}"
 
     # --- Fix D (R1B): semantic validation of the optional strings ------------
-    # A whitespace-only resolved value is not a value; a resolved value present
-    # while its resolution flag is false is a contradiction; an authoritative
-    # channel that is resolved must be a non-empty allow-listed channel.
+    # Only reached once both optional-string fields are confirmed `None` or
+    # exact `str` above -- `strip()`/membership/comparison below never touch
+    # an unvalidated value. A whitespace-only resolved value is not a value;
+    # a resolved value present while its resolution flag is false is a
+    # contradiction; an authoritative channel that is resolved must be a
+    # non-empty allow-listed channel. Messages never interpolate the raw
+    # (already-str-typed, but still untrusted-content) field value.
     arb = contract.source_channel_arbitration_resolved
     auth = contract.authoritative_source_channel
     if arb:
@@ -345,7 +360,7 @@ def _validate_contract(contract):
             )
         if auth.strip() not in ALLOWED_SOURCE_CHANNELS:
             return (
-                f"authoritative_source_channel '{auth}' is not in the allow-list "
+                "authoritative_source_channel is not in the allow-list "
                 f"{ALLOWED_SOURCE_CHANNELS}"
             )
     else:
@@ -382,48 +397,65 @@ def _is_structurally_valid_candidate(c):
     (policies, quaternion norm, rpy, warnings/errors types). A dataclass
     instance is not assumed valid solely by its type.
 
-    R1D-R3: every check here now gates on an EXACT type before any
-    comparison or iteration ever touches the untrusted field value:
-    `type(c) is OdometryCandidate` (a genuine subclass is rejected too, not
-    just a duck-typed fake), `type(source_channel) is str` before the
-    allow-list membership test, the shared `is_positive_int` /
-    `is_nonnegative_int` / `is_finite_number` / `normalize_finite_vector`
-    helpers (each gated on `type(x) is int`/`float`/`list`/`tuple`, so a
-    hostile subclass's own comparison/iteration dunders are never invoked),
-    and exact `list`/`str` for warnings/errors and their items. Vector
-    fields are normalized in a single pass and the resulting canonical
-    tuple -- never the raw field -- is what any further computation (the
-    quaternion norm) uses. This closes both
-    `READINESS_STRUCTURAL_VALIDATION_CAN_RAISE` (a hostile field on a
-    manually-constructed candidate previously could raise inside this very
-    function) and, for candidate fields, `HOSTILE_BUILTIN_SUBCLASSES_NOT_
-    STRICTLY_REJECTED`.
+    R1D-R3: every check here gates on an EXACT type before any comparison or
+    iteration ever touches the untrusted field value: `type(c) is
+    OdometryCandidate` (a genuine subclass is rejected too, not just a
+    duck-typed fake), the shared numeric/vector helpers (each gated on
+    `type(x) is int`/`float`/`list`/`tuple`, so a hostile subclass's own
+    comparison/iteration dunders are never invoked), and exact `list`/`str`
+    for warnings/errors and their items.
+
+    R1D-R4: reorganizes the checks into a COMMON baseline applied to every
+    candidate (valid or not) plus additional STRICTER checks applied only
+    when `valid=True`, per the checkpoint's own contract ("estructura común
+    para candidatos válidos e inválidos"). The common baseline now also
+    covers `timestamp_policy`/`frame_id`/`covariance_policy`/`source_channel`
+    (exact `type(...) is str` BEFORE any `!=`/`in` comparison -- closing
+    `POLICY_STRING_SUBCLASS_COMPARISON_CAN_RAISE`, which previously let a
+    hostile `str` subclass's `__eq__`/`__ne__` run via a bare `!=` on these
+    three policy fields), `child_frame_id` (`None` or exact `str`, `strip()`
+    never called before this gate), and `receipt_wall_utc_ns` (`None` or a
+    bounded, exact int -- closing `RECEIPT_WALL_UTC_NS_NOT_STRUCTURALLY_
+    VALIDATED`, which previously left this field completely unchecked). The
+    bounded-int helpers (`is_bounded_nonnegative_int`/`is_bounded_positive_int`)
+    also close `HUGE_INT`-class issues for every integer field here, matching
+    the adapter's own bounds.
     """
     # Fix A (R1B); R1D-R3: exact type, not isinstance -- a genuine
     # OdometryCandidate SUBCLASS is rejected too, not just a duck-typed fake.
     if type(c) is not OdometryCandidate:
         return False
 
-    # Fixed contract policies must match the module policies exactly.
-    if c.timestamp_policy != TIMESTAMP_POLICY:
-        return False
-    if c.frame_id != FRAME_ID:
-        return False
-    if c.covariance_policy != COVARIANCE_POLICY:
+    # --- common baseline: applies to EVERY candidate, valid or not ----------
+
+    # Fixed contract policies: exact `str` type BEFORE any `!=` comparison --
+    # a hostile str subclass's `__eq__`/`__ne__` must never run.
+    for policy_name, expected in (
+        ("timestamp_policy", TIMESTAMP_POLICY),
+        ("frame_id", FRAME_ID),
+        ("covariance_policy", COVARIANCE_POLICY),
+    ):
+        val = getattr(c, policy_name)
+        if type(val) is not str or val != expected:
+            return False
+
+    # source_channel: exact `str` type BEFORE any membership test -- checked
+    # here (common to every candidate) so the allow-list membership test
+    # below (valid=True only) and any later use of this field never touch an
+    # unvalidated value.
+    if type(c.source_channel) is not str:
         return False
 
     # Boolean flags must be exact bools. `bool` cannot be subclassed in
-    # Python, so `isinstance` is already an exact-type check here.
+    # Python, so `type(...) is bool` is already an exact-type check here.
     for flag_name in ("valid", "covariance_available", "gyro_reliable",
                       "accel_reliable"):
-        if not isinstance(getattr(c, flag_name), bool):
+        if type(getattr(c, flag_name)) is not bool:
             return False
 
-    # warnings / errors: exact `list` of exact `str` items (checked for
-    # every candidate; a real OdometryCandidate always carries these,
-    # valid or not). `type(...) is list` is checked before the collection
-    # is ever iterated, so a list subclass with a hostile `__iter__` is
-    # rejected without running it.
+    # warnings / errors: exact `list` of exact `str` items. `type(...) is
+    # list` is checked before the collection is ever iterated, so a list
+    # subclass with a hostile `__iter__` is rejected without running it.
     for coll_name in ("warnings", "errors"):
         coll = getattr(c, coll_name)
         if type(coll) is not list:
@@ -431,31 +463,29 @@ def _is_structurally_valid_candidate(c):
         if not all(type(item) is str for item in coll):
             return False
 
-    # A legitimately invalid adapter output (valid=False) is a real, typed
-    # failure -- it is structurally a well-formed OdometryCandidate and routes
-    # to EMPTY_OR_INVALID_SEQUENCE, not CANDIDATE_STRUCTURE_INVALID. The strict
-    # payload checks below apply to candidates that CLAIM to be valid; a bare
-    # valid=True must be backed by a coherent payload.
-    if not c.valid:
-        return True
-
-    # R1D-R3: type(source_channel) is str BEFORE the allow-list membership
-    # test -- a hostile object (or a str SUBCLASS) with a raising `__eq__`
-    # must never reach `in`.
-    if type(c.source_channel) is not str or c.source_channel not in ALLOWED_SOURCE_CHANNELS:
+    # child_frame_id: None or exact str -- never call strip()/compare on an
+    # unvalidated value.
+    if c.child_frame_id is not None and type(c.child_frame_id) is not str:
         return False
 
-    # receipt monotonic / timestamps: exact, plain ints via the shared
-    # helpers -- type-gated before any comparison touches the value.
-    if not is_positive_int(c.receipt_monotonic_ns):
+    # receipt monotonic / timestamps: bounded, exact ints via the shared
+    # helpers -- type- and range-gated before any comparison touches the
+    # value. Common to every candidate: an invalid candidate's
+    # receipt_monotonic_ns may legitimately be 0 (see adapter's `_invalid()`).
+    if not is_bounded_nonnegative_int(c.receipt_monotonic_ns):
         return False
-    if not is_nonnegative_int(c.message_stamp_sec):
+    if c.receipt_wall_utc_ns is not None and not is_bounded_nonnegative_int(c.receipt_wall_utc_ns):
         return False
-    if not is_nonnegative_int(c.message_stamp_nanosec) or c.message_stamp_nanosec >= 1_000_000_000:
+    if not is_bounded_nonnegative_int(c.message_stamp_sec):
+        return False
+    if not is_bounded_nonnegative_int(c.message_stamp_nanosec) or c.message_stamp_nanosec > MAX_MESSAGE_NANOSEC:
         return False
 
     # position / velocity / rpy: exactly 3 finite components, normalized in
-    # a single pass -- the raw field is never touched again afterward.
+    # a single pass -- the raw field is never touched again afterward. A
+    # zero vector (as an invalid candidate carries) is a valid, finite
+    # vector and passes here; the valid=True branch below additionally
+    # requires a non-zero quaternion norm.
     if normalize_finite_vector(c.position_xyz, 3) is None:
         return False
     if normalize_finite_vector(c.velocity_xyz, 3) is None:
@@ -463,17 +493,43 @@ def _is_structurally_valid_candidate(c):
     if normalize_finite_vector(c.rpy, 3) is None:
         return False
 
-    # yaw_speed: real finite scalar (bool/subclass rejected before compare).
+    # yaw_speed: real finite scalar (bool/subclass/HUGE_INT rejected before
+    # any comparison or conversion touches it).
     if not is_finite_number(c.yaw_speed):
         return False
 
-    # quaternion: exactly 4 finite components with non-zero norm, computed
-    # from the SAME canonical tuple `normalize_finite_vector` returns -- the
-    # raw `orientation_quaternion_xyzw` is never iterated a second time.
+    # quaternion: exactly 4 finite components, normalized in a single pass.
     quaternion_normalized = normalize_finite_vector(c.orientation_quaternion_xyzw, 4)
     if quaternion_normalized is None:
         return False
-    if math.sqrt(sum(component * component for component in quaternion_normalized)) <= 0.0:
+
+    # A legitimately invalid adapter output (valid=False) is a real, typed
+    # failure -- it is structurally a well-formed OdometryCandidate (the
+    # common baseline above) and routes to EMPTY_OR_INVALID_SEQUENCE, not
+    # CANDIDATE_STRUCTURE_INVALID. It may carry receipt_monotonic_ns=0, the
+    # "<invalid>" source_channel sentinel, and a zero-norm quaternion. The
+    # stricter payload checks below apply only to candidates that CLAIM to
+    # be valid; a bare valid=True must be backed by a coherent payload.
+    if not c.valid:
+        return True
+
+    # --- additional checks: valid=True candidates only ----------------------
+
+    if c.source_channel not in ALLOWED_SOURCE_CHANNELS:
+        return False
+    if not is_bounded_positive_int(c.receipt_monotonic_ns):
+        return False
+    if c.errors != []:
+        return False
+
+    # Non-zero, finite quaternion norm, computed from the SAME canonical
+    # tuple `normalize_finite_vector` returns (the raw
+    # `orientation_quaternion_xyzw` is never iterated a second time).
+    # `math.hypot` avoids the intermediate-overflow risk of a manual
+    # sum-of-squares for large-but-finite components, and a non-finite
+    # result is explicitly rejected rather than trusted.
+    quat_norm = math.hypot(*quaternion_normalized)
+    if not math.isfinite(quat_norm) or quat_norm <= 0.0:
         return False
 
     return True
@@ -534,7 +590,23 @@ def assess_odom_tf_readiness(candidates, evidence_contract):
       * A boolean contract flag can never override typed evidence (coherence).
     """
     # --- Fix A: contract shape fail-closed (before touching candidates) ------
-    contract_error = _validate_contract(evidence_contract)
+    # R1D-R4: closes MALFORMED_EVIDENCE_CONTRACT_CAN_RAISE. `_validate_contract`
+    # is itself now exception-safe by design (exact-type gates before any
+    # comparison), but this narrow boundary -- around ONLY this one call --
+    # is defense-in-depth against a genuine unexpected bug there, matching
+    # the same per-call pattern already used for candidate structural
+    # validation below. The message includes only `type(exc).__name__`,
+    # never any raw hostile value. Only ordinary `Exception` is caught;
+    # `BaseException` / `KeyboardInterrupt` / `SystemExit` / `GeneratorExit`
+    # are never swallowed.
+    try:
+        contract_error = _validate_contract(evidence_contract)
+    except Exception as exc:
+        return _fail_closed_report(
+            EVIDENCE_CONTRACT_INVALID,
+            f"evidence_contract validation raised {type(exc).__name__}; "
+            f"treated as invalid input",
+        )
     if contract_error is not None:
         return _fail_closed_report(EVIDENCE_CONTRACT_INVALID, contract_error)
     c = evidence_contract
