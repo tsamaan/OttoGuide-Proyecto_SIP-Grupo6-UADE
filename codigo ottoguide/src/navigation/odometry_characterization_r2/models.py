@@ -20,7 +20,7 @@ from src.navigation.odometry_evidence_r2.validation import (
     validate_str_tuple,
 )
 
-CHARACTERIZATION_SCHEMA_VERSION = "2.1.0-p1"
+CHARACTERIZATION_SCHEMA_VERSION = "2.1.1-p1a"
 
 STATUS_VALUES = frozenset({
     "VERIFIED", "SUPPORTED_INFERENCE", "PARTIAL", "PARTIAL_QUANTIFIED",
@@ -247,10 +247,10 @@ class ChannelAlignmentMetrics:
     position_rmse: "float | None"
     position_p95: "float | None"
     position_max: "float | None"
-    yaw_mae: "float | None"
-    yaw_rmse: "float | None"
-    yaw_p95: "float | None"
-    yaw_max: "float | None"
+    yaw_speed_mae_rad_s: "float | None"
+    yaw_speed_rmse_rad_s: "float | None"
+    yaw_speed_p95_rad_s: "float | None"
+    yaw_speed_max_rad_s: "float | None"
     correlation_position: "float | None"
     status: str
     limitations: tuple
@@ -260,7 +260,8 @@ class ChannelAlignmentMetrics:
         _req(self.paired_sample_count <= min(self.primary_sample_count, self.secondary_sample_count),
              "paired_sample_count cannot exceed either input sample count (no ambiguous reuse)")
         for name in ("position_mae", "position_rmse", "position_p95", "position_max",
-                     "yaw_mae", "yaw_rmse", "yaw_p95", "yaw_max", "correlation_position", "lag_candidate_ms"):
+                     "yaw_speed_mae_rad_s", "yaw_speed_rmse_rad_s", "yaw_speed_p95_rad_s",
+                     "yaw_speed_max_rad_s", "correlation_position", "lag_candidate_ms"):
             _finite_or_none(getattr(self, name), name)
         _status(self.status)
         validate_str_tuple(self.limitations)
@@ -550,4 +551,371 @@ class OdometryCharacterizationBundleR2:
         claim_ids = {c.claim_id for c in self.claims}
         for c in self.claims:
             _req(is_non_empty_str(c.claim_id), "every claim requires a claim_id")
+        validate_str_tuple(self.limitations)
+
+
+# =====================================================================
+# MVP-ODOM-TF-R2-P1A -- quantitative audit and claim-hardening models.
+# Additive to the P1 models above; nothing above this line was removed.
+# =====================================================================
+
+SEQUENCE_SEMANTICS_VALUES = frozenset({
+    "GLOBAL_ACROSS_ALL_TOPICS", "CHANNEL_LOCAL", "FILE_LOCAL", "UNKNOWN",
+})
+
+GAP_CLASSIFICATION_VALUES = frozenset({
+    "TIME_GAP", "EXPECTED_CADENCE_MISS", "RECORDER_GLOBAL_SEQUENCE_GAP",
+    "CHANNEL_LOCAL_SEQUENCE_GAP", "FILE_BOUNDARY", "PHASE_BOUNDARY",
+    "INTENTIONAL_INACTIVITY", "UNKNOWN",
+})
+
+
+@dataclass(frozen=True, kw_only=True)
+class SequenceSemantics:
+    """H3: the recorder's `sequence` field is a single counter shared across
+    every topic it emits (odom, lf_odom, lowstate, bms, lidar, events, ...),
+    never a per-channel counter. Determined empirically by P1 (irregular
+    per-channel deltas: 2,5,10,15,19,22,25...) and re-confirmed here against
+    raw evidence. A per-channel sequence SPAN must never be read as a
+    per-channel sample-loss count on its own."""
+    evidence_id: str
+    session_id: str
+    classification: str
+    evidence_summary: str
+    status: str
+    limitations: tuple
+
+    def __post_init__(self):
+        _req(self.classification in SEQUENCE_SEMANTICS_VALUES,
+             f"invalid sequence semantics classification: {self.classification!r}")
+        _req(is_non_empty_str(self.evidence_summary), "evidence_summary required")
+        _status(self.status)
+        validate_str_tuple(self.limitations)
+
+
+@dataclass(frozen=True, kw_only=True)
+class DropoutDetectionPolicy:
+    """H3: the corrected, documented policy P1A uses to classify a gap.
+    TIME_GAP (monotonic receipt-time exceeding the channel's own robust
+    threshold) is the PRIMARY, most trustworthy signal. A sequence-derived
+    span is only ever an auxiliary corroborating signal, and is explicitly
+    RELABELED here as `channel_local_sequence_gap_estimate` rather than
+    `dropout_count`, since the underlying counter is shared across topics
+    (see SequenceSemantics) and cannot alone prove a sample was lost."""
+    schema_version: str
+    evidence_id: str
+    primary_signal: str
+    secondary_signal: str
+    time_gap_method: str
+    time_gap_threshold_method: str
+    sequence_gap_caveat: str
+    status: str
+    limitations: tuple
+
+    def __post_init__(self):
+        _req(self.primary_signal == "TIME_GAP", "primary dropout signal must be TIME_GAP")
+        _req(is_non_empty_str(self.secondary_signal), "secondary_signal required")
+        _req(is_non_empty_str(self.time_gap_method), "time_gap_method required")
+        _req(is_non_empty_str(self.sequence_gap_caveat), "sequence_gap_caveat required")
+        _status(self.status)
+        validate_str_tuple(self.limitations)
+
+
+@dataclass(frozen=True, kw_only=True)
+class PairingTimeOffsetMetrics:
+    """H4: the pure, descriptive nearest-neighbor pairing-time offset between
+    two already-aligned channels -- NOT a claim about causal lag. Always
+    derivable whenever samples exist to pair."""
+    schema_version: str
+    evidence_id: str
+    session_id: str
+    phase: str
+    paired_sample_count: int
+    time_offset_median_s: float
+    time_offset_p95_s: float
+    status: str
+    limitations: tuple
+
+    def __post_init__(self):
+        _req(self.paired_sample_count >= 0, "paired_sample_count must be >= 0")
+        _req(is_finite_number(self.time_offset_median_s), "time_offset_median_s must be finite")
+        _req(is_finite_number(self.time_offset_p95_s), "time_offset_p95_s must be finite")
+        _status(self.status)
+        validate_str_tuple(self.limitations)
+
+
+@dataclass(frozen=True, kw_only=True)
+class CausalLagCandidate:
+    """H4: a candidate causal lag between primary and LF channels, derived
+    from a real cross-correlation scan (never a bare pairing-offset reuse).
+    `status` is pinned to UNRESOLVED by construction in this checkpoint --
+    per section 21's own claims enumeration, CAUSAL_CHANNEL_LAG has no
+    non-UNRESOLVED value listed, so this model structurally forbids ever
+    promoting a causal-lag claim here, regardless of what the scan finds."""
+    schema_version: str
+    evidence_id: str
+    session_id: str
+    phase: str
+    scan_lags_ms: tuple
+    scan_correlations: tuple
+    peak_lag_ms: "float | None"
+    peak_correlation: "float | None"
+    zero_lag_correlation: "float | None"
+    aliasing_risk: str
+    sample_rate_ratio: str
+    rejection_reason: str
+    status: str
+    limitations: tuple
+
+    def __post_init__(self):
+        _req(len(self.scan_lags_ms) == len(self.scan_correlations),
+             "scan_lags_ms and scan_correlations must be the same length")
+        for v in self.scan_lags_ms:
+            _req(is_finite_number(v), "scan_lags_ms entries must be finite")
+        for v in self.scan_correlations:
+            if v is not None:
+                _req(is_finite_number(v), "scan_correlations entries must be finite or None")
+        _finite_or_none(self.peak_lag_ms, "peak_lag_ms")
+        _finite_or_none(self.peak_correlation, "peak_correlation")
+        _finite_or_none(self.zero_lag_correlation, "zero_lag_correlation")
+        _req(self.aliasing_risk in ("LOW", "MEDIUM", "HIGH", "NOT_APPLICABLE"),
+             f"invalid aliasing_risk: {self.aliasing_risk!r}")
+        _req(is_non_empty_str(self.rejection_reason), "rejection_reason required")
+        _req(self.status == "UNRESOLVED",
+             "CausalLagCandidate.status must be UNRESOLVED in this checkpoint (section 21)")
+        validate_str_tuple(self.limitations)
+
+
+@dataclass(frozen=True, kw_only=True)
+class YawAngleResidualMetrics:
+    """H5: yaw ANGLE residual (radians) between primary and LF. Structurally
+    UNAVAILABLE in P1/P1A: SportModeState's recorder stream carries no
+    orientation/quaternion field, and no pose-yaw-angle was ever derived
+    from position deltas (that would require its own documented method,
+    e.g. atan2 of consecutive velocity vectors, which was not implemented
+    here) -- so this model can only ever be constructed with status
+    NOT_AVAILABLE, never a numeric value."""
+    schema_version: str
+    evidence_id: str
+    session_id: str
+    phase: str
+    yaw_angle_rmse_rad: "float | None"
+    status: str
+    limitations: tuple
+
+    def __post_init__(self):
+        _req(self.status == "NOT_AVAILABLE", "yaw angle residual must remain NOT_AVAILABLE (no orientation data)")
+        _req(self.yaw_angle_rmse_rad is None, "yaw_angle_rmse_rad must be None while status is NOT_AVAILABLE")
+        validate_str_tuple(self.limitations)
+
+
+@dataclass(frozen=True, kw_only=True)
+class YawSpeedResidualMetrics:
+    """H5: yaw SPEED residual (rad/s) between primary and LF -- the metric
+    P1 actually computed and previously mislabeled as a bare 'yaw_rmse'."""
+    schema_version: str
+    evidence_id: str
+    session_id: str
+    phase: str
+    yaw_speed_rmse_rad_s: "float | None"
+    yaw_speed_mae_rad_s: "float | None"
+    sample_count: int
+    status: str
+    limitations: tuple
+
+    def __post_init__(self):
+        _finite_or_none(self.yaw_speed_rmse_rad_s, "yaw_speed_rmse_rad_s")
+        _finite_or_none(self.yaw_speed_mae_rad_s, "yaw_speed_mae_rad_s")
+        _req(self.sample_count >= 0, "sample_count must be >= 0")
+        _status(self.status)
+        validate_str_tuple(self.limitations)
+
+
+@dataclass(frozen=True, kw_only=True)
+class SegmentEligibility:
+    """H7: explicit per-segment eligibility so a claim can never silently
+    cite a segment for a purpose it was never valid for (e.g. using
+    left_90_return_invalidated as ground truth)."""
+    evidence_id: str
+    session_id: str
+    segment_name: str
+    valid_for_descriptive_analysis: bool
+    valid_for_channel_alignment: bool
+    valid_for_timebase: bool
+    valid_for_imu_sign: bool
+    valid_for_ground_truth: bool
+    valid_for_translation_scale: bool
+    valid_for_yaw_gain: bool
+    invalid_reason: "str | None"
+    baseline_scope: str
+
+    def __post_init__(self):
+        for name in ("valid_for_descriptive_analysis", "valid_for_channel_alignment",
+                     "valid_for_timebase", "valid_for_imu_sign", "valid_for_ground_truth",
+                     "valid_for_translation_scale", "valid_for_yaw_gain"):
+            _req(type(getattr(self, name)) is bool, f"{name} must be a plain bool")
+        if not self.valid_for_ground_truth:
+            _req(is_non_empty_str(self.invalid_reason) or self.invalid_reason is None,
+                 "invalid_reason must be a str or None")
+        _req(is_non_empty_str(self.baseline_scope), "baseline_scope required")
+
+
+@dataclass(frozen=True, kw_only=True)
+class ArbitrationScoringRule:
+    """H2/H6: one fully-transparent arbitration criterion row -- explicit
+    direction, raw metrics for both channels, normalization/weight, and the
+    resulting winner, so 'primary is preferred because of X' can never be
+    silently contradicted by the underlying numbers again."""
+    name: str
+    direction: str
+    primary_raw_metric: "float | None"
+    lf_raw_metric: "float | None"
+    normalization: str
+    weight: float
+    winner: str
+    confidence: str
+    limitations: tuple
+
+    def __post_init__(self):
+        _req(is_non_empty_str(self.name), "name required")
+        _req(self.direction in ("HIGHER_IS_BETTER", "LOWER_IS_BETTER", "NOT_DISCRIMINATING"),
+             f"invalid direction: {self.direction!r}")
+        _finite_or_none(self.primary_raw_metric, "primary_raw_metric")
+        _finite_or_none(self.lf_raw_metric, "lf_raw_metric")
+        _req(is_non_empty_str(self.normalization), "normalization required")
+        _req(is_finite_number(self.weight) and self.weight >= 0, "weight must be finite and >= 0")
+        _req(self.winner in ("PRIMARY", "LF", "TIE", "NOT_APPLICABLE"), f"invalid winner: {self.winner!r}")
+        _req(self.confidence in ("HIGH", "MEDIUM", "LOW"), f"invalid confidence: {self.confidence!r}")
+        validate_str_tuple(self.limitations)
+
+
+@dataclass(frozen=True, kw_only=True)
+class ArbitrationDecisionAudit:
+    """H2/H6: the corrected arbitration record. `criterion_count` MUST equal
+    `len(criteria)` -- this is enforced structurally so a reported count can
+    never again silently drift from what was actually serialized (closes
+    H6). `preferred_analysis_channel` must be textually consistent with the
+    per-criterion winners (closes H2): it is only set when the weighted
+    winner count actually supports it, and is null otherwise."""
+    schema_version: str
+    evidence_id: str
+    criteria: tuple
+    criterion_count: int
+    aggregation_method: str
+    preferred_analysis_channel: "str | None"
+    authoritative_source_channel: "str | None"
+    consistent_with_criteria: bool
+    status: str
+    limitations: tuple
+
+    def __post_init__(self):
+        _req(len(self.criteria) >= 1, "at least one criterion is required")
+        for c in self.criteria:
+            _req(isinstance(c, ArbitrationScoringRule), "criteria entries must be ArbitrationScoringRule")
+        _req(self.criterion_count == len(self.criteria),
+             f"criterion_count ({self.criterion_count}) must equal len(criteria) ({len(self.criteria)})")
+        _req(self.authoritative_source_channel is None,
+             "AUTHORITATIVE_SOURCE_CHANNEL must remain null -- channel selection is out of scope")
+        _req(type(self.consistent_with_criteria) is bool, "consistent_with_criteria must be a plain bool")
+        _req(self.consistent_with_criteria,
+             "an ArbitrationDecisionAudit must never be constructed in a self-contradictory state")
+        _status(self.status)
+        validate_str_tuple(self.limitations)
+
+
+@dataclass(frozen=True, kw_only=True)
+class BootRelationEvidence:
+    """H8: boot-relation evidence with an explicit, verified integrity
+    chain -- never resolved by bare textual similarity of a boot_id
+    string. `same_boot_verified` requires BOTH sides' source files to be
+    independently hash-verified AND their boot_id strings to match exactly.
+    Distinguishes same-boot from same-time-domain/continuous-capture/
+    continuous-trajectory, none of which follow automatically (section 20)."""
+    evidence_id: str
+    session_a: str
+    session_b: str
+    boot_id_a: str
+    boot_id_b: str
+    source_a_sha256: str
+    source_b_sha256: str
+    source_a_hash_verified: bool
+    source_b_hash_verified: bool
+    same_boot_verified: bool
+    same_time_domain: bool
+    continuous_capture: bool
+    continuous_trajectory_permitted: bool
+    status: str
+    limitations: tuple
+
+    def __post_init__(self):
+        _req(is_sha256_hex(self.source_a_sha256), "source_a_sha256 invalid")
+        _req(is_sha256_hex(self.source_b_sha256), "source_b_sha256 invalid")
+        for name in ("source_a_hash_verified", "source_b_hash_verified", "same_boot_verified",
+                     "same_time_domain", "continuous_capture", "continuous_trajectory_permitted"):
+            _req(type(getattr(self, name)) is bool, f"{name} must be a plain bool")
+        if self.same_boot_verified:
+            _req(self.source_a_hash_verified and self.source_b_hash_verified,
+                 "same_boot_verified requires both sources to be independently hash-verified")
+            _req(self.boot_id_a == self.boot_id_b,
+                 "same_boot_verified requires boot_id_a == boot_id_b")
+        _req(not self.continuous_trajectory_permitted,
+             "same-boot evidence must never by itself authorize trajectory concatenation (section 20)")
+        _status(self.status)
+        validate_str_tuple(self.limitations)
+
+
+@dataclass(frozen=True, kw_only=True)
+class P1AuditFinding:
+    """One H1-H10 audit finding: hypothesis id, classification, evidence,
+    and the concrete fix applied (if any)."""
+    hypothesis_id: str
+    title: str
+    classification: str
+    evidence: tuple
+    fix_applied: str
+    limitations: tuple
+
+    def __post_init__(self):
+        _req(is_non_empty_str(self.hypothesis_id), "hypothesis_id required")
+        _req(is_non_empty_str(self.title), "title required")
+        _req(self.classification in ("REPRODUCED", "NOT_REPRODUCED", "PARTIAL", "INDETERMINATE"),
+             f"invalid classification: {self.classification!r}")
+        validate_str_tuple(self.evidence, allow_empty_tuple=False)
+        _req(is_non_empty_str(self.fix_applied), "fix_applied required")
+        validate_str_tuple(self.limitations)
+
+
+@dataclass(frozen=True, kw_only=True)
+class P1ACharacterizationBundle:
+    """Top-level P1A bundle: everything from P1's bundle plus the audit
+    findings and hardened models. Composition, not replacement -- the P1
+    bundle fields are unchanged in shape; this wraps them alongside the new
+    P1A-only evidence."""
+    schema_version: str
+    generated_utc_injected: str
+    p1_bundle: "OdometryCharacterizationBundleR2"
+    audit_findings: tuple
+    sequence_semantics: tuple
+    dropout_policy: "DropoutDetectionPolicy"
+    pairing_offsets: tuple
+    causal_lag_candidates: tuple
+    yaw_angle_residuals: tuple
+    yaw_speed_residuals: tuple
+    segment_eligibility: tuple
+    arbitration_audit: "ArbitrationDecisionAudit"
+    boot_relation_evidence: tuple
+    claims: tuple
+    limitations: tuple
+
+    def __post_init__(self):
+        _req(is_non_empty_str(self.generated_utc_injected), "generated_utc_injected must be a non-empty injected string")
+        _req(isinstance(self.p1_bundle, OdometryCharacterizationBundleR2), "p1_bundle must be the P1 bundle")
+        for f in self.audit_findings:
+            _req(isinstance(f, P1AuditFinding), "audit_findings entries must be P1AuditFinding")
+        _req(len(self.audit_findings) == 10, f"expected exactly 10 audit findings (H1-H10), got {len(self.audit_findings)}")
+        _req(isinstance(self.dropout_policy, DropoutDetectionPolicy), "dropout_policy must be a DropoutDetectionPolicy")
+        _req(isinstance(self.arbitration_audit, ArbitrationDecisionAudit),
+             "arbitration_audit must be an ArbitrationDecisionAudit")
+        _req(self.arbitration_audit.authoritative_source_channel is None,
+             "bundle-level invariant: AUTHORITATIVE_SOURCE_CHANNEL must remain null")
         validate_str_tuple(self.limitations)

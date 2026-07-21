@@ -1,0 +1,235 @@
+[
+  {
+    "claim_id": "CHANNEL_QUALITY",
+    "confidence": "HIGH",
+    "evidence_ids": [
+      "p1.channel_quality.hilroute-20260720T194910Z.rt_odommodestate",
+      "p1.channel_quality.hilroute-20260720T194910Z.rt_lf_odommodestate",
+      "p1.channel_quality.finalharvest-seated-20260720T205406Z.rt_odommodestate",
+      "p1.channel_quality.finalharvest-seated-20260720T205406Z.rt_lf_odommodestate",
+      "p1.channel_quality.gt-r4b-20260720T213222Z.rt_odommodestate",
+      "p1.channel_quality.gt-r4b-20260720T213222Z.rt_lf_odommodestate"
+    ],
+    "reason": "Unchanged from P1: sampling-rate/jitter metrics computed directly from raw JSONL reparse.",
+    "status": "VERIFIED"
+  },
+  {
+    "claim_id": "DROPOUT_CHARACTERIZATION",
+    "confidence": "MEDIUM",
+    "evidence_ids": [
+      "p1a.dropout_detection_policy",
+      "p1a.sequence_semantics.hilroute-20260720T194910Z",
+      "p1a.sequence_semantics.finalharvest-seated-20260720T205406Z",
+      "p1a.sequence_semantics.gt-r4b-20260720T213222Z"
+    ],
+    "reason": "Time-based gap detection promoted to the primary signal (H3); the sequence-based estimate is relabeled auxiliary, not confirmed loss.",
+    "status": "PARTIAL"
+  },
+  {
+    "claim_id": "PRIMARY_LF_ALIGNMENT",
+    "confidence": "MEDIUM",
+    "evidence_ids": [
+      "p1a.pairing_offset.hilroute-20260720T194910Z.PRE_ROUTE_STATIONARY",
+      "p1a.pairing_offset.hilroute-20260720T194910Z.ROUTE_ACTIVE",
+      "p1a.pairing_offset.hilroute-20260720T194910Z.POST_ROUTE_STATIONARY",
+      "p1a.pairing_offset.finalharvest-seated-20260720T205406Z.PRE_ROUTE_STATIONARY",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.forward_x_setup_not_executed",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.forward_x_valid_retry",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.left_90_first",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.forward_y",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.left_180_operator_corrected",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.left_90_return_invalidated",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.left_90_valid_retry_local_baseline"
+    ],
+    "reason": "Nearest-neighbor pairing offset computed per phase/segment.",
+    "status": "PARTIAL"
+  },
+  {
+    "claim_id": "PAIRING_TIME_OFFSET",
+    "confidence": "MEDIUM",
+    "evidence_ids": [
+      "p1a.pairing_offset.hilroute-20260720T194910Z.PRE_ROUTE_STATIONARY",
+      "p1a.pairing_offset.hilroute-20260720T194910Z.ROUTE_ACTIVE",
+      "p1a.pairing_offset.hilroute-20260720T194910Z.POST_ROUTE_STATIONARY",
+      "p1a.pairing_offset.finalharvest-seated-20260720T205406Z.PRE_ROUTE_STATIONARY",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.forward_x_setup_not_executed",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.forward_x_valid_retry",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.left_90_first",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.forward_y",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.left_180_operator_corrected",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.left_90_return_invalidated",
+      "p1a.pairing_offset.gt-r4b-20260720T213222Z.left_90_valid_retry_local_baseline"
+    ],
+    "reason": "Descriptive pairing-time offset, distinct from any causal-lag claim (H4).",
+    "status": "SUPPORTED_INFERENCE"
+  },
+  {
+    "claim_id": "CAUSAL_CHANNEL_LAG",
+    "confidence": "LOW",
+    "evidence_ids": [
+      "p1a.causal_lag.hilroute-20260720T194910Z.PRE_ROUTE_STATIONARY",
+      "p1a.causal_lag.hilroute-20260720T194910Z.ROUTE_ACTIVE",
+      "p1a.causal_lag.hilroute-20260720T194910Z.POST_ROUTE_STATIONARY",
+      "p1a.causal_lag.finalharvest-seated-20260720T205406Z.PRE_ROUTE_STATIONARY",
+      "p1a.causal_lag.gt-r4b-20260720T213222Z.forward_x_setup_not_executed",
+      "p1a.causal_lag.gt-r4b-20260720T213222Z.forward_x_valid_retry",
+      "p1a.causal_lag.gt-r4b-20260720T213222Z.left_90_first",
+      "p1a.causal_lag.gt-r4b-20260720T213222Z.forward_y",
+      "p1a.causal_lag.gt-r4b-20260720T213222Z.left_180_operator_corrected",
+      "p1a.causal_lag.gt-r4b-20260720T213222Z.left_90_return_invalidated",
+      "p1a.causal_lag.gt-r4b-20260720T213222Z.left_90_valid_retry_local_baseline"
+    ],
+    "reason": "Cross-correlation scan performed (H4) but no bootstrap/repeatability confirmation protocol was run; remains UNRESOLVED per section 21.",
+    "status": "UNRESOLVED"
+  },
+  {
+    "claim_id": "CHANNEL_ARBITRATION",
+    "confidence": "MEDIUM",
+    "evidence_ids": [
+      "p1a.channel_arbitration_audit"
+    ],
+    "reason": "Corrected, fully-aggregated criteria matrix (H2/H6); no authoritative channel selected by design.",
+    "status": "PARTIAL"
+  },
+  {
+    "claim_id": "PREFERRED_ANALYSIS_CHANNEL",
+    "confidence": "MEDIUM",
+    "evidence_ids": [
+      "p1a.channel_arbitration_audit"
+    ],
+    "reason": "Corrected weighted decision (H2): preferred_analysis_channel='rt/lf/odommodestate'.",
+    "status": "SUPPORTED_INFERENCE"
+  },
+  {
+    "claim_id": "AUTHORITATIVE_SOURCE_CHANNEL",
+    "confidence": "HIGH",
+    "evidence_ids": [
+      "p1a.channel_arbitration_audit"
+    ],
+    "reason": "Channel selection remains out of scope through at least P2.",
+    "status": "UNRESOLVED"
+  },
+  {
+    "claim_id": "YAW_ANGLE_RESIDUAL",
+    "confidence": "HIGH",
+    "evidence_ids": [
+      "p1a.yaw_angle_residual.hilroute-20260720T194910Z.PRE_ROUTE_STATIONARY",
+      "p1a.yaw_angle_residual.hilroute-20260720T194910Z.ROUTE_ACTIVE",
+      "p1a.yaw_angle_residual.hilroute-20260720T194910Z.POST_ROUTE_STATIONARY",
+      "p1a.yaw_angle_residual.finalharvest-seated-20260720T205406Z.PRE_ROUTE_STATIONARY",
+      "p1a.yaw_angle_residual.gt-r4b-20260720T213222Z.forward_x_setup_not_executed",
+      "p1a.yaw_angle_residual.gt-r4b-20260720T213222Z.forward_x_valid_retry",
+      "p1a.yaw_angle_residual.gt-r4b-20260720T213222Z.left_90_first",
+      "p1a.yaw_angle_residual.gt-r4b-20260720T213222Z.forward_y",
+      "p1a.yaw_angle_residual.gt-r4b-20260720T213222Z.left_180_operator_corrected",
+      "p1a.yaw_angle_residual.gt-r4b-20260720T213222Z.left_90_return_invalidated",
+      "p1a.yaw_angle_residual.gt-r4b-20260720T213222Z.left_90_valid_retry_local_baseline"
+    ],
+    "reason": "No orientation data exists in the recorder stream; never computed (H5).",
+    "status": "UNRESOLVED"
+  },
+  {
+    "claim_id": "YAW_SPEED_RESIDUAL",
+    "confidence": "HIGH",
+    "evidence_ids": [
+      "p1a.yaw_speed_residual.hilroute-20260720T194910Z.PRE_ROUTE_STATIONARY",
+      "p1a.yaw_speed_residual.hilroute-20260720T194910Z.ROUTE_ACTIVE",
+      "p1a.yaw_speed_residual.hilroute-20260720T194910Z.POST_ROUTE_STATIONARY",
+      "p1a.yaw_speed_residual.finalharvest-seated-20260720T205406Z.PRE_ROUTE_STATIONARY",
+      "p1a.yaw_speed_residual.gt-r4b-20260720T213222Z.forward_x_setup_not_executed",
+      "p1a.yaw_speed_residual.gt-r4b-20260720T213222Z.forward_x_valid_retry",
+      "p1a.yaw_speed_residual.gt-r4b-20260720T213222Z.left_90_first",
+      "p1a.yaw_speed_residual.gt-r4b-20260720T213222Z.forward_y",
+      "p1a.yaw_speed_residual.gt-r4b-20260720T213222Z.left_180_operator_corrected",
+      "p1a.yaw_speed_residual.gt-r4b-20260720T213222Z.left_90_return_invalidated",
+      "p1a.yaw_speed_residual.gt-r4b-20260720T213222Z.left_90_valid_retry_local_baseline"
+    ],
+    "reason": "Renamed and confirmed (H5): RMS residual of instantaneous yaw_speed between primary and LF.",
+    "status": "VERIFIED"
+  },
+  {
+    "claim_id": "TRANSLATION_SCALE",
+    "confidence": "LOW",
+    "evidence_ids": [
+      "p1.nominal_scale.forward_x_valid_retry",
+      "p1.nominal_scale.forward_y"
+    ],
+    "reason": "Unchanged from P1: only best-effort operator-nominal-vs-observed ratios exist.",
+    "status": "UNRESOLVED"
+  },
+  {
+    "claim_id": "YAW_SCALE",
+    "confidence": "LOW",
+    "evidence_ids": [
+      "p1.nominal_yaw_gain.left_90_first",
+      "p1.nominal_yaw_gain.left_180_operator_corrected",
+      "p1.nominal_yaw_gain.left_90_valid_retry_local_baseline"
+    ],
+    "reason": "Unchanged from P1: wide ratio spread (H9), never resolved to a single scale.",
+    "status": "UNRESOLVED"
+  },
+  {
+    "claim_id": "IMU_CROSSCHECK",
+    "confidence": "MEDIUM",
+    "evidence_ids": [
+      "p1.imu.hilroute-20260720T194910Z.route_active",
+      "p1.imu.finalharvest-seated-20260720T205406Z.postboot_stationary",
+      "p1.imu.gt-r4b-20260720T213222Z.forward_x_setup_not_executed",
+      "p1.imu.gt-r4b-20260720T213222Z.forward_x_valid_retry",
+      "p1.imu.gt-r4b-20260720T213222Z.left_90_first",
+      "p1.imu.gt-r4b-20260720T213222Z.forward_y",
+      "p1.imu.gt-r4b-20260720T213222Z.left_180_operator_corrected",
+      "p1.imu.gt-r4b-20260720T213222Z.left_90_return_invalidated",
+      "p1.imu.gt-r4b-20260720T213222Z.left_90_valid_retry_local_baseline"
+    ],
+    "reason": "Unchanged from P1: sign-agreement only, gyroscope units unresolved.",
+    "status": "PARTIAL_QUANTIFIED"
+  },
+  {
+    "claim_id": "R4B_BOOT_RELATION_TO_R4",
+    "confidence": "HIGH",
+    "evidence_ids": [
+      "p1a.boot_relation.r4b_to_r4"
+    ],
+    "reason": "H8: hash-verified boot_id match between R4B_TIMEBASE_ESTIMATE.json and R4's P0A-pinned ROBOT_BOOT_ID; does not authorize trajectory/time-domain concatenation.",
+    "status": "VERIFIED"
+  },
+  {
+    "claim_id": "SOURCE_FRAME_SEMANTICS",
+    "confidence": "LOW",
+    "evidence_ids": [
+      "p0a.r4b.lidar_extrinsic"
+    ],
+    "reason": "Unchanged from P0A/P1.",
+    "status": "PARTIAL"
+  },
+  {
+    "claim_id": "CHILD_FRAME_ID",
+    "confidence": "LOW",
+    "evidence_ids": [
+      "p0a.r4b.lidar_extrinsic"
+    ],
+    "reason": "Unchanged from P0A/P1.",
+    "status": "UNRESOLVED"
+  },
+  {
+    "claim_id": "ROS_HEADER_STAMP_POLICY",
+    "confidence": "HIGH",
+    "evidence_ids": [
+      "p1.timebase.hilroute-20260720T194910Z",
+      "p1.timebase.finalharvest-seated-20260720T205406Z",
+      "p1.timebase.gt-r4b-20260720T213222Z"
+    ],
+    "reason": "Unchanged from P1.",
+    "status": "UNRESOLVED"
+  },
+  {
+    "claim_id": "COVARIANCE_PUBLICATION_MODEL",
+    "confidence": "HIGH",
+    "evidence_ids": [
+      "p0a.covariance"
+    ],
+    "reason": "Unchanged from P0A/P1.",
+    "status": "UNRESOLVED"
+  }
+]

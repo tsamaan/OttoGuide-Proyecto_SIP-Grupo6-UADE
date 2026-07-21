@@ -56,7 +56,7 @@ def compute_alignment(*, session_id: str, phase: str, primary_samples: tuple,
         )
 
     position_mae, position_rmse, position_p95, position_max = _agg(position_errors)
-    yaw_mae, yaw_rmse, yaw_p95, yaw_max = _agg(yaw_errors)
+    yaw_speed_mae, yaw_speed_rmse, yaw_speed_p95, yaw_speed_max = _agg(yaw_errors)
 
     correlation = None
     if len(pairs) >= 2:
@@ -111,10 +111,10 @@ def compute_alignment(*, session_id: str, phase: str, primary_samples: tuple,
         position_rmse=position_rmse,
         position_p95=position_p95,
         position_max=position_max,
-        yaw_mae=yaw_mae,
-        yaw_rmse=yaw_rmse,
-        yaw_p95=yaw_p95,
-        yaw_max=yaw_max,
+        yaw_speed_mae_rad_s=yaw_speed_mae,
+        yaw_speed_rmse_rad_s=yaw_speed_rmse,
+        yaw_speed_p95_rad_s=yaw_speed_p95,
+        yaw_speed_max_rad_s=yaw_speed_max,
         correlation_position=correlation,
         status=status,
         limitations=tuple(limitations),

@@ -115,7 +115,8 @@ def _process_r3c(harvest_root: Path, ledger: _RawReparseLedger):
         ))
 
     return dict(stationary=stationary, dynamic=dynamic, quality=quality, alignment=align,
-                imu=imu_metrics, timebase=[tb] if tb else [], nominal_scale=[], nominal_yaw=[])
+                imu=imu_metrics, timebase=[tb] if tb else [], nominal_scale=[], nominal_yaw=[],
+                primary_phase=primary_phase, secondary_phase=secondary_phase, lowstate_phase=lowstate_phase)
 
 
 def _process_r4(harvest_root: Path, ledger: _RawReparseLedger):
@@ -179,7 +180,8 @@ def _process_r4(harvest_root: Path, ledger: _RawReparseLedger):
         ))
 
     return dict(stationary=stationary, dynamic=[], quality=quality, alignment=align,
-                imu=imu_metrics, timebase=[tb] if tb else [], nominal_scale=[], nominal_yaw=[])
+                imu=imu_metrics, timebase=[tb] if tb else [], nominal_scale=[], nominal_yaw=[],
+                primary_samples=primary, secondary_samples=secondary, lowstate_samples=lowstate)
 
 
 def _process_r4b(harvest_root: Path, ledger: _RawReparseLedger):
@@ -285,7 +287,9 @@ def _process_r4b(harvest_root: Path, ledger: _RawReparseLedger):
         extra_limitations=(boot_relation_note,))
 
     return dict(stationary=stationary, dynamic=dynamic, quality=quality, alignment=align,
-                imu=imu_metrics, timebase=[tb] if tb else [], nominal_scale=nominal_scale, nominal_yaw=nominal_yaw)
+                imu=imu_metrics, timebase=[tb] if tb else [], nominal_scale=nominal_scale, nominal_yaw=nominal_yaw,
+                primary_segments=primary_segments, secondary_segments=secondary_segments,
+                lowstate_samples=lowstate, primary_samples=primary, secondary_samples=secondary)
 
 
 def _dynamic_residuals(r3c, r4b) -> "tuple[DynamicResidualStatistics, ...]":
@@ -360,6 +364,16 @@ def _claims(r3c, r4, r4b, arbitration_matrix) -> "tuple[CharacterizationClaim, .
 
 
 def build_characterization_bundle(harvest_root: Path, generated_utc: str) -> "tuple[OdometryCharacterizationBundleR2, dict]":
+    bundle, hashes, _sessions = build_characterization_bundle_with_sessions(harvest_root, generated_utc)
+    return bundle, hashes
+
+
+def build_characterization_bundle_with_sessions(
+        harvest_root: Path, generated_utc: str) -> "tuple[OdometryCharacterizationBundleR2, dict, dict]":
+    """Same as build_characterization_bundle, plus the raw per-session
+    phase/segment dicts (r3c/r4/r4b) for P1A's audit layer (SequenceSemantics,
+    CausalLagCandidate, SegmentEligibility) -- P1's own behavior/output is
+    completely unchanged; this is a strict additive superset."""
     if not generated_utc:
         raise EvidenceValidationError("generated_utc must be a non-empty injected string")
 
@@ -368,10 +382,12 @@ def build_characterization_bundle(harvest_root: Path, generated_utc: str) -> "tu
     r4 = _process_r4(harvest_root, ledger)
     r4b = _process_r4b(harvest_root, ledger)
 
-    primary_quality = next((q for q in r3c["quality"] + r4["quality"] + r4b["quality"] if q.channel == PRIMARY), None)
-    secondary_quality = next((q for q in r3c["quality"] + r4["quality"] + r4b["quality"] if q.channel == SECONDARY), None)
+    all_quality = r3c["quality"] + r4["quality"] + r4b["quality"]
+    primary_records = [q for q in all_quality if q.channel == PRIMARY]
+    secondary_records = [q for q in all_quality if q.channel == SECONDARY]
+    # H2 fix: aggregate ALL sessions per channel, not just the first match.
     matrix = arbitration.build_arbitration_matrix(
-        primary_quality=primary_quality, secondary_quality=secondary_quality,
+        primary_records=primary_records, secondary_records=secondary_records,
         imu_agreement_count=len(r3c["imu"] + r4["imu"] + r4b["imu"]),
         reset_behavior_status="PARTIAL", provenance_quality_status="PASS")
 
@@ -399,7 +415,7 @@ def build_characterization_bundle(harvest_root: Path, generated_utc: str) -> "tu
             "TF_TO_BASE_LINK_READY=false, NAV2_READY=false remain unchanged from P0A.",
         ),
     )
-    return bundle, ledger.file_hashes
+    return bundle, ledger.file_hashes, {"r3c": r3c, "r4": r4, "r4b": r4b}
 
 
 def _to_dict(obj):
@@ -437,13 +453,14 @@ def alignment_document(bundle: OdometryCharacterizationBundleR2) -> str:
 
 
 def alignment_csv(bundle: OdometryCharacterizationBundleR2) -> str:
-    header = "session_id,phase,paired_sample_count,pairing_coverage,lag_candidate_ms,lag_status,position_rmse,yaw_rmse,status\n"
+    header = ("session_id,phase,paired_sample_count,pairing_coverage,lag_candidate_ms,lag_status,"
+              "position_rmse,yaw_speed_rmse_rad_s,status\n")
     rows = [header]
     for a in bundle.alignment:
         rows.append(f"{a.session_id},{a.phase},{a.paired_sample_count},{a.pairing_coverage:.6f},"
                      f"{a.lag_candidate_ms if a.lag_candidate_ms is not None else ''},{a.lag_status},"
                      f"{a.position_rmse if a.position_rmse is not None else ''},"
-                     f"{a.yaw_rmse if a.yaw_rmse is not None else ''},{a.status}\n")
+                     f"{a.yaw_speed_rmse_rad_s if a.yaw_speed_rmse_rad_s is not None else ''},{a.status}\n")
     return "".join(rows)
 
 
