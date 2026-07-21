@@ -347,13 +347,13 @@ class TestSegmentation(unittest.TestCase):
 class TestArbitration(unittest.TestCase):
     def test_authoritative_channel_always_null(self):
         matrix = arbitration.build_arbitration_matrix(
-            primary_quality=None, secondary_quality=None, imu_agreement_count=0,
+            primary_records=[], secondary_records=[], imu_agreement_count=0,
             reset_behavior_status="PARTIAL", provenance_quality_status="PASS")
         self.assertIsNone(matrix.authoritative_source_channel)
 
     def test_preferred_channel_distinct_from_authoritative(self):
         matrix = arbitration.build_arbitration_matrix(
-            primary_quality=None, secondary_quality=None, imu_agreement_count=0,
+            primary_records=[], secondary_records=[], imu_agreement_count=0,
             reset_behavior_status="PARTIAL", provenance_quality_status="PASS")
         self.assertNotEqual(matrix.preferred_analysis_channel, "AUTHORITATIVE")
 
