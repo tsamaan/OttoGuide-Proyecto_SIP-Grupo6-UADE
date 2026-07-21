@@ -1,0 +1,152 @@
+{
+  "claims": [
+    {
+      "claim_id": "DYNAMIC_MOTION_EVIDENCE",
+      "confidence": "HIGH",
+      "evidence_ids": [
+        "r3c.session",
+        "r4b.session"
+      ],
+      "limitations": [],
+      "r1_state": "DYNAMIC_MOTION_EVIDENCE_MISSING",
+      "r2p0_state": "VERIFIED",
+      "reason": "R3C (190s human-driven route) and R4B (annotated forward/turn segments) are locally hash-verified and ingested with real dynamic samples.",
+      "schema_version": "2.0.0-p0",
+      "v19_state": "EVIDENCE_COLLECTED_PENDING_ANALYSIS"
+    },
+    {
+      "claim_id": "SOURCE_CHANNEL_ARBITRATION",
+      "confidence": "MEDIUM",
+      "evidence_ids": [
+        "r4b.channel_comparison"
+      ],
+      "limitations": [],
+      "r1_state": "SOURCE_CHANNEL_ARBITRATION_UNRESOLVED",
+      "r2p0_state": "UNRESOLVED",
+      "reason": "Primary and LF channel comparisons computed; position deltas nearly identical, no authoritative channel selected by design.",
+      "schema_version": "2.0.0-p0",
+      "v19_state": "EVIDENCE_COLLECTED_PENDING_ANALYSIS"
+    },
+    {
+      "claim_id": "SOURCE_FRAME_SEMANTICS",
+      "confidence": "LOW",
+      "evidence_ids": [
+        "r4b.lidar_extrinsic"
+      ],
+      "limitations": [],
+      "r1_state": "SOURCE_FRAME_SEMANTICS_UNVERIFIED",
+      "r2p0_state": "PARTIAL",
+      "reason": "No frame_id in SportModeState; URDF/frame candidates ingested but not reconciled with a runtime-verified ROS frame at R2-P0.",
+      "schema_version": "2.0.0-p0",
+      "v19_state": "STILL_BLOCKED"
+    },
+    {
+      "claim_id": "CHILD_FRAME_ID",
+      "confidence": "LOW",
+      "evidence_ids": [
+        "r4b.lidar_extrinsic"
+      ],
+      "limitations": [],
+      "r1_state": "CHILD_FRAME_ID_UNRESOLVED",
+      "r2p0_state": "UNRESOLVED",
+      "reason": "No authoritative child frame is carried by the source messages.",
+      "schema_version": "2.0.0-p0",
+      "v19_state": "STILL_BLOCKED"
+    },
+    {
+      "claim_id": "AXIS_CONVENTION",
+      "confidence": "MEDIUM",
+      "evidence_ids": [
+        "r2p0.axis_response.primary",
+        "r2p0.yaw_response.ccw_positive"
+      ],
+      "limitations": [],
+      "r1_state": "AXIS_CONVENTION_UNVERIFIED",
+      "r2p0_state": "SUPPORTED_INFERENCE",
+      "reason": "Dominant-axis translation and CCW-positive yaw response observed on annotated R4B segments across both channels.",
+      "schema_version": "2.0.0-p0",
+      "v19_state": "EVIDENCE_COLLECTED_PENDING_ANALYSIS"
+    },
+    {
+      "claim_id": "SCALE_AND_SIGN",
+      "confidence": "LOW",
+      "evidence_ids": [
+        "r4b.session"
+      ],
+      "limitations": [],
+      "r1_state": "SCALE_AND_SIGN_UNVERIFIED",
+      "r2p0_state": "UNRESOLVED",
+      "reason": "No calibrated distance/angle instrument was available; nominal operator distances/angles cannot validate metric scale or sign gain.",
+      "schema_version": "2.0.0-p0",
+      "v19_state": "EVIDENCE_COLLECTED_PENDING_ANALYSIS"
+    },
+    {
+      "claim_id": "MESSAGE_TIMESTAMP",
+      "confidence": "HIGH",
+      "evidence_ids": [
+        "r4b.time_domain",
+        "r4.time_domain"
+      ],
+      "limitations": [],
+      "r1_state": "MESSAGE_TIMESTAMP_ZERO",
+      "r2p0_state": "UNRESOLVED",
+      "reason": "source_timestamp remained ABSENT/zero across R3C, R4 and R4B captures.",
+      "schema_version": "2.0.0-p0",
+      "v19_state": "PARTIALLY_CHARACTERIZED"
+    },
+    {
+      "claim_id": "RECEIPT_TO_ROS_TIME",
+      "confidence": "MEDIUM",
+      "evidence_ids": [
+        "r4.time_domain"
+      ],
+      "limitations": [],
+      "r1_state": "RECEIPT_TIME_TO_ROS_TIME_UNRESOLVED",
+      "r2p0_state": "PARTIAL",
+      "reason": "20 RTT-based UTC-midpoint samples exist for R4 (remote clock ~0.43s behind, explicitly non-authoritative); R4B has no such handshake.",
+      "schema_version": "2.0.0-p0",
+      "v19_state": "PARTIALLY_CHARACTERIZED"
+    },
+    {
+      "claim_id": "COVARIANCE",
+      "confidence": "MEDIUM",
+      "evidence_ids": [
+        "r2p0.covariance"
+      ],
+      "limitations": [],
+      "r1_state": "COVARIANCE_UNAVAILABLE",
+      "r2p0_state": "PARTIAL",
+      "reason": "No covariance field in source; stationary dispersion statistics computed as a bounded noise-floor observation only, not a publishable matrix.",
+      "schema_version": "2.0.0-p0",
+      "v19_state": "NOT_AVAILABLE"
+    },
+    {
+      "claim_id": "IMU_CROSSCHECK",
+      "confidence": "MEDIUM",
+      "evidence_ids": [
+        "r4b.imu_crosscheck"
+      ],
+      "limitations": [],
+      "r1_state": "IMU_CROSSCHECK_UNAVAILABLE",
+      "r2p0_state": "PARTIAL",
+      "reason": "LowState IMU rpy/gyro cross-checked against integrated SportModeState yaw_speed and operator direction on R4B turn segments.",
+      "schema_version": "2.0.0-p0",
+      "v19_state": "EVIDENCE_COLLECTED_PENDING_ANALYSIS"
+    },
+    {
+      "claim_id": "RESET_AND_DISCONTINUITY",
+      "confidence": "HIGH",
+      "evidence_ids": [
+        "r4.reset_discontinuity"
+      ],
+      "limitations": [],
+      "r1_state": "RESET_AND_DISCONTINUITY_BEHAVIOR_UNVERIFIED",
+      "r2p0_state": "VERIFIED",
+      "reason": "A cross-boot position/velocity/yaw_speed discontinuity is observed and typed on both channels; exact reset instant remains unresolved.",
+      "schema_version": "2.0.0-p0",
+      "v19_state": "PARTIALLY_CHARACTERIZED"
+    }
+  ],
+  "schema_version": "2.0.0-p0"
+}
+

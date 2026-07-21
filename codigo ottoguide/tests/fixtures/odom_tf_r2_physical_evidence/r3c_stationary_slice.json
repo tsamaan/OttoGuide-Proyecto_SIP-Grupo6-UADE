@@ -1,0 +1,239 @@
+{
+  "description": "First 5 PRE_ROUTE_STATIONARY samples per channel, R3C route capture.",
+  "primary": [
+    {
+      "odom": {
+        "mode": 0,
+        "position": [
+          0.4164,
+          -0.3422,
+          0.7083
+        ],
+        "velocity": [
+          -0.0,
+          0.0,
+          -0.0001
+        ],
+        "yaw_speed": -0.0202
+      },
+      "phase": "PRE_ROUTE_STATIONARY",
+      "receipt_monotonic_ns": 541230799840,
+      "receipt_utc": "1970-06-22T05:34:05Z",
+      "sequence": 13946,
+      "session_id": "hilroute-20260720T194910Z",
+      "source_timestamp": null,
+      "topic": "rt/odommodestate"
+    },
+    {
+      "odom": {
+        "mode": 0,
+        "position": [
+          0.4176,
+          -0.3423,
+          0.7083
+        ],
+        "velocity": [
+          -0.0,
+          -0.0,
+          -0.0
+        ],
+        "yaw_speed": -0.0117
+      },
+      "phase": "PRE_ROUTE_STATIONARY",
+      "receipt_monotonic_ns": 541252355392,
+      "receipt_utc": "1970-06-22T05:34:05Z",
+      "sequence": 13949,
+      "session_id": "hilroute-20260720T194910Z",
+      "source_timestamp": null,
+      "topic": "rt/odommodestate"
+    },
+    {
+      "odom": {
+        "mode": 0,
+        "position": [
+          0.4185,
+          -0.3424,
+          0.7083
+        ],
+        "velocity": [
+          -0.0,
+          -0.0,
+          -0.0
+        ],
+        "yaw_speed": 0.0032
+      },
+      "phase": "PRE_ROUTE_STATIONARY",
+      "receipt_monotonic_ns": 541273837184,
+      "receipt_utc": "1970-06-22T05:34:05Z",
+      "sequence": 13952,
+      "session_id": "hilroute-20260720T194910Z",
+      "source_timestamp": null,
+      "topic": "rt/odommodestate"
+    },
+    {
+      "odom": {
+        "mode": 0,
+        "position": [
+          0.4195,
+          -0.3425,
+          0.7083
+        ],
+        "velocity": [
+          -0.0,
+          -0.0,
+          0.0
+        ],
+        "yaw_speed": 0.0075
+      },
+      "phase": "PRE_ROUTE_STATIONARY",
+      "receipt_monotonic_ns": 541306100768,
+      "receipt_utc": "1970-06-22T05:34:05Z",
+      "sequence": 13955,
+      "session_id": "hilroute-20260720T194910Z",
+      "source_timestamp": null,
+      "topic": "rt/odommodestate"
+    },
+    {
+      "odom": {
+        "mode": 0,
+        "position": [
+          0.4202,
+          -0.3427,
+          0.7084
+        ],
+        "velocity": [
+          -0.0,
+          0.0,
+          0.0001
+        ],
+        "yaw_speed": -0.017
+      },
+      "phase": "PRE_ROUTE_STATIONARY",
+      "receipt_monotonic_ns": 541332849056,
+      "receipt_utc": "1970-06-22T05:34:05Z",
+      "sequence": 13959,
+      "session_id": "hilroute-20260720T194910Z",
+      "source_timestamp": null,
+      "topic": "rt/odommodestate"
+    }
+  ],
+  "secondary": [
+    {
+      "lf_odom": {
+        "mode": 0,
+        "position": [
+          0.4175,
+          -0.3423,
+          0.7083
+        ],
+        "velocity": [
+          -0.0,
+          -0.0,
+          -0.0
+        ],
+        "yaw_speed": -0.0117
+      },
+      "phase": "PRE_ROUTE_STATIONARY",
+      "receipt_monotonic_ns": 541231449152,
+      "receipt_utc": "1970-06-22T05:34:05Z",
+      "sequence": 13947,
+      "session_id": "hilroute-20260720T194910Z",
+      "source_timestamp": null,
+      "topic": "rt/lf/odommodestate"
+    },
+    {
+      "lf_odom": {
+        "mode": 0,
+        "position": [
+          0.4196,
+          -0.3425,
+          0.7084
+        ],
+        "velocity": [
+          -0.0,
+          -0.0,
+          0.0
+        ],
+        "yaw_speed": 0.0149
+      },
+      "phase": "PRE_ROUTE_STATIONARY",
+      "receipt_monotonic_ns": 541308556480,
+      "receipt_utc": "1970-06-22T05:34:05Z",
+      "sequence": 13956,
+      "session_id": "hilroute-20260720T194910Z",
+      "source_timestamp": null,
+      "topic": "rt/lf/odommodestate"
+    },
+    {
+      "lf_odom": {
+        "mode": 0,
+        "position": [
+          0.4207,
+          -0.3427,
+          0.7085
+        ],
+        "velocity": [
+          -0.0,
+          -0.0,
+          0.0001
+        ],
+        "yaw_speed": -0.0277
+      },
+      "phase": "PRE_ROUTE_STATIONARY",
+      "receipt_monotonic_ns": 541333427200,
+      "receipt_utc": "1970-06-22T05:34:05Z",
+      "sequence": 13960,
+      "session_id": "hilroute-20260720T194910Z",
+      "source_timestamp": null,
+      "topic": "rt/lf/odommodestate"
+    },
+    {
+      "lf_odom": {
+        "mode": 0,
+        "position": [
+          0.4215,
+          -0.3429,
+          0.7087
+        ],
+        "velocity": [
+          -0.0,
+          -0.0,
+          0.0001
+        ],
+        "yaw_speed": 0.0043
+      },
+      "phase": "PRE_ROUTE_STATIONARY",
+      "receipt_monotonic_ns": 541408312160,
+      "receipt_utc": "1970-06-22T05:34:05Z",
+      "sequence": 13969,
+      "session_id": "hilroute-20260720T194910Z",
+      "source_timestamp": null,
+      "topic": "rt/lf/odommodestate"
+    },
+    {
+      "lf_odom": {
+        "mode": 0,
+        "position": [
+          0.4216,
+          -0.343,
+          0.7087
+        ],
+        "velocity": [
+          -0.0,
+          0.0,
+          0.0001
+        ],
+        "yaw_speed": -0.0107
+      },
+      "phase": "PRE_ROUTE_STATIONARY",
+      "receipt_monotonic_ns": 541430805280,
+      "receipt_utc": "1970-06-22T05:34:05Z",
+      "sequence": 13973,
+      "session_id": "hilroute-20260720T194910Z",
+      "source_timestamp": null,
+      "topic": "rt/lf/odommodestate"
+    }
+  ],
+  "session_id": "hilroute-20260720T194910Z",
+  "source_note": "Derived by slicing recorder_data/{odom,lf_odom}/*.jsonl from route_hilroute-20260720T194910Z.tar.gz"
+}
