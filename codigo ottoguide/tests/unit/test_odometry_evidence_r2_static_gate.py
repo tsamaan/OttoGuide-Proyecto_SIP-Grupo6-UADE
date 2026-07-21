@@ -69,5 +69,40 @@ class TestStaticImportGate(unittest.TestCase):
         self.assertGreater(len(list(_iter_python_files())), 0)
 
 
+class TestNoHardcodedPersonalPath(unittest.TestCase):
+    """Closes finding F9: the R2 package, CLI, and its whole test suite must
+    never hardcode this notebook's personal user directory. Harvest paths
+    must come from OTTOGUIDE_R2_HARVEST_ROOT / --descriptor /
+    --harvest-root only."""
+
+    _FORBIDDEN_SUBSTRINGS = ("IdeaPad", "IDEAPA~1")
+
+    def _scanned_test_files(self):
+        test_dir = _CODIGO_ROOT / "tests" / "unit"
+        this_file = Path(__file__).resolve()
+        for py_file in sorted(test_dir.glob("test_odometry_evidence_r2_*.py")):
+            if py_file.resolve() == this_file:
+                continue  # necessarily contains the forbidden literals themselves
+            yield py_file
+
+    def test_no_hardcoded_personal_path_in_package_or_cli(self):
+        violations = []
+        for py_file in _iter_python_files():
+            text = py_file.read_text(encoding="utf-8")
+            for needle in self._FORBIDDEN_SUBSTRINGS:
+                if needle in text:
+                    violations.append(f"{py_file}: contains {needle!r}")
+        self.assertEqual(violations, [], "\n".join(violations))
+
+    def test_no_hardcoded_personal_path_in_test_suite(self):
+        violations = []
+        for py_file in self._scanned_test_files():
+            text = py_file.read_text(encoding="utf-8")
+            for needle in self._FORBIDDEN_SUBSTRINGS:
+                if needle in text:
+                    violations.append(f"{py_file}: contains {needle!r}")
+        self.assertEqual(violations, [], "\n".join(violations))
+
+
 if __name__ == "__main__":
     unittest.main()

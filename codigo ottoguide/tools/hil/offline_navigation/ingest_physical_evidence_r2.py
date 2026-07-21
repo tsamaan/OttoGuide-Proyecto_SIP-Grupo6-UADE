@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""OTTOGUIDE -- MVP-ODOM-TF-R2-P0 -- offline physical evidence ingest CLI.
+"""OTTOGUIDE -- MVP-ODOM-TF-R2-P0/P0A -- offline physical evidence ingest CLI.
 
-Loads a hash-verified local physical-evidence harvest (R3C/R4/R4B) and a
-descriptor identifying it, ingests it through
+Loads a hash-verified local physical-evidence harvest (R3C/R4/R4B) identified
+by a portable descriptor, VERIFIES the harvest against the descriptor's
+expected manifest hash + per-file expected hashes (section 11.5, closes
+finding F5 -- a modified source file fails closed, it is never silently
+accepted with a freshly-computed hash), ingests it through
 src.navigation.odometry_evidence_r2, and writes six deterministic JSON
 reports to --output-dir. Read-only against the harvest; WRITES only inside
 --output-dir.
@@ -15,7 +18,11 @@ Usage:
     python ingest_physical_evidence_r2.py \\
         --descriptor <portable_descriptor.json> \\
         --output-dir <output_directory> \\
-        --generated-utc <ISO-8601 UTC string>
+        --generated-utc <ISO-8601 UTC string> \\
+        [--harvest-root <path>]
+
+--harvest-root overrides the descriptor's optional harvest_root_hint --
+the local root MAY differ between machines (section 11.5).
 
 --generated-utc is REQUIRED and is never sampled from the wall clock
 internally: running this CLI twice with the same --descriptor, --output-dir
@@ -33,37 +40,12 @@ if str(_CODIGO_ROOT) not in sys.path:
     sys.path.insert(0, str(_CODIGO_ROOT))
 
 from src.navigation.odometry_evidence_r2 import ingest, report
+from src.navigation.odometry_evidence_r2.source_manifest import (
+    load_descriptor,
+    resolve_harvest_root,
+    verify_harvest_against_descriptor,
+)
 from src.navigation.odometry_evidence_r2.validation import EvidenceValidationError
-
-
-def _load_descriptor(descriptor_path: Path) -> dict:
-    if not descriptor_path.is_file():
-        raise EvidenceValidationError(f"descriptor not found: {descriptor_path}")
-    with open(descriptor_path, "r", encoding="utf-8-sig") as handle:
-        try:
-            descriptor = json.load(handle)
-        except json.JSONDecodeError as exc:
-            raise EvidenceValidationError(
-                f"descriptor is not valid JSON: {descriptor_path}: {exc}"
-            ) from exc
-    if type(descriptor) is not dict:
-        raise EvidenceValidationError("descriptor must be a JSON object")
-    if "harvest_root" not in descriptor:
-        raise EvidenceValidationError("descriptor missing required key: harvest_root")
-    return descriptor
-
-
-def _resolve_harvest_root(descriptor: dict, descriptor_path: Path) -> Path:
-    harvest_root_value = descriptor["harvest_root"]
-    if type(harvest_root_value) is not str or not harvest_root_value:
-        raise EvidenceValidationError("descriptor.harvest_root must be a non-empty string")
-    harvest_root = Path(harvest_root_value)
-    if not harvest_root.is_absolute():
-        harvest_root = (descriptor_path.parent / harvest_root).resolve()
-    if not harvest_root.is_dir():
-        raise EvidenceValidationError(f"harvest_root does not exist: {harvest_root}")
-    return harvest_root
-
 
 _OUTPUT_DOCUMENTS = {
     "R2_PHYSICAL_EVIDENCE_BUNDLE.json": report.bundle_document,
@@ -75,9 +57,11 @@ _OUTPUT_DOCUMENTS = {
 }
 
 
-def run(descriptor_path: Path, output_dir: Path, generated_utc: str) -> dict:
-    descriptor = _load_descriptor(descriptor_path)
-    harvest_root = _resolve_harvest_root(descriptor, descriptor_path)
+def run(descriptor_path: Path, output_dir: Path, generated_utc: str,
+        harvest_root_override: "Path | None" = None) -> dict:
+    descriptor = load_descriptor(descriptor_path)
+    harvest_root = resolve_harvest_root(descriptor, descriptor_path, harvest_root_override)
+    manifest_verification = verify_harvest_against_descriptor(descriptor, harvest_root)
 
     bundle = ingest.build_bundle(harvest_root, generated_utc)
 
@@ -92,9 +76,13 @@ def run(descriptor_path: Path, output_dir: Path, generated_utc: str) -> dict:
     return {
         "result": "PASS",
         "tool": "ingest_physical_evidence_r2",
+        "manifest_verification": manifest_verification["manifest_verification"],
+        "manifest_verified_file_count": manifest_verification["verified_file_count"],
+        "harvest_id": manifest_verification["harvest_id"],
         "harvest_root": str(harvest_root),
         "generated_utc_injected": generated_utc,
         "session_count": len(bundle.sessions),
+        "time_domain_count": len(bundle.time_domains),
         "dynamic_segment_count": len(bundle.dynamic_segments),
         "stationary_segment_count": len(bundle.stationary_segments),
         "claim_count": len(bundle.claims),
@@ -116,10 +104,15 @@ def main(argv=None) -> int:
         help="Injected ISO-8601 UTC timestamp; never sampled from the wall clock "
              "internally, so re-running with the same value is byte-deterministic.",
     )
+    parser.add_argument(
+        "--harvest-root", required=False, type=Path, default=None,
+        help="Overrides descriptor.harvest_root_hint; the local harvest root "
+             "may differ between machines.",
+    )
     args = parser.parse_args(argv)
 
     try:
-        summary = run(args.descriptor, args.output_dir, args.generated_utc)
+        summary = run(args.descriptor, args.output_dir, args.generated_utc, args.harvest_root)
     except EvidenceValidationError as exc:
         print(json.dumps({"result": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
         return 1

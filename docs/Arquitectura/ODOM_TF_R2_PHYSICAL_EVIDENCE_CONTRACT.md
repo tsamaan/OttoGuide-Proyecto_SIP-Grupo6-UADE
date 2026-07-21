@@ -1,4 +1,4 @@
-# ODOM/TF R2-P0 — Physical Evidence Contract
+# ODOM/TF R2-P0 / P0A — Physical Evidence Contract
 
 ## Scope
 
@@ -89,3 +89,55 @@ takes `--generated-utc` as a required, explicit argument — it never samples
 the wall clock internally. Running it twice against the same descriptor,
 harvest, and `--generated-utc` produces byte-identical JSON output (verified
 in `tests/unit/test_odometry_evidence_r2_cli_determinism.py`).
+
+## P0A — Trust boundary hardening (schema 2.0.1-p0a)
+
+P0A raised `SCHEMA_VERSION` from `2.0.0-p0` to `2.0.1-p0a` and closed ten
+audit findings (F1–F10) without changing any R2-P0 claim's substance. Full
+detail: `docs/Operaciones_HIL/Evidencia/R2_P0A_TRUST_BOUNDARY_AUDIT.md` and
+`docs/Operaciones_HIL/Evidencia/R2_P0A_DELTA_FROM_R2_P0.json`.
+
+- **Parser is fail-closed** (`ingest._parse_channel_jsonl_dir`): strict
+  UTF-8, typed errors on malformed JSON/unknown topic/non-positive,
+  duplicate, or inverted `sequence`/non-finite values; every parse produces
+  a `JsonlParseReport`. A NUL byte is tolerated ONLY if every byte from its
+  first occurrence to EOF is NUL and it immediately follows a complete JSON
+  line — anything else raises.
+- **Every dataclass validates itself** in `__post_init__`: status/ground-truth
+  vocabulary, non-empty ids, aligned `source_files`/`source_sha256` (with
+  valid sha256 hex + portable relative paths), finite numbers, `bool`
+  rejected as a number, `start_sequence <= end_sequence`,
+  `valid`/`invalid_reason` coherence.
+- **Every session has an explicit `SessionTimeDomain`** — R3C's was missing
+  in R2-P0 (finding F3); `PhysicalEvidenceBundleR2.__post_init__` now
+  enforces this structurally.
+- **R4B's boot relation to R4 is stated as `UNRESOLVED`**, never implied as
+  same/different (finding F4) — no direct evidence (boot-id file, uptime
+  cross-check) exists for R4B's own boot.
+- **The source manifest is enforced before ingest**
+  (`source_manifest.verify_harvest_against_descriptor`): the portable
+  descriptor now carries `manifest_sha256` and per-file
+  `expected_source_sha256`; a modified source file or manifest produces a
+  typed `FAIL`, never a silently-accepted new hash (finding F5).
+- **Reset/discontinuity is three separate claims**, not one aggregated
+  `VERIFIED`: `CROSS_BOOT_DISCONTINUITY_OBSERVED=VERIFIED`,
+  `RESET_BEHAVIOR_CHARACTERIZED=PARTIAL`, `EXACT_RESET_INSTANT=UNRESOLVED`
+  (finding F6). A bundle-level check also rejects any `VERIFIED` claim that
+  cites evidence whose own `status` isn't itself `VERIFIED`.
+- **R4B provenance records `DERIVATION_PROVENANCE = PARTIAL`** explicitly on
+  every R4B provenance record: only the already-derived report file is
+  hashed, not the raw per-sample JSONL/script/arguments (finding F7).
+- **`StationaryNoiseStatistics` no longer hardcodes a bare `0.0` mean**:
+  `observed_mean` (from the derived report) and `centered_mean` (always
+  exactly `(0,0,0)` by construction, governed by `reference_origin_policy`)
+  are now distinct, validated fields (finding F8). A single explicit
+  `DynamicResidualStatistics(status="NOT_AVAILABLE_IN_P0A")` record replaces
+  the previously ambiguous empty tuple for per-segment residuals (deferred
+  to R2-P1).
+- **Tests are portable**: `OTTOGUIDE_R2_HARVEST_ROOT` replaces every
+  hardcoded personal path (finding F9); a static-gate test scans the whole
+  R2 test suite for that path substring. Harvest-integration tests fail
+  (not skip) if the variable is set but points nowhere.
+- **`GroundTruthConstraint`** is a new typed model (mode, nominal
+  translation/yaw, uncertainty, source, status) attached to R4B's annotated
+  dynamic segments instead of a bare string.
