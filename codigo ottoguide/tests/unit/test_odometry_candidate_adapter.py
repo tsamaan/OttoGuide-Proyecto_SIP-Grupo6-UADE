@@ -194,7 +194,7 @@ class TestOdometryCandidateAdapterInvalidInputs:
         sample["channel"] = "odommodestate"
         c = to_odometry_candidate(sample)
         assert c.valid is False
-        assert any("not in allowed set" in e for e in c.errors)
+        assert any("outside allowed set" in e for e in c.errors)
 
     def test_missing_receipt_monotonic_ns_invalid(self):
         sample = self._base_sample()
