@@ -1,0 +1,192 @@
+name: hil-readonly-observability-portable
+
+# WEB-HIL-R1 — CI offline para la herramienta de observabilidad HIL read-only.
+# Estrictamente sin robot, sin SSH real, sin DDS fisico, sin build C++, sin WSL,
+# sin Docker ni movimiento. Solo valida el codigo versionado bajo
+# codigo ottoguide/tools/hil/readonly_observability/.
+
+on:
+  push:
+    branches: [ "feature/hil-readonly-observability-portable-r1" ]
+    paths:
+      - "codigo ottoguide/tools/hil/readonly_observability/**"
+      - ".github/workflows/hil-readonly-observability-portable.yml"
+  pull_request:
+    paths:
+      - "codigo ottoguide/tools/hil/readonly_observability/**"
+  workflow_dispatch: {}
+
+defaults:
+  run:
+    working-directory: codigo ottoguide/tools/hil/readonly_observability
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PowerShell parse (syntax only, no execution of connection scripts)
+        shell: pwsh
+        run: |
+          $fail = $false
+          Get-ChildItem -Recurse -Filter "*.ps1" | ForEach-Object {
+            $errors = $null; $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { Write-Host "FAIL: $($_.FullName)"; $errors; $fail = $true }
+            else { Write-Host "OK: $($_.Name)" }
+          }
+          if ($fail) { exit 1 }
+
+      - name: Offline watchdog logic test (no SSH, no robot)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File tests\Test-WatchdogLogic.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Offline SSH bootstrap logic test (no SSH, no robot) [WEB-HIL-R1A/R1B]
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File tests\Test-SshBootstrapLogic.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Offline installer transport test (no SSH, no robot) [WEB-HIL-R1B]
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File tests\Test-InstallerTransport.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Offline frontend profile test (no SSH, no robot) [WEB-HIL-R1B]
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File tests\Test-FrontendProfileSelector.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify COMMITTED dist-real/dist-replay manifests (before any rebuild) [WEB-HIL-R1C]
+        run: |
+          python frontend\generate_dist_manifest.py --dist-dir frontend\dist-real --sums-out frontend\DIST_REAL_SHA256SUMS.txt --check
+          if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: el build REAL comprometido por git no coincide con su manifiesto"; exit 1 }
+          python frontend\generate_dist_manifest.py --dist-dir frontend\dist-replay --sums-out frontend\DIST_REPLAY_SHA256SUMS.txt --check
+          if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: el build REPLAY comprometido por git no coincide con su manifiesto"; exit 1 }
+          Write-Host "OK: artifacts comprometidos por git (dist-real, dist-replay) coinciden con sus manifiestos ANTES de reconstruir."
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "codigo ottoguide/tools/hil/readonly_observability/frontend/app/package-lock.json"
+
+      - name: Frontend npm ci
+        working-directory: codigo ottoguide/tools/hil/readonly_observability/frontend/app
+        run: npm ci
+
+      - name: Frontend tests
+        working-directory: codigo ottoguide/tools/hil/readonly_observability/frontend/app
+        run: npm run test
+
+      - name: Frontend build REAL (own outDir, own manifest)
+        working-directory: codigo ottoguide/tools/hil/readonly_observability/frontend/app
+        run: npm run build:real
+
+      - name: Frontend build REPLAY (own outDir, own manifest)
+        working-directory: codigo ottoguide/tools/hil/readonly_observability/frontend/app
+        run: npm run build:replay
+
+      - name: Regenerate + verify DIST_REAL manifest
+        working-directory: codigo ottoguide/tools/hil/readonly_observability
+        run: |
+          python frontend\generate_dist_manifest.py --dist-dir frontend\dist-real --profile real --build-mode "vite build --mode real" --test-result "7/7 node:test"
+          python frontend\generate_dist_manifest.py --dist-dir frontend\dist-real --sums-out frontend\DIST_REAL_SHA256SUMS.txt --check
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Regenerate + verify DIST_REPLAY manifest
+        working-directory: codigo ottoguide/tools/hil/readonly_observability
+        run: |
+          python frontend\generate_dist_manifest.py --dist-dir frontend\dist-replay --profile replay --build-mode "vite build --mode replay" --test-result "7/7 node:test"
+          python frontend\generate_dist_manifest.py --dist-dir frontend\dist-replay --sums-out frontend\DIST_REPLAY_SHA256SUMS.txt --check
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Verify REAL/REPLAY build isolation (no cross-contamination, trees differ)
+        shell: pwsh
+        working-directory: codigo ottoguide/tools/hil/readonly_observability/frontend
+        run: |
+          $realJs = Get-ChildItem dist-real\assets -Filter *.js | Select-Object -ExpandProperty Name
+          $replayJs = Get-ChildItem dist-replay\assets -Filter *.js | Select-Object -ExpandProperty Name
+          if ($realJs -eq $replayJs) { Write-Host "FAIL: mismo nombre de JS bundle en ambos perfiles (sospecha de contenido identico)"; exit 1 }
+          $realHash = (Get-FileHash "dist-real\assets\$realJs" -Algorithm SHA256).Hash
+          $replayHash = (Get-FileHash "dist-replay\assets\$replayJs" -Algorithm SHA256).Hash
+          if ($realHash -eq $replayHash) { Write-Host "FAIL: bundles REAL y REPLAY son byte-identicos"; exit 1 }
+          Write-Host "OK: REAL y REPLAY tienen bundles JS distintos ($realJs vs $replayJs)"
+
+      - name: Portable package generation (includes both profiles)
+        working-directory: codigo ottoguide/tools/hil/readonly_observability
+        run: |
+          python packaging\build_portable_package.py --out $env:RUNNER_TEMP\OTTOGUIDE_HIL_READONLY_OBSERVABILITY_PORTABLE_R1.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OTTOGUIDE_HIL_READONLY_OBSERVABILITY_PORTABLE_R1
+          path: ${{ runner.temp }}\OTTOGUIDE_HIL_READONLY_OBSERVABILITY_PORTABLE_R1.zip
+          retention-days: 14
+
+  ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python syntax
+        run: |
+          find . -name "*.py" -print0 | xargs -0 -n1 python -m py_compile
+
+      - name: Python unit tests (pure, no DDS, no robot)
+        run: |
+          for f in tests/test_*.py; do python "$f"; done
+
+      - name: Static gate (DataReader-only invariant)
+        working-directory: codigo ottoguide/tools/hil/readonly_observability/companion
+        run: python static_gate.py
+
+      - name: Replay server contract test
+        run: |
+          python replay/ottoguide_replay_server.py --port 8099 &
+          SERVER_PID=$!
+          sleep 2
+          python - <<'PY'
+          import json, urllib.request
+          h = json.load(urllib.request.urlopen("http://127.0.0.1:8099/health", timeout=5))
+          assert h["source_profile"] == "REPLAY"
+          assert h["session_id"].startswith("replay-")
+          print("replay contract OK")
+          PY
+          kill $SERVER_PID
+
+      - name: bash -n
+        run: |
+          for f in companion/*.sh; do bash -n "$f"; done
+
+      - name: Secret scan (high-confidence patterns)
+        run: |
+          set -e
+          if grep -rEl "BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|-----BEGIN PRIVATE KEY-----|AWS_SECRET|ghp_[A-Za-z0-9]{30,}|xox[baprs]-[0-9A-Za-z-]{10,}" . ; then
+            echo "SECRET FOUND"; exit 1
+          fi
+          echo "clean"
+
+      - name: Portability scan (forbidden strings)
+        run: |
+          set -e
+          fail=0
+          for pat in 'C:\\Users\\IdeaPad' 'run_20260717' 'id_ed25519_ottoguide_robot_newnotebook'; do
+            if grep -rl -- "$pat" . ; then echo "FORBIDDEN STRING: $pat"; fail=1; fi
+          done
+          # %23 literal (no escapado %%23) fuera de comentarios de ejemplo
+          if grep -rn '%23' . | grep -v '%%23' | grep -v '\.md:'; then echo "LITERAL %23 FOUND"; fail=1; fi
+          exit $fail

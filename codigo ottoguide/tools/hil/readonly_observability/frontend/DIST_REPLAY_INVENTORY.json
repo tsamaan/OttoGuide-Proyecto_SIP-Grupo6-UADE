@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "phase": "WEB_HIL_R1B_DUAL_PROFILE_BUILD",
+  "profile": "replay",
+  "build_mode": "vite build --mode replay",
+  "out_dir": "frontend/dist-replay",
+  "test_result": "7/7 node:test",
+  "file_count": 3,
+  "total_bytes": 562114,
+  "files": [
+    {
+      "path": "assets/index-BKYZIPZn.js",
+      "size_bytes": 553067,
+      "sha256": "d664a0c4b6cdb17f40e5a76939450e7aea01233cc452356cdb610674d21c5ce1"
+    },
+    {
+      "path": "assets/index-D2qLg5dB.css",
+      "size_bytes": 8452,
+      "sha256": "a94faaee24a8e1e4a9892847808378640cd47c64251781788d4dca5cd1123eb6"
+    },
+    {
+      "path": "index.html",
+      "size_bytes": 595,
+      "sha256": "8ceb5e37ec855b39f2bfac06182b0a7e7aae5db4051b4a1f5a51d255aa273110"
+    }
+  ]
+}

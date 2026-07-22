@@ -1,0 +1,4 @@
+# WEB-HIL-R1 replay server — solo biblioteca estandar de Python (3.8+).
+# No requiere fastapi, uvicorn, websockets ni ningun paquete de terceros:
+# implementa HTTP y el handshake WebSocket (RFC 6455) a mano sobre
+# http.server.ThreadingHTTPServer. No hay dependencias que instalar.

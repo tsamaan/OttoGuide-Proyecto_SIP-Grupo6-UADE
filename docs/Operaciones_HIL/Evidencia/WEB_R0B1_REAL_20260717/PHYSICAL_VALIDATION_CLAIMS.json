@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "session_id": "r0b1-20260717T215047Z",
+  "captured_utc": "2026-07-17",
+  "allowed_claims": [
+    "real_telemetry_displayed",
+    "29_motor_states_received",
+    "imu_received",
+    "primary_and_lf_odometry_messages_received",
+    "lidar_metadata_received",
+    "bms_canonical_conversion_observed",
+    "read_only_dds_runtime_observed",
+    "websocket_real_flow_observed"
+  ],
+  "prohibited_claims": [
+    "ROS_ODOM_VALIDATED",
+    "TF_VALIDATED",
+    "NAV2_VALIDATED",
+    "AUTONOMOUS_NAVIGATION_VALIDATED",
+    "PHYSICAL_CABLE_RECOVERY_VALIDATED",
+    "MANUAL_ROUTE_CAPTURED",
+    "LEGACY_IA_CONCURRENT_DEMO_VALIDATED",
+    "ROBOT_READY",
+    "HIL_VALIDATED",
+    "REAL_CAMERA_VALIDATED",
+    "QR_RELIABILITY_VALIDATED",
+    "VISUAL_ODOMETRY_VALIDATED",
+    "REAL_AUDIO_VALIDATED"
+  ],
+  "prohibited_claims_source": "docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md seccion 20 (Claims prohibidos), extendido con las restricciones especificas de este checkpoint",
+  "measured_values": {
+    "lowstate_hz": 451.8,
+    "odom_hz": 417.1,
+    "lf_odom_hz": 19.8,
+    "lidar_hz": 9.9,
+    "motor_count": 29,
+    "bms_soc": 23,
+    "bms_voltage_v": 45.34,
+    "bms_current_a": -2.03,
+    "bms_relative_cell_sum_error": 0.001,
+    "dds_writers_created": 0,
+    "movement_clients_imported": 0,
+    "movement_commands_sent_by_agent": 0,
+    "browser_mutating_requests": 0,
+    "console_errors": 0,
+    "external_requests": 0,
+    "ws_handshake_status": "101 Switching Protocols"
+  },
+  "watchdog_logic_offline_tested": true,
+  "physical_cable_recovery_validated": false
+}

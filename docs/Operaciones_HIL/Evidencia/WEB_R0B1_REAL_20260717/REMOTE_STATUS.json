@@ -1,0 +1,13 @@
+{
+  "state": "observing",
+  "source_profile": "REAL",
+  "operational_ready": false,
+  "readiness_errors": [
+    "READ_ONLY: movement authority unavailable"
+  ],
+  "navigation_backend_resolved": "disabled",
+  "navigation_started": false,
+  "script_loaded": true,
+  "script_version": "observability-r0",
+  "script_waypoint_count": 0
+}

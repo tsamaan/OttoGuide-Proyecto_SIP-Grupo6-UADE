@@ -1,0 +1,55 @@
+{
+  "gate": "REMOTE_RUNTIME_STATIC_GATE",
+  "files": [
+    {
+      "file": "ottoguide_remote_recorder.py",
+      "forbidden_names": [],
+      "forbidden_calls": [],
+      "bad_imports": [],
+      "uses_datareader": true,
+      "clean": true
+    },
+    {
+      "file": "ottoguide_readonly_bridge.py",
+      "forbidden_names": [],
+      "forbidden_calls": [],
+      "bad_imports": [],
+      "uses_datareader": true,
+      "clean": true
+    },
+    {
+      "file": "ottoguide_bms_probe.py",
+      "forbidden_names": [],
+      "forbidden_calls": [],
+      "bad_imports": [],
+      "uses_datareader": true,
+      "clean": true
+    },
+    {
+      "file": "ottoguide_observability_supervisor.py",
+      "forbidden_names": [],
+      "forbidden_calls": [],
+      "bad_imports": [],
+      "uses_datareader": false,
+      "clean": true
+    },
+    {
+      "file": "ottoguide_common.py",
+      "forbidden_names": [],
+      "forbidden_calls": [],
+      "bad_imports": [],
+      "uses_datareader": false,
+      "clean": true
+    },
+    {
+      "file": "postlaunch_gate.py",
+      "forbidden_names": [],
+      "forbidden_calls": [],
+      "bad_imports": [],
+      "uses_datareader": false,
+      "clean": true
+    }
+  ],
+  "syntax_ok": true,
+  "passed": true
+}
