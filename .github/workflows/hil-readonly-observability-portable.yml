@@ -7,7 +7,7 @@ name: hil-readonly-observability-portable
 
 on:
   push:
-    branches: [ "feature/hil-readonly-observability-portable-r1" ]
+    branches: [ "review/orchestrator-unification" ]
     paths:
       - "codigo ottoguide/tools/hil/readonly_observability/**"
       - ".github/workflows/hil-readonly-observability-portable.yml"
@@ -25,6 +25,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: PowerShell parse (syntax only, no execution of connection scripts)
         shell: pwsh
@@ -61,10 +65,6 @@ jobs:
         run: |
           powershell -ExecutionPolicy Bypass -File tests\Test-FrontendProfileSelector.ps1
           if ($LASTEXITCODE -ne 0) { exit 1 }
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
 
       - name: Verify COMMITTED dist-real/dist-replay manifests (before any rebuild) [WEB-HIL-R1C]
         run: |

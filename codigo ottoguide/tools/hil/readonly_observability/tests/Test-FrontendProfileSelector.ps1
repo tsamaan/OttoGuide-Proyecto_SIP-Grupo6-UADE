@@ -21,6 +21,66 @@ $frontendDir = Join-Path $repoRoot 'frontend'
 $startScript = Join-Path $notebookDir 'Start-OttoGuideFrontend.ps1'
 $fail = @()
 
+function Get-FreeLoopbackPort {
+  $listener = $null
+  try {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    return ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+  } finally {
+    if ($listener) { $listener.Stop() }
+  }
+}
+
+function Get-FrontendLogText([string]$Path) {
+  if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return '<not created>' }
+  try { return (Get-Content -LiteralPath $Path -Raw -ErrorAction Stop) } catch { return "<unreadable: $($_.Exception.Message)>" }
+}
+
+function Wait-FrontendReady {
+  param(
+    [Parameter(Mandatory = $true)][int]$ProcessId,
+    [Parameter(Mandatory = $true)][uri]$Uri,
+    [Parameter(Mandatory = $true)][double]$TimeoutSeconds,
+    [Parameter(Mandatory = $true)][string]$StdoutPath,
+    [Parameter(Mandatory = $true)][string]$StderrPath,
+    [int]$RetryMilliseconds = 200
+  )
+
+  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  $lastError = '<no request attempted>'
+  while ([DateTime]::UtcNow -lt $deadline) {
+    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if (-not $process) {
+      throw "frontend PID $ProcessId exited before readiness for $Uri; last_error=$lastError; stdout=$(Get-FrontendLogText $StdoutPath); stderr=$(Get-FrontendLogText $StderrPath)"
+    }
+    try {
+      $response = Invoke-WebRequest -UseBasicParsing -Uri $Uri -TimeoutSec 2
+      if ($response.StatusCode -eq 200) { return $response }
+      $lastError = "HTTP $($response.StatusCode)"
+    } catch {
+      $lastError = $_.Exception.Message
+    }
+    Start-Sleep -Milliseconds $RetryMilliseconds
+  }
+  throw "frontend readiness timeout after $TimeoutSeconds seconds for PID $ProcessId at $Uri; last_error=$lastError; stdout=$(Get-FrontendLogText $StdoutPath); stderr=$(Get-FrontendLogText $StderrPath)"
+}
+
+function Stop-CreatedProcess {
+  param(
+    [Parameter(Mandatory = $true)][int]$ProcessId,
+    [int]$TimeoutSeconds = 5
+  )
+  $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+  if (-not $process) { return $true }
+  Stop-Process -InputObject $process -Force -ErrorAction SilentlyContinue
+  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  while ((Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) -and [DateTime]::UtcNow -lt $deadline) {
+    Start-Sleep -Milliseconds 100
+  }
+  return -not [bool](Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+}
+
 # ============================================================================
 # 1. Verificacion estructural: -Profile existe, ValidateSet real/replay, sin
 #    default implicito hacia un directorio ambiguo compartido.
@@ -94,18 +154,53 @@ $sshRootReplay = Join-Path $stateSandbox 'sshroot_replay'
 New-Item -ItemType Directory -Path $sshRootReal -Force | Out-Null
 New-Item -ItemType Directory -Path $sshRootReplay -Force | Out-Null
 
-$portReal = 18100
-$portReplay = 18101
+$portReal = Get-FreeLoopbackPort
+do { $portReplay = Get-FreeLoopbackPort } while ($portReplay -eq $portReal)
+Write-Host "FRONTEND_PROFILE_PORT_REAL = $portReal"
+Write-Host "FRONTEND_PROFILE_PORT_REPLAY = $portReplay"
+if ($portReal -eq $portReplay) { $fail += 'Get-FreeLoopbackPort devolvio puertos iguales' }
 $pidReal = $null
 $pidReplay = $null
+$createdPids = @()
 try {
+  # Contract tests for Wait-FrontendReady: early exit and bounded timeout.
+  $exited = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', 'exit 7') -PassThru -WindowStyle Hidden
+  $exited.WaitForExit()
+  try {
+    Wait-FrontendReady -ProcessId $exited.Id -Uri ([uri]"http://127.0.0.1:$portReal/index.html") -TimeoutSeconds 1 `
+      -StdoutPath (Join-Path $stateSandbox 'early_stdout.log') -StderrPath (Join-Path $stateSandbox 'early_stderr.log') | Out-Null
+    $fail += 'Wait-FrontendReady no detecto proceso terminado antes de readiness'
+  } catch {
+    if ($_.Exception.Message -notmatch 'exited before readiness') { $fail += "diagnostico inesperado para proceso terminado: $($_.Exception.Message)" }
+  }
+
+  $sleeper = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 30') -PassThru -WindowStyle Hidden
+  try {
+    $unusedPort = Get-FreeLoopbackPort
+    try {
+      Wait-FrontendReady -ProcessId $sleeper.Id -Uri ([uri]"http://127.0.0.1:$unusedPort/index.html") -TimeoutSeconds 1 `
+        -StdoutPath (Join-Path $stateSandbox 'timeout_stdout.log') -StderrPath (Join-Path $stateSandbox 'timeout_stderr.log') | Out-Null
+      $fail += 'Wait-FrontendReady no produjo timeout controlado'
+    } catch {
+      if ($_.Exception.Message -notmatch 'readiness timeout') { $fail += "diagnostico inesperado para timeout: $($_.Exception.Message)" }
+    }
+  } finally {
+    if (-not (Stop-CreatedProcess -ProcessId $sleeper.Id)) { $fail += "proceso de timeout residual PID=$($sleeper.Id)" }
+  }
+
   $pidReal = & $startScript -RepoRoot $repoRoot -SshRoot $sshRootReal -Port $portReal -Profile real
+  $createdPids += $pidReal
   $pidReplay = & $startScript -RepoRoot $repoRoot -SshRoot $sshRootReplay -Port $portReplay -Profile replay
-  Start-Sleep -Milliseconds 800
+  $createdPids += $pidReplay
+
+  $realStdout = Join-Path $sshRootReal 'logs\frontend_stdout.log'
+  $realStderr = Join-Path $sshRootReal 'logs\frontend_stderr.log'
+  $replayStdout = Join-Path $sshRootReplay 'logs\frontend_stdout.log'
+  $replayStderr = Join-Path $sshRootReplay 'logs\frontend_stderr.log'
 
   $realHtml = $null; $replayHtml = $null
-  try { $realHtml = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$portReal/index.html" -TimeoutSec 5).Content } catch { $fail += "GET http://127.0.0.1:$portReal/index.html fallo: $($_.Exception.Message)" }
-  try { $replayHtml = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$portReplay/index.html" -TimeoutSec 5).Content } catch { $fail += "GET http://127.0.0.1:$portReplay/index.html fallo: $($_.Exception.Message)" }
+  try { $realHtml = (Wait-FrontendReady -ProcessId $pidReal -Uri ([uri]"http://127.0.0.1:$portReal/index.html") -TimeoutSeconds 20 -StdoutPath $realStdout -StderrPath $realStderr).Content } catch { $fail += $_.Exception.Message }
+  try { $replayHtml = (Wait-FrontendReady -ProcessId $pidReplay -Uri ([uri]"http://127.0.0.1:$portReplay/index.html") -TimeoutSeconds 20 -StdoutPath $replayStdout -StderrPath $replayStderr).Content } catch { $fail += $_.Exception.Message }
 
   if ($realHtml -and $replayHtml -and $realHtml -eq $replayHtml) {
     $fail += "index.html servido en el puerto REAL y en el puerto REPLAY es byte-identico (item: no declarar REPLAY si se sirve REAL)"
@@ -114,8 +209,8 @@ try {
   $realJsName = Split-Path $realJs -Leaf
   $replayJsName = Split-Path $replayJs -Leaf
   $realJsHttp = $null; $replayJsHttp = $null
-  try { $realJsHttp = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$portReal/assets/$realJsName" -TimeoutSec 5).Content } catch { $fail += "GET del bundle JS REAL via HTTP fallo: $($_.Exception.Message)" }
-  try { $replayJsHttp = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$portReplay/assets/$replayJsName" -TimeoutSec 5).Content } catch { $fail += "GET del bundle JS REPLAY via HTTP fallo: $($_.Exception.Message)" }
+  try { $realJsHttp = (Wait-FrontendReady -ProcessId $pidReal -Uri ([uri]"http://127.0.0.1:$portReal/assets/$realJsName") -TimeoutSeconds 20 -StdoutPath $realStdout -StderrPath $realStderr).Content } catch { $fail += "GET del bundle JS REAL via HTTP fallo: $($_.Exception.Message)" }
+  try { $replayJsHttp = (Wait-FrontendReady -ProcessId $pidReplay -Uri ([uri]"http://127.0.0.1:$portReplay/assets/$replayJsName") -TimeoutSeconds 20 -StdoutPath $replayStdout -StderrPath $replayStderr).Content } catch { $fail += "GET del bundle JS REPLAY via HTTP fallo: $($_.Exception.Message)" }
 
   if ($realJsHttp -and $realJsHttp -notmatch 'VITE_DEPLOYMENT_PROFILE:"real"') {
     $fail += "el bundle servido por HTTP en el puerto REAL no contiene el perfil 'real' horneado (item: REAL_UI_PROFILE)"
@@ -130,8 +225,10 @@ try {
   $pidJsonReplay = Get-Content (Join-Path $sshRootReplay 'state\frontend_pid.json') -Raw | ConvertFrom-Json
   if ($pidJsonReplay.profile -ne 'replay') { $fail += "frontend_pid.json (instancia REPLAY) no registra profile='replay' (registro: '$($pidJsonReplay.profile)')" }
 } finally {
-  foreach ($procId in @($pidReal, $pidReplay)) {
-    if ($procId) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue }
+  foreach ($procId in $createdPids) {
+    if ($procId -and -not (Stop-CreatedProcess -ProcessId $procId)) {
+      $fail += "proceso frontend residual PID=$procId"
+    }
   }
   Remove-Item -Recurse -Force $stateSandbox -ErrorAction SilentlyContinue
 }
