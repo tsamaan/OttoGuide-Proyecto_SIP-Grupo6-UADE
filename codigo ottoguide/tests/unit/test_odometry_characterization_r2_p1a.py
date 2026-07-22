@@ -85,7 +85,7 @@ class TestArbitrationAggregationFix(unittest.TestCase):
         matrix = arbitration.build_arbitration_matrix(
             primary_records=primary, secondary_records=secondary, imu_agreement_count=1,
             reset_behavior_status="PARTIAL", provenance_quality_status="PASS")
-        # LF wins jitter, gaps, dropouts in this synthetic aggregate -> LF preferred
+        # LF wins both admissible criteria (jitter and exposure-normalized time gaps).
         self.assertEqual(matrix.preferred_analysis_channel, "rt/lf/odommodestate")
 
     def test_criterion_count_matches_serialized_length(self):
@@ -94,9 +94,37 @@ class TestArbitrationAggregationFix(unittest.TestCase):
             reset_behavior_status="PARTIAL", provenance_quality_status="PASS")
         self.assertEqual(audit.criterion_count, len(audit.criteria))
 
-    def test_arbitration_direction_lower_is_better_for_dropouts(self):
-        rule = arbitration._audit_criterion("dropouts", "LOWER_IS_BETTER", 10.0, 2.0, "n", 1.0, "x")
-        self.assertEqual(rule.winner, "LF")
+    def test_sequence_gap_estimate_is_auxiliary_weight_zero(self):
+        audit = arbitration.build_arbitration_audit(
+            primary_records=[_quality("s", "P", 100, 0, 694)],
+            secondary_records=[_quality("s", "L", 100, 0, 13)],
+            imu_agreement_count=0, reset_behavior_status="PARTIAL", provenance_quality_status="PASS")
+        rule = next(c for c in audit.criteria if c.name == "dropouts")
+        self.assertEqual(rule.weight, 0.0)
+        self.assertEqual(rule.direction, "NOT_DISCRIMINATING")
+        self.assertIsNone(audit.preferred_analysis_channel)
+
+    def test_time_gaps_are_normalized_by_exposure(self):
+        audit = arbitration.build_arbitration_audit(
+            primary_records=[_quality("s", "P", 400, 4, 0, rate=40.0)],
+            secondary_records=[_quality("s", "L", 200, 4, 0, rate=40.0)],
+            imu_agreement_count=0, reset_behavior_status="PARTIAL", provenance_quality_status="PASS")
+        gaps = next(c for c in audit.criteria if c.name == "gaps")
+        self.assertEqual(gaps.primary_raw_metric, 24.0)
+        self.assertEqual(gaps.lf_raw_metric, 48.0)
+        self.assertEqual(gaps.winner, "PRIMARY")
+
+    def test_preference_can_be_primary_lf_or_null(self):
+        def preferred(primary_jitter, primary_gaps, lf_jitter, lf_gaps):
+            audit = arbitration.build_arbitration_audit(
+                primary_records=[_quality("s", "P", 400, primary_gaps, 999, jitter=primary_jitter)],
+                secondary_records=[_quality("s", "L", 400, lf_gaps, 0, jitter=lf_jitter)],
+                imu_agreement_count=0, reset_behavior_status="PARTIAL",
+                provenance_quality_status="PASS")
+            return audit.preferred_analysis_channel
+        self.assertEqual(preferred(1.0, 1, 2.0, 2), "rt/odommodestate")
+        self.assertEqual(preferred(2.0, 2, 1.0, 1), "rt/lf/odommodestate")
+        self.assertIsNone(preferred(1.0, 2, 2.0, 1))
 
     def test_arbitration_weighting_excludes_sample_count(self):
         audit = arbitration.build_arbitration_audit(
@@ -249,8 +277,10 @@ class TestHarvestIntegrationP1A(unittest.TestCase):
 
     def test_arbitration_corrected_matches_real_data_direction(self):
         bundle, _hashes = p1a_audit.build_p1a_bundle(self.harvest_root, "2026-01-01T00:00:00Z")
-        # real data: LF has fewer gaps/dropouts than primary in every session (H2)
-        self.assertEqual(bundle.p1_bundle.arbitration.preferred_analysis_channel, "rt/lf/odommodestate")
+        # Primary wins jitter while LF wins exposure-normalized time gaps. The
+        # global sequence-gap estimate is auxiliary, so the admissible result ties.
+        self.assertIsNone(bundle.p1_bundle.arbitration.preferred_analysis_channel)
+        self.assertIsNone(bundle.arbitration_audit.preferred_analysis_channel)
 
     def test_boot_relation_hash_verified_against_real_files(self):
         ev = boot_relation.audit_r4b_boot_relation(self.harvest_root)

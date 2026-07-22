@@ -97,8 +97,8 @@
     "evidence_ids": [
       "p1a.channel_arbitration_audit"
     ],
-    "reason": "Corrected weighted decision (H2): preferred_analysis_channel='rt/lf/odommodestate'.",
-    "status": "SUPPORTED_INFERENCE"
+    "reason": "Publication-admissible weighted decision: primary wins jitter and LF wins exposure-normalized time gaps; sequence-gap estimates have weight 0, so preferred_analysis_channel=null.",
+    "status": "UNRESOLVED"
   },
   {
     "claim_id": "AUTHORITATIVE_SOURCE_CHANNEL",

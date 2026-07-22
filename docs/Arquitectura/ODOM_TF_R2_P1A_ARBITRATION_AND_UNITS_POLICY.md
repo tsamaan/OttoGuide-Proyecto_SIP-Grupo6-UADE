@@ -16,8 +16,11 @@ session).
 ### The fix
 
 `arbitration.aggregate_channel_quality()` sums/weights every session's
-metrics per channel before any criterion is scored. Only 3 criteria are
-weighted into the decision (`jitter`, `gaps`, `dropouts`, weight=1.0 each);
+metrics per channel before any criterion is scored. Only 2 criteria are
+weighted into the decision (`jitter` and time gaps normalized per minute of
+channel exposure, weight=1.0 each). The sequence-gap estimate is auxiliary,
+not confirmed loss, and has weight=0.0 so it cannot duplicate the time-gap
+signal;
 `data_completeness` and `sample_rate` are recorded with weight=0.0 — sample
 count/rate differences are a design artifact (primary runs ~2x LF's rate),
 never a quality signal (checkpoint section 10).

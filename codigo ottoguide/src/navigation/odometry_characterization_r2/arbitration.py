@@ -45,6 +45,8 @@ def aggregate_channel_quality(records: "list") -> dict:
         "jitter_mad_ms": (sum(r.jitter_mad_ms * r.sample_count for r in records) / total_samples
                           if total_samples else 0.0),
         "gap_count": sum(r.gap_count for r in records),
+        "gap_rate_per_min": ((sum(r.gap_count for r in records) * 60.0 / total_duration)
+                             if total_duration > 0 else 0.0),
         "dropout_count": sum(r.dropout_count for r in records),
         "max_gap_ms": max((r.max_gap_ms for r in records), default=0.0),
         "session_count": len(records),
@@ -91,10 +93,11 @@ def build_arbitration_matrix(*, primary_records: "list", secondary_records: "lis
                           "effective mean rate"),
         _legacy_criterion("jitter", primary_agg, secondary_agg, False, "jitter_mad_ms",
                           "lower robust jitter (MAD of intervals)"),
-        _legacy_criterion("gaps", primary_agg, secondary_agg, False, "gap_count",
-                          "fewer time-based gap events (H3: the primary, time-anchored dropout signal)"),
+        _legacy_criterion("gaps", primary_agg, secondary_agg, False, "gap_rate_per_min",
+                          "fewer time-based gap events per minute of exposure (H3: the primary, "
+                          "time-anchored dropout signal)"),
         _legacy_criterion("dropouts", primary_agg, secondary_agg, False, "dropout_count",
-                          "fewer sequence-derived gap estimates (H3: an auxiliary signal, not confirmed loss)"),
+                          "sequence-derived gap estimate is auxiliary only and excluded from preference"),
     ]
     criteria.append(ChannelArbitrationCriterion(
         criterion_name="imu_consistency",
@@ -125,11 +128,13 @@ def build_arbitration_matrix(*, primary_records: "list", secondary_records: "lis
               "(same operator segments); not a discriminating criterion.",
     ))
 
-    # H2 fix: only the 3 genuinely discriminating criteria (jitter, gaps,
-    # dropouts) count toward a preference; data_completeness/sample_rate are
+    # Publication hardening: only jitter and exposure-normalized time gaps
+    # count toward a preference. Sequence-derived gaps are auxiliary because
+    # sequence is global across topics, and must not duplicate the time-gap
+    # signal. data_completeness/sample_rate are
     # explicitly non-authoritative per section 10 and must never flip the
     # decision on their own.
-    discriminating = {"jitter", "gaps", "dropouts"}
+    discriminating = {"jitter", "gaps"}
     pass_count_primary = sum(1 for c in criteria if c.criterion_name in discriminating and c.primary_status == "PASS")
     pass_count_secondary = sum(1 for c in criteria if c.criterion_name in discriminating and c.secondary_status == "PASS")
     preferred = None
@@ -148,8 +153,8 @@ def build_arbitration_matrix(*, primary_records: "list", secondary_records: "lis
         limitations=(
             "AUTHORITATIVE_SOURCE_CHANNEL remains null by design -- characterization "
             "never selects a channel for publication.",
-            f"PREFERRED_ANALYSIS_CHANNEL={preferred!r} is decided using ONLY the 3 "
-            "discriminating criteria (jitter, gaps, dropouts), aggregated across all "
+            f"PREFERRED_ANALYSIS_CHANNEL={preferred!r} is decided using ONLY the 2 "
+            "discriminating criteria (jitter and exposure-normalized time gaps), aggregated across all "
             "sessions per channel (H2 fix) -- data_completeness and sample_rate are "
             "explicitly excluded from the decision per section 10.",
         ),
@@ -213,17 +218,17 @@ def build_arbitration_audit(*, primary_records: "list", secondary_records: "list
         ),
         _audit_criterion(
             "gaps", "LOWER_IS_BETTER",
-            primary_agg.get("gap_count"), secondary_agg.get("gap_count"),
-            "sum of time-based gap_count across sessions",
-            1.0, "fewer time-based gaps, summed across all sessions (H2 fix: P1 compared only 1 of 3 "
-                 "sessions here)",
+            primary_agg.get("gap_rate_per_min"), secondary_agg.get("gap_rate_per_min"),
+            "time-based gap_count per minute of aggregate channel exposure",
+            1.0, "fewer time-based gaps normalized by aggregate exposure (H2 fix: P1 compared only 1 "
+                 "of 3 sessions here)",
         ),
         _audit_criterion(
-            "dropouts", "LOWER_IS_BETTER",
+            "dropouts", "NOT_DISCRIMINATING",
             primary_agg.get("dropout_count"), secondary_agg.get("dropout_count"),
             "sum of channel-local sequence-gap estimate across sessions (H3: auxiliary signal)",
-            1.0, "fewer estimated dropped samples, summed across all sessions (H2 fix: P1 compared only "
-                 "1 of 3 sessions here)",
+            0.0, "sequence is global across all topics; this estimate is auxiliary, is not confirmed "
+                 "loss, and cannot duplicate the time-gap criterion in preference scoring",
         ),
         ArbitrationScoringRule(
             name="imu_consistency", direction="NOT_DISCRIMINATING",
@@ -283,8 +288,9 @@ def build_arbitration_audit(*, primary_records: "list", secondary_records: "list
         evidence_id="p1a.channel_arbitration_audit",
         criteria=tuple(criteria),
         criterion_count=len(criteria),
-        aggregation_method="weighted sum of discriminating criteria only (weight=1.0 each: jitter, gaps, "
-                            "dropouts); data_completeness/sample_rate/imu_consistency/reset_behavior/"
+        aggregation_method="weighted sum of discriminating criteria only (weight=1.0 each: jitter and "
+                            "exposure-normalized time gaps); sequence-gap estimate/data_completeness/"
+                            "sample_rate/imu_consistency/reset_behavior/"
                             "provenance_quality/ground_truth_support carry weight=0.0 (documented as "
                             "non-discriminating observations, per section 10/H2)",
         preferred_analysis_channel=preferred,
@@ -294,6 +300,7 @@ def build_arbitration_audit(*, primary_records: "list", secondary_records: "list
         limitations=(
             "AUTHORITATIVE_SOURCE_CHANNEL remains null by design.",
             f"weighted_primary={weighted_primary}, weighted_lf={weighted_lf}, total_weight={total_weight} "
-            "across the 3 discriminating criteria (jitter, gaps, dropouts), aggregated across all sessions.",
+            "across the 2 discriminating criteria (jitter and exposure-normalized time gaps), "
+            "aggregated across all sessions.",
         ),
     )

@@ -12,7 +12,7 @@ Base: R2-P1 HEAD `16070fbd838a43020c3ed52a347b3f77a5fc4005`.
 | PAIRING_TIME_OFFSET | *(none)* | SUPPORTED_INFERENCE | new |
 | CAUSAL_CHANNEL_LAG | *(none)* | UNRESOLVED | new |
 | CHANNEL_ARBITRATION | PARTIAL | PARTIAL | no |
-| PREFERRED_ANALYSIS_CHANNEL | *(implicit: rt/odommodestate)* | rt/lf/odommodestate | **corrected** |
+| PREFERRED_ANALYSIS_CHANNEL | *(implicit: rt/odommodestate)* | null | **corrected** |
 | YAW_ANGLE_RESIDUAL | *(none)* | UNRESOLVED | new |
 | YAW_SPEED_RESIDUAL | *(none, was ambiguous yaw_rmse)* | VERIFIED | new/renamed |
 | R4B_BOOT_RELATION_TO_R4 | *(none)* | VERIFIED (SAME_BOOT_VERIFIED) | new |
@@ -28,12 +28,14 @@ The real aggregated numbers (summed across R3C, R4, R4B):
 
 | Metric | Primary | LF | Winner |
 |---|---|---|---|
-| gap_count (sum) | 18 | 4 | **LF** |
-| dropout_count estimate (sum) | 694 | 13 | **LF** |
+| time-gap rate (exposure-normalized) | derived from 18 events | derived from 4 events | **LF** |
+| sequence-gap estimate (auxiliary, weight 0) | 694 | 13 | Not scored |
 | jitter (weighted mean, ms) | 1.10 | 9.20 | Primary |
 
-LF wins 2 of the 3 discriminating criteria → `PREFERRED_ANALYSIS_CHANNEL`
-corrected from `rt/odommodestate` to `rt/lf/odommodestate`. Root cause: the
+The sequence-gap estimates are `AUXILIARY_NOT_CONFIRMED_LOSS` and never affect
+preference. The admissible weighted calculation uses jitter and the
+exposure-normalized time-gap rate; primary wins jitter and LF wins time gaps,
+so `PREFERRED_ANALYSIS_CHANNEL` is correctly `null`. Root cause: the
 arbitration call only ever looked at one of three sessions' numbers. Fixed
 in `arbitration.py`/`report.py`; both are still non-authoritative
 (`AUTHORITATIVE_SOURCE_CHANNEL` stays `null`).
