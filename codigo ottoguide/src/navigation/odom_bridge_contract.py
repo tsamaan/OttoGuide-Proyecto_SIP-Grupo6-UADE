@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
@@ -24,15 +25,21 @@ class OdomBridgeSafetyFlags:
 
 @dataclass(frozen=True)
 class OdomFrameContract:
+    """Legacy configured names; this is not a physical semantics assertion."""
+
     odom_frame: str = "odom"
     base_frame: str = "base_link"
     lidar_frame: str = "utlidar_lidar"
+    semantics_status: str = "CONFIGURED_NAME_ONLY"
+    physical_semantics_verified: bool = False
 
 
 @dataclass(frozen=True)
 class OdomCovariancePolicy:
     pose_covariance: tuple[float, ...]
     twist_covariance: tuple[float, ...]
+    evidence_status: str = "LEGACY_PLACEHOLDER_NOT_EVIDENCE"
+    publication_allowed: bool = False
 
 
 @dataclass(frozen=True)
@@ -55,6 +62,29 @@ def activation_allowed(
     flags: OdomBridgeSafetyFlags,
     source: OdomSourceAssessment,
 ) -> bool:
+    """Deprecated compatibility entry point that can no longer authorize.
+
+    The historical predicate checked only flags and a coarse source shape.  It
+    did not carry P2 frame semantics, SI conversion, timestamp, covariance, or
+    provenance contracts.  Returning true would therefore be a false-ready
+    state.  Callers may use ``legacy_prerequisites_satisfied`` for diagnostics,
+    but current publication readiness must come from a later integration
+    checkpoint.
+    """
+    warnings.warn(
+        "activation_allowed is a legacy predicate and cannot authorize "
+        "odometry publication; use the versioned P2 readiness contract",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return False
+
+
+def legacy_prerequisites_satisfied(
+    flags: OdomBridgeSafetyFlags,
+    source: OdomSourceAssessment,
+) -> bool:
+    """Preserve the old diagnostic predicate without implying readiness."""
     return (
         flags.enable_odom_bridge
         and flags.hil_session_confirmed
@@ -65,6 +95,7 @@ def activation_allowed(
 
 
 def default_conservative_covariance() -> OdomCovariancePolicy:
+    """Return historical placeholders, explicitly typed as non-evidence."""
     pose = [0.0] * 36
     pose[0] = 0.50
     pose[7] = 0.50
@@ -84,6 +115,8 @@ def default_conservative_covariance() -> OdomCovariancePolicy:
     return OdomCovariancePolicy(
         pose_covariance=tuple(pose),
         twist_covariance=tuple(twist),
+        evidence_status="LEGACY_PLACEHOLDER_NOT_EVIDENCE",
+        publication_allowed=False,
     )
 
 
@@ -94,3 +127,7 @@ def validate_frame_contract(frames: OdomFrameContract) -> None:
     normalized = tuple(value.strip() for value in values)
     if len(set(normalized)) != len(normalized):
         raise ValueError("odom, base, and lidar frames must be distinct")
+    if frames.semantics_status != "CONFIGURED_NAME_ONLY":
+        raise ValueError("legacy frame contract may only describe configured names")
+    if frames.physical_semantics_verified is not False:
+        raise ValueError("legacy frame contract cannot verify physical semantics")

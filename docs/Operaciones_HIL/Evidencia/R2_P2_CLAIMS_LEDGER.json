@@ -1,0 +1,144 @@
+{
+  "schema_version": "2.2.0-p2",
+  "checkpoint": "MVP-ODOM-TF-R2-P2-FRAME-SEMANTICS-AND-COVARIANCE-CONTRACT",
+  "claims": [
+    {
+      "claim_id": "FRAME_CONTRACT_STRUCTURALLY_COMPLETE",
+      "status": "VERIFIED",
+      "value": true,
+      "validation_context": "STRUCTURAL_ONLY",
+      "physical_validation_claim": false
+    },
+    {
+      "claim_id": "COVARIANCE_CONTRACT_STRUCTURALLY_COMPLETE",
+      "status": "VERIFIED",
+      "value": true,
+      "validation_context": "STRUCTURAL_ONLY",
+      "physical_validation_claim": false
+    },
+    {
+      "claim_id": "OFFLINE_REPLAY_CONTRACT_READY",
+      "status": "VERIFIED",
+      "value": true,
+      "validation_context": "OFFLINE_REPLAY",
+      "physical_validation_claim": false
+    },
+    {
+      "claim_id": "SIMULATION_CONTRACT_READY",
+      "status": "VERIFIED",
+      "value": true,
+      "validation_context": "SIMULATION",
+      "simulation_only": true,
+      "physical_validation_claim": false
+    },
+    {
+      "claim_id": "SOURCE_FRAME_SEMANTICS",
+      "status": "PARTIAL",
+      "value": "PARTIAL",
+      "validation_context": "PHYSICAL_EVIDENCE",
+      "reason": "Preserved physical evidence constrains behavior but does not prove ROS odom-frame equivalence."
+    },
+    {
+      "claim_id": "CHILD_FRAME_ID",
+      "status": "UNRESOLVED",
+      "value": "UNRESOLVED",
+      "validation_context": "PHYSICAL_EVIDENCE",
+      "physical_claim": "UNRESOLVED_NO_NEW_HARDWARE_ACCESS"
+    },
+    {
+      "claim_id": "TRANSLATION_SCALE",
+      "status": "UNRESOLVED",
+      "value": "UNRESOLVED",
+      "validation_context": "PHYSICAL_EVIDENCE",
+      "physical_claim": "UNRESOLVED_NO_NEW_HARDWARE_ACCESS"
+    },
+    {
+      "claim_id": "YAW_SCALE",
+      "status": "UNRESOLVED",
+      "value": "UNRESOLVED",
+      "validation_context": "PHYSICAL_EVIDENCE",
+      "physical_claim": "UNRESOLVED_NO_NEW_HARDWARE_ACCESS"
+    },
+    {
+      "claim_id": "AUTHORITATIVE_SOURCE_CHANNEL",
+      "status": "UNRESOLVED",
+      "value": null,
+      "validation_context": "PHYSICAL_EVIDENCE"
+    },
+    {
+      "claim_id": "PREFERRED_ANALYSIS_CHANNEL",
+      "status": "UNRESOLVED",
+      "value": null,
+      "validation_context": "PHYSICAL_EVIDENCE"
+    },
+    {
+      "claim_id": "ROS_HEADER_STAMP_POLICY",
+      "status": "UNRESOLVED",
+      "value": "UNRESOLVED",
+      "validation_context": "PHYSICAL_EVIDENCE"
+    },
+    {
+      "claim_id": "COVARIANCE_SOURCE_UNIT_EVIDENCE",
+      "status": "PARTIAL_QUANTIFIED",
+      "value": "PARTIAL_QUANTIFIED",
+      "validation_context": "PHYSICAL_EVIDENCE",
+      "units": "SOURCE_UNITS_UNRESOLVED"
+    },
+    {
+      "claim_id": "COVARIANCE_ROS_SI_MATRIX",
+      "status": "UNAVAILABLE",
+      "value": null,
+      "validation_context": "PHYSICAL_EVIDENCE"
+    },
+    {
+      "claim_id": "COVARIANCE_PUBLICATION_MODEL_READY",
+      "status": "BLOCKED",
+      "value": false,
+      "validation_context": "PHYSICAL_EVIDENCE"
+    },
+    {
+      "claim_id": "PHYSICAL_ODOM_PUBLICATION_READY",
+      "status": "BLOCKED",
+      "value": false,
+      "validation_context": "PHYSICAL_EVIDENCE"
+    },
+    {
+      "claim_id": "PHYSICAL_TF_PUBLICATION_READY",
+      "status": "BLOCKED",
+      "value": false,
+      "validation_context": "PHYSICAL_EVIDENCE"
+    },
+    {
+      "claim_id": "ROBOT_ACCESS_STATUS",
+      "status": "FINAL",
+      "value": "PERMANENTLY_UNAVAILABLE",
+      "validation_context": "STRUCTURAL_ONLY"
+    },
+    {
+      "claim_id": "R3C_R4_CONCATENATION",
+      "status": "PROHIBITED",
+      "value": "PROHIBITED",
+      "validation_context": "PHYSICAL_EVIDENCE"
+    },
+    {
+      "claim_id": "R4B_BOOT_RELATION_TO_R4",
+      "status": "VERIFIED",
+      "value": "SAME_BOOT_VERIFIED",
+      "validation_context": "PHYSICAL_EVIDENCE"
+    },
+    {
+      "claim_id": "R4B_TIME_DOMAIN_RELATION_TO_R4",
+      "status": "UNRESOLVED",
+      "value": "UNRESOLVED",
+      "validation_context": "PHYSICAL_EVIDENCE"
+    }
+  ],
+  "publication": {
+    "odom_implemented": false,
+    "tf_implemented": false,
+    "ros_messages_built": false,
+    "nav2_executed": false,
+    "simulator_executed": false,
+    "robot_actions": 0
+  }
+}

@@ -50,10 +50,12 @@ def test_validated_source_without_twist_is_not_acceptable():
     assert not contract.is_source_acceptable_for_odom(source)
 
 
-def test_activation_allowed_with_full_flags_and_valid_source():
+def test_activation_allowed_never_implies_current_readiness():
     flags = OdomBridgeSafetyFlags(True, True, True, "validated_hg_pose_twist")
     source = _source(OdomSourceKind.POSE_TWIST_VALIDATED, pose=True, yaw=True, twist=True)
-    assert contract.activation_allowed(flags, source)
+    with pytest.warns(DeprecationWarning):
+        assert not contract.activation_allowed(flags, source)
+    assert contract.legacy_prerequisites_satisfied(flags, source)
 
 
 @pytest.mark.parametrize(
@@ -69,7 +71,8 @@ def test_activation_allowed_with_full_flags_and_valid_source():
 )
 def test_activation_rejects_missing_required_flags(flags):
     source = _source(OdomSourceKind.POSE_TWIST_VALIDATED, pose=True, yaw=True, twist=True)
-    assert not contract.activation_allowed(flags, source)
+    with pytest.warns(DeprecationWarning):
+        assert not contract.activation_allowed(flags, source)
 
 
 def test_default_covariances_have_length_36_and_are_not_zero():
@@ -78,6 +81,8 @@ def test_default_covariances_have_length_36_and_are_not_zero():
     assert len(covariance.twist_covariance) == 36
     assert any(value != 0.0 for value in covariance.pose_covariance)
     assert any(value != 0.0 for value in covariance.twist_covariance)
+    assert covariance.evidence_status == "LEGACY_PLACEHOLDER_NOT_EVIDENCE"
+    assert covariance.publication_allowed is False
 
 
 def test_default_frame_contract():
@@ -85,6 +90,8 @@ def test_default_frame_contract():
     assert frames.odom_frame == "odom"
     assert frames.base_frame == "base_link"
     assert frames.lidar_frame == "utlidar_lidar"
+    assert frames.semantics_status == "CONFIGURED_NAME_ONLY"
+    assert frames.physical_semantics_verified is False
     contract.validate_frame_contract(frames)
 
 

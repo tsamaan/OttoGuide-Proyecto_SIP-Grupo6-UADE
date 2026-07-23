@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-07-19T15:40:00Z",
+  "updated_at": "2026-07-23T12:00:00Z",
   "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "remote_authority": "mirror",
@@ -828,6 +828,40 @@
       "tf_publication": "NOT_STARTED",
       "physical_validation": "PENDING",
       "nav2_physical": "NOT_STARTED"
+    },
+    {
+      "checkpoint": "MVP-ODOM-TF-R2-P2-FRAME-SEMANTICS-AND-COVARIANCE-CONTRACT",
+      "risk_level": "B",
+      "robot_access": false,
+      "result": "COMPLETE_WITH_LIMITATIONS",
+      "schema_version": "2.2.0-p2",
+      "summary": "Defines deterministic fail-closed frame-semantics and covariance contracts with separate PHYSICAL_EVIDENCE, OFFLINE_REPLAY, SIMULATION and STRUCTURAL_ONLY contexts. Configured frame names are not physical verification. Preserved P1/P1A dispersion and residual quantities remain PARTIAL_QUANTIFIED in unresolved source units; no SI conversion or ROS covariance matrix is produced. Mapping inputs are read-only provenance and never promote historical or synthetic configuration to physical truth. Legacy activation and covariance placeholders can no longer imply publication readiness.",
+      "artifacts": [
+        "codigo ottoguide/src/navigation/odometry_contract_r2_p2/",
+        "codigo ottoguide/tools/hil/offline_navigation/build_odom_tf_r2_p2_contract.py",
+        "codigo ottoguide/src/navigation/odom_bridge_contract.py",
+        "codigo ottoguide/tests/unit/test_odometry_contract_r2_p2_*.py",
+        "docs/Arquitectura/ODOM_TF_R2_P2_FRAME_SEMANTICS_AND_COVARIANCE_CONTRACT.md",
+        "docs/Operaciones_HIL/Evidencia/R2_P2_CLAIMS_LEDGER.json",
+        "docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md",
+        "docs/Arquitectura/unification-state.json"
+      ],
+      "frame_contract_structurally_complete": true,
+      "covariance_contract_structurally_complete": true,
+      "offline_replay_contract_ready": true,
+      "simulation_contract_ready": true,
+      "source_frame_semantics": "PARTIAL",
+      "child_frame_id": "UNRESOLVED",
+      "translation_scale": "UNRESOLVED",
+      "yaw_scale": "UNRESOLVED",
+      "covariance_source_unit_evidence": "PARTIAL_QUANTIFIED",
+      "covariance_ros_si_matrix": null,
+      "covariance_publication_model_ready": false,
+      "odom_publication": "NOT_STARTED",
+      "tf_publication": "NOT_STARTED",
+      "physical_validation": "UNRESOLVED_NO_NEW_HARDWARE_ACCESS",
+      "nav2_physical": "NOT_STARTED",
+      "next_action_changed": false
     }
   ],
   "known_debts": [
