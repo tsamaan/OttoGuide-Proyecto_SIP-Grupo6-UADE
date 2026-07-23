@@ -1,0 +1,133 @@
+{
+  "schema_version": "1.0.0-p2a-mapping",
+  "source_ids": [
+    "mapping-m2a-frame-contract",
+    "mapping-m2b1-frame-inventory",
+    "mapping-m2b1-odometry-metrics",
+    "mapping-m2b1r1-derived-frame-index",
+    "mapping-m2b2a2-registered-cloud-summary"
+  ],
+  "session_ids": [
+    "pilot-20260625-065312",
+    "take03-19700527-124407",
+    "take05-ottoguide-map-20260625-062749"
+  ],
+  "take_ids": [
+    "pilot",
+    "take03",
+    "take05"
+  ],
+  "file_categories": [
+    "FRAME_CONTRACT_MATRIX",
+    "FRAME_INVENTORY",
+    "ODOMETRY_METRICS",
+    "DERIVED_FRAME_INDEX",
+    "REGISTERED_CLOUD_SUMMARY"
+  ],
+  "observed_frame_ids": [
+    "kiss_odom_lidar",
+    "unitree_lowstate_imu",
+    "unitree_secondary_imu",
+    "utlidar_lidar"
+  ],
+  "observed_topic_ids": [
+    "/livox/imu",
+    "/scan",
+    "/utlidar/cloud"
+  ],
+  "map_artifacts": [
+    {
+      "artifact_id": "m2b2a2-registered-cloud-summary",
+      "category": "REGISTERED_CLOUD_SUMMARY",
+      "navigation_map": false,
+      "physical_frame_authority": false
+    }
+  ],
+  "input_manifests": [
+    {
+      "logical_path": "M2A_20260702T001522Z/evidence/evidence_manifest.sha256",
+      "sha256": "3093ca6a43ac3cd8d508e814f11afa0a1ddfd3415310fca2dbff1caf438fffc8"
+    },
+    {
+      "logical_path": "M2B1_20260702T011835Z/evidence/evidence_manifest.sha256",
+      "sha256": "4461e35d86840f556b222dc7f510059ee980aeb419e9425f30c3cb8a903ec5a1"
+    },
+    {
+      "logical_path": "M2B1R1_20260702T214628Z/artifact_manifest.sha256",
+      "sha256": "2acd4fb284e67b74744b6e6ba57b1f0e6ab86d50cc14325cb33ca07dd2929a52"
+    },
+    {
+      "logical_path": "M2B2A2_20260702T235712Z/artifact_manifest.sha256",
+      "sha256": "a60943d7a0b1344340d7859edc281ab8d8ffe860124286b05eb84861f039808d"
+    }
+  ],
+  "selected_sources": [
+    {
+      "source_id": "mapping-m2a-frame-contract",
+      "category": "FRAME_CONTRACT_MATRIX",
+      "logical_path": "M2A_20260702T001522Z/evidence/09_frame_contract_matrix.csv",
+      "sha256": "ffa879e33737a92e53107f5557d36ce503f4e8aa986d36b213d5f5ae4027cb78",
+      "manifest_path": "M2A_20260702T001522Z/evidence/evidence_manifest.sha256",
+      "manifest_entry_path": "09_frame_contract_matrix.csv",
+      "validation_context": "OFFLINE_REPLAY",
+      "claim_strength": "PRESERVED_MAPPING_REFERENCE"
+    },
+    {
+      "source_id": "mapping-m2b1-frame-inventory",
+      "category": "FRAME_INVENTORY",
+      "logical_path": "M2B1_20260702T011835Z/evidence/05_frame_inventory_0050ms.csv",
+      "sha256": "322ae202136fa2c7716e44e28948e3da39facfe0d7e7a60cac7f3cc681dabb8b",
+      "manifest_path": "M2B1_20260702T011835Z/evidence/evidence_manifest.sha256",
+      "manifest_entry_path": "05_frame_inventory_0050ms.csv",
+      "validation_context": "OFFLINE_REPLAY",
+      "claim_strength": "DERIVED_MAPPING_REFERENCE"
+    },
+    {
+      "source_id": "mapping-m2b1-odometry-metrics",
+      "category": "ODOMETRY_METRICS",
+      "logical_path": "M2B1_20260702T011835Z/evidence/07_odometry_metrics.json",
+      "sha256": "2142667c8f3637d4fde49b704ec4ff7b3ddbb4386e7617ced5edbc7a8caf5cbc",
+      "manifest_path": "M2B1_20260702T011835Z/evidence/evidence_manifest.sha256",
+      "manifest_entry_path": "07_odometry_metrics.json",
+      "validation_context": "OFFLINE_REPLAY",
+      "claim_strength": "DERIVED_MAPPING_REFERENCE"
+    },
+    {
+      "source_id": "mapping-m2b1r1-derived-frame-index",
+      "category": "DERIVED_FRAME_INDEX",
+      "logical_path": "M2B1R1_20260702T214628Z/derived_frames_inventory_full.csv",
+      "sha256": "76b127cd550e39bab086f954f918e3066964b4fe6f6e954e856166fdb10588b1",
+      "manifest_path": "M2B1R1_20260702T214628Z/artifact_manifest.sha256",
+      "manifest_entry_path": "derived_frames_inventory_full.csv",
+      "validation_context": "OFFLINE_REPLAY",
+      "claim_strength": "DERIVED_MAPPING_REFERENCE"
+    },
+    {
+      "source_id": "mapping-m2b2a2-registered-cloud-summary",
+      "category": "REGISTERED_CLOUD_SUMMARY",
+      "logical_path": "M2B2A2_20260702T235712Z/evidence/07_registered_cloud_summary.json",
+      "sha256": "df72354697476770fa452f5cbb0cd8338cf6e26cb1fd1deead02987b69136a78",
+      "manifest_path": "M2B2A2_20260702T235712Z/artifact_manifest.sha256",
+      "manifest_entry_path": "evidence/07_registered_cloud_summary.json",
+      "validation_context": "OFFLINE_REPLAY",
+      "claim_strength": "DERIVED_MAPPING_REFERENCE"
+    }
+  ],
+  "allowed_claims": [
+    "CONFIGURED_FRAME_VOCABULARY",
+    "DERIVED_MAPPING_REFERENCE",
+    "OFFLINE_REPLAY_POLICY_INPUT",
+    "TOPIC_VOCABULARY"
+  ],
+  "prohibited_claims": [
+    "AUTHORITATIVE_ODOMETRY",
+    "PHYSICAL_FRAME_SEMANTICS_VERIFIED",
+    "PHYSICAL_SCALE_VERIFIED",
+    "RIGHT_HANDED_MODEL_VERIFIED",
+    "ROS_REP_103_MODEL_VERIFIED",
+    "UNITY_SCALE_MODEL_VERIFIED"
+  ],
+  "contains_raw_data": false,
+  "contains_personal_absolute_paths": false,
+  "physical_validation_claim": false
+}

@@ -1,5 +1,11 @@
 # ODOM/TF R2-P2 — contrato de semántica de frames y covarianza
 
+> **Superseded for future consumption by P2A.** El resultado y los outputs
+> históricos P2 permanecen sin reinterpretación. P2A cierra bypasses de enums,
+> enlaza mapping por hash, valida P1A, separa dominios de covarianza y deriva
+> readiness desde objetos validados. Ver
+> [ODOM_TF_R2_P2A_CONTRACT_AUDIT_AND_HARDENING.md](ODOM_TF_R2_P2A_CONTRACT_AUDIT_AND_HARDENING.md).
+
 ## Alcance
 
 R2-P2 define un contrato puro, versionado (`2.2.0-p2`), determinista y
