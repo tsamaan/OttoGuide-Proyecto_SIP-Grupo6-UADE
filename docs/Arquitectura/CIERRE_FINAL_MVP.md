@@ -1,24 +1,25 @@
 # OttoGuide — Contrato final de cierre y publicación del MVP
 
-## 1. Estado del contenido
+## 1. Estado estable del contenido
 
 ```text
 PROGRAM_OBJECTIVE = OTTOGUIDE_FINAL_PROJECT_CLOSURE
 TREE_CONTENT_STATUS = FINAL_RELEASE_TREE
+PROJECT_PHASE = FINAL_PROJECT_CLOSED
 BRANCH_RECONCILIATION = CLOSED
-PRODUCTIVE_DEVELOPMENT = CLOSED
+PRODUCTIVE_DEVELOPMENT = FROZEN
 ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT
-REMOTE_PUBLICATION_STATE = DYNAMIC_REMOTE_STATE_NOT_EMBEDDED
+GIT_PUBLICATION_STATE = DYNAMIC_REMOTE_STATE_NOT_EMBEDDED
 FINAL_RELEASE_MODEL = SINGLE_ROOT_FINAL_RELEASE
 ```
 
-Este documento define el contrato durable de entrega. No intenta registrar qué ref remoto apunta actualmente a este árbol: esa condición cambia fuera del contenido y debe verificarse directamente en GitHub.
+Este documento define el contrato durable de entrega. No registra qué ref remoto apunta actualmente a este árbol: esa condición cambia fuera del contenido y debe verificarse directamente en GitHub.
 
-El SHA exacto del árbol sellado se registra en la auditoría externa del checkpoint correspondiente; no se autoembebe dentro del propio tree.
+El SHA exacto de `SEALED_FINAL_TREE` pertenece a la auditoría externa del checkpoint; no se autoembebe dentro del propio tree.
 
 ## 2. Autoridad y provenance
 
-Para interpretar el árbol:
+Orden de interpretación:
 
 1. `AGENTS.md`;
 2. este documento;
@@ -27,7 +28,7 @@ Para interpretar el árbol:
 5. `UNIFICACION_RAMAS_Y_HANDOFF.md` y `unification-state.json`;
 6. ledgers, snapshots U-series y documentación histórica.
 
-Los antiguos `NEXT_ACTION`, R8, U3 y U3C son provenance. No reabren trabajo productivo.
+Los antiguos `NEXT_ACTION`, R8, U3, U3C y P2C son provenance. No reabren trabajo productivo.
 
 ## 3. Alcance académico
 
@@ -42,9 +43,9 @@ Clasificaciones válidas:
 - `FUERA_DEL_ALCANCE_FINAL_MVP`;
 - `RIESGO_RESIDUAL_O_CONTINUIDAD_FUTURA`.
 
-Una validación offline no prueba comportamiento físico. Evidencia física histórica no recertifica automáticamente el árbol final.
+Una validación offline no prueba comportamiento físico y la evidencia física histórica no recertifica automáticamente el árbol final.
 
-El MVP original contempló un piloto UADE Monserrat por Lima 3/Lima 2 con cinco paradas de diálogo predefinidas, IA local durante el recorrido estructurado e interacción libre al final.
+El MVP original contempló un piloto UADE Monserrat por Lima 3/Lima 2 con cinco paradas, IA local durante el recorrido estructurado e interacción libre al final.
 
 Exclusiones deliberadas:
 
@@ -83,8 +84,6 @@ La reconciliación histórica está cerrada. `main` no se mergea ni rebasea con 
 
 ## 6. Contrato del árbol final
 
-La publicación correcta debe terminar con:
-
 ```text
 MIRROR_REVIEW_TREE
 =
@@ -104,11 +103,11 @@ MIRROR_MAIN_SHA = CANONICAL_MAIN_SHA = R
 parents(R) = []
 ```
 
-`review` conserva genealogía. `main` conserva el snapshot final.
+`review` conserva genealogía; `main` conserva el snapshot final.
 
 ## 7. Protocolo durable de publicación
 
-Este orden es una política, no un `NEXT_ACTION` embebido:
+Este orden es política, no `NEXT_ACTION` embebido:
 
 ```text
 audit exact final tree
@@ -153,11 +152,11 @@ LEGACY_MAIN_TREE = 4b825dc642cb6eb9a060e54bf8d69288fbee4904
 LEGACY_MAIN_PARENT_COUNT = 0
 ```
 
-Son valores de provenance/precondición histórica. Antes de cualquier reemplazo de `main` deben revalidarse live; este documento no afirma que sigan siendo el estado remoto actual.
+Son provenance/precondición histórica. Antes de cualquier reemplazo de `main` deben revalidarse live; este documento no afirma que sigan siendo el estado remoto actual.
 
 No mergear ni rebasear contra ese placeholder.
 
-## 9. Reglas de seguridad Git
+## 9. Seguridad Git
 
 `BLIND_FORCE = PROHIBITED`.
 
@@ -174,21 +173,13 @@ No tags, rebases, merges mayoristas ni reescritura de `review` durante el cierre
 
 ## 10. Claims físicos
 
-Este árbol no afirma validación física actual de:
+Este árbol no afirma validación física actual de `/odom`, `/tf`, `/tf_static`, `/map`, Nav2, SLAM/map, recorrido completo, audio/cámara, DDS/ROS live ni deployment del tree exacto.
 
-- `/odom`, `/tf`, `/tf_static`, `/map`;
-- Nav2;
-- SLAM/map;
-- recorrido completo;
-- audio/cámara;
-- DDS/ROS live;
-- deployment de hardware del tree exacto.
-
-Cualquier revalidación física futura es un proyecto/checkpoint separado.
+Cualquier revalidación física futura es una fase/checkpoint separado.
 
 ## 11. Definición de publicación correcta
 
-La publicación puede considerarse completa sólo cuando una verificación remota externa demuestra:
+Una verificación remota externa debe demostrar:
 
 ```text
 MIRROR_REVIEW_TREE = CANONICAL_REVIEW_TREE = SEALED_FINAL_TREE
@@ -200,10 +191,11 @@ MAIN_COMMIT_COUNT = 1
 
 Esa evidencia es remota y temporal; no se autoafirma dentro del tree.
 
-El contenido del proyecto, en cambio, sí es estable:
+El contenido estable del proyecto es:
 
 ```text
 TREE_CONTENT_STATUS = FINAL_RELEASE_TREE
-PRODUCTIVE_DEVELOPMENT = CLOSED
+PROJECT_PHASE = FINAL_PROJECT_CLOSED
+PRODUCTIVE_DEVELOPMENT = FROZEN
 ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT
 ```

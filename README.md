@@ -1,10 +1,15 @@
 # OttoGuide
 
-**Tree content status:** `FINAL_RELEASE_TREE`
+```text
+TREE_CONTENT_STATUS = FINAL_RELEASE_TREE
+PROJECT_PHASE = FINAL_PROJECT_CLOSED
+PRODUCTIVE_DEVELOPMENT = FROZEN
+GIT_PUBLICATION_STATE = DYNAMIC_REMOTE_STATE_NOT_EMBEDDED
+```
 
 OttoGuide es un proyecto académico de robot guía para UADE sobre hardware Unitree G1 EDU. Este repositorio conserva el software integrado, la aplicación web, contratos offline, tooling operativo y la evidencia necesaria para entregar y auditar el proyecto sin convertir evidencia histórica u offline en afirmaciones de operación física actual.
 
-El estado de publicación Git (`feature`, `review`, `main`, mirror y canonical) es deliberadamente **dinámico** y no se embebe en este README. Para saber qué refs apuntan actualmente a este árbol hay que consultar GitHub.
+El estado de publicación Git (`feature`, `review`, `main`, mirror y canonical) es deliberadamente dinámico y no se embebe en este README. Para saber qué refs apuntan actualmente al árbol final hay que consultar GitHub.
 
 ## Visión y alcance académico
 
@@ -17,7 +22,7 @@ Quedaron explícitamente fuera del MVP:
 - integración con sistemas internos de UADE;
 - soporte multiidioma.
 
-Estas son decisiones de alcance del producto académico; no prueban que el recorrido físico o la autonomía hayan sido validados por este árbol.
+Estas son decisiones de alcance; no prueban que el recorrido físico o la autonomía hayan sido validados por este árbol.
 
 ## Implementado
 
@@ -35,9 +40,7 @@ El árbol incluye tests y evidencia offline para los contratos que efectivamente
 
 ## Validación física histórica
 
-Existen sesiones históricas con observaciones del entorno Unitree, sensores e integración. Se preservan bajo `docs/Operaciones_HIL/` y documentación relacionada.
-
-Esa evidencia conserva valor de provenance, pero **no recertifica** automáticamente este árbol exacto.
+Existen sesiones históricas con observaciones del entorno Unitree, sensores e integración. Se preservan bajo `docs/Operaciones_HIL/` y documentación relacionada. Esa evidencia conserva provenance, pero no recertifica automáticamente este árbol exacto.
 
 ## No validado físicamente por este árbol
 
@@ -65,31 +68,18 @@ Cualquier claim físico futuro requiere una sesión HIL nueva y explícitamente 
 `- docs/
 ```
 
-`docs/` es la única raíz documental propia. `codigo ottoguide/` y `ottoguide_web_app/` son las dos raíces de software establecidas.
+`docs/` es la única raíz documental propia. `codigo ottoguide/` y `ottoguide_web_app/` son las raíces de software establecidas.
 
 ## Modelo Git de entrega
 
-La historia completa de desarrollo e integración se conserva en:
+`review/orchestrator-unification` conserva la historia completa de desarrollo e integración. `main` usa el modelo `SINGLE_ROOT_FINAL_RELEASE`: un root sin padres cuyo tree debe ser exactamente el árbol final auditado. Mirror y canonical deben terminar con el mismo SHA/tree.
 
-```text
-review/orchestrator-unification
-```
-
-La entrega final usa:
-
-```text
-main = SINGLE_ROOT_FINAL_RELEASE
-```
-
-El commit final de `main` debe ser un root sin padres cuyo tree sea exactamente el mismo árbol final auditado que conserva `review`. Mirror y canonical deben terminar con el mismo SHA/tree.
-
-La secuencia y los gates están definidos en [`docs/Arquitectura/CIERRE_FINAL_MVP.md`](docs/Arquitectura/CIERRE_FINAL_MVP.md). El estado remoto concreto se verifica en GitHub y no forma parte de la verdad estática de este archivo.
+La secuencia y gates están en [`docs/Arquitectura/CIERRE_FINAL_MVP.md`](docs/Arquitectura/CIERRE_FINAL_MVP.md). El estado remoto concreto se verifica en GitHub y no forma parte de la verdad estática del árbol.
 
 ## Estado de desarrollo
 
 ```text
 BRANCH_RECONCILIATION = CLOSED
-PRODUCTIVE_DEVELOPMENT = CLOSED
 ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT
 ```
 

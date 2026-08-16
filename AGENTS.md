@@ -1,45 +1,46 @@
 # AGENTS.md — Política permanente de cierre y archivo de OttoGuide
 
-Este archivo define las reglas operativas duraderas para cualquier agente o persona que trabaje con el repositorio OttoGuide después de la consolidación final del proyecto académico.
+Este archivo define las reglas operativas duraderas para cualquier agente o persona que trabaje con OttoGuide después de la consolidación final del proyecto académico.
 
 ## 1. Estado normativo del árbol
 
 ```text
 PROGRAM_OBJECTIVE = OTTOGUIDE_FINAL_PROJECT_CLOSURE
 TREE_CONTENT_STATUS = FINAL_RELEASE_TREE
+PROJECT_PHASE = FINAL_PROJECT_CLOSED
 BRANCH_RECONCILIATION = CLOSED
-PRODUCTIVE_DEVELOPMENT = CLOSED
+PRODUCTIVE_DEVELOPMENT = FROZEN
 ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT
-REMOTE_PUBLICATION_STATE = DYNAMIC_REMOTE_STATE_NOT_EMBEDDED
+GIT_PUBLICATION_STATE = DYNAMIC_REMOTE_STATE_NOT_EMBEDDED
 ```
 
-`FINAL_RELEASE_TREE` describe el contenido de este árbol, no qué ref remoto apunta a él en un momento determinado. El estado de publicación de `review` y `main` debe resolverse directamente desde GitHub antes de cualquier operación; no se embeben SHAs vivos como verdad permanente.
+`FINAL_RELEASE_TREE` describe el contenido estable del árbol. No describe qué ref remoto apunta a él en un instante determinado. El estado de publicación de `feature`, `review`, `main`, mirror y canonical debe resolverse directamente desde GitHub antes de cualquier operación.
 
 La precedencia documental vigente es:
 
 1. `AGENTS.md`: reglas operativas, seguridad y Git.
-2. `docs/Arquitectura/CIERRE_FINAL_MVP.md`: contrato de publicación y cierre.
+2. `docs/Arquitectura/CIERRE_FINAL_MVP.md`: contrato durable de publicación y cierre.
 3. `README.md`: verdad pública de producto y evidencia.
 4. `TODO.md`: limitaciones y continuidad futura no bloqueante.
 5. `docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md` y `docs/Arquitectura/unification-state.json`: provenance y estado machine-readable estable.
-6. Ledgers y snapshots históricos: evidencia, nunca instrucciones activas sin revisión.
+6. Ledgers y snapshots históricos: evidencia; no instrucciones activas sin revisión.
 
-Los `NEXT_ACTION`, R8, U3, U3C y otros microcheckpoints preservados en documentos históricos no reabren desarrollo.
+Los `NEXT_ACTION`, R8, U3, U3C, P2C y demás microcheckpoints preservados históricamente no reabren desarrollo.
 
 ## 2. Raíces canónicas
 
-- `docs/`: única raíz documental propia del proyecto.
+- `docs/`: única raíz documental propia.
 - `codigo ottoguide/`: núcleo robótico, runtime, integración, herramientas, configuración y tests.
 - `ottoguide_web_app/`: aplicación web integrada.
 
-No recrear raíces históricas como `documentacion general del proyecto/`, `OttoGuide IA/` o `planificacion/` fuera de `docs/planning/`. No crear nuevas raíces por pilar ni reorganizar el árbol final por razones cosméticas.
+No recrear raíces históricas como `documentacion general del proyecto/`, `OttoGuide IA/` ni `planificacion/` fuera de `docs/planning/`. No crear nuevas raíces por pilar ni reorganizar el árbol final por razones cosméticas.
 
 ## 3. Principios de ingeniería y evidencia
 
 - Evidencia antes que intuición.
 - Un único dominio técnico por checkpoint.
 - Cambios pequeños, coherentes, trazables y reversibles.
-- No ampliar alcance después del cierre salvo que un proyecto futuro lo reabra explícitamente.
+- No ampliar alcance después del cierre salvo una nueva fase explícitamente autorizada.
 - Fuente de verdad: código productivo > tests > documentación vigente > provenance histórica.
 - Una afirmación de agente no sustituye evidencia verificable.
 - No elevar validación offline o histórica a validación física actual.
@@ -73,7 +74,7 @@ Ninguna operación documental o Git autoriza robot, SSH al robot, HIL, DDS real,
 
 ## 5. Evidencia y archivos protegidos
 
-No modificar sin un proyecto/checkpoint futuro dedicado:
+No modificar sin una fase/checkpoint futuro dedicado:
 
 - `docs/legacy/**`;
 - `docs/legacy/interaccionia/Ottoguide_IA/src/otto_audio/cpp/otto_pipeline.cpp`;
@@ -87,8 +88,6 @@ El árbol final no debe recibir cambios productivos para “completar” roadmap
 
 ## 6. Modelo Git duradero
 
-Roles:
-
 ```text
 review/orchestrator-unification
     historia completa de desarrollo e integración autoritativa
@@ -97,7 +96,7 @@ main
     snapshot final de entrega, exactamente un commit raíz sin padres
 
 feature/odom-tf-r2-p2-frame-semantics-covariance-contract
-    staging histórico/final de cierre; no autoridad posterior a la publicación
+    staging de cierre; deja de ser autoridad después de publicar
 
 ramas laterales/personales y audit/*
     provenance histórica; no candidatos de merge mayorista
@@ -113,11 +112,11 @@ El contrato de publicación es:
 4. verificar;
 5. promover el mismo commit/tree por fast-forward a canonical `review`;
 6. verificar igualdad exacta;
-7. crear un commit raíz `R` con `parents(R) = []` y `tree(R) = FINAL_RELEASE_TREE`;
-8. reemplazar `main` primero en mirror y verificar;
+7. crear un commit raíz `R` con `parents(R) = []` y `tree(R) = SEALED_FINAL_TREE`;
+8. reemplazar `main` primero en mirror mediante lease/CAS y verificar;
 9. reemplazar canonical `main` por exactamente el mismo `R` y verificar.
 
-La existencia o finalización de esos pasos es estado remoto dinámico y no se deduce de este archivo.
+Ese procedimiento es política durable, no un `NEXT_ACTION` de producto. El estado de ejecución se resuelve remotamente.
 
 ## 7. Reglas de escritura
 
@@ -126,10 +125,10 @@ La existencia o finalización de esos pasos es estado remoto dinámico y no se d
 - `BLIND_FORCE = PROHIBITED`.
 - No tags salvo autorización explícita.
 - No merge ni rebase con el placeholder histórico de `main`.
-- Toda escritura debe revalidar el ref esperado inmediatamente antes de mutar.
+- Revalidar el ref esperado inmediatamente antes de cada escritura.
 - Cualquier drift inesperado produce fail-closed.
 
-La única excepción a fast-forward es el reemplazo único del placeholder histórico de `main` por el root final, protegido por lease o compare-and-swap equivalente y conforme a `CIERRE_FINAL_MVP.md`.
+La única excepción al fast-forward es el reemplazo único del placeholder histórico de `main` por el root final, protegido por lease o compare-and-swap equivalente y conforme a `CIERRE_FINAL_MVP.md`.
 
 ## 8. Política de `main`
 
@@ -137,7 +136,7 @@ El modelo es `SINGLE_ROOT_FINAL_RELEASE`:
 
 - `main` contiene exactamente un commit raíz;
 - ese commit no tiene padres;
-- su tree es exactamente el árbol final auditado;
+- su tree es exactamente `SEALED_FINAL_TREE`;
 - mirror/main y canonical/main terminan en el mismo SHA y tree;
 - la genealogía completa permanece en `review/orchestrator-unification`.
 
@@ -148,10 +147,10 @@ No convertir `main` en rama de desarrollo.
 Para una sesión futura:
 
 1. leer `AGENTS.md`, `README.md`, `TODO.md` y `docs/Arquitectura/CIERRE_FINAL_MVP.md`;
-2. resolver GitHub live si interesa saber si la publicación ya terminó;
+2. resolver GitHub live si interesa conocer el estado de publicación;
 3. usar el handoff y `unification-state.json` sólo para provenance/estado estable;
-4. no continuar U3/U3C/R8 ni otras tareas históricas;
-5. no iniciar nuevas capacidades bajo el proyecto cerrado.
+4. no continuar U3/U3C/R8/P2C ni otras tareas históricas;
+5. no iniciar nuevas capacidades salvo una nueva fase explícitamente autorizada.
 
 ```text
 ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT

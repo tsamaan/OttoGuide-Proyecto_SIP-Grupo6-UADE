@@ -1,12 +1,16 @@
 {
   "schema_version": 5,
-  "kind": "FINAL_RELEASE_TREE_STATE",
+  "kind": "CURRENT_FINAL_RELEASE_TREE_STATE",
   "program_objective": "OTTOGUIDE_FINAL_PROJECT_CLOSURE",
   "tree_content_status": "FINAL_RELEASE_TREE",
+  "project_phase": "FINAL_PROJECT_CLOSED",
+  "release_status": "FINAL_RELEASE_TREE",
   "branch_reconciliation": "CLOSED",
-  "productive_development": "CLOSED",
-  "active_productive_next_action": "NO_FURTHER_PRODUCTIVE_DEVELOPMENT",
-  "remote_publication_state": "DYNAMIC_REMOTE_STATE_NOT_EMBEDDED",
+  "productive_development": "FROZEN",
+  "current_release_action": "NO_FURTHER_TREE_MUTATION",
+  "next_action": "NO_FURTHER_PRODUCTIVE_DEVELOPMENT",
+  "next_action_semantics": "FINAL_RELEASE_INVARIANT",
+  "publication_state_semantics": "DYNAMIC_REMOTE_STATE_NOT_EMBEDDED",
   "current_release_authority": "docs/Arquitectura/CIERRE_FINAL_MVP.md",
   "content_release_blockers": 0,
   "repositories": {
@@ -25,6 +29,11 @@
     "resolution": "resolve exact commit/tree from GitHub during external audit",
     "sealed_tree_evidence_location": "external checkpoint/audit artifact"
   },
+  "review_history": {
+    "branch": "review/orchestrator-unification",
+    "preservation": "PRESERVE_FULL_HISTORY",
+    "promotion": "FAST_FORWARD_ONLY_TO_EXACT_FINAL_COMMIT"
+  },
   "main_release": {
     "model": "SINGLE_ROOT_FINAL_RELEASE",
     "required_parent_count": 0,
@@ -42,7 +51,7 @@
       "status": "HISTORICAL_PRECONDITION_MUST_BE_REVALIDATED_LIVE"
     }
   },
-  "publication_protocol": [
+  "publication_gates": [
     "AUDIT_EXACT_FINAL_TREE",
     "MIRROR_REVIEW_FAST_FORWARD_TO_EXACT_FINAL_COMMIT",
     "VERIFY_MIRROR_REVIEW",
@@ -54,7 +63,7 @@
     "CANONICAL_MAIN_SAME_ROOT",
     "FINAL_REMOTE_VERIFICATION"
   ],
-  "publication_protocol_semantics": "DURABLE_POLICY_NOT_ACTIVE_NEXT_ACTION",
+  "publication_gates_semantics": "DURABLE_POLICY_NOT_ACTIVE_NEXT_ACTION",
   "evidence_semantics": {
     "offline_validation_is_physical_validation": false,
     "historical_physical_evidence_recertifies_final_tree": false,

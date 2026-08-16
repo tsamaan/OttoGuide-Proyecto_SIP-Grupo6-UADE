@@ -3,12 +3,14 @@
 ```text
 DOCUMENTATION_ROOT = docs/
 TREE_CONTENT_STATUS = FINAL_RELEASE_TREE
+PROJECT_PHASE = FINAL_PROJECT_CLOSED
 BRANCH_RECONCILIATION = CLOSED
-PRODUCTIVE_DEVELOPMENT = CLOSED
+PRODUCTIVE_DEVELOPMENT = FROZEN
 ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT
+GIT_PUBLICATION_STATE = DYNAMIC_REMOTE_STATE_NOT_EMBEDDED
 ```
 
-`docs/` es la única raíz documental propia del proyecto. El estado remoto de publicación no se embebe aquí: si se necesita saber qué refs de GitHub apuntan al árbol final debe consultarse el remoto.
+`docs/` es la única raíz documental propia. El estado remoto de publicación no se embebe aquí: para saber qué refs apuntan al árbol final debe consultarse GitHub.
 
 ## Precedencia
 
@@ -19,7 +21,7 @@ ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT
 5. `Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md` y `Arquitectura/unification-state.json` — provenance y estado estable.
 6. Evidencia histórica y ledgers — referencia, no instrucciones activas.
 
-Los roadmaps `NEXT_ACTION`, R8, U3 y U3C preservados históricamente no son trabajo pendiente del proyecto cerrado.
+Los roadmaps `NEXT_ACTION`, R8, U3, U3C y P2C preservados históricamente no son trabajo pendiente.
 
 ## Categorías
 
@@ -58,6 +60,6 @@ La evidencia física histórica conserva provenance, pero no recertifica este á
 - No recrear `documentacion general del proyecto/`.
 - No recrear `OttoGuide IA/`.
 - No crear nuevas raíces documentales por pilar.
-- Toda documentación propia nueva de un proyecto futuro debe integrarse bajo `docs/` salvo archivos raíz de gobierno o READMEs locales acoplados a código.
+- Toda documentación propia futura debe integrarse bajo `docs/` salvo archivos raíz de gobierno o READMEs locales acoplados a código.
 - `Historico/` contiene evidencia, no autoridad operativa por defecto.
 - El árbol final se interpreta por la precedencia anterior, no por roadmaps históricos aislados.
