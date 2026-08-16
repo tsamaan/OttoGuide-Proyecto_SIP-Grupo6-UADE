@@ -1,28 +1,68 @@
 {
-  "schema_version": 2,
-  "updated_at": "2026-08-15T22:26:35Z",
+  "schema_version": 3,
+  "updated_at": "2026-08-15T22:50:26-03:00",
   "repository": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "canonical_authority": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
   "mirror_staging": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
   "integration_branch": "review/orchestrator-unification",
-  "remote_integration_head": "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e",
-  "canonical_review_sha": "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e",
-  "mirror_review_sha": "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e",
   "p2a_baseline_sha": "76ecfd782af4a401936076939e0c9c0b55718b4e",
   "p2a_audit_branch": "audit/odom-tf-r2-p2a-76ecfd78-prepublish-r1",
-  "p2c_local_candidate_state": "LOCAL_UNCOMMITTED_WORKTREE",
-  "local_p2c_branch": "feature/odom-tf-r2-p2-frame-semantics-covariance-contract",
-  "local_p2c_base_head": "76ecfd782af4a401936076939e0c9c0b55718b4e",
-  "p2c_base_sha": "76ecfd782af4a401936076939e0c9c0b55718b4e",
-  "p2c_commit_sha": null,
-  "p2c_remote_branch": null,
-  "p2c_published": false,
-  "p2c_next_checkpoint": "MVP-ODOM-TF-R2-P2C-CLAIMS-STATE-R2-INDEPENDENT-AUDIT-R1",
+  "p2c_payload": {
+    "kind": "IMMUTABLE_PAYLOAD_FACT",
+    "commit_sha": "2b4b1a58fb522dac9a7bacbda0823b885ef28119",
+    "parent_sha": "76ecfd782af4a401936076939e0c9c0b55718b4e",
+    "semantic_audit": "CLOSED"
+  },
+  "p2c_mirror_publication_event": {
+    "kind": "IMMUTABLE_OBSERVED_EVENT",
+    "scope": "MIRROR_FEATURE_ONLY",
+    "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
+    "branch": "feature/odom-tf-r2-p2-frame-semantics-covariance-contract",
+    "payload_commit_sha": "2b4b1a58fb522dac9a7bacbda0823b885ef28119",
+    "observation_provenance": "MVP-ODOM-TF-R2-P2C-R3-MIRROR-STAGING-R1"
+  },
+  "p2c_preintegration_snapshot": {
+    "kind": "HISTORICAL_SNAPSHOT",
+    "observed_at": "2026-08-15T22:50:26-03:00",
+    "mirror_review_sha": "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e",
+    "canonical_review_sha": "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e"
+  },
+  "p2c_live_resolution": {
+    "kind": "DYNAMIC_GIT_REF_RESOLUTION",
+    "embedded_current_head_prohibited": true,
+    "mirror_feature": {
+      "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
+      "command": "git ls-remote https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git refs/heads/feature/odom-tf-r2-p2-frame-semantics-covariance-contract"
+    },
+    "mirror_review": {
+      "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
+      "command": "git ls-remote https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git refs/heads/review/orchestrator-unification"
+    },
+    "canonical_review": {
+      "repository": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
+      "command": "git ls-remote https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git refs/heads/review/orchestrator-unification"
+    }
+  },
+  "p2c_transition_policy": {
+    "kind": "DURABLE_TRANSITION_POLICY",
+    "required_order": [
+      "MIRROR_FEATURE_VALIDATION",
+      "MIRROR_REVIEW_PROMOTION",
+      "MIRROR_REVIEW_VERIFICATION",
+      "CANONICAL_REVIEW_FAST_FORWARD",
+      "CANONICAL_REVIEW_VERIFICATION"
+    ],
+    "mirror_validation_before_mirror_review_promotion": true,
+    "mirror_review_verification_before_canonical_review_promotion": true,
+    "canonical_fast_forward_only_after_mirror": true,
+    "default_branch_write": "PROHIBITED",
+    "wholesale_branch_merge": "PROHIBITED"
+  },
   "main_sha": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
   "main_relation_to_review": "NO_COMMON_ANCESTOR",
   "main_policy": "DO_NOT_MERGE_OR_REBASE",
-  "authority_semantics": "canonical_authority is the integration authority; mirror_staging is staging and audit only. P2C is local uncommitted work and is not present on either remote.",
+  "authority_semantics": "canonical_authority remains the integration authority; mirror_staging hosts the published P2C payload feature only. P2C is not integrated into mirror review, canonical review, or main.",
   "canonical_access": "publication_only",
   "canonical_repository": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
   "canonical_publish_branch": "review/orchestrator-unification",

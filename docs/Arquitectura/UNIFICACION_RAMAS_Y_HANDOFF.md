@@ -54,33 +54,39 @@ GENERATION_BASE_MESSAGE = docs(unification): add portable branch handoff
 
 `GENERATION_BASE_HEAD` es el HEAD desde el cual se preparo esta correccion, no el SHA del commit que contiene la correccion. El HEAD actual y el checkpoint vigente se resuelven con Git; no se almacena dentro del archivo el SHA del commit que lo contiene.
 
-### Estado local ODOM/TF P2C
+### Lifecycle durable ODOM/TF P2C
 
 ```text
 CANONICAL_AUTHORITY = tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE
 MIRROR_STAGING = LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU
 INTEGRATION_BRANCH = review/orchestrator-unification
-REMOTE_INTEGRATION_HEAD = ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e
-CANONICAL_REVIEW_SHA = ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e
-MIRROR_REVIEW_SHA = ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e
 P2A_BASELINE_SHA = 76ecfd782af4a401936076939e0c9c0b55718b4e
 P2A_AUDIT_BRANCH = audit/odom-tf-r2-p2a-76ecfd78-prepublish-r1
-P2C_LOCAL_CANDIDATE_STATE = LOCAL_UNCOMMITTED_WORKTREE
-LOCAL_P2C_BRANCH = feature/odom-tf-r2-p2-frame-semantics-covariance-contract
-LOCAL_P2C_BASE_HEAD = 76ecfd782af4a401936076939e0c9c0b55718b4e
-P2C_BASE_SHA = 76ecfd782af4a401936076939e0c9c0b55718b4e
-P2C_COMMIT_SHA = null
-P2C_REMOTE_BRANCH = null
-P2C_PUBLISHED = false
-P2C_NEXT_CHECKPOINT = MVP-ODOM-TF-R2-P2C-CLAIMS-STATE-R2-INDEPENDENT-AUDIT-R1
+P2C_PAYLOAD_COMMIT_SHA = 2b4b1a58fb522dac9a7bacbda0823b885ef28119
+P2C_PAYLOAD_PARENT_SHA = 76ecfd782af4a401936076939e0c9c0b55718b4e
+P2C_SEMANTIC_AUDIT = CLOSED
+P2C_MIRROR_PUBLICATION_SCOPE = MIRROR_FEATURE_ONLY
+P2C_MIRROR_FEATURE_BRANCH = feature/odom-tf-r2-p2-frame-semantics-covariance-contract
+P2C_PREINTEGRATION_SNAPSHOT_KIND = HISTORICAL_SNAPSHOT
+P2C_PREINTEGRATION_MIRROR_REVIEW_SHA = ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e
+P2C_PREINTEGRATION_CANONICAL_REVIEW_SHA = ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e
+P2C_LIVE_MIRROR_FEATURE_REF = git ls-remote https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git refs/heads/feature/odom-tf-r2-p2-frame-semantics-covariance-contract
+P2C_LIVE_MIRROR_REVIEW_REF = git ls-remote https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git refs/heads/review/orchestrator-unification
+P2C_LIVE_CANONICAL_REVIEW_REF = git ls-remote https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git refs/heads/review/orchestrator-unification
+P2C_EMBEDDED_CURRENT_HEAD = PROHIBITED
+P2C_TRANSITION_ORDER = MIRROR_FEATURE_VALIDATION -> MIRROR_REVIEW_PROMOTION -> MIRROR_REVIEW_VERIFICATION -> CANONICAL_REVIEW_FAST_FORWARD -> CANONICAL_REVIEW_VERIFICATION
 MAIN_SHA = 3a1f13574e4a27d9aff2bfd38b3659951e8cb264
 MAIN_RELATION_TO_REVIEW = NO_COMMON_ANCESTOR
 MAIN_POLICY = DO_NOT_MERGE_OR_REBASE
 ```
 
-P2C no esta comprometido, publicado ni integrado en review o main. Claims/State
-R2 remedia localmente los defects de la auditoria R1, pero una nueva auditoria
-independiente sigue siendo obligatoria antes de cualquier commit o staging.
+El payload P2C es un hecho inmutable: fue auditado y se observo publicado solo
+en la rama feature del mirror. Los SHA de review mostrados arriba son un
+snapshot preintegracion, no HEADs vivos. Los HEADs vivos se resuelven con los
+comandos indicados; esta documentacion no contiene un checkpoint efimero ni el
+SHA del commit que la contiene. La politica durable exige validar mirror antes
+de promover review, verificar review antes de un fast-forward canonical y no
+autoriza escrituras en ramas default, review, canonical o main por si sola.
 
 ## 5. Invariantes arquitectonicos
 

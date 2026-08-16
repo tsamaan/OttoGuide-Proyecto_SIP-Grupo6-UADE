@@ -1347,7 +1347,7 @@ def test_generated_claims_match_versioned_ledger_semantically():
     assert generated == versioned
 
 
-def test_unification_state_represents_local_unpublished_p2c_candidate():
+def test_unification_state_represents_durable_p2c_lifecycle_model():
     repo_root = Path(__file__).resolve().parents[3]
     state_path = repo_root / "docs" / "Arquitectura" / "unification-state.json"
     handoff_path = (
@@ -1358,22 +1358,42 @@ def test_unification_state_represents_local_unpublished_p2c_candidate():
     assert state["canonical_authority"] == "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE"
     assert state["mirror_staging"] == "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU"
     assert state["integration_branch"] == "review/orchestrator-unification"
-    assert state["remote_integration_head"] == "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e"
-    assert state["canonical_review_sha"] == "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e"
-    assert state["mirror_review_sha"] == state["canonical_review_sha"]
+    assert state["schema_version"] == 3
     assert state["p2a_baseline_sha"] == "76ecfd782af4a401936076939e0c9c0b55718b4e"
-    assert state["p2c_local_candidate_state"] == "LOCAL_UNCOMMITTED_WORKTREE"
-    assert state["local_p2c_branch"] == (
-        "feature/odom-tf-r2-p2-frame-semantics-covariance-contract"
-    )
-    assert state["local_p2c_base_head"] == state["p2a_baseline_sha"]
-    assert state["p2c_base_sha"] == state["p2a_baseline_sha"]
-    assert state["p2c_commit_sha"] is None
-    assert state["p2c_remote_branch"] is None
-    assert state["p2c_published"] is False
-    assert state["p2c_next_checkpoint"] == (
-        "MVP-ODOM-TF-R2-P2C-CLAIMS-STATE-R2-INDEPENDENT-AUDIT-R1"
-    )
+    assert state["p2c_payload"] == {
+        "kind": "IMMUTABLE_PAYLOAD_FACT",
+        "commit_sha": "2b4b1a58fb522dac9a7bacbda0823b885ef28119",
+        "parent_sha": state["p2a_baseline_sha"],
+        "semantic_audit": "CLOSED",
+    }
+    event = state["p2c_mirror_publication_event"]
+    assert event["scope"] == "MIRROR_FEATURE_ONLY"
+    assert event["payload_commit_sha"] == state["p2c_payload"]["commit_sha"]
+    assert event["branch"] == "feature/odom-tf-r2-p2-frame-semantics-covariance-contract"
+    snapshot = state["p2c_preintegration_snapshot"]
+    assert snapshot["kind"] == "HISTORICAL_SNAPSHOT"
+    assert snapshot["mirror_review_sha"] == snapshot["canonical_review_sha"]
+    resolution = state["p2c_live_resolution"]
+    assert resolution["kind"] == "DYNAMIC_GIT_REF_RESOLUTION"
+    assert resolution["embedded_current_head_prohibited"] is True
+    mirror_url = "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git"
+    canonical_url = "https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git"
+    assert mirror_url in resolution["mirror_feature"]["command"]
+    assert "refs/heads/feature/odom-tf-r2-p2-frame-semantics-covariance-contract" in resolution["mirror_feature"]["command"]
+    assert mirror_url in resolution["mirror_review"]["command"]
+    assert "refs/heads/review/orchestrator-unification" in resolution["mirror_review"]["command"]
+    assert canonical_url in resolution["canonical_review"]["command"]
+    assert "refs/heads/review/orchestrator-unification" in resolution["canonical_review"]["command"]
+    policy = state["p2c_transition_policy"]
+    assert policy["kind"] == "DURABLE_TRANSITION_POLICY"
+    assert policy["required_order"] == [
+        "MIRROR_FEATURE_VALIDATION",
+        "MIRROR_REVIEW_PROMOTION",
+        "MIRROR_REVIEW_VERIFICATION",
+        "CANONICAL_REVIEW_FAST_FORWARD",
+        "CANONICAL_REVIEW_VERIFICATION",
+    ]
+    assert policy["default_branch_write"] == "PROHIBITED"
     assert state["source_heads"]["pilar-web"] == (
         "8a5803f5fd8f9bdb08faa5a8bc40a3a5dd709b73"
     )
@@ -1387,12 +1407,27 @@ def test_unification_state_represents_local_unpublished_p2c_candidate():
     assert "DYNAMIC_HANDOFF_CHECKPOINT" not in state_path.read_text(encoding="utf-8")
     for value in (
         "CANONICAL_AUTHORITY = tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
-        "REMOTE_INTEGRATION_HEAD = ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e",
-        "LOCAL_P2C_BRANCH = feature/odom-tf-r2-p2-frame-semantics-covariance-contract",
-        "P2C_LOCAL_CANDIDATE_STATE = LOCAL_UNCOMMITTED_WORKTREE",
-        "P2C_COMMIT_SHA = null",
-        "P2C_REMOTE_BRANCH = null",
-        "P2C_PUBLISHED = false",
+        "P2C_PAYLOAD_COMMIT_SHA = 2b4b1a58fb522dac9a7bacbda0823b885ef28119",
+        "P2C_MIRROR_PUBLICATION_SCOPE = MIRROR_FEATURE_ONLY",
+        "P2C_PREINTEGRATION_SNAPSHOT_KIND = HISTORICAL_SNAPSHOT",
+        "P2C_LIVE_MIRROR_REVIEW_REF = git ls-remote https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
+        "P2C_TRANSITION_ORDER = MIRROR_FEATURE_VALIDATION",
         "MAIN_POLICY = DO_NOT_MERGE_OR_REBASE",
     ):
         assert value in handoff
+    for command in resolution.values():
+        if isinstance(command, dict) and "command" in command:
+            assert "git ls-remote mirror" not in command["command"]
+            assert "git ls-remote canonical" not in command["command"]
+    for obsolete in (
+        "p2c_local_candidate_state",
+        "p2c_commit_sha",
+        "p2c_published",
+        "p2c_next_checkpoint",
+        "P2C_LOCAL_CANDIDATE_STATE",
+        "P2C_COMMIT_SHA",
+        "P2C_PUBLISHED",
+        "P2C_NEXT_CHECKPOINT",
+    ):
+        assert obsolete not in state_path.read_text(encoding="utf-8")
+        assert obsolete not in handoff

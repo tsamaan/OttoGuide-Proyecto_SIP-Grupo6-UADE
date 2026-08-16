@@ -358,7 +358,7 @@ def test_output_symlink_is_rejected_before_writing(material_inputs, tmp_path):
             )
 
 
-def test_unification_state_has_explicit_authority_roles():
+def test_unification_state_has_durable_p2c_lifecycle_boundaries():
     document = json.loads(
         (REPO_ROOT / "docs/Arquitectura/unification-state.json").read_text(
             encoding="utf-8-sig"
@@ -370,20 +370,40 @@ def test_unification_state_has_explicit_authority_roles():
     assert document["mirror_staging"] == (
         "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU"
     )
-    assert document["canonical_review_sha"] == (
-        "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e"
-    )
-    assert document["mirror_review_sha"] == (
-        "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e"
-    )
     assert document["p2a_baseline_sha"] == (
         "76ecfd782af4a401936076939e0c9c0b55718b4e"
     )
-    assert document["p2c_local_candidate_state"] == "LOCAL_UNCOMMITTED_WORKTREE"
-    assert document["p2c_base_sha"] == document["p2a_baseline_sha"]
-    assert document["p2c_commit_sha"] is None
-    assert document["p2c_remote_branch"] is None
-    assert document["p2c_published"] is False
+    assert document["schema_version"] == 3
+    assert document["p2c_payload"]["commit_sha"] == (
+        "2b4b1a58fb522dac9a7bacbda0823b885ef28119"
+    )
+    assert document["p2c_payload"]["parent_sha"] == document["p2a_baseline_sha"]
+    assert document["p2c_mirror_publication_event"]["scope"] == (
+        "MIRROR_FEATURE_ONLY"
+    )
+    assert document["p2c_preintegration_snapshot"]["kind"] == "HISTORICAL_SNAPSHOT"
+    assert document["p2c_live_resolution"]["embedded_current_head_prohibited"] is True
+    resolution = document["p2c_live_resolution"]
+    mirror_url = "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git"
+    canonical_url = "https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git"
+    assert mirror_url in resolution["mirror_feature"]["command"]
+    assert "refs/heads/feature/odom-tf-r2-p2-frame-semantics-covariance-contract" in resolution["mirror_feature"]["command"]
+    assert mirror_url in resolution["mirror_review"]["command"]
+    assert "refs/heads/review/orchestrator-unification" in resolution["mirror_review"]["command"]
+    assert canonical_url in resolution["canonical_review"]["command"]
+    assert "refs/heads/review/orchestrator-unification" in resolution["canonical_review"]["command"]
+    for resolver in resolution.values():
+        if isinstance(resolver, dict) and "command" in resolver:
+            assert "git ls-remote mirror" not in resolver["command"]
+            assert "git ls-remote canonical" not in resolver["command"]
+    assert document["p2c_transition_policy"]["canonical_fast_forward_only_after_mirror"] is True
+    for obsolete in (
+        "p2c_local_candidate_state",
+        "p2c_commit_sha",
+        "p2c_published",
+        "p2c_next_checkpoint",
+    ):
+        assert obsolete not in document
 
 
 def test_legacy_activation_remains_false_and_has_no_productive_true_callers():

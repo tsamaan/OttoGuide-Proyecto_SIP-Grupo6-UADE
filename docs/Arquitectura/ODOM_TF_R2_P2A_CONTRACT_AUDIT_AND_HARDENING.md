@@ -125,10 +125,13 @@ sintetico positivo prueba la logica measured-zero, pero no constituye evidencia
 fisica. La restriccion de overlap entre frames configurados y observados queda
 como limitacion baja aceptada, sin redisenar el mapping.
 
-Este estado es un candidato local sin commit y sin publicacion remota. No esta
-integrado en `review/orchestrator-unification`, no existe una rama P2C remota y
-la auditoria independiente R2 permanece pendiente. El siguiente gate es
-`MVP-ODOM-TF-R2-P2C-CLAIMS-STATE-R2-INDEPENDENT-AUDIT-R1`.
+La secuencia historica R2/R3 cerro la auditoria semantica y el payload P2C fue
+comprometido como `2b4b1a58fb522dac9a7bacbda0823b885ef28119`. La publicacion
+observada de ese payload tiene alcance `MIRROR_FEATURE_ONLY` en
+`feature/odom-tf-r2-p2-frame-semantics-covariance-contract`. El lifecycle vivo
+se resuelve desde Git mediante el handoff y `unification-state.json`; este
+registro historico no declara integracion en review, canonical o main ni fija
+un checkpoint efimero como estado actual.
 
 Los limites funcionales no cambian: no se declara `/odom` fisico, TF fisico,
 Nav2, localizacion, mapa fisico, matriz de covarianza ROS/SI, replay ejecutado,
