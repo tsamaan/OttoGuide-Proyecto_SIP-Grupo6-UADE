@@ -1,203 +1,170 @@
-# AGENTS.md — Reglas de Estructura del Repositorio OttoGuide
+# AGENTS.md — Política vigente de cierre de OttoGuide
 
-## Raíces canónicas
+Este archivo define las reglas operativas vigentes para trabajar sobre el repositorio durante el cierre final del proyecto académico OttoGuide.
 
-- `docs/` es la **única raíz documental** del repositorio. Toda documentación nueva debe crearse dentro de `docs/`.
-- `codigo ottoguide/` es la **raíz del software**: código fuente, scripts, herramientas, configuración runtime, launch files y dependencias vendorizadas.
+## 1. Estado y precedencia
 
-## Prohibiciones de estructura
+- `PROGRAM_OBJECTIVE = OTTOGUIDE_FINAL_PROJECT_CLOSURE`
+- `PROJECT_PHASE = FINAL_PROJECT_CLOSURE`
+- `BRANCH_RECONCILIATION = CLOSED`
+- `PRODUCTIVE_DEVELOPMENT = FROZEN`
+- Rama candidata de cierre: `feature/odom-tf-r2-p2-frame-semantics-covariance-contract`.
+- Rama de integración e historia técnica autoritativa: `review/orchestrator-unification`.
+- Rama de entrega final: `main`.
+- `WHOLESALE_BRANCH_MERGES = PROHIBITED`.
 
-- **No recrear** `documentacion general del proyecto/` en ninguna ruta ni profundidad.
-- **No recrear** `planificacion/` como directorio independiente fuera de `docs/planning/`.
-- **No crear nuevas raíces documentales por pilar** (por ejemplo `docs/domains/motion/`, `docs/domains/ai-voice/`, etc.); la reclasificación semántica profunda está diferida.
-- **No crear** `docs/audit/`; la ruta canónica es `docs/audits/`.
+Para el cierre vigente, la precedencia documental es:
 
-## Flujo Git por checkpoints
+1. `AGENTS.md`: reglas operativas y de seguridad para agentes.
+2. `docs/Arquitectura/CIERRE_FINAL_MVP.md`: contrato vigente de cierre y publicación.
+3. `README.md`: verdad pública de producto y evidencia.
+4. `TODO.md`: bloqueantes reales del cierre y continuidad futura no bloqueante.
+5. `docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md`, `docs/Arquitectura/unification-state.json` y los ledgers R/U/P2C: evidencia histórica y de provenance.
 
-El repositorio canónico (`tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE`) y el mirror
-(`LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU`) se sincronizan mediante un flujo de
-checkpoints validado repetidamente en el ciclo IA-CXX (R1-R7):
+Los campos históricos `NEXT_ACTION`, R8, U3, U3C u otros microcheckpoints conservados en ledgers anteriores **no son instrucciones activas de desarrollo** durante `FINAL_PROJECT_CLOSURE`. Se preservan para trazabilidad.
 
-1. **Trabajo local**: crear o modificar contenido en el workspace local, con un único commit
-   local por checkpoint una vez que sus propios gates (diff esperado, hash forense si aplica,
-   secret scan) pasan.
-2. **Revisión local (pre-push review)**: un checkpoint separado revisa el commit local sin
-   modificar nada, confirmando diff exacto, ausencia de cambios en archivos protegidos, hash
-   forense y secret scan, y emite un veredicto GO/NO-GO.
-3. **Push a mirror con confirmación explícita**: solo tras un GO de revisión, un checkpoint de
-   staging pide confirmación explícita al usuario (pregunta directa, respuesta afirmativa
-   requerida) y ejecuta un único push fast-forward-only, sin force, sin tags, exclusivamente al
-   mirror.
-4. **Validación**: se verifica el estado del mirror de forma independiente (`git ls-remote`
-   propio), sin depender únicamente de una afirmación externa no verificada.
-5. **Push a canónico fast-forward con confirmación explícita**: un checkpoint separado pide una
-   confirmación explícita nueva (las confirmaciones de checkpoints anteriores no son válidas
-   para este push) y ejecuta un único push fast-forward-only, sin force, sin tags,
-   exclusivamente al canónico.
-6. **Verificación de alineación**: tras el push canónico, se confirma vía `git ls-remote`
-   independiente que canónico y mirror quedan en el mismo HEAD.
+## 2. Raíces canónicas del repositorio
 
-Todo push a canónico o mirror requiere, sin excepción: preflight (branch, HEAD, working tree
-limpio), diff exacto validado contra lo esperado, hash forense de `otto_pipeline.cpp` si el
-checkpoint lo toca indirectamente, secret scan high-confidence, confirmación explícita del
-usuario pedida en ese mismo checkpoint, fast-forward (nunca force), y sin tags.
+- `docs/`: única raíz documental. Toda documentación nueva debe vivir dentro de `docs/`.
+- `codigo ottoguide/`: núcleo robótico, runtime, integración, herramientas, configuración y tests asociados.
+- `ottoguide_web_app/`: aplicación web integrada del proyecto.
 
-## Protocolo por niveles de riesgo
+No realizar movimientos estructurales tardíos salvo que una auditoría final demuestre un bloqueante material. En particular:
 
-- **Nivel A — documentación pura**: cambios exclusivamente en Markdown/documentación
-  (`docs/**`, `AGENTS.md`, `TODO.md`). Riesgo más bajo; puede incluir un commit local por
-  checkpoint.
-- **Nivel B — código offline de bajo riesgo**: cambios en Python u otro código que no
-  compila/ejecuta binarios nativos, sin acceso a red, robot ni hardware.
-- **Nivel C — C++ offline, build, ejecución dummy o integración con el supervisor**: incluye
-  compilar C++ offline, ejecutar binarios dummy con timeout estricto y autorización explícita
-  separada, o integrar un worker C++ con `JsonlInteractionWorkerSupervisor` en modo offline.
-  Cada acción de build o ejecución requiere su propia confirmación explícita, incluso dentro
-  del mismo checkpoint.
-- **Nivel D — robot físico / HIL / movimiento**: cualquier acceso al robot, SSH, ejecución de
-  `otto_pipeline.cpp`, movimiento (`/cmd_vel`, `LocoClient.Move`, SDK de locomoción), audio
-  real, o modelos reales (Whisper/Ollama/Piper). **Nivel D no puede acelerarse** — no admite
-  variantes "-FAST" que salten checkpoints intermedios de verificación, y siempre requiere
-  autorización explícita separada de cualquier checkpoint de nivel A-C.
+- no recrear `documentacion general del proyecto/`;
+- no recrear `planificacion/` fuera de `docs/planning/`;
+- no crear nuevas raíces documentales por pilar;
+- no crear `docs/audit/`; la ruta canónica es `docs/audits/`;
+- no mover `ottoguide_web_app/` sólo para forzar una raíz de software única.
 
-## Fast-track documental de Nivel A
+## 3. Principios de ingeniería y evidencia
 
-Para reducir latencia operativa durante cierre de MVP, se habilita un fast-track exclusivo para
-checkpoints de Nivel A que modifiquen únicamente documentación pura.
+- Evidencia antes que intuición.
+- Mantener un único dominio técnico por checkpoint.
+- Cambios pequeños, coherentes, trazables y reversibles.
+- No ampliar alcance durante el cierre salvo bloqueante material demostrado.
+- Fuente de verdad técnica, en orden: código productivo > tests > documentación vigente > ramas fuente históricas > documentación histórica.
+- Una afirmación de agente no sustituye evidencia verificable.
+- Los reportes externos deben resumirse o incorporarse a documentación versionada antes de convertirse en autoridad duradera.
 
-### Alcance permitido
+Toda afirmación de capacidad debe distinguir, cuando corresponda:
 
-El fast-track documental solo aplica si el diff completo toca exclusivamente:
+- `IMPLEMENTADO`;
+- `VALIDADO_OFFLINE`;
+- `VALIDADO_FISICAMENTE_HISTORICO`;
+- `NO_VALIDADO_EN_CANDIDATO_ACTUAL`;
+- `FUERA_DEL_ALCANCE_FINAL_MVP`;
+- `RIESGO_RESIDUAL_O_CONTINUIDAD_FUTURA`.
 
-- `docs/**`, excepto `docs/legacy/**`;
-- `AGENTS.md`;
-- `TODO.md`.
+Nunca transformar evidencia offline o histórica en una afirmación de validación física actual.
 
-### Alcance prohibido
+## 4. Invariantes de arquitectura y seguridad
 
-El fast-track documental queda prohibido si el diff toca cualquier archivo bajo:
+Se mantienen vigentes:
 
-- `codigo ottoguide/**`;
-- `ottoguide_web_app/**`;
+- `ONE_FASTAPI = YES`;
+- `ONE_TOUR_ORCHESTRATOR = YES`;
+- `ONE_MISSION_FSM = YES`;
+- `ONE_MOTION_AUTHORITY = YES`;
+- `ONE_CAMERA_AUTHORITY_PER_DEVICE = YES`;
+- `ONE_REAL_AUDIO_AUTHORITY = YES`;
+- `CLOUD_IN_REAL_MODE = PROHIBITED`;
+- `SILENT_REAL_FALLBACK = PROHIBITED`;
+- `WORKER_MOTION_AUTHORITY = PROHIBITED`;
+- `PLAYBACK_COMPLETED_BEFORE_NAVIGATION_RESUME = REQUIRED`;
+- merges mayoristas de ramas históricas = prohibidos.
+
+Ninguna tarea documental o de Git autoriza acceso al robot, SSH al robot, HIL, movimiento, audio real, ejecución física, `/cmd_vel`, locomoción, Nav2 real ni escritura en hardware. Cualquier acción física requiere autorización explícita y separada, hardstop disponible, operador presente, límites definidos y rollback previo.
+
+## 5. Archivos y evidencia protegidos
+
+No modificar sin un checkpoint específico dedicado:
+
 - `docs/legacy/**`;
-- cualquier archivo C/C++/Python/JS/TS/shell;
-- cualquier configuración runtime;
-- cualquier script ejecutable;
-- cualquier archivo relacionado con robot, audio, Unitree, ROS, DDS, Nav2, SLAM o HIL.
+- `docs/legacy/interaccionia/Ottoguide_IA/src/otto_audio/cpp/otto_pipeline.cpp`;
+- `docs/legacy/interaccionia/Ottoguide_IA/src/otto_audio/cpp/CMakeLists.txt`;
+- `docs/legacy/interaccionia/Ottoguide_IA/src/otto_audio/scripts/otto_say.sh`;
+- `codigo ottoguide/src/interaction/runtime_port.py`;
+- `codigo ottoguide/src/interaction/jsonl_worker_supervisor.py`;
+- `codigo ottoguide/src/interaction/worker_supervisor.py`.
 
-### Flujo permitido
+Durante el cierre, no modificar código productivo salvo que una auditoría final identifique un defecto material que impida la entrega y exista autorización explícita para abrir ese dominio técnico.
 
-Un checkpoint fast-track documental puede colapsar revisión, mirror stage y promoción canónica
-en un solo checkpoint, siempre que cumpla todos los gates siguientes:
+## 6. Flujo Git vigente de cierre
 
-1. preflight local con branch esperado, HEAD esperado y working tree limpio;
-2. verificación remota de canónico y mirror antes del cambio;
-3. diff acotado exclusivamente a documentación permitida;
-4. secret scan high-confidence;
-5. commit local único;
-6. confirmación explícita literal del usuario en ese mismo checkpoint;
-7. push fast-forward-only al mirror;
-8. push fast-forward-only al canónico;
-9. verificación posterior independiente de que mirror y canónico quedan alineados;
-10. reporte de evidencia.
+### Lectura y auditoría
 
-### Límites
+- Las inspecciones read-only pueden hacerse directamente contra GitHub.
+- No crear ramas sólo para auditar, comparar o reconstruir contexto.
+- Resolver refs remotos de forma fresca; no depender de aliases Git locales ni de SHAs efímeros embebidos como "HEAD actual" en documentación duradera.
+- Inspeccionar ramas históricas sólo como provenance o para una comprobación de completitud; no reabrir decisiones de integración ya cerradas.
 
-El fast-track documental no autoriza build, ejecución, tests, backend, frontend, robot, SSH,
-audio, Unitree, movimiento, `/cmd_vel`, `/odom`, `/tf`, force push, tags, merge, rebase ni PRs.
+### Mutación del candidato
 
-Cualquier cambio de código, runtime, C++, Python, frontend, robot, audio o HIL vuelve
-automáticamente al flujo completo por checkpoints separados.
+- Usar la feature de cierre existente; no crear una feature adicional para remediaciones finales.
+- Antes de una escritura: verificar ref esperado, alcance exacto, ausencia de secretos y que el cambio pertenezca al único dominio técnico declarado.
+- Los cambios de código requieren validación ejecutable local proporcional al riesgo antes de publicar candidato.
+- Una remediación puramente documental de cierre puede materializarse como **un único commit atómico** sobre la feature existente cuando haya auditoría remota previa, precondición exacta del ref y autorización explícita del usuario en ese checkpoint.
+- Nunca mezclar una remediación documental con código, runtime, tests, configuración o hardware.
 
-## Gates para robot físico (Nivel D)
+### Orden de publicación
 
-Antes de cualquier acceso al robot físico, movimiento o ejecución de HIL:
+1. mirror;
+2. auditoría remota independiente del candidato publicado;
+3. promoción fast-forward a mirror `review/orchestrator-unification` sólo con GO y autorización explícita;
+4. verificación independiente de mirror review;
+5. promoción fast-forward a canonical `review/orchestrator-unification` sólo con autorización explícita nueva;
+6. verificación de igualdad exacta mirror/canonical;
+7. sellado del árbol final;
+8. publicación final de `main` según `docs/Arquitectura/CIERRE_FINAL_MVP.md` y con autorizaciones separadas.
 
-- Autorización explícita del usuario, pedida en ese mismo checkpoint, con su propio prompt
-  autocontenido.
-- Hardstop físico disponible y probado antes de cualquier movimiento.
-- Operador responsable presente durante la operación.
-- Plan de rollback definido antes de ejecutar.
-- Límites explícitos de distancia, velocidad y tiempo para cualquier movimiento.
-- No mezclar tareas de robot físico con refactors, reorganización documental ni cambios de
-  código no relacionados.
-- No ejecutar ninguna acción de robot si el working tree está sucio o el repo no está en el
-  estado esperado.
+No autorizar implícitamente pasos posteriores por haber autorizado uno anterior.
 
-## Cambios de arquitectura
+## 7. Reglas de push y refs
 
-Cualquier cambio de arquitectura de software (orquestador, event bus, módulos runtime, interfaces DDS/ROS 2) requiere revisión humana antes de ser mergeado a `canonical`.
+- Mirror antes que canonical.
+- Fast-forward por defecto.
+- `force` ciego está prohibido.
+- No tags salvo autorización explícita.
+- No merge ni rebase con el `main` histórico no relacionado.
+- No reemplazar `main` durante checkpoints de feature/review.
+- La única excepción potencial al fast-forward es el reemplazo final, único y lease-guarded del placeholder histórico de `main` por el release raíz sellado; requiere precondición exacta, autorización explícita separada para mirror y canonical y verificación posterior. Esta excepción **no queda autorizada por este archivo**.
 
-## Estado vigente del ciclo IA-CXX
+## 8. Política final de `main`
 
-- **R1-R7**: cerrados. Decisión de arquitectura `CXX_PIPELINE_PRIMARY = true`,
-  `PYTHON_REIMPLEMENTATION_PRIMARY = false`, `PYTHON_ROLE = supervisor_control_plane`,
-  `CXX_ROLE = physical_conversation_runtime`. Runtime C++ productivo bajo
-  `codigo ottoguide/src/interaction/cxx_runtime/`, compilado offline (R5) y ejecutado en modo
-  dummy de forma controlada sin cambios versionados (R6). Decisión de implementación vigente:
-  `NEXT_IMPLEMENTATION_STRATEGY = CXX_PROTOCOL_COMPLIANT_LOOPBACK_WORKER_FIRST` (R7), documentada
-  en `docs/Arquitectura/IA_CXX_R7_JSONL_DISPATCH_LOOP_OR_DUMMY_WORKER_INTEGRATION_PLAN.md`.
-- **R8** (próximo checkpoint de código real, no ejecutado): implementar un worker C++ loopback
-  protocol-compliant bajo `cxx_runtime/`, que hable JSONL real por stdin/stdout de forma
-  simulada (sin audio, sin red, sin modelos, sin Unitree), validado primero de forma aislada y
-  luego integrado offline con `JsonlInteractionWorkerSupervisor`.
-- `otto_pipeline.cpp` no debe modificarse sin un checkpoint específico dedicado a esa decisión.
+El modelo objetivo es `SINGLE_ROOT_FINAL_RELEASE`:
 
-## Robot compile-only
+- el release final `R` debe ser un commit raíz (`R.parents = []`);
+- `tree(R)` debe ser exactamente el árbol final sellado en review;
+- mirror/main y canonical/main deben terminar en el mismo SHA `R` y el mismo tree;
+- `main` no es base de integración ni conserva la genealogía de review;
+- la historia técnica y de integración permanece en `review/orchestrator-unification` y en la documentación de provenance.
 
-- Compilar código C++ directamente en el robot físico puede plantearse como un checkpoint
-  separado y explícito (por ejemplo, para verificar el toolchain disponible en ese entorno).
-- Un checkpoint de tipo compile-only en el robot **no autoriza ejecutar binarios** producidos
-  por esa compilación.
-- Un checkpoint de tipo compile-only en el robot **no autoriza ningún movimiento**.
-- Todo checkpoint compile-only en el robot debe capturar: versión del toolchain (g++/CMake),
-  logs completos de compilación, hash forense de `otto_pipeline.cpp` antes y después, y el
-  estado del working tree antes y después.
+El placeholder histórico de `main` y su precondición exacta para el reemplazo se documentan en `docs/Arquitectura/CIERRE_FINAL_MVP.md` y deben revalidarse inmediatamente antes de cualquier escritura.
 
-## Archivos protegidos
+## 9. Definición operativa de GO de cierre
 
-Los siguientes archivos no deben modificarse sin un checkpoint específico dedicado a esa
-decisión:
+Un candidato puede avanzar sólo si:
 
-- `docs/legacy/interaccionia/Ottoguide_IA/src/otto_audio/cpp/otto_pipeline.cpp`
-- `docs/legacy/**` en general (evidencia histórica, skeleton no operativo)
-- `docs/legacy/interaccionia/Ottoguide_IA/src/otto_audio/cpp/CMakeLists.txt` (build legacy)
-- `docs/legacy/interaccionia/Ottoguide_IA/src/otto_audio/scripts/otto_say.sh`
-- `codigo ottoguide/src/interaction/runtime_port.py`
-- `codigo ottoguide/src/interaction/jsonl_worker_supervisor.py`
-- `codigo ottoguide/src/interaction/worker_supervisor.py`
+- la documentación vigente expresa una única verdad de producto;
+- no existen claims de validación física actual no demostrados;
+- la estructura real del repositorio coincide con la documentada;
+- no hay secretos ni residuos bloqueantes identificados por la auditoría;
+- no se introdujo código productivo dentro de una remediación documental;
+- el ref remoto coincide exactamente con la precondición esperada;
+- el árbol final puede sellarse de forma reproducible;
+- los pasos de publicación restantes conservan mirror-before-canonical y autorizaciones separadas.
 
-## Gobernanza de cierre final
+Preferencias de estilo, refactors no necesarios, limpieza cosmética o roadmaps históricos no son por sí mismos motivos para reabrir desarrollo.
 
-- Aplicar evidencia antes que intuicion y mantener un unico dominio tecnico por checkpoint.
-- `review/orchestrator-unification` conserva la historia de integracion; no crear ramas de auditoria o integracion adicionales ni hacer merges mayoristas de ramas historicas.
-- El agente local muta y valida cambios locales. Una vez publicado un candidato en el mirror, la auditoria independiente se realiza contra el estado remoto de GitHub.
-- Toda escritura remota requiere autorizacion explicita nueva en el mismo checkpoint. El orden es mirror antes de canonical.
-- La futura entrega de `main` es un solo commit raiz creado desde un arbol final sellado. No usar `main` como base de integracion ni destruir la historia de `review`.
-- El force ciego permanece prohibido. La unica excepcion posible es un reemplazo unico de `main`, protegido por lease contra el placeholder vacio documentado y con autorizaciones frescas separadas para mirror y canonical.
-- El mismo commit raiz final debe publicarse primero en mirror/main y luego, sin cambios, en canonical/main.
-- Las reglas de seguridad de robot/HIL siguen vigentes y requieren autorizacion separada; la gobernanza documental nunca habilita runtime ni hardware.
+## 10. Continuidad
 
-## Regla de evidencia
+Para una sesión nueva:
 
-Los reportes generados fuera del repositorio (evidencia de checkpoints, auditorías externas)
-deben resumirse o incorporarse a documentación versionada dentro de `docs/` antes de tratarse
-como fuente autoritativa para decisiones futuras.
+1. leer `AGENTS.md`;
+2. leer `README.md`;
+3. leer `TODO.md`;
+4. leer `docs/Arquitectura/CIERRE_FINAL_MVP.md`;
+5. usar `UNIFICACION_RAMAS_Y_HANDOFF.md` y `unification-state.json` sólo cuando haga falta provenance o reconstrucción histórica.
 
-## Referencia de rama de revisión
-
-La rama activa de integración es `review/orchestrator-unification` en el remote `mirror`.
-El análisis de funcionalidades integradas, wiring del orquestador y tests pendientes se realiza sobre esa rama publicada.
-
-## Continuidad de unificación
-
-- Leer `docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md` antes de cualquier tarea de unificación.
-- Resolver el HEAD remoto de integracion con `git ls-remote https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git refs/heads/review/orchestrator-unification`; no depender de aliases Git locales no documentados.
-- Resolver el checkpoint del handoff con `git log -1 --format=%H -- docs/Arquitectura/unification-state.json`.
-- Al cierre de una etapa con escritura correctamente documentada, el checkpoint del handoff debe coincidir con el HEAD activo.
-- Nunca exigir que `unification-state.json` contenga el SHA del mismo commit que contiene el JSON.
-- Actualizar el handoff Markdown y `unification-state.json` en cada etapa de unificación con escritura.
-- Una auditoría read-only no modifica el handoff.
-- No depender de carpetas locales de ramas para reconstruir contexto; usar refs de `mirror`.
-- Inspeccionar ramas laterales mediante `git show`, `git diff` o `git log` contra refs `mirror/<branch>`.
-- No convertir `audit-reports/` externos en fuente autoritativa sin resumir sus resultados en documentación versionada.
+El objetivo activo es cerrar y publicar el proyecto, no continuar R8/U3/U3C ni iniciar nuevas capacidades.
