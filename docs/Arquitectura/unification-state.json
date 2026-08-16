@@ -1,46 +1,63 @@
 {
-  "schema_version": 4,
-  "kind": "CURRENT_FINAL_CLOSURE_STATE",
+  "schema_version": 5,
+  "kind": "FINAL_RELEASE_TREE_STATE",
   "program_objective": "OTTOGUIDE_FINAL_PROJECT_CLOSURE",
-  "project_phase": "FINAL_PROJECT_CLOSURE",
-  "release_status": "FINAL_CLOSURE_CANDIDATE",
+  "tree_content_status": "FINAL_RELEASE_TREE",
   "branch_reconciliation": "CLOSED",
-  "productive_development": "FROZEN",
+  "productive_development": "CLOSED",
+  "active_productive_next_action": "NO_FURTHER_PRODUCTIVE_DEVELOPMENT",
+  "remote_publication_state": "DYNAMIC_REMOTE_STATE_NOT_EMBEDDED",
   "current_release_authority": "docs/Arquitectura/CIERRE_FINAL_MVP.md",
-  "current_release_action": "REMOTE_AUDIT_FINAL_CLOSURE_CANDIDATE_BEFORE_SEALING",
-  "next_action": "REMOTE_AUDIT_FINAL_CLOSURE_CANDIDATE_BEFORE_SEALING",
-  "next_action_semantics": "CURRENT_FINAL_CLOSURE_ACTION",
+  "content_release_blockers": 0,
   "repositories": {
     "canonical_authority": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
     "mirror_staging": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU"
   },
-  "candidate": {
-    "branch": "feature/odom-tf-r2-p2-frame-semantics-covariance-contract",
-    "embedded_current_head_prohibited": true,
-    "resolution": "git ls-remote https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git refs/heads/feature/odom-tf-r2-p2-frame-semantics-covariance-contract"
-  },
-  "integration_history": {
-    "branch": "review/orchestrator-unification",
-    "mirror_resolution": "git ls-remote https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git refs/heads/review/orchestrator-unification",
-    "canonical_resolution": "git ls-remote https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git refs/heads/review/orchestrator-unification",
-    "promotion_policy": "FAST_FORWARD_ONLY_AFTER_AUDITED_MIRROR_CANDIDATE",
+  "branch_roles": {
+    "integration_history": "review/orchestrator-unification",
+    "final_delivery": "main",
+    "staging_reference": "feature/odom-tf-r2-p2-frame-semantics-covariance-contract",
+    "historical_audit_reference": "audit/odom-tf-r2-p2a-76ecfd78-prepublish-r1",
     "wholesale_branch_merge": "PROHIBITED"
   },
+  "final_tree": {
+    "sha_embedding_policy": "DO_NOT_EMBED_SELF_SHA",
+    "resolution": "resolve exact commit/tree from GitHub during external audit",
+    "sealed_tree_evidence_location": "external checkpoint/audit artifact"
+  },
   "main_release": {
-    "branch": "main",
     "model": "SINGLE_ROOT_FINAL_RELEASE",
-    "merge_or_rebase_with_review": "PROHIBITED",
-    "legacy_placeholder_sha": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
-    "legacy_placeholder_tree": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
-    "required_root_parent_count": 0,
+    "required_parent_count": 0,
+    "required_commit_count": 1,
+    "tree_must_equal_final_release_tree": true,
     "mirror_before_canonical": true,
     "same_exact_root_commit_both_repositories": true,
+    "merge_or_rebase_with_review": "PROHIBITED",
     "blind_force": "PROHIBITED",
-    "replacement": "LEASE_OR_COMPARE_AND_SWAP_GUARDED_ONE_TIME_EXCEPTION"
+    "replacement": "LEASE_OR_COMPARE_AND_SWAP_GUARDED_ONE_TIME_EXCEPTION",
+    "historical_placeholder": {
+      "sha": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
+      "tree": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+      "parent_count": 0,
+      "status": "HISTORICAL_PRECONDITION_MUST_BE_REVALIDATED_LIVE"
+    }
   },
+  "publication_protocol": [
+    "AUDIT_EXACT_FINAL_TREE",
+    "MIRROR_REVIEW_FAST_FORWARD_TO_EXACT_FINAL_COMMIT",
+    "VERIFY_MIRROR_REVIEW",
+    "CANONICAL_REVIEW_FAST_FORWARD_TO_SAME_COMMIT",
+    "VERIFY_IDENTICAL_REVIEW_TREE",
+    "CREATE_SINGLE_ROOT_R_WITH_EXACT_FINAL_TREE",
+    "MIRROR_MAIN_LEASE_GUARDED_REPLACEMENT",
+    "VERIFY_MIRROR_MAIN",
+    "CANONICAL_MAIN_SAME_ROOT",
+    "FINAL_REMOTE_VERIFICATION"
+  ],
+  "publication_protocol_semantics": "DURABLE_POLICY_NOT_ACTIVE_NEXT_ACTION",
   "evidence_semantics": {
     "offline_validation_is_physical_validation": false,
-    "historical_physical_evidence_recertifies_current_candidate": false,
+    "historical_physical_evidence_recertifies_final_tree": false,
     "robot_action_required_for_repository_closeout": false,
     "physical_claims_require_separate_fresh_evidence": true
   },
@@ -61,19 +78,6 @@
     "state_path": "docs/Historico/Final_Closure_Predecessors/unification-state-u-series-superseded.json",
     "state_blob_sha": "e27527bad7960ed12db380fa05d02484e739e4a0"
   },
-  "release_gates": [
-    "REMOTE_AUDIT_MIRROR_CANDIDATE",
-    "SEAL_EXACT_CANDIDATE_TREE",
-    "MIRROR_REVIEW_FAST_FORWARD_WITH_FRESH_AUTHORIZATION",
-    "VERIFY_MIRROR_REVIEW",
-    "CANONICAL_REVIEW_FAST_FORWARD_WITH_SEPARATE_FRESH_AUTHORIZATION",
-    "VERIFY_IDENTICAL_REVIEW_TREE",
-    "CREATE_SINGLE_ROOT_RELEASE_FROM_SEALED_TREE",
-    "MIRROR_MAIN_LEASE_GUARDED_WRITE_WITH_FRESH_AUTHORIZATION",
-    "VERIFY_MIRROR_MAIN",
-    "CANONICAL_MAIN_SAME_ROOT_WITH_SEPARATE_FRESH_AUTHORIZATION",
-    "FINAL_VERIFY"
-  ],
   "claims_not_made": [
     "CURRENT_PHYSICAL_ODOM_OR_TF_VALIDATED",
     "CURRENT_NAV2_AUTONOMY_VALIDATED",

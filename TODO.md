@@ -1,58 +1,73 @@
-# OttoGuide Final Closure Scope
+# OttoGuide — Limitaciones y continuidad futura
 
-**Repository status:** `FINAL_CLOSURE_CANDIDATE`
+**Tree content status:** `FINAL_RELEASE_TREE`
 
-This is not an active development backlog. It records scope intentionally deferred from the final repository closure and prevents those limitations from being represented as implemented or physically validated.
+Este archivo **no es un backlog activo**. El desarrollo productivo del proyecto académico está cerrado. Aquí se registran únicamente límites, validaciones futuras y alcance deliberadamente excluido para evitar que se conviertan en claims implícitos.
 
-## Durable States
+```text
+CONTENT_RELEASE_BLOCKERS = 0
+PRODUCTIVE_DEVELOPMENT = CLOSED
+ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT
+REMOTE_PUBLICATION_STATE = DYNAMIC_REMOTE_STATE_NOT_EMBEDDED
+```
 
-- `CLOSED_FOR_RELEASE`: represented by the sealed candidate and not a remaining release blocker.
-- `DEFERRED_OUTSIDE_FINAL_SCOPE`: future work intentionally excluded from project closure.
-- `REQUIRES_FUTURE_PHYSICAL_VALIDATION`: requires a separately authorized robot/HIL session.
-- `NOT_CLAIMED`: no current evidence supports the capability claim.
-- `HISTORICAL_SUPERSEDED`: preserved provenance that is no longer current operational work.
+## Estados usados
 
-## Closed For Release
+- `CLOSED_FOR_RELEASE`: resuelto en el contenido final.
+- `REQUIRES_FUTURE_PHYSICAL_VALIDATION`: sólo puede reabrirse en un proyecto/checkpoint HIL futuro.
+- `DEFERRED_OUTSIDE_FINAL_SCOPE`: fuera del cierre académico.
+- `NOT_CLAIMED`: no existe evidencia suficiente para reclamar la capacidad.
+- `HISTORICAL_SUPERSEDED`: provenance conservada, no trabajo operativo vigente.
 
-- [CLOSED_FOR_RELEASE] P2C offline claims, readiness, and provenance boundaries are represented by the audited payload and its versioned evidence.
-- [CLOSED_FOR_RELEASE] Historical branch reconciliation is closed on `review/orchestrator-unification`; wholesale historical branch merges are not release work.
-- [CLOSED_FOR_RELEASE] Repository closure governance and the single-root `main` release policy are governed by `AGENTS.md` and `docs/Arquitectura/CIERRE_FINAL_MVP.md`. The current architecture handoff and unification state are provenance gateways; their byte-preserved U-series predecessors remain under `docs/Historico/Final_Closure_Predecessors/`.
+## Cerrado para release
 
-## Requires Future Physical Validation
+- [CLOSED_FOR_RELEASE] Reconciliación de ramas: `review/orchestrator-unification` conserva la historia autoritativa; no hay merges mayoristas pendientes.
+- [CLOSED_FOR_RELEASE] Contratos P2/P2A/P2C y sus límites de evidencia offline.
+- [CLOSED_FOR_RELEASE] Gobierno final de repositorio, documentación, seguridad y modelo `SINGLE_ROOT_FINAL_RELEASE`.
+- [CLOSED_FOR_RELEASE] Higiene de los backups transitorios CycloneDDS removidos del árbol final.
+- [CLOSED_FOR_RELEASE] Estructura canónica: `docs/`, `codigo ottoguide/`, `ottoguide_web_app/`.
 
-- [REQUIRES_FUTURE_PHYSICAL_VALIDATION] Observe and validate physical `/odom`, `/tf`, `/tf_static`, `/map`, and related frame semantics on the intended Unitree environment.
-- [REQUIRES_FUTURE_PHYSICAL_VALIDATION] Validate actual Nav2, SLAM/map, and autonomous tour behavior with an operator, hardstop, bounded motion plan, and an explicit HIL authorization.
-- [REQUIRES_FUTURE_PHYSICAL_VALIDATION] Validate live DDS/ROS bridges, LiDAR, IMU, camera, and audio behavior against the deployed hardware and configuration.
-- [REQUIRES_FUTURE_PHYSICAL_VALIDATION] Record new physical evidence before claiming a current hardware deployment or operational autonomy.
+## Requiere validación física futura
 
-## Deferred Outside Final Scope
+- [REQUIRES_FUTURE_PHYSICAL_VALIDATION] Observar y validar `/odom`, `/tf`, `/tf_static`, `/map` y semántica de frames en el entorno Unitree objetivo.
+- [REQUIRES_FUTURE_PHYSICAL_VALIDATION] Validar Nav2, SLAM/map y recorrido físico con operador, hardstop, límites y autorización HIL.
+- [REQUIRES_FUTURE_PHYSICAL_VALIDATION] Validar bridges DDS/ROS, LiDAR, IMU, cámara y audio contra hardware real.
+- [REQUIRES_FUTURE_PHYSICAL_VALIDATION] Generar evidencia física nueva antes de reclamar autonomía o deployment actual del árbol final.
 
-The original academic MVP explicitly excluded the following product scope. These items are not release blockers and are not implied commitments of this final repository:
+Ninguna de estas tareas bloquea la entrega del proyecto académico.
 
-- [DEFERRED_OUTSIDE_FINAL_SCOPE] Tours across other floors or campuses beyond the original Lima 3/Lima 2 pilot scope.
-- [DEFERRED_OUTSIDE_FINAL_SCOPE] Unlimited open-ended AI responses during the structured route; the academic design limited free-form interaction to the end of the tour.
-- [DEFERRED_OUTSIDE_FINAL_SCOPE] Integration with UADE internal systems.
-- [DEFERRED_OUTSIDE_FINAL_SCOPE] Multilingual support.
+## Fuera del alcance final
 
-Additional closure deferrals:
+El MVP académico dejó fuera:
 
-- [DEFERRED_OUTSIDE_FINAL_SCOPE] New product features, runtime redesign, CI expansion, and repository-wide restructuring.
-- [DEFERRED_OUTSIDE_FINAL_SCOPE] Additional web application work outside the integrated frontend already present in `ottoguide_web_app/`.
-- [DEFERRED_OUTSIDE_FINAL_SCOPE] Migration or reconciliation of historical/lateral branches not selected into the authoritative integration history.
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] otros pisos o campus;
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] IA abierta ilimitada durante el recorrido estructurado;
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] integración con sistemas internos UADE;
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] soporte multiidioma.
 
-## Not Claimed
+También quedan fuera del cierre:
 
-- [NOT_CLAIMED] Current physical ODOM or TF publication readiness.
-- [NOT_CLAIMED] Current physical Nav2 autonomy, SLAM/map operation, or complete robot tours, including the originally planned Lima 3/Lima 2 pilot.
-- [NOT_CLAIMED] Current robot audio, camera, or network-runtime validation for this exact candidate tree.
-- [NOT_CLAIMED] A final `main` root release commit. That release is created only after a sealed final tree and separately authorized mirror and canonical writes.
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] nuevas features de producto;
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] rediseño de runtime;
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] expansión de CI no necesaria para el cierre;
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] reorganización cosmética del repositorio;
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] remerge de ramas laterales históricas.
 
-## Historical Or Superseded
+## No reclamado
 
-- [HISTORICAL_SUPERSEDED] `RC1_LOCKED` and Post-RC1 backlog wording. They describe an earlier lifecycle, not the current final-closure candidate.
-- [HISTORICAL_SUPERSEDED] R8/U3/U3C and older `NEXT_ACTION` values are preserved in the archived U-series handoff/state snapshots under `docs/Historico/Final_Closure_Predecessors/`. They are provenance, not active release instructions.
-- [HISTORICAL_SUPERSEDED] Earlier deployment instructions and branch snapshots that were not durable current-state contracts. Historical evidence remains available under `docs/`.
+- [NOT_CLAIMED] ODOM/TF físicos actuales.
+- [NOT_CLAIMED] Nav2/SLAM/autonomía física actual.
+- [NOT_CLAIMED] recorrido Lima 3/Lima 2 físicamente validado por este tree.
+- [NOT_CLAIMED] audio/cámara/DDS/ROS live del árbol final.
+- [NOT_CLAIMED] equivalencia automática entre evidencia histórica y deployment actual.
 
-## Safety Boundary
+## Histórico supersedido
 
-No deferred physical validation is authorized by this file. Robot, ROS, DDS, Nav2, SLAM, audio, SSH, and motion work each require an explicit dedicated checkpoint and the safety gates in `AGENTS.md`.
+- [HISTORICAL_SUPERSEDED] `RC1_LOCKED` y wording Post-RC1.
+- [HISTORICAL_SUPERSEDED] R8/U3/U3C y antiguos `NEXT_ACTION`.
+- [HISTORICAL_SUPERSEDED] ramas personales/laterales ya tratadas selectivamente durante la unificación.
+- [HISTORICAL_SUPERSEDED] snapshots y runbooks cuya función actual es provenance.
+
+## Seguridad
+
+Este archivo no autoriza robot, SSH, DDS, Nav2, SLAM, audio, movimiento ni hardware. Cualquier continuidad futura debe abrirse explícitamente como un nuevo checkpoint/proyecto y aplicar las reglas de `AGENTS.md`.

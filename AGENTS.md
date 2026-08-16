@@ -1,66 +1,61 @@
-# AGENTS.md — Política vigente de cierre de OttoGuide
+# AGENTS.md — Política permanente de cierre y archivo de OttoGuide
 
-Este archivo define las reglas operativas vigentes para trabajar sobre el repositorio durante el cierre final del proyecto académico OttoGuide.
+Este archivo define las reglas operativas duraderas para cualquier agente o persona que trabaje con el repositorio OttoGuide después de la consolidación final del proyecto académico.
 
-## 1. Estado y precedencia
+## 1. Estado normativo del árbol
 
-- `PROGRAM_OBJECTIVE = OTTOGUIDE_FINAL_PROJECT_CLOSURE`
-- `PROJECT_PHASE = FINAL_PROJECT_CLOSURE`
-- `BRANCH_RECONCILIATION = CLOSED`
-- `PRODUCTIVE_DEVELOPMENT = FROZEN`
-- Rama candidata de cierre: `feature/odom-tf-r2-p2-frame-semantics-covariance-contract`.
-- Rama de integración e historia técnica autoritativa: `review/orchestrator-unification`.
-- Rama de entrega final: `main`.
-- `WHOLESALE_BRANCH_MERGES = PROHIBITED`.
+```text
+PROGRAM_OBJECTIVE = OTTOGUIDE_FINAL_PROJECT_CLOSURE
+TREE_CONTENT_STATUS = FINAL_RELEASE_TREE
+BRANCH_RECONCILIATION = CLOSED
+PRODUCTIVE_DEVELOPMENT = CLOSED
+ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT
+REMOTE_PUBLICATION_STATE = DYNAMIC_REMOTE_STATE_NOT_EMBEDDED
+```
 
-Para el cierre vigente, la precedencia documental es:
+`FINAL_RELEASE_TREE` describe el contenido de este árbol, no qué ref remoto apunta a él en un momento determinado. El estado de publicación de `review` y `main` debe resolverse directamente desde GitHub antes de cualquier operación; no se embeben SHAs vivos como verdad permanente.
 
-1. `AGENTS.md`: reglas operativas y de seguridad para agentes.
-2. `docs/Arquitectura/CIERRE_FINAL_MVP.md`: contrato vigente de cierre y publicación.
+La precedencia documental vigente es:
+
+1. `AGENTS.md`: reglas operativas, seguridad y Git.
+2. `docs/Arquitectura/CIERRE_FINAL_MVP.md`: contrato de publicación y cierre.
 3. `README.md`: verdad pública de producto y evidencia.
-4. `TODO.md`: bloqueantes reales del cierre y continuidad futura no bloqueante.
-5. `docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md`, `docs/Arquitectura/unification-state.json` y los ledgers R/U/P2C: evidencia histórica y de provenance.
+4. `TODO.md`: limitaciones y continuidad futura no bloqueante.
+5. `docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md` y `docs/Arquitectura/unification-state.json`: provenance y estado machine-readable estable.
+6. Ledgers y snapshots históricos: evidencia, nunca instrucciones activas sin revisión.
 
-Los campos históricos `NEXT_ACTION`, R8, U3, U3C u otros microcheckpoints conservados en ledgers anteriores **no son instrucciones activas de desarrollo** durante `FINAL_PROJECT_CLOSURE`. Se preservan para trazabilidad.
+Los `NEXT_ACTION`, R8, U3, U3C y otros microcheckpoints preservados en documentos históricos no reabren desarrollo.
 
-## 2. Raíces canónicas del repositorio
+## 2. Raíces canónicas
 
-- `docs/`: única raíz documental. Toda documentación nueva debe vivir dentro de `docs/`.
-- `codigo ottoguide/`: núcleo robótico, runtime, integración, herramientas, configuración y tests asociados.
-- `ottoguide_web_app/`: aplicación web integrada del proyecto.
+- `docs/`: única raíz documental propia del proyecto.
+- `codigo ottoguide/`: núcleo robótico, runtime, integración, herramientas, configuración y tests.
+- `ottoguide_web_app/`: aplicación web integrada.
 
-No realizar movimientos estructurales tardíos salvo que una auditoría final demuestre un bloqueante material. En particular:
-
-- no recrear `documentacion general del proyecto/`;
-- no recrear `planificacion/` fuera de `docs/planning/`;
-- no crear nuevas raíces documentales por pilar;
-- no crear `docs/audit/`; la ruta canónica es `docs/audits/`;
-- no mover `ottoguide_web_app/` sólo para forzar una raíz de software única.
+No recrear raíces históricas como `documentacion general del proyecto/`, `OttoGuide IA/` o `planificacion/` fuera de `docs/planning/`. No crear nuevas raíces por pilar ni reorganizar el árbol final por razones cosméticas.
 
 ## 3. Principios de ingeniería y evidencia
 
 - Evidencia antes que intuición.
-- Mantener un único dominio técnico por checkpoint.
+- Un único dominio técnico por checkpoint.
 - Cambios pequeños, coherentes, trazables y reversibles.
-- No ampliar alcance durante el cierre salvo bloqueante material demostrado.
-- Fuente de verdad técnica, en orden: código productivo > tests > documentación vigente > ramas fuente históricas > documentación histórica.
+- No ampliar alcance después del cierre salvo que un proyecto futuro lo reabra explícitamente.
+- Fuente de verdad: código productivo > tests > documentación vigente > provenance histórica.
 - Una afirmación de agente no sustituye evidencia verificable.
-- Los reportes externos deben resumirse o incorporarse a documentación versionada antes de convertirse en autoridad duradera.
+- No elevar validación offline o histórica a validación física actual.
 
-Toda afirmación de capacidad debe distinguir, cuando corresponda:
+Etiquetas de evidencia:
 
 - `IMPLEMENTADO`;
 - `VALIDADO_OFFLINE`;
 - `VALIDADO_FISICAMENTE_HISTORICO`;
-- `NO_VALIDADO_EN_CANDIDATO_ACTUAL`;
+- `NO_VALIDADO_EN_ARBOL_FINAL`;
 - `FUERA_DEL_ALCANCE_FINAL_MVP`;
 - `RIESGO_RESIDUAL_O_CONTINUIDAD_FUTURA`.
 
-Nunca transformar evidencia offline o histórica en una afirmación de validación física actual.
-
 ## 4. Invariantes de arquitectura y seguridad
 
-Se mantienen vigentes:
+Permanecen vigentes:
 
 - `ONE_FASTAPI = YES`;
 - `ONE_TOUR_ORCHESTRATOR = YES`;
@@ -74,11 +69,11 @@ Se mantienen vigentes:
 - `PLAYBACK_COMPLETED_BEFORE_NAVIGATION_RESUME = REQUIRED`;
 - merges mayoristas de ramas históricas = prohibidos.
 
-Ninguna tarea documental o de Git autoriza acceso al robot, SSH al robot, HIL, movimiento, audio real, ejecución física, `/cmd_vel`, locomoción, Nav2 real ni escritura en hardware. Cualquier acción física requiere autorización explícita y separada, hardstop disponible, operador presente, límites definidos y rollback previo.
+Ninguna operación documental o Git autoriza robot, SSH al robot, HIL, DDS real, Nav2 real, SLAM, audio físico, `/cmd_vel`, locomoción ni escritura en hardware. Cualquier trabajo físico futuro requiere un checkpoint separado, operador, hardstop, límites, rollback y autorización explícita.
 
-## 5. Archivos y evidencia protegidos
+## 5. Evidencia y archivos protegidos
 
-No modificar sin un checkpoint específico dedicado:
+No modificar sin un proyecto/checkpoint futuro dedicado:
 
 - `docs/legacy/**`;
 - `docs/legacy/interaccionia/Ottoguide_IA/src/otto_audio/cpp/otto_pipeline.cpp`;
@@ -88,83 +83,76 @@ No modificar sin un checkpoint específico dedicado:
 - `codigo ottoguide/src/interaction/jsonl_worker_supervisor.py`;
 - `codigo ottoguide/src/interaction/worker_supervisor.py`.
 
-Durante el cierre, no modificar código productivo salvo que una auditoría final identifique un defecto material que impida la entrega y exista autorización explícita para abrir ese dominio técnico.
+El árbol final no debe recibir cambios productivos para “completar” roadmaps históricos.
 
-## 6. Flujo Git vigente de cierre
+## 6. Modelo Git duradero
 
-### Lectura y auditoría
+Roles:
 
-- Las inspecciones read-only pueden hacerse directamente contra GitHub.
-- No crear ramas sólo para auditar, comparar o reconstruir contexto.
-- Resolver refs remotos de forma fresca; no depender de aliases Git locales ni de SHAs efímeros embebidos como "HEAD actual" en documentación duradera.
-- Inspeccionar ramas históricas sólo como provenance o para una comprobación de completitud; no reabrir decisiones de integración ya cerradas.
+```text
+review/orchestrator-unification
+    historia completa de desarrollo e integración autoritativa
 
-### Mutación del candidato
+main
+    snapshot final de entrega, exactamente un commit raíz sin padres
 
-- Usar la feature de cierre existente; no crear una feature adicional para remediaciones finales.
-- Antes de una escritura: verificar ref esperado, alcance exacto, ausencia de secretos y que el cambio pertenezca al único dominio técnico declarado.
-- Los cambios de código requieren validación ejecutable local proporcional al riesgo antes de publicar candidato.
-- Una remediación puramente documental de cierre puede materializarse como **un único commit atómico** sobre la feature existente cuando haya auditoría remota previa, precondición exacta del ref y autorización explícita del usuario en ese checkpoint.
-- Nunca mezclar una remediación documental con código, runtime, tests, configuración o hardware.
+feature/odom-tf-r2-p2-frame-semantics-covariance-contract
+    staging histórico/final de cierre; no autoridad posterior a la publicación
 
-### Orden de publicación
+ramas laterales/personales y audit/*
+    provenance histórica; no candidatos de merge mayorista
+```
 
-1. mirror feature;
-2. auditoría remota independiente del candidato publicado;
-3. sellado lógico del commit/tree auditado como `SEALED_FINAL_TREE`;
-4. promoción fast-forward de ese mismo commit a mirror `review/orchestrator-unification` sólo con GO y autorización explícita;
-5. verificación independiente de mirror review;
-6. promoción fast-forward del mismo commit a canonical `review/orchestrator-unification` sólo con autorización explícita nueva;
-7. verificación de igualdad exacta mirror/canonical y de conservación de `SEALED_FINAL_TREE`;
-8. publicación final de `main` desde ese árbol sellado según `docs/Arquitectura/CIERRE_FINAL_MVP.md`, con autorizaciones separadas.
+La reconciliación de ramas está cerrada. No mergear, rebasear ni cherry-pickear ramas históricas completas para “ponerse al día”.
 
-No autorizar implícitamente pasos posteriores por haber autorizado uno anterior.
+El contrato de publicación es:
 
-## 7. Reglas de push y refs
+1. resolver refs remotos frescos;
+2. auditar el árbol final exacto;
+3. promover ese mismo commit/tree por fast-forward a mirror `review`;
+4. verificar;
+5. promover el mismo commit/tree por fast-forward a canonical `review`;
+6. verificar igualdad exacta;
+7. crear un commit raíz `R` con `parents(R) = []` y `tree(R) = FINAL_RELEASE_TREE`;
+8. reemplazar `main` primero en mirror y verificar;
+9. reemplazar canonical `main` por exactamente el mismo `R` y verificar.
+
+La existencia o finalización de esos pasos es estado remoto dinámico y no se deduce de este archivo.
+
+## 7. Reglas de escritura
 
 - Mirror antes que canonical.
 - Fast-forward por defecto.
-- `force` ciego está prohibido.
+- `BLIND_FORCE = PROHIBITED`.
 - No tags salvo autorización explícita.
-- No merge ni rebase con el `main` histórico no relacionado.
-- No reemplazar `main` durante checkpoints de feature/review.
-- La única excepción potencial al fast-forward es el reemplazo final, único y lease-guarded del placeholder histórico de `main` por el release raíz sellado; requiere precondición exacta, autorización explícita separada para mirror y canonical y verificación posterior. Esta excepción **no queda autorizada por este archivo**.
+- No merge ni rebase con el placeholder histórico de `main`.
+- Toda escritura debe revalidar el ref esperado inmediatamente antes de mutar.
+- Cualquier drift inesperado produce fail-closed.
 
-## 8. Política final de `main`
+La única excepción a fast-forward es el reemplazo único del placeholder histórico de `main` por el root final, protegido por lease o compare-and-swap equivalente y conforme a `CIERRE_FINAL_MVP.md`.
 
-El modelo objetivo es `SINGLE_ROOT_FINAL_RELEASE`:
+## 8. Política de `main`
 
-- el release final `R` debe ser un commit raíz (`R.parents = []`);
-- `tree(R)` debe ser exactamente el árbol final sellado en review;
-- mirror/main y canonical/main deben terminar en el mismo SHA `R` y el mismo tree;
-- `main` no es base de integración ni conserva la genealogía de review;
-- la historia técnica y de integración permanece en `review/orchestrator-unification` y en la documentación de provenance.
+El modelo es `SINGLE_ROOT_FINAL_RELEASE`:
 
-El placeholder histórico de `main` y su precondición exacta para el reemplazo se documentan en `docs/Arquitectura/CIERRE_FINAL_MVP.md` y deben revalidarse inmediatamente antes de cualquier escritura.
+- `main` contiene exactamente un commit raíz;
+- ese commit no tiene padres;
+- su tree es exactamente el árbol final auditado;
+- mirror/main y canonical/main terminan en el mismo SHA y tree;
+- la genealogía completa permanece en `review/orchestrator-unification`.
 
-## 9. Definición operativa de GO de cierre
+No convertir `main` en rama de desarrollo.
 
-Un candidato puede avanzar sólo si:
+## 9. Continuidad
 
-- la documentación vigente expresa una única verdad de producto;
-- no existen claims de validación física actual no demostrados;
-- la estructura real del repositorio coincide con la documentada;
-- no hay secretos ni residuos bloqueantes identificados por la auditoría;
-- no se introdujo código productivo dentro de una remediación documental;
-- el ref remoto coincide exactamente con la precondición esperada;
-- el árbol final puede sellarse de forma reproducible;
-- los pasos de publicación restantes conservan mirror-before-canonical y autorizaciones separadas.
+Para una sesión futura:
 
-Preferencias de estilo, refactors no necesarios, limpieza cosmética o roadmaps históricos no son por sí mismos motivos para reabrir desarrollo.
+1. leer `AGENTS.md`, `README.md`, `TODO.md` y `docs/Arquitectura/CIERRE_FINAL_MVP.md`;
+2. resolver GitHub live si interesa saber si la publicación ya terminó;
+3. usar el handoff y `unification-state.json` sólo para provenance/estado estable;
+4. no continuar U3/U3C/R8 ni otras tareas históricas;
+5. no iniciar nuevas capacidades bajo el proyecto cerrado.
 
-## 10. Continuidad
-
-Para una sesión nueva:
-
-1. leer `AGENTS.md`;
-2. leer `README.md`;
-3. leer `TODO.md`;
-4. leer `docs/Arquitectura/CIERRE_FINAL_MVP.md`;
-5. usar `UNIFICACION_RAMAS_Y_HANDOFF.md` y `unification-state.json` sólo cuando haga falta provenance o reconstrucción histórica.
-
-El objetivo activo es cerrar y publicar el proyecto, no continuar R8/U3/U3C ni iniciar nuevas capacidades.
+```text
+ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT
+```

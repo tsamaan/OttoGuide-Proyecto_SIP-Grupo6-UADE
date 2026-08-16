@@ -1,88 +1,96 @@
 # OttoGuide
 
-**Release status:** `FINAL_CLOSURE_CANDIDATE`
+**Tree content status:** `FINAL_RELEASE_TREE`
 
-OttoGuide is a UADE university guide robot project for Unitree G1 EDU hardware. The repository contains the integrated software, offline contracts, operational tooling, and evidence needed to close the project truthfully. It is not yet a final release or a claim of current autonomous physical operation.
+OttoGuide es un proyecto académico de robot guía para UADE sobre hardware Unitree G1 EDU. Este repositorio conserva el software integrado, la aplicación web, contratos offline, tooling operativo y la evidencia necesaria para entregar y auditar el proyecto sin convertir evidencia histórica u offline en afirmaciones de operación física actual.
 
-## Product Vision
+El estado de publicación Git (`feature`, `review`, `main`, mirror y canonical) es deliberadamente **dinámico** y no se embebe en este README. Para saber qué refs apuntan actualmente a este árbol hay que consultar GitHub.
 
-The project explores a guide-robot experience for university visits: navigation and robot integration tooling, supervised local interaction, and an operator-auditable software architecture. The target hardware context is Unitree G1 EDU, but the repository does not claim that every physical subsystem is currently validated on a robot.
+## Visión y alcance académico
 
-## Academic MVP Scope
+El MVP original definió un piloto en UADE Monserrat por Lima 3 y Lima 2, con cinco paradas de diálogo predefinidas, IA local/offline durante el recorrido estructurado, interacción libre sólo al finalizarlo y un modelo híbrido en el que Ottoman complementa al guía humano.
 
-The original academic MVP defined a pilot tour at UADE Monserrat through Lima 3 and Lima 2, with five predefined dialogue stops, local/offline AI during the structured route, free-form interaction only at the end, and a hybrid model in which Ottoman complements rather than replaces the human guide.
+Quedaron explícitamente fuera del MVP:
 
-The original MVP explicitly excluded:
+- recorridos por otros pisos o campus;
+- respuestas abiertas ilimitadas durante el recorrido estructurado;
+- integración con sistemas internos de UADE;
+- soporte multiidioma.
 
-- tours across other floors or campuses;
-- unlimited open-ended AI responses during the structured route;
-- integration with UADE internal systems;
-- multilingual support.
+Estas son decisiones de alcance del producto académico; no prueban que el recorrido físico o la autonomía hayan sido validados por este árbol.
 
-These are product-scope boundaries from the academic design, not statements that the planned pilot route or its physical autonomy was validated on the current repository candidate.
+## Implementado
 
-## Software Implemented
+- Núcleo robótico, runtime, configuración, herramientas y tests bajo `codigo ottoguide/`.
+- Aplicación web integrada bajo `ottoguide_web_app/`.
+- Contratos offline ODOM/TF P2/P2A/P2C con semántica explícita de frames, covarianza, readiness, claims y provenance.
+- Arquitectura de interacción supervisada y mecanismos de seguridad/versionado documentados.
+- Documentación, auditorías, HIL histórico y provenance de unificación bajo `docs/`.
 
-- Integrated robot/core runtime, tooling, configuration, and tests under `codigo ottoguide/`.
-- Integrated web application/frontend under `ottoguide_web_app/`.
-- Offline ODOM/TF P2C contracts with explicit evidence, readiness, and provenance boundaries.
-- Supervised interaction architecture and offline test coverage represented by the current candidate tree.
-- Versioned architecture, HIL operations, audit history, and unification provenance under `docs/`.
+## Validado offline
 
-## Offline Validated
+El árbol incluye tests y evidencia offline para los contratos que efectivamente ejercita. En particular, P2C fija límites de software y provenance para ODOM/TF.
 
-The current candidate contains versioned tests and offline validation for the contracts that they exercise. In particular, P2C establishes software and provenance boundaries for frame, covariance, claims, and readiness handling. Offline validation is not evidence of physical sensor publication, navigation execution, or robot autonomy.
+`VALIDADO_OFFLINE` no equivale a publicación física de sensores, ejecución Nav2, SLAM físico ni autonomía del robot.
 
-## Physically Validated Historically
+## Validación física histórica
 
-Historical sessions observed portions of the Unitree, sensor, and integration environment. That material is retained as historical physical validation in `docs/Operaciones_HIL/` and related records. It supports provenance only; it is not a current validation statement for this candidate tree.
+Existen sesiones históricas con observaciones del entorno Unitree, sensores e integración. Se preservan bajo `docs/Operaciones_HIL/` y documentación relacionada.
 
-## Not Validated By The Current Candidate
+Esa evidencia conserva valor de provenance, pero **no recertifica** automáticamente este árbol exacto.
 
-The following are not claimed as currently validated by this repository candidate:
+## No validado físicamente por este árbol
 
-- Physical `/odom` publication or physical TF publication.
-- Nav2 autonomous navigation, current SLAM/map operation, or a complete physical tour.
-- Current robot audio execution, camera reliability, or live DDS/ROS runtime behavior.
-- A current hardware deployment matching this exact Git tree.
+No se reclama como validado actualmente:
 
-## Known Limitations
+- publicación física de `/odom`, `/tf`, `/tf_static` o `/map`;
+- navegación autónoma Nav2;
+- SLAM/map actual ni recorrido físico completo;
+- audio o cámara reales del árbol final;
+- comportamiento DDS/ROS en vivo del árbol final;
+- despliegue físico exacto de este Git tree.
 
-- P2C is an offline/software contract and does not elevate physical readiness.
-- Historical physical observations must be revalidated in a separately authorized HIL checkpoint before they become current capability claims.
-- Robot, ROS, DDS, Nav2, SLAM, audio, and movement actions remain separately safety-gated.
-- Deliberately excluded academic-MVP items remain outside the final project scope unless a future project explicitly reopens them.
-- The final `main` release has not been created or published yet.
+Cualquier claim físico futuro requiere una sesión HIL nueva y explícitamente autorizada.
 
-## Repository Structure
+## Estructura
 
 ```text
 .
-|- AGENTS.md                 # repository governance and safety rules
-|- README.md                 # this public truth contract
-|- TODO.md                   # deferred scope and validation limitations
-|- codigo ottoguide/         # robot/core runtime, tooling, configuration, tests
-|- ottoguide_web_app/        # integrated web application/frontend software root
-`- docs/                     # sole documentation root
-   |- Arquitectura/
-   |- Operaciones_HIL/
-   |- audits/
-   `- planning/
+|- AGENTS.md
+|- README.md
+|- TODO.md
+|- .github/
+|- codigo ottoguide/
+|- ottoguide_web_app/
+`- docs/
 ```
 
-`docs/` is the sole documentation root. `codigo ottoguide/` and `ottoguide_web_app/` are the established software roots; no additional software root may be introduced without explicit architectural review.
+`docs/` es la única raíz documental propia. `codigo ottoguide/` y `ottoguide_web_app/` son las dos raíces de software establecidas.
 
-## Release Status
+## Modelo Git de entrega
 
-The active candidate follows a finite, auditable release sequence:
+La historia completa de desarrollo e integración se conserva en:
 
 ```text
-candidate feature
--> independent GitHub audit
--> SEALED_FINAL_TREE
--> mirror review (same commit/tree)
--> canonical review (same commit/tree)
--> one root commit on main in mirror and canonical
+review/orchestrator-unification
 ```
 
-`review/orchestrator-unification` retains development and integration history. The future `main` release is a separate final deliverable snapshot with exactly one root commit. The current release authority and publication contract are defined in [CIERRE_FINAL_MVP.md](docs/Arquitectura/CIERRE_FINAL_MVP.md). [UNIFICACION_RAMAS_Y_HANDOFF.md](docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md) and [unification-state.json](docs/Arquitectura/unification-state.json) are the current provenance gateways. The byte-preserved U-series predecessors live under `docs/Historico/Final_Closure_Predecessors/`; their historical roadmaps and `NEXT_ACTION` values are not active release instructions.
+La entrega final usa:
+
+```text
+main = SINGLE_ROOT_FINAL_RELEASE
+```
+
+El commit final de `main` debe ser un root sin padres cuyo tree sea exactamente el mismo árbol final auditado que conserva `review`. Mirror y canonical deben terminar con el mismo SHA/tree.
+
+La secuencia y los gates están definidos en [`docs/Arquitectura/CIERRE_FINAL_MVP.md`](docs/Arquitectura/CIERRE_FINAL_MVP.md). El estado remoto concreto se verifica en GitHub y no forma parte de la verdad estática de este archivo.
+
+## Estado de desarrollo
+
+```text
+BRANCH_RECONCILIATION = CLOSED
+PRODUCTIVE_DEVELOPMENT = CLOSED
+ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT
+```
+
+Las ramas históricas permanecen como provenance. Su existencia no constituye trabajo pendiente ni autorización para reabrir desarrollo.

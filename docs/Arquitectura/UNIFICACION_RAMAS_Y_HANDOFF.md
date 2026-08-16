@@ -1,100 +1,126 @@
-# OttoGuide — Handoff vigente de cierre final
+# OttoGuide — Handoff final y provenance de ramas
 
-## 1. Estado operativo
+## 1. Estado estable
 
 ```text
 PROGRAM_OBJECTIVE = OTTOGUIDE_FINAL_PROJECT_CLOSURE
-PROJECT_PHASE = FINAL_PROJECT_CLOSURE
+TREE_CONTENT_STATUS = FINAL_RELEASE_TREE
 BRANCH_RECONCILIATION = CLOSED
-PRODUCTIVE_DEVELOPMENT = FROZEN
-ACTIVE_RELEASE_INSTRUCTION = REMOTE_AUDIT_FINAL_CLOSURE_CANDIDATE_BEFORE_SEALING
+PRODUCTIVE_DEVELOPMENT = CLOSED
+ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT
+REMOTE_PUBLICATION_STATE = DYNAMIC_REMOTE_STATE_NOT_EMBEDDED
 ```
 
-Este documento ya no es un roadmap de unificación U*. Es el gateway de provenance para retomar el cierre final desde un clon nuevo sin depender de chats, workstations históricas o adjuntos externos.
+Este documento no es un roadmap U*. Es el gateway final de provenance para comprender cómo quedó consolidado OttoGuide sin depender de chats, workstations o ramas personales.
 
-## 2. Autoridad vigente
+## 2. Orden de lectura
 
-Orden de lectura para una sesión nueva:
+1. `AGENTS.md`
+2. `README.md`
+3. `TODO.md`
+4. `docs/Arquitectura/CIERRE_FINAL_MVP.md`
+5. `docs/Arquitectura/unification-state.json`
+6. este handoff
+7. snapshots/ledgers históricos sólo cuando se necesite reconstruir decisiones
 
-1. `AGENTS.md` — reglas operativas, seguridad y Git.
-2. `README.md` — verdad pública de producto y evidencia.
-3. `TODO.md` — alcance diferido y validaciones futuras.
-4. `docs/Arquitectura/CIERRE_FINAL_MVP.md` — contrato de sellado/publicación.
-5. `docs/Arquitectura/unification-state.json` — estado machine-readable del cierre.
-6. Este handoff — provenance y reanudación.
-7. Snapshots U-series y ledgers históricos sólo cuando sea necesario reconstruir decisiones.
+## 3. Provenance U-series
 
-## 3. Provenance U-series preservado
+Los estados U-series anteriores se preservan byte-a-byte en:
 
-El handoff U-series anterior no se borró ni se reescribió para aparentar actualidad. Su blob exacto se conserva en:
+```text
+docs/Historico/Final_Closure_Predecessors/UNIFICACION_RAMAS_Y_HANDOFF_U_SERIES_SUPERSEDED.md
+docs/Historico/Final_Closure_Predecessors/unification-state-u-series-superseded.json
+```
 
-`docs/Historico/Final_Closure_Predecessors/UNIFICACION_RAMAS_Y_HANDOFF_U_SERIES_SUPERSEDED.md`
+Los `NEXT_ACTION`, U3/U3C, R8 y microcheckpoints contenidos allí son históricos.
 
-El estado machine-readable U-series anterior se conserva en:
-
-`docs/Historico/Final_Closure_Predecessors/unification-state-u-series-superseded.json`
-
-Los `NEXT_ACTION` U3/U3C, deudas, baselines y roadmaps que aparecen allí son evidencia histórica. No son instrucciones activas durante `FINAL_PROJECT_CLOSURE`.
-
-## 4. Modelo de repositorios y ramas
+## 4. Repositorios y roles
 
 ```text
 CANONICAL_AUTHORITY = tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE
 MIRROR_STAGING = LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU
-CANDIDATE_BRANCH = feature/odom-tf-r2-p2-frame-semantics-covariance-contract
+
 INTEGRATION_HISTORY = review/orchestrator-unification
-FINAL_DELIVERY_BRANCH = main
+FINAL_DELIVERY = main
 FINAL_MAIN_MODEL = SINGLE_ROOT_FINAL_RELEASE
+
+STAGING_REFERENCE =
+feature/odom-tf-r2-p2-frame-semantics-covariance-contract
+
+HISTORICAL_AUDIT_REFERENCE =
+audit/odom-tf-r2-p2a-76ecfd78-prepublish-r1
+
 WHOLESALE_BRANCH_MERGES = PROHIBITED
 ```
 
-Los SHAs vivos se resuelven desde GitHub inmediatamente antes de cada decisión. No se embebe un HEAD efímero como autoridad duradera.
+Los SHAs vivos siempre se resuelven desde GitHub. No se usa un SHA embebido como “HEAD actual”.
 
-## 5. Secuencia restante de cierre
+## 5. Resultado de reconciliación
+
+La evolución histórica convergió en `review/orchestrator-unification`, que conserva la historia técnica autoritativa. Las ramas `robot`, `pilar-web`, `feature/erirobot`, `InteraccionIA`, `desarrollo`, `echezuria` y `teo` son provenance/fuentes históricas ya tratadas durante la unificación.
+
+No deben volver a mergearse de forma mayorista para cerrar el proyecto.
 
 ```text
-mirror feature candidate
--> independent remote audit
--> SEALED_FINAL_TREE
--> mirror review fast-forward [fresh explicit authorization]
--> verify
--> canonical review fast-forward [separate fresh explicit authorization]
--> verify identical tree
--> create root release R with tree(R) = SEALED_FINAL_TREE and parents(R) = []
--> mirror main [fresh explicit authorization + lease/CAS]
--> verify
--> canonical main = same R [separate fresh explicit authorization]
--> final verification
+BRANCH_RECONCILIATION_REOPEN_REQUIRED = false
+WHOLESALE_MERGES_REQUIRED = false
+REBASE_REQUIRED = false
+PRODUCTIVE_DEVELOPMENT_REOPEN_REQUIRED = false
 ```
 
-Autorizar un paso no autoriza los siguientes. Mirror siempre precede a canonical. `main` no se mergea ni rebasea con `review`.
+## 6. Modelo de publicación
 
-## 6. Verdad de evidencia
+La política durable es:
 
-El candidato puede contener implementación y validaciones offline sin que eso pruebe operación física actual. En particular, no se debe inferir del repositorio:
+```text
+final tree audit
+-> mirror review fast-forward
+-> verify
+-> canonical review same commit/tree
+-> verify
+-> root R with parents=[] and exact final tree
+-> mirror main
+-> verify
+-> canonical main = same R
+-> final verify
+```
 
-- publicación física actual de `/odom`, `/tf`, `/tf_static` o `/map`;
-- autonomía Nav2 o SLAM/map físicamente validada;
-- tour físico completo validado;
-- audio, cámara o runtime DDS/ROS actuales validados sobre este árbol exacto;
-- autorización para robot, SSH, HIL, movimiento o hardware.
+Esto describe el procedimiento; **no declara en qué paso está actualmente GitHub**. Consultar refs remotos para conocer el estado real.
 
-La evidencia física histórica conserva provenance, no recertifica el candidato actual.
+## 7. Evidencia
 
-## 7. Alcance académico
+El árbol puede contener implementación, tests y validación offline sin demostrar operación física actual.
 
-El diseño académico original contempló un piloto UADE Monserrat por Lima 3/Lima 2 con cinco paradas de diálogo. También excluyó otros pisos/campus, IA abierta ilimitada durante el recorrido estructurado, integración con sistemas internos UADE y soporte multilingüe.
+No inferir:
 
-Ese alcance describe el producto académico previsto; no constituye por sí mismo evidencia de validación física del recorrido.
+- ODOM/TF físicos;
+- `/map` físico actual;
+- autonomía Nav2;
+- SLAM/map validado físicamente;
+- tour completo;
+- audio/cámara/DDS/ROS live;
+- autorización de robot/HIL.
 
-## 8. Reanudación fail-closed
+La evidencia física histórica conserva provenance, no recertificación.
 
-Antes de cualquier escritura:
+## 8. Alcance académico preservado
 
-- resolver de nuevo candidate, mirror review, canonical review y ambos `main`;
-- verificar el alcance autorizado;
-- comprobar que el cambio pertenece a un único dominio técnico;
-- no mezclar documentación con código/configuración/hardware;
-- detenerse ante drift inesperado de ref o tree.
+El diseño original contempló el piloto Lima 3/Lima 2 con cinco paradas y dejó fuera otros pisos/campus, IA abierta ilimitada durante la ruta, sistemas internos UADE y soporte multiidioma.
 
-El siguiente paso vigente tras la publicación de esta reconciliación es una auditoría remota independiente del candidato del mirror. No ejecutar U3C ni reabrir desarrollo productivo desde este handoff.
+El alcance previsto no es evidencia física.
+
+## 9. Reanudación futura
+
+Si una sesión futura necesita conocer el estado de publicación:
+
+1. resolver live mirror/canonical `review` y `main`;
+2. comparar trees/SHAs con el árbol final auditado externamente;
+3. aplicar el protocolo de `CIERRE_FINAL_MVP.md` sólo si la publicación está incompleta y existe autorización;
+4. no reabrir U3/U3C/R8;
+5. no usar ramas históricas como backlog.
+
+Para el producto:
+
+```text
+ACTIVE_PRODUCTIVE_NEXT_ACTION = NO_FURTHER_PRODUCTIVE_DEVELOPMENT
+```
