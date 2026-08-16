@@ -109,14 +109,14 @@ Durante el cierre, no modificar código productivo salvo que una auditoría fina
 
 ### Orden de publicación
 
-1. mirror;
+1. mirror feature;
 2. auditoría remota independiente del candidato publicado;
-3. promoción fast-forward a mirror `review/orchestrator-unification` sólo con GO y autorización explícita;
-4. verificación independiente de mirror review;
-5. promoción fast-forward a canonical `review/orchestrator-unification` sólo con autorización explícita nueva;
-6. verificación de igualdad exacta mirror/canonical;
-7. sellado del árbol final;
-8. publicación final de `main` según `docs/Arquitectura/CIERRE_FINAL_MVP.md` y con autorizaciones separadas.
+3. sellado lógico del commit/tree auditado como `SEALED_FINAL_TREE`;
+4. promoción fast-forward de ese mismo commit a mirror `review/orchestrator-unification` sólo con GO y autorización explícita;
+5. verificación independiente de mirror review;
+6. promoción fast-forward del mismo commit a canonical `review/orchestrator-unification` sólo con autorización explícita nueva;
+7. verificación de igualdad exacta mirror/canonical y de conservación de `SEALED_FINAL_TREE`;
+8. publicación final de `main` desde ese árbol sellado según `docs/Arquitectura/CIERRE_FINAL_MVP.md`, con autorizaciones separadas.
 
 No autorizar implícitamente pasos posteriores por haber autorizado uno anterior.
 

@@ -99,19 +99,19 @@ candidato en mirror feature
 auditoría remota independiente
         |
         v
-mirror/review fast-forward
+SEALED_FINAL_TREE = tree del candidato auditado
+        |
+        v
+mirror/review fast-forward al mismo commit
         |
         v
 verificación independiente
         |
         v
-canonical/review fast-forward exacto
+canonical/review fast-forward al mismo commit
         |
         v
-verificación de igualdad mirror/canonical
-        |
-        v
-SEALED_FINAL_TREE
+verificación de igualdad mirror/canonical y del tree sellado
         |
         v
 crear release raíz R con tree(R) = SEALED_FINAL_TREE
@@ -193,7 +193,7 @@ También permanecen prohibidos, salvo autorización específica independiente:
 
 ## 10. Criterios para sellar el candidato final
 
-Antes de declarar `SEALED_FINAL_TREE` debe existir evidencia suficiente de que:
+Antes de declarar `SEALED_FINAL_TREE` sobre el candidato publicado debe existir evidencia suficiente de que:
 
 1. `README.md`, `TODO.md`, `AGENTS.md` y este contrato son coherentes entre sí;
 2. no quedan instrucciones activas contradictorias en la capa documental vigente;
@@ -202,7 +202,7 @@ Antes de declarar `SEALED_FINAL_TREE` debe existir evidencia suficiente de que:
 5. no se reclama validación física actual sin evidencia correspondiente;
 6. la estructura documentada coincide con las raíces reales del repositorio;
 7. las remediaciones de cierre no introdujeron comportamiento productivo nuevo;
-8. el candidato remoto auditado es exactamente el que se promoverá;
+8. el candidato remoto auditado es exactamente el commit/tree que se sellará y promoverá sin cambios;
 9. la publicación final puede reproducir exactamente un único árbol sellado.
 
 La limpieza cosmética, los refactors opcionales y las mejoras que pertenezcan a continuidad futura no bloquean el sellado.

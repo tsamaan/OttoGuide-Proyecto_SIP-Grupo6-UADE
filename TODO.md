@@ -16,7 +16,7 @@ This is not an active development backlog. It records scope intentionally deferr
 
 - [CLOSED_FOR_RELEASE] P2C offline claims, readiness, and provenance boundaries are represented by the audited payload and its versioned evidence.
 - [CLOSED_FOR_RELEASE] Historical branch reconciliation is closed on `review/orchestrator-unification`; wholesale historical branch merges are not release work.
-- [CLOSED_FOR_RELEASE] Repository closure governance and the single-root `main` release policy are versioned in the architecture handoff and unification state.
+- [CLOSED_FOR_RELEASE] Repository closure governance and the single-root `main` release policy are governed by `AGENTS.md` and `docs/Arquitectura/CIERRE_FINAL_MVP.md`. The architecture handoff and unification state remain provenance records.
 
 ## Requires Future Physical Validation
 
@@ -41,6 +41,7 @@ This is not an active development backlog. It records scope intentionally deferr
 ## Historical Or Superseded
 
 - [HISTORICAL_SUPERSEDED] `RC1_LOCKED` and Post-RC1 backlog wording. They describe an earlier lifecycle, not the current final-closure candidate.
+- [HISTORICAL_SUPERSEDED] R8/U3/U3C and older `NEXT_ACTION` values retained in handoff/state ledgers. They are provenance, not active release instructions.
 - [HISTORICAL_SUPERSEDED] Earlier deployment instructions and branch snapshots that were not durable current-state contracts. Historical evidence remains available under `docs/`.
 
 ## Safety Boundary

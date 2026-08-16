@@ -60,15 +60,15 @@ The following are not claimed as currently validated by this repository candidat
 
 ## Release Status
 
-The active candidate is being prepared for a final, auditable release sequence:
+The active candidate follows a finite, auditable release sequence:
 
 ```text
 candidate feature
 -> independent GitHub audit
--> sealed final tree
--> mirror review
--> canonical review
+-> SEALED_FINAL_TREE
+-> mirror review (same commit/tree)
+-> canonical review (same commit/tree)
 -> one root commit on main in mirror and canonical
 ```
 
-`review/orchestrator-unification` retains development and integration history. The future `main` release is a separate final deliverable snapshot with exactly one root commit. The detailed durable policy, including the one-time lease-guarded replacement of the historical empty `main` placeholder, is versioned in [unification-state.json](docs/Arquitectura/unification-state.json) and the [unification handoff](docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md).
+`review/orchestrator-unification` retains development and integration history. The future `main` release is a separate final deliverable snapshot with exactly one root commit. The current release authority and publication contract are defined in [CIERRE_FINAL_MVP.md](docs/Arquitectura/CIERRE_FINAL_MVP.md). [UNIFICACION_RAMAS_Y_HANDOFF.md](docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md) and [unification-state.json](docs/Arquitectura/unification-state.json) remain durable provenance and historical decision records; older `NEXT_ACTION` or microcheckpoint fields inside them are not active release instructions.
