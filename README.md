@@ -8,13 +8,26 @@ OttoGuide is a UADE university guide robot project for Unitree G1 EDU hardware. 
 
 The project explores a guide-robot experience for university visits: navigation and robot integration tooling, supervised local interaction, and an operator-auditable software architecture. The target hardware context is Unitree G1 EDU, but the repository does not claim that every physical subsystem is currently validated on a robot.
 
+## Academic MVP Scope
+
+The original academic MVP defined a pilot tour at UADE Monserrat through Lima 3 and Lima 2, with five predefined dialogue stops, local/offline AI during the structured route, free-form interaction only at the end, and a hybrid model in which Ottoman complements rather than replaces the human guide.
+
+The original MVP explicitly excluded:
+
+- tours across other floors or campuses;
+- unlimited open-ended AI responses during the structured route;
+- integration with UADE internal systems;
+- multilingual support.
+
+These are product-scope boundaries from the academic design, not statements that the planned pilot route or its physical autonomy was validated on the current repository candidate.
+
 ## Software Implemented
 
 - Integrated robot/core runtime, tooling, configuration, and tests under `codigo ottoguide/`.
 - Integrated web application/frontend under `ottoguide_web_app/`.
 - Offline ODOM/TF P2C contracts with explicit evidence, readiness, and provenance boundaries.
 - Supervised interaction architecture and offline test coverage represented by the current candidate tree.
-- Versioned architecture, HIL operations, audit history, and unification handoff under `docs/`.
+- Versioned architecture, HIL operations, audit history, and unification provenance under `docs/`.
 
 ## Offline Validated
 
@@ -24,7 +37,7 @@ The current candidate contains versioned tests and offline validation for the co
 
 Historical sessions observed portions of the Unitree, sensor, and integration environment. That material is retained as historical physical validation in `docs/Operaciones_HIL/` and related records. It supports provenance only; it is not a current validation statement for this candidate tree.
 
-## Not Validated
+## Not Validated By The Current Candidate
 
 The following are not claimed as currently validated by this repository candidate:
 
@@ -38,7 +51,8 @@ The following are not claimed as currently validated by this repository candidat
 - P2C is an offline/software contract and does not elevate physical readiness.
 - Historical physical observations must be revalidated in a separately authorized HIL checkpoint before they become current capability claims.
 - Robot, ROS, DDS, Nav2, SLAM, audio, and movement actions remain separately safety-gated.
-- The final main release has not been created or published yet.
+- Deliberately excluded academic-MVP items remain outside the final project scope unless a future project explicitly reopens them.
+- The final `main` release has not been created or published yet.
 
 ## Repository Structure
 
@@ -71,4 +85,4 @@ candidate feature
 -> one root commit on main in mirror and canonical
 ```
 
-`review/orchestrator-unification` retains development and integration history. The future `main` release is a separate final deliverable snapshot with exactly one root commit. The current release authority and publication contract are defined in [CIERRE_FINAL_MVP.md](docs/Arquitectura/CIERRE_FINAL_MVP.md). [UNIFICACION_RAMAS_Y_HANDOFF.md](docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md) and [unification-state.json](docs/Arquitectura/unification-state.json) remain durable provenance and historical decision records; older `NEXT_ACTION` or microcheckpoint fields inside them are not active release instructions.
+`review/orchestrator-unification` retains development and integration history. The future `main` release is a separate final deliverable snapshot with exactly one root commit. The current release authority and publication contract are defined in [CIERRE_FINAL_MVP.md](docs/Arquitectura/CIERRE_FINAL_MVP.md). [UNIFICACION_RAMAS_Y_HANDOFF.md](docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md) and [unification-state.json](docs/Arquitectura/unification-state.json) are the current provenance gateways. The byte-preserved U-series predecessors live under `docs/Historico/Final_Closure_Predecessors/`; their historical roadmaps and `NEXT_ACTION` values are not active release instructions.

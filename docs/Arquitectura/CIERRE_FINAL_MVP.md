@@ -22,9 +22,9 @@ Para el cierre actual:
 - este documento gobierna el contrato de cierre y publicación;
 - `README.md` comunica la verdad pública del producto;
 - `TODO.md` distingue bloqueantes reales de continuidad futura;
-- `docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md`, `docs/Arquitectura/unification-state.json` y los documentos R/U/P2C conservan provenance, decisiones y evidencia histórica.
+- `docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md` y `docs/Arquitectura/unification-state.json` son gateways vigentes de provenance; los snapshots U-series byte-preservados bajo `docs/Historico/Final_Closure_Predecessors/` y los documentos R/U/P2C conservan las decisiones y evidencia histórica completas.
 
-Los valores históricos `NEXT_ACTION`, R8, U3, U3C y otros microcheckpoints que sigan apareciendo en esos ledgers **no constituyen una instrucción activa** durante `FINAL_PROJECT_CLOSURE`. No se eliminan porque son parte de la trazabilidad del proyecto. La sección `final_release_governance` del estado de unificación y este contrato definen la semántica vigente.
+Los valores históricos `NEXT_ACTION`, R8, U3, U3C y otros microcheckpoints de los snapshots U-series **no constituyen una instrucción activa** durante `FINAL_PROJECT_CLOSURE`. No se eliminan: se preservan byte-a-byte bajo `docs/Historico/Final_Closure_Predecessors/`. El `unification-state.json` compacto y este contrato definen la semántica vigente.
 
 Esto evita dos errores opuestos:
 
@@ -53,6 +53,19 @@ En particular:
 - una capacidad investigada o parcialmente implementada no se reclama como funcionalidad final si no tiene evidencia suficiente;
 - una tarea futura registrada en `TODO.md` no es un release blocker salvo que esté explícitamente clasificada como tal.
 
+### Alcance académico original que debe preservarse
+
+La primera entrega académica definió un piloto en UADE Monserrat por Lima 3 y Lima 2, con cinco paradas de diálogo predefinidas, LLM local sin dependencia de nube durante el recorrido estructurado e interacción libre habilitada únicamente al finalizar ese recorrido.
+
+El documento académico dejó expresamente fuera del MVP:
+
+- recorridos por otros pisos o campus;
+- inteligencia artificial con respuestas abiertas ilimitadas durante el recorrido;
+- integración con sistemas internos de UADE;
+- soporte multiidioma.
+
+Estas decisiones son límites deliberados de producto. No deben convertirse en deuda técnica activa ni en blockers de release. Del mismo modo, que el recorrido Lima 3/Lima 2 formara parte del diseño académico original **no demuestra** que ese recorrido autónomo o semi-autónomo haya sido validado físicamente por el candidato actual.
+
 ## 4. Decisión deliberada de alcance
 
 Las capacidades que requerirían nuevas sesiones físicas, una ampliación material del calendario académico, riesgo operativo adicional o una nueva fase de desarrollo desproporcionada respecto del objetivo de la entrega pueden quedar deliberadamente fuera del alcance final.
@@ -66,9 +79,9 @@ La prioridad del cierre es entregar un incremento coherente, trazable, reproduci
 Las raíces vigentes son:
 
 ```text
-docs/                 documentación única y evidencia versionada
+docs/                  documentación única y evidencia versionada
 codigo ottoguide/      núcleo robótico, runtime, integración, herramientas y tests
-ottoguide_web_app/      aplicación web integrada
+ottoguide_web_app/     aplicación web integrada
 ```
 
 No se realizará una reorganización estructural tardía sólo para satisfacer una clasificación histórica de raíces. Los movimientos sólo se justifican si una auditoría demuestra un bloqueante material para la entrega.

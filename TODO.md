@@ -16,7 +16,7 @@ This is not an active development backlog. It records scope intentionally deferr
 
 - [CLOSED_FOR_RELEASE] P2C offline claims, readiness, and provenance boundaries are represented by the audited payload and its versioned evidence.
 - [CLOSED_FOR_RELEASE] Historical branch reconciliation is closed on `review/orchestrator-unification`; wholesale historical branch merges are not release work.
-- [CLOSED_FOR_RELEASE] Repository closure governance and the single-root `main` release policy are governed by `AGENTS.md` and `docs/Arquitectura/CIERRE_FINAL_MVP.md`. The architecture handoff and unification state remain provenance records.
+- [CLOSED_FOR_RELEASE] Repository closure governance and the single-root `main` release policy are governed by `AGENTS.md` and `docs/Arquitectura/CIERRE_FINAL_MVP.md`. The current architecture handoff and unification state are provenance gateways; their byte-preserved U-series predecessors remain under `docs/Historico/Final_Closure_Predecessors/`.
 
 ## Requires Future Physical Validation
 
@@ -27,6 +27,15 @@ This is not an active development backlog. It records scope intentionally deferr
 
 ## Deferred Outside Final Scope
 
+The original academic MVP explicitly excluded the following product scope. These items are not release blockers and are not implied commitments of this final repository:
+
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] Tours across other floors or campuses beyond the original Lima 3/Lima 2 pilot scope.
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] Unlimited open-ended AI responses during the structured route; the academic design limited free-form interaction to the end of the tour.
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] Integration with UADE internal systems.
+- [DEFERRED_OUTSIDE_FINAL_SCOPE] Multilingual support.
+
+Additional closure deferrals:
+
 - [DEFERRED_OUTSIDE_FINAL_SCOPE] New product features, runtime redesign, CI expansion, and repository-wide restructuring.
 - [DEFERRED_OUTSIDE_FINAL_SCOPE] Additional web application work outside the integrated frontend already present in `ottoguide_web_app/`.
 - [DEFERRED_OUTSIDE_FINAL_SCOPE] Migration or reconciliation of historical/lateral branches not selected into the authoritative integration history.
@@ -34,14 +43,14 @@ This is not an active development backlog. It records scope intentionally deferr
 ## Not Claimed
 
 - [NOT_CLAIMED] Current physical ODOM or TF publication readiness.
-- [NOT_CLAIMED] Current physical Nav2 autonomy, SLAM/map operation, or complete robot tours.
+- [NOT_CLAIMED] Current physical Nav2 autonomy, SLAM/map operation, or complete robot tours, including the originally planned Lima 3/Lima 2 pilot.
 - [NOT_CLAIMED] Current robot audio, camera, or network-runtime validation for this exact candidate tree.
 - [NOT_CLAIMED] A final `main` root release commit. That release is created only after a sealed final tree and separately authorized mirror and canonical writes.
 
 ## Historical Or Superseded
 
 - [HISTORICAL_SUPERSEDED] `RC1_LOCKED` and Post-RC1 backlog wording. They describe an earlier lifecycle, not the current final-closure candidate.
-- [HISTORICAL_SUPERSEDED] R8/U3/U3C and older `NEXT_ACTION` values retained in handoff/state ledgers. They are provenance, not active release instructions.
+- [HISTORICAL_SUPERSEDED] R8/U3/U3C and older `NEXT_ACTION` values are preserved in the archived U-series handoff/state snapshots under `docs/Historico/Final_Closure_Predecessors/`. They are provenance, not active release instructions.
 - [HISTORICAL_SUPERSEDED] Earlier deployment instructions and branch snapshots that were not durable current-state contracts. Historical evidence remains available under `docs/`.
 
 ## Safety Boundary

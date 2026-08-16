@@ -1,101 +1,73 @@
-# docs/ — Raíz Documental Canónica de OttoGuide
+# docs/ - Raíz documental canónica de OttoGuide
 
-## Gobierno documental
+## Estado documental
 
-`docs/` es la **única raíz documental canónica** de este repositorio.
+```text
+DOCUMENTATION_ROOT = docs/
+PROJECT_PHASE = FINAL_PROJECT_CLOSURE
+BRANCH_RECONCILIATION = CLOSED
+PRODUCTIVE_DEVELOPMENT = FROZEN
+```
 
-- `docs/planning/` contiene planificación activa e histórica (`V1/`, `V2/`, `V3/`).
-- `docs/audits/` contiene evidencias y auditorías técnicas.
-- **No crear nuevamente** `documentacion general del proyecto/` en ninguna ruta.
-- **No crear nuevamente** `planificacion/` en ninguna ruta.
-- **No crear raíces documentales por dominio** fuera de `docs/` (por ejemplo `docs/domains/` está diferido).
-- La reclasificación semántica profunda de documentos está diferida; la clasificación actual se conserva tal cual.
+`docs/` es la única raíz documental canónica del repositorio. El objetivo de este índice es distinguir con claridad la autoridad vigente de cierre, la documentación técnica de referencia y la evidencia histórica.
 
-## Índice de categorías presentes
+No recrear `documentacion general del proyecto/`, `planificacion/` fuera de `docs/planning/`, ni nuevas raíces documentales por dominio.
 
-| Carpeta | Contenido |
+## Precedencia vigente de cierre
+
+1. `../AGENTS.md` - reglas operativas, seguridad y política Git.
+2. `Arquitectura/CIERRE_FINAL_MVP.md` - contrato vigente de cierre y publicación.
+3. `../README.md` - verdad pública del producto y de la evidencia.
+4. `../TODO.md` - alcance diferido, limitaciones y validaciones futuras.
+5. `Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md` y `Arquitectura/unification-state.json` - gateways vigentes hacia provenance; los snapshots U-series byte-preservados viven en `Historico/Final_Closure_Predecessors/`.
+
+Los `NEXT_ACTION`, R8, U3, U3C y roadmaps anteriores que aparezcan en documentos de provenance no son instrucciones activas durante `FINAL_PROJECT_CLOSURE`.
+
+## Categorías presentes
+
+| Carpeta | Rol en el cierre final |
 |---|---|
-| `Arquitectura/` | Contratos técnicos, memoria arquitectónica, frontera ROS 2/DDS/SDK2 y análisis de integración. |
-| `Operaciones_HIL/` | Runbooks, protocolo físico, preflight de sensores, mapeo, replay offline y procedimientos de despliegue. |
-| `Hardware_Reference/` | Manuales y referencias técnicas del Unitree G1 EDU. |
-| `AppPhone/` | Análisis pasivo de `Unitree Go` y documentación del plano factory `192.168.12.x`. |
-| `Auditorias/` | Informes de auditoría SRE y evidencias de revisión documental/arquitectónica. |
-| `Historico/` | Material archivado, duplicados preservados, snapshots y documentación no vigente. |
-| `Investigacion/` | Investigaciones y prototipos exploratorios. |
-| `planning/` | Planificación del proyecto (V1, V2, V3). |
-| `audits/` | Evidencias y contratos de auditoría técnica Stage B. |
+| `Arquitectura/` | Contratos vigentes de cierre, decisiones arquitectónicas y provenance técnico. |
+| `Operaciones_HIL/` | Runbooks y evidencia HIL/offline. Son referencia histórica o condicional; no autorizan una nueva sesión física. |
+| `Hardware_Reference/` | Manuales y referencias del Unitree G1 EDU. |
+| `AppPhone/` | Análisis pasivo de aplicaciones Unitree y plano factory. |
+| `Auditorias/` | Informes y evidencia de auditorías históricas. |
+| `audits/` | Evidencia/contratos técnicos Stage B conservados. |
+| `Historico/` | Material archivado, snapshots, duplicados preservados y documentación no vigente. |
+| `Investigacion/` | Investigación y prototipos exploratorios; no son claims de release por sí mismos. |
+| `planning/` | Planificación V1/V2/V3 y matrices offline; material de planificación, no backlog activo de cierre. |
+| `legacy/` | Código/documentación legada preservada con las restricciones de `AGENTS.md`. |
 
----
+## Documentos actuales de cierre
 
-Este directorio contiene la documentación técnica real del proyecto OttoGuide en estado `RC1_LOCKED`: arquitectura, operación HIL, referencias de hardware, auditorías, análisis de aplicaciones Unitree y material histórico.
-
-El README maestro público del proyecto vive en `../README.md` desde la raíz del repositorio.
-
-## Indice de carpetas
-
-| Carpeta | Proposito |
+| Documento | Función actual |
 |---|---|
-| `Arquitectura/` | Contratos tecnicos, memoria arquitectonica, frontera `ROS 2`/`DDS`/`SDK2` y analisis de integracion. |
-| `Operaciones_HIL/` | Runbooks, protocolo fisico, preflight de sensores, mapeo, replay offline y procedimientos de despliegue/arranque. |
-| `Hardware_Reference/` | Manuales y referencias tecnicas del Unitree G1 EDU. |
-| `AppPhone/` | Analisis pasivo de `Unitree Go` y documentacion asociada al plano factory `192.168.12.x`. |
-| `Auditorias/` | Informes de auditoria SRE y evidencias de revision documental/arquitectonica. |
-| `Historico/` | Material archivado, duplicados preservados, snapshots y documentacion no vigente. |
+| `Arquitectura/CIERRE_FINAL_MVP.md` | Autoridad de cierre, sellado del árbol y publicación mirror/canonical/main. |
+| `../README.md` | Contrato público de capacidades, límites y estado de release. |
+| `../TODO.md` | Alcance fuera del cierre y validaciones futuras no reclamadas. |
+| `../AGENTS.md` | Reglas operativas y gates de escritura/seguridad. |
+| `Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md` | Gateway vigente de provenance y reglas de reanudación del cierre; no contiene un roadmap U* activo. |
+| `Arquitectura/unification-state.json` | Estado machine-readable compacto del cierre final; resuelve refs dinámicamente y enlaza el snapshot histórico. |
+| `Historico/Final_Closure_Predecessors/` | Snapshots byte-preservados del handoff y estado U-series superseded como autoridad operativa. |
+| `Arquitectura/ODOM_TF_R2_P2_FRAME_SEMANTICS_AND_COVARIANCE_CONTRACT.md` | Contrato P2 de frame/covarianza offline. |
+| `Arquitectura/ODOM_TF_R2_P2A_CONTRACT_AUDIT_AND_HARDENING.md` | Auditoría/hardening P2A. |
 
-## Subcarpetas operativas HIL
+## Documentación HIL y física
 
-| Carpeta | Uso |
-|---|---|
-| `Operaciones_HIL/Mapeo/` | Runbooks y reportes vigentes de captura/exportacion de mapas. |
-| `Operaciones_HIL/Offline_Replay_SLAM/` | Replay local, sandbox Nav2 offline y planes de navegacion sin robot. |
-| `Operaciones_HIL/Replay_RViz/` | Troubleshooting y visualizacion RViz para evidencia offline. |
+Los documentos bajo `Operaciones_HIL/` preservan procedimientos y evidencia acumulada. Durante el cierre final:
 
-## Documentos vigentes principales
+- una evidencia física histórica no recertifica el candidato actual;
+- un runbook no constituye autorización para robot, SSH, DDS, Nav2, SLAM, audio o movimiento;
+- cualquier nueva acción física requiere un checkpoint y autorización separados según `AGENTS.md`;
+- el cierre del repositorio no requiere una nueva sesión física.
 
-| Documento | Uso |
-|---|---|
-| `Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md` | Handoff canónico y portable para continuar la unificación de ramas desde `review/orchestrator-unification`. |
-| `Arquitectura/ARQUITECTURA_OPERATIVA_RC1.md` | Contrato operativo RC1 y flujo E2E. |
-| `Arquitectura/ROS2_INTEGRATION.md` | Frontera entre Capa 4 Python, `ROS 2`, `DDS` y `SDK2`. |
-| `Arquitectura/MEMORIA_ARQUITECTONICA_MVP.md` | Memoria academica y decisiones de diseno del MVP. |
-| `Arquitectura/ODOM_BRIDGE_CONTRACT.md` | Contrato offline del futuro `odom_bridge`, sin nodo ROS runtime ni validacion fisica. |
-| `Arquitectura/OTTOGUIDE_HIL_ARCHITECTURE_AND_RUNTIME.md` | Topologia HIL, runtime observado y limites de seguridad. |
-| `Arquitectura/ROBOT_FACTORY_BASELINE_AND_OTTOGUIDE_EVOLUTION.md` | Baseline factory y evolucion controlada hacia OttoGuide. |
-| `Operaciones_HIL/README_codigo_ottoguide.md` | Indice operativo de codigo, `libs/` air-gapped y topologia HIL. |
-| `Operaciones_HIL/HIL_TESTING_PROTOCOL.md` | Protocolo fisico HIL, seguridad, mapeo y apagado. |
-| `Operaciones_HIL/PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md` | Preflight de sensores y certificacion pendiente de validacion HIL fisica. |
-| `Operaciones_HIL/PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md` | Preflight read-only para descubrir fuente real de TF/odom sin mover robot. |
-| `Operaciones_HIL/RUNBOOK_LIVOX_SDK2_BRIDGE.md` | Build, arranque y validacion progresiva del bridge Livox SDK2 propio. |
-| `Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md` | Quickstart del ejecutable `ottoguide-map` para captura/mapeo supervisado. |
-| `Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md` | Analisis offline ODOM/TF y proximos pasos seguros. |
-| `Operaciones_HIL/Offline_Replay_SLAM/PROGRESO_ODOMETRIA_OFFLINE.md` | Registro consolidado y actualizable del trabajo de odometría offline. |
-| `Operaciones_HIL/Offline_Replay_SLAM/PLAN_CAPTURA_GROUND_TRUTH_ODOMETRIA.md` | Protocolo reproducible de ground truth segmentario y continuo para validar odometría offline. |
-| `Operaciones_HIL/Offline_Replay_SLAM/RUNBOOK_CALIBRATION_GT_MIN_PREFLIGHT.md` | Runbook offline de contrato y readiness físico para una futura CALIBRATION GT-MIN. |
-| `Operaciones_HIL/RUNBOOK_STARTUP_RC1.md` | Secuencia de arranque y criterios GO/NO-GO. |
-| `Operaciones_HIL/RUNBOOK_OPERACIONES_HIL_OTTOGUIDE.md` | Entrada vigente consolidada para operaciones HIL y siguiente sesion fisica. |
-| `Operaciones_HIL/RUNBOOK_PROXIMA_SESION_FISICA_DDS_FOXY.md` | Runbook especifico para validar CycloneDDS Foxy en la proxima ventana fisica. |
-| `Operaciones_HIL/RUNBOOK_PACKET_CAPTURE_HIL.md` | Captura pasiva del plano factory `192.168.12.x`. |
-| `Auditorias/LOCAL_ARTIFACTS_AUDIT_RUNBOOK.md` | Procedimiento read-only para auditar artifacts locales ignorados por Git. |
-| `Auditorias/ROBOT_NETWORK_PORTS_API_INVENTORY.md` | Inventario de red, puertos y APIs observadas. |
-| `Auditorias/ROBOT_REAL_VALIDATION_FOR_MOVEMENT_DOC.md` | Evidencia parcial real para documentacion de movimiento sin afirmar autonomia. |
-| `AppPhone/APK_CONNECTIVITY_ANALYSIS.codigo_ottoguide.md` | Analisis canonico del APK `Unitree Go` conservado como referencia factory pasiva. |
+## Política de vigencia
 
-## Referencias historicas relevantes
-
-| Documento | Uso |
-|---|---|
-| `Historico/Archivado_Documental_20260604_012123/Arquitectura/ANALISIS_UNITREE_EXPLORE_G1_AUTH.md` | Dictamen historico sobre `Unitree Explore`, AR8030, autenticacion y exclusion de ruta MVP. |
-| `Historico/Archivado_Documental_20260604_012123/Arquitectura/ANALISIS_APK_COMPLETO_REPORT.md` | Analisis historico ampliado de `Unitree Go` y plano factory. |
-| `Historico/Operaciones_HIL_Reportes/GitOps/GITHUB_ROBOT_BRANCH_VALIDATION.md` | Validacion Git historica de `fad510f`; obsoleta frente a HEAD posterior. |
-| `Historico/Operaciones_HIL_Reportes/` | Reportes HIL fechados, evidencias RViz y documentos de handoff preservados. |
-
-## Politica de vigencia
-
-1. `README.md` raiz resume el proyecto; este indice organiza la documentacion tecnica.
-2. `TODO.md` raiz es backlog Post-RC1; no es runbook operativo.
-3. Los documentos bajo `Historico/` se conservan como evidencia y no deben usarse como fuente operativa sin revision.
-4. La ruta primaria de control G1 es `SDK2/DDS Unicast` hacia `192.168.123.161`.
-5. El runtime HIL nativo esperado en la Companion PC G1 EDU es `ROS 2 Foxy`.
-6. `Unitree Go` se documenta solo como referencia pasiva del plano factory; `Unitree Explore` es la app oficial G1/G1_D, pero no forma parte de la ruta MVP.
-7. Toda documentación propia vigente debe vivir bajo `docs/`, salvo `README.md`, `TODO.md` y READMEs locales estrictamente acoplados a código/configuración.
-8. La raíz del repositorio se mantiene limpia: código, tooling, launch files y configuración runtime propia viven bajo `codigo ottoguide/`.
+1. `README.md` raíz resume el producto y el estado de release.
+2. `TODO.md` raíz no es un backlog Post-RC1: registra únicamente alcance diferido y validaciones futuras.
+3. `CIERRE_FINAL_MVP.md` gobierna el flujo final de sellado/publicación.
+4. `UNIFICACION_RAMAS_Y_HANDOFF.md` y `unification-state.json` son gateways vigentes; la historia U-series completa se preserva byte-a-byte en `Historico/Final_Closure_Predecessors/` y queda subordinada al contrato de cierre.
+5. Los documentos bajo `Historico/` son evidencia, no fuente operativa vigente sin revisión.
+6. `Unitree Go` y `Unitree Explore` permanecen como referencias pasivas según la documentación arquitectónica; no forman una ruta activa de cierre.
+7. Toda documentación propia vigente debe vivir bajo `docs/`, salvo `README.md`, `TODO.md`, `AGENTS.md` y READMEs locales estrictamente acoplados a código/configuración.
+8. La raíz del repositorio se mantiene limitada a gobierno/documentación de entrada y las tres raíces estructurales establecidas: `docs/`, `codigo ottoguide/`, `ottoguide_web_app/`.
