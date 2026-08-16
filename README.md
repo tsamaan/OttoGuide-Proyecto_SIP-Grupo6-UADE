@@ -1,150 +1,74 @@
-# OttoGuide MVP — Robot Guía Universitario Autónomo
+# OttoGuide
 
-- `Estado: RC1_LOCKED`
-- `Modo: Air-gapped / HIL-ready`
-- `Hardware: Unitree G1 EDU 8`
-- `Validación física: baseline L0/L1 capturado (2026-06-23); mapa/odom/TF/Nav2 pendientes`
+**Release status:** `FINAL_CLOSURE_CANDIDATE`
 
-## Resumen Ejecutivo
+OttoGuide is a UADE university guide robot project for Unitree G1 EDU hardware. The repository contains the integrated software, offline contracts, operational tooling, and evidence needed to close the project truthfully. It is not yet a final release or a claim of current autonomous physical operation.
 
-`OttoGuide` es un MVP de robot guía universitario autónomo para visitas en `UADE`, orientado a navegación guiada, interacción local, operación sin dependencia de cloud y observabilidad durante validación `HIL`.
+## Product Vision
 
-El sistema está congelado funcionalmente bajo `RC1_LOCKED`. La arquitectura, documentación y empaquetado local fueron preparados para validación, pero la operación física completa sobre el `Unitree G1 EDU 8` sigue pendiente.
+The project explores a guide-robot experience for university visits: navigation and robot integration tooling, supervised local interaction, and an operator-auditable software architecture. The target hardware context is Unitree G1 EDU, but the repository does not claim that every physical subsystem is currently validated on a robot.
 
-## Ficha Técnica Rápida
+## Software Implemented
 
-| Área | Valor |
-|---|---|
-| Robot | `Unitree G1 EDU 8` |
-| Companion PC | `192.168.123.164` |
-| Locomoción / DDS | `192.168.123.161` |
-| LiDAR | `Livox MID360`, default SDK2 `192.168.123.120`; `.20` queda como alternativa `PENDING_HIL` |
-| Cámara | `Intel RealSense D435i` |
-| Runtime HIL | `ROS 2 Foxy` |
-| Control primario | `SDK2/DDS Unicast` |
-| IA local | `Ollama` |
-| Backend | `FastAPI + asyncio` |
+- Integrated robot/core runtime, tooling, configuration, and tests under `codigo ottoguide/`.
+- Integrated web application/frontend under `ottoguide_web_app/`.
+- Offline ODOM/TF P2C contracts with explicit evidence, readiness, and provenance boundaries.
+- Supervised interaction architecture and offline test coverage represented by the current candidate tree.
+- Versioned architecture, HIL operations, audit history, and unification handoff under `docs/`.
 
-## Arquitectura High-Level
+## Offline Validated
 
-- `FastAPI`: API local, dashboard operativo y exposición de estado.
-- `TourOrchestrator`: FSM de misión y coordinación de alto nivel.
-- `OttoEventBus`: distribución interna de eventos entre módulos.
-- `Nav2Bridge`: frontera controlada entre OttoGuide y `ROS 2/Nav2`.
-- `Unitree SDK2 Adapter`: integración de control directo vía `DDS`.
-- `ConversationManager`: interacción local `STT/LLM/TTS`.
-- `CycloneDDS`: transporte `DDS` unicast para operación HIL.
+The current candidate contains versioned tests and offline validation for the contracts that they exercise. In particular, P2C establishes software and provenance boundaries for frame, covariance, claims, and readiness handling. Offline validation is not evidence of physical sensor publication, navigation execution, or robot autonomy.
 
-## Unitree Go / Unitree Explore
+## Physically Validated Historically
 
-`Unitree Go` se conserva solo como referencia pasiva y de diagnóstico del plano factory `192.168.12.x`. No es ruta primaria de control del `G1 EDU`.
+Historical sessions observed portions of the Unitree, sensor, and integration environment. That material is retained as historical physical validation in `docs/Operaciones_HIL/` and related records. It supports provenance only; it is not a current validation statement for this candidate tree.
 
-`Unitree Explore` es la app oficial para `G1/G1_D`, pero queda fuera de la ruta MVP operativa por `AR8030`, autenticación enterprise, dependencia cloud y protocolo binario.
+## Not Validated
 
-La ruta primaria operativa de OttoGuide es `SDK2/DDS Unicast` hacia `192.168.123.161`.
+The following are not claimed as currently validated by this repository candidate:
 
-## Mapa del Repositorio
+- Physical `/odom` publication or physical TF publication.
+- Nav2 autonomous navigation, current SLAM/map operation, or a complete physical tour.
+- Current robot audio execution, camera reliability, or live DDS/ROS runtime behavior.
+- A current hardware deployment matching this exact Git tree.
+
+## Known Limitations
+
+- P2C is an offline/software contract and does not elevate physical readiness.
+- Historical physical observations must be revalidated in a separately authorized HIL checkpoint before they become current capability claims.
+- Robot, ROS, DDS, Nav2, SLAM, audio, and movement actions remain separately safety-gated.
+- The final main release has not been created or published yet.
+
+## Repository Structure
 
 ```text
 .
-├── README.md
-├── TODO.md
-├── codigo ottoguide/      ← software, runtime y tests
-│   ├── src/
-│   ├── scripts/
-│   ├── tools/
-│   ├── config/
-│   ├── launch/
-│   ├── ros2_ws/
-│   └── libs/
-└── docs/                  ← documentación, planificación, operaciones y auditorías
-    ├── README.md
-    ├── Arquitectura/
-    ├── Operaciones_HIL/
-    ├── Hardware_Reference/
-    ├── AppPhone/
-    ├── Auditorias/
-    ├── Historico/
-    ├── Investigacion/
-    ├── planning/
-    └── audits/
+|- AGENTS.md                 # repository governance and safety rules
+|- README.md                 # this public truth contract
+|- TODO.md                   # deferred scope and validation limitations
+|- codigo ottoguide/         # robot/core runtime, tooling, configuration, tests
+|- ottoguide_web_app/        # integrated web application/frontend software root
+`- docs/                     # sole documentation root
+   |- Arquitectura/
+   |- Operaciones_HIL/
+   |- audits/
+   `- planning/
 ```
 
-- `README.md`: front-page pública y mapa de navegación del repositorio.
-- `TODO.md`: backlog post-`RC1` y validaciones HIL pendientes.
-- `codigo ottoguide/`: todo el software, runtime, scripts, herramientas, configuración y tests.
-- `docs/`: única raíz documental — arquitectura, operaciones HIL, referencias de hardware, planificación, auditorías e histórico.
+`docs/` is the sole documentation root. `codigo ottoguide/` and `ottoguide_web_app/` are the established software roots; no additional software root may be introduced without explicit architectural review.
 
-La raíz del repositorio se mantiene limpia. No recrear `documentacion general del proyecto/` ni `planificacion/` como raíces independientes.
+## Release Status
 
-## Roadmap de Ejecución Rápida
+The active candidate is being prepared for a final, auditable release sequence:
 
-Los procedimientos operativos viven en runbooks dedicados. Este `README.md` no duplica pasos de despliegue ni pruebas:
+```text
+candidate feature
+-> independent GitHub audit
+-> sealed final tree
+-> mirror review
+-> canonical review
+-> one root commit on main in mirror and canonical
+```
 
-- [Startup RC1](<docs/Operaciones_HIL/RUNBOOK_STARTUP_RC1.md>)
-- [Deploy](<docs/Operaciones_HIL/RUNBOOK_DEPLOY.md>)
-- [Protocolo HIL](<docs/Operaciones_HIL/HIL_TESTING_PROTOCOL.md>)
-- [Livox SDK2 bridge](<docs/Operaciones_HIL/RUNBOOK_LIVOX_SDK2_BRIDGE.md>)
-- [OttoGuide map quickstart](<docs/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md>)
-- [ODOM/TF offline analysis](<docs/Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md>)
-- [ODOM bridge contract](<docs/Arquitectura/ODOM_BRIDGE_CONTRACT.md>)
-- [Preflight ODOM/TF](<docs/Operaciones_HIL/PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md>)
-- [Demo local](<docs/Operaciones_HIL/RUNBOOK_DEMO_LOCAL.md>)
-- [Packet capture HIL](<docs/Operaciones_HIL/RUNBOOK_PACKET_CAPTURE_HIL.md>)
-
-## Estado Actual
-
-Hecho:
-
-- Arquitectura `RC1` congelada.
-- Documentación saneada y reorganizada.
-- `CycloneDDS` XML corregido.
-- `Unitree Go` / `Unitree Explore` segregado documentalmente.
-- `TODO.md` convertido en backlog post-`RC1`.
-- `codigo ottoguide/libs/` documentado como vendorización air-gapped intencional.
-
-Validación física (baseline 2026-06-23, HEAD físico `23d9d9c`):
-
-- `/utlidar/cloud`, `/livox/imu`, `/scan`: **PASS físico parcial** — observados y grabados en toma de ruta.
-- Telemetría Unitree (`/unitree/*`): **PASS físico** — bridge nativo construido, iniciado y validado.
-- `/odom`, `/tf`, `/tf_static`: **pendiente** — no presentes en sesión de auditoría.
-- `/map`, `Nav2`, `SLAM`, `controller_server`: **pendiente** — no presentes.
-- Movimiento por software: **ninguno ejecutado**.
-- Código `80417b7` (actual publicado): **no desplegado físicamente**.
-
-Pendiente:
-
-- Desplegar `80417b7` en el robot y ejecutar P0 v2 formal.
-- Confirmar IP efectiva del `Livox MID360` (`.120` vs `.20`).
-- Habilitar odometría y TF en siguiente sesión física.
-- Confirmar generación de `/map` con SLAM.
-- Validación de `Audio SDK2`.
-- Pruebas físicas de seguridad.
-
-## Seguridad Operativa
-
-- No ejecutar comandos de movimiento sin operador físico presente.
-- No usar `/cmd_vel` desde Python OttoGuide.
-- No usar `/rest/remote/packet/*` como ruta de control.
-- Mantener `L1 + A` / `Damp` como seguridad física según procedimientos.
-- Seguir los runbooks HIL antes de cualquier ejecución sobre hardware.
-
-## Enlaces Principales
-
-| Recurso | Ruta |
-|---|---|
-| Documentación técnica | [docs/README.md](<docs/README.md>) |
-| Unificación de ramas y handoff operativo | [UNIFICACION_RAMAS_Y_HANDOFF.md](<docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md>) |
-| Backlog | [TODO.md](<TODO.md>) |
-| Arquitectura operativa | [ARQUITECTURA_OPERATIVA_RC1.md](<docs/Arquitectura/ARQUITECTURA_OPERATIVA_RC1.md>) |
-| `ROS 2` / `DDS` | [ROS2_INTEGRATION.md](<docs/Arquitectura/ROS2_INTEGRATION.md>) |
-| Contrato ODOM bridge | [ODOM_BRIDGE_CONTRACT.md](<docs/Arquitectura/ODOM_BRIDGE_CONTRACT.md>) |
-| Protocolo HIL | [HIL_TESTING_PROTOCOL.md](<docs/Operaciones_HIL/HIL_TESTING_PROTOCOL.md>) |
-| Preflight sensores | [PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md](<docs/Operaciones_HIL/PREFLIGHT_CERTIFICACION_SENSORES_PENDING.md>) |
-| Preflight ODOM/TF | [PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md](<docs/Operaciones_HIL/PREFLIGHT_PROXIMA_SESION_FISICA_ODOM_TF.md>) |
-| ODOM/TF offline | [ODOM_TF_OFFLINE_ANALYSIS_20260618.md](<docs/Operaciones_HIL/ODOM_TF_OFFLINE_ANALYSIS_20260618.md>) |
-| Quickstart de mapeo | [OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md](<docs/Operaciones_HIL/OTTOGUIDE_MAP_EXECUTABLE_QUICKSTART.md>) |
-| Auditorias HIL | [Auditorias](<docs/Auditorias/>) |
-| AppPhone / APK | [README_AppPhone.md](<docs/AppPhone/README_AppPhone.md>) |
-
-Nota de continuidad: la rama activa de integración es `review/orchestrator-unification`; `main` no es la base de continuidad.
+`review/orchestrator-unification` retains development and integration history. The future `main` release is a separate final deliverable snapshot with exactly one root commit. The detailed durable policy, including the one-time lease-guarded replacement of the historical empty `main` placeholder, is versioned in [unification-state.json](docs/Arquitectura/unification-state.json) and the [unification handoff](docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md).

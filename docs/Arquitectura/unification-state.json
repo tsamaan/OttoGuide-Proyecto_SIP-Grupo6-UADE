@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "updated_at": "2026-08-16T00:34:25-03:00",
+  "updated_at": "2026-08-16T01:05:47-03:00",
   "repository": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "canonical_authority": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
@@ -62,6 +62,38 @@
   "main_sha": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
   "main_relation_to_review": "NO_COMMON_ANCESTOR",
   "main_policy": "DO_NOT_MERGE_OR_REBASE",
+  "final_release_policy": {
+    "kind": "SINGLE_ROOT_MAIN_RELEASE",
+    "legacy_main_placeholder": {
+      "sha": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
+      "tree": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+      "parent_count": 0
+    },
+    "release_tree": {
+      "mode": "SEALED_AT_RELEASE_GATE"
+    },
+    "root_commit": {
+      "mode": "CREATE_FROM_SEALED_TREE_WITH_NO_PARENT",
+      "required_parent_count": 0
+    },
+    "main": {
+      "required_commit_count": 1
+    },
+    "main_replacement": {
+      "mode": "LEASE_GUARDED_ONE_TIME_ROOT_REPLACEMENT",
+      "blind_force": "PROHIBITED",
+      "expected_old_sha": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264"
+    },
+    "mirror_before_canonical": true,
+    "same_exact_root_commit_both_repositories": true,
+    "canonical_requires_fresh_explicit_authorization": true,
+    "future_release_sha_embedded": false
+  },
+  "remote_audit_policy": {
+    "local_agent_role": "MUTATE_AND_VALIDATE_LOCAL_CHANGES",
+    "remote_github_audit_role": "INDEPENDENT_POST_PUBLICATION_AUDIT",
+    "material_issue_response": "NARROW_FIX_ON_SAME_FEATURE_BRANCH"
+  },
   "authority_semantics": "canonical_authority remains the publication authority; mirror_staging remains staging and audit. Current P2C review-ref state is dynamically resolved through p2c_live_resolution and is not encoded here. main is governed independently by main_policy.",
   "canonical_access": "publication_only",
   "canonical_repository": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
@@ -69,10 +101,11 @@
   "canonical_update_policy": "FAST_FORWARD_ONLY_AFTER_MIRROR",
   "canonical_default_branches_write": "PROHIBITED",
   "active_branch": "review/orchestrator-unification",
-  "active_ref": "mirror/review/orchestrator-unification",
+  "active_ref": "refs/heads/review/orchestrator-unification",
   "head_resolution": {
-    "mode": "dynamic_git_ref",
-    "command": "git rev-parse mirror/review/orchestrator-unification",
+    "mode": "dynamic_git_ls_remote",
+    "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
+    "command": "git ls-remote https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git refs/heads/review/orchestrator-unification",
     "embedded_current_head_prohibited": true
   },
   "checkpoint_resolution": {
@@ -85,7 +118,12 @@
     "head": "bf1829d8a7313ec3820f093f460a8b20a823f90a",
     "message": "docs(unification): add portable branch handoff"
   },
-  "source_heads_status": "LIVE_READ_ONLY_VERIFIED_2026-08-15",
+  "source_heads_status": "HISTORICAL_SNAPSHOT_OBSERVED_2026-08-15",
+  "source_heads_snapshot": {
+    "kind": "HISTORICAL_SNAPSHOT",
+    "observed_at": "2026-08-15T22:50:26-03:00",
+    "live_resolution_required": true
+  },
   "source_heads": {
     "main": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
     "desarrollo": "aafb7ad1565caced974b98bfdd6b5320901f49c8",

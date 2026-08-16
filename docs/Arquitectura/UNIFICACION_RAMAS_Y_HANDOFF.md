@@ -4,7 +4,7 @@
 
 Este documento es el handoff canonico, autocontenido y actualizable para continuar la unificacion de OttoGuide desde otro equipo. Debe permitir retomar el trabajo sin depender de conversaciones de chat, carpetas locales historicas, copias separadas de ramas, adjuntos externos, reportes no versionados bajo `audit-reports/` ni conocimiento implicito del workspace original.
 
-La rama autoritativa de continuidad es `review/orchestrator-unification`. Este documento y `unification-state.json` son el punto de entrada obligatorio para nuevas etapas de unificacion.
+La reconciliacion de ramas esta cerrada. `review/orchestrator-unification` conserva la historia autoritativa de desarrollo e integracion; `main` sera la entrega final de una sola raiz. Este documento y `unification-state.json` son el punto de entrada obligatorio para nuevas etapas de cierre.
 
 ## 2. Fuente de verdad
 
@@ -33,9 +33,10 @@ Reglas de lectura:
 - Autoridad de integracion: `tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE` (`canonical`).
 - Mirror de staging y auditoria: `LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU` (`mirror`).
 - Politica de `canonical`: `PUBLICATION_ONLY_FAST_FORWARD`; solo se permite actualizar `review/orchestrator-unification` despues del mirror, nunca ramas default.
-- Rama autoritativa: `review/orchestrator-unification`.
-- `main` es un snapshot huerfano sin ancestro comun con la rama de integracion; no es base de continuidad ni de integracion.
-- `main` tiene politica `DO_NOT_MERGE_OR_REBASE` respecto de review.
+- Historia autoritativa de integracion: `review/orchestrator-unification`.
+- Rama de entrega final: `main`.
+- `main` es un placeholder huerfano sin ancestro comun con la rama de integracion; no es base de continuidad ni de integracion.
+- La futura entrega en `main` sera un unico commit raiz creado desde el arbol final sellado. No se debe hacer merge ni rebase entre `main` y `review`.
 
 No registrar credenciales, tokens ni secretos en este documento.
 
@@ -43,9 +44,9 @@ No registrar credenciales, tokens ni secretos en este documento.
 
 ```text
 ACTIVE_BRANCH = review/orchestrator-unification
-ACTIVE_REF = mirror/review/orchestrator-unification
+ACTIVE_REF = refs/heads/review/orchestrator-unification
 CURRENT_HEAD = DYNAMIC_FROM_ACTIVE_REF
-CURRENT_HEAD_COMMAND = git rev-parse mirror/review/orchestrator-unification
+CURRENT_HEAD_COMMAND = git ls-remote https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git refs/heads/review/orchestrator-unification
 HANDOFF_CHECKPOINT = DYNAMIC_FROM_FILE_HISTORY
 HANDOFF_CHECKPOINT_COMMAND = git log -1 --format=%H -- docs/Arquitectura/unification-state.json
 GENERATION_BASE_HEAD = bf1829d8a7313ec3820f093f460a8b20a823f90a
@@ -87,6 +88,38 @@ comandos indicados; esta documentacion no contiene un checkpoint efimero ni el
 SHA del commit que la contiene. La politica durable exige validar mirror antes
 de promover review, verificar review antes de un fast-forward canonical y no
 autoriza escrituras en ramas default, review, canonical o main por si sola.
+
+### Cierre final y entrega de una sola raiz
+
+```text
+BRANCH_RECONCILIATION = CLOSED
+ACTIVE_INTEGRATION_HISTORY = review/orchestrator-unification
+FINAL_DELIVERY_BRANCH = main
+FINAL_MAIN_MODEL = SINGLE_ROOT_MAIN_RELEASE
+FINAL_RELEASE_TREE = SEALED_AT_FUTURE_RELEASE_GATE
+FINAL_ROOT_COMMIT = CREATED_FROM_SEALED_TREE_WITH_NO_PARENT
+FINAL_MAIN_PARENT_COUNT = 0
+FINAL_MAIN_COMMIT_COUNT = 1
+MIRROR_MAIN_BEFORE_CANONICAL_MAIN = REQUIRED
+EXACT_SAME_ROOT_COMMIT_BOTH_REPOSITORIES = REQUIRED
+FINAL_MAIN_ROOT_REPLACEMENT = ONE_TIME_LEASE_GUARDED_EXCEPTION
+LEGACY_MAIN_PLACEHOLDER_SHA = 3a1f13574e4a27d9aff2bfd38b3659951e8cb264
+```
+
+La secuencia durable de cierre es: feature candidata -> auditoria independiente
+en GitHub -> arbol final sellado -> mirror/review -> canonical/review -> commit
+raiz unico en main. El commit raiz futuro no se conoce ni se almacena aqui. El
+reemplazo de `main` solo puede ocurrir si el placeholder aun apunta al SHA
+historico indicado y mediante una lease equivalente a
+`--force-with-lease=refs/heads/main:3a1f13574e4a27d9aff2bfd38b3659951e8cb264`.
+El force ciego permanece prohibido. Cada escritura remota requiere una
+autorizacion explicita nueva; mirror/main debe completarse y verificarse antes
+de canonical/main.
+
+Una vez que un commit candidato fue publicado en el mirror, la auditoria
+independiente del repositorio se realiza sobre el estado de GitHub. El agente
+local muta y valida cambios locales; un hallazgo material de GitHub retorna a
+esta misma feature para una correccion acotada, sin crear otra rama de auditoria.
 
 ## 5. Invariantes arquitectonicos
 
@@ -829,11 +862,10 @@ git rev-parse HEAD
 git log -1
 git status
 git diff
-git fetch mirror
-git rev-parse mirror/review/orchestrator-unification
+git ls-remote https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git refs/heads/review/orchestrator-unification
 ```
 
-Confirmar que la rama activa y `mirror/review/orchestrator-unification` coinciden con el estado esperado de la etapa.
+Confirmar que la rama activa y el ref remoto resuelto coinciden con el estado esperado de la etapa. Este protocolo no presupone aliases locales `mirror` o `canonical`.
 
 ## 19. Politica de actualizacion
 

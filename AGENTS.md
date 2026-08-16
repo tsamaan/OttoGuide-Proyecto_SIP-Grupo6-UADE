@@ -167,6 +167,17 @@ decisión:
 - `codigo ottoguide/src/interaction/jsonl_worker_supervisor.py`
 - `codigo ottoguide/src/interaction/worker_supervisor.py`
 
+## Gobernanza de cierre final
+
+- Aplicar evidencia antes que intuicion y mantener un unico dominio tecnico por checkpoint.
+- `review/orchestrator-unification` conserva la historia de integracion; no crear ramas de auditoria o integracion adicionales ni hacer merges mayoristas de ramas historicas.
+- El agente local muta y valida cambios locales. Una vez publicado un candidato en el mirror, la auditoria independiente se realiza contra el estado remoto de GitHub.
+- Toda escritura remota requiere autorizacion explicita nueva en el mismo checkpoint. El orden es mirror antes de canonical.
+- La futura entrega de `main` es un solo commit raiz creado desde un arbol final sellado. No usar `main` como base de integracion ni destruir la historia de `review`.
+- El force ciego permanece prohibido. La unica excepcion posible es un reemplazo unico de `main`, protegido por lease contra el placeholder vacio documentado y con autorizaciones frescas separadas para mirror y canonical.
+- El mismo commit raiz final debe publicarse primero en mirror/main y luego, sin cambios, en canonical/main.
+- Las reglas de seguridad de robot/HIL siguen vigentes y requieren autorizacion separada; la gobernanza documental nunca habilita runtime ni hardware.
+
 ## Regla de evidencia
 
 Los reportes generados fuera del repositorio (evidencia de checkpoints, auditorías externas)
@@ -181,7 +192,7 @@ El análisis de funcionalidades integradas, wiring del orquestador y tests pendi
 ## Continuidad de unificación
 
 - Leer `docs/Arquitectura/UNIFICACION_RAMAS_Y_HANDOFF.md` antes de cualquier tarea de unificación.
-- Resolver el HEAD activo con `git rev-parse mirror/review/orchestrator-unification`.
+- Resolver el HEAD remoto de integracion con `git ls-remote https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git refs/heads/review/orchestrator-unification`; no depender de aliases Git locales no documentados.
 - Resolver el checkpoint del handoff con `git log -1 --format=%H -- docs/Arquitectura/unification-state.json`.
 - Al cierre de una etapa con escritura correctamente documentada, el checkpoint del handoff debe coincidir con el HEAD activo.
 - Nunca exigir que `unification-state.json` contenga el SHA del mismo commit que contiene el JSON.

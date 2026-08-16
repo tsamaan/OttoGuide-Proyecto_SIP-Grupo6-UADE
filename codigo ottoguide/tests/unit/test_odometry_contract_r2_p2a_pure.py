@@ -1397,11 +1397,37 @@ def test_unification_state_represents_durable_p2c_lifecycle_model():
     assert state["source_heads"]["pilar-web"] == (
         "8a5803f5fd8f9bdb08faa5a8bc40a3a5dd709b73"
     )
-    assert state["source_heads_status"] == "LIVE_READ_ONLY_VERIFIED_2026-08-15"
+    assert state["source_heads_status"] == "HISTORICAL_SNAPSHOT_OBSERVED_2026-08-15"
+    assert state["source_heads_snapshot"] == {
+        "kind": "HISTORICAL_SNAPSHOT",
+        "observed_at": "2026-08-15T22:50:26-03:00",
+        "live_resolution_required": True,
+    }
     assert state["branch_relations_snapshot"]["historical_snapshot"] is True
     assert state["canonical_default_branches_write"] == "PROHIBITED"
     assert state["main_relation_to_review"] == "NO_COMMON_ANCESTOR"
     assert state["main_policy"] == "DO_NOT_MERGE_OR_REBASE"
+    final_release = state["final_release_policy"]
+    assert final_release["kind"] == "SINGLE_ROOT_MAIN_RELEASE"
+    assert final_release["legacy_main_placeholder"] == {
+        "sha": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
+        "tree": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        "parent_count": 0,
+    }
+    assert final_release["root_commit"] == {
+        "mode": "CREATE_FROM_SEALED_TREE_WITH_NO_PARENT",
+        "required_parent_count": 0,
+    }
+    assert final_release["main"]["required_commit_count"] == 1
+    assert final_release["main_replacement"] == {
+        "mode": "LEASE_GUARDED_ONE_TIME_ROOT_REPLACEMENT",
+        "blind_force": "PROHIBITED",
+        "expected_old_sha": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
+    }
+    assert final_release["mirror_before_canonical"] is True
+    assert final_release["same_exact_root_commit_both_repositories"] is True
+    assert final_release["canonical_requires_fresh_explicit_authorization"] is True
+    assert final_release["future_release_sha_embedded"] is False
     assert "remote_authority" not in state
     assert "local_feature_sha" not in state
     assert "DYNAMIC_HANDOFF_CHECKPOINT" not in state_path.read_text(encoding="utf-8")
