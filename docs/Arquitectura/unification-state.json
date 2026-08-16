@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "updated_at": "2026-08-15T22:50:26-03:00",
+  "updated_at": "2026-08-16T00:34:25-03:00",
   "repository": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
   "canonical_authority": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
@@ -62,7 +62,7 @@
   "main_sha": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
   "main_relation_to_review": "NO_COMMON_ANCESTOR",
   "main_policy": "DO_NOT_MERGE_OR_REBASE",
-  "authority_semantics": "canonical_authority remains the integration authority; mirror_staging hosts the published P2C payload feature only. P2C is not integrated into mirror review, canonical review, or main.",
+  "authority_semantics": "canonical_authority remains the publication authority; mirror_staging remains staging and audit. Current P2C review-ref state is dynamically resolved through p2c_live_resolution and is not encoded here. main is governed independently by main_policy.",
   "canonical_access": "publication_only",
   "canonical_repository": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
   "canonical_publish_branch": "review/orchestrator-unification",
