@@ -1,96 +1,28 @@
 {
   "schema_version": "2.2.1-p2a",
   "claims": [
-    {
-      "name": "P2A_CONTRACT_STRUCTURALLY_READY",
-      "value": true,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "MAPPING_PROVENANCE_BOUND",
-      "value": true,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "P1A_INPUT_VALIDATED",
-      "value": true,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "ENUM_BYPASS_CLOSED",
-      "value": true,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "NUMERIC_OVERFLOW_CLOSED",
-      "value": true,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "MEASURED_ZERO_PRESERVED",
-      "value": true,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "CROSS_CHANNEL_EVIDENCE_SEPARATED",
-      "value": true,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "OFFLINE_REPLAY_POLICY_STRUCTURALLY_READY",
-      "value": true,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "OFFLINE_REPLAY_ADAPTER_READY",
-      "value": false,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "OFFLINE_REPLAY_EXECUTION_VALIDATED",
-      "value": false,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "SIMULATION_POLICY_STRUCTURALLY_READY",
-      "value": true,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "SIMULATION_MODEL_BOUND",
-      "value": false,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "SIMULATION_ADAPTER_IMPLEMENTED",
-      "value": false,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "SIMULATION_EXECUTION_READY",
-      "value": false,
-      "context": "STRUCTURAL_ONLY"
-    },
-    {
-      "name": "PHYSICAL_ODOM_PUBLICATION_READY",
-      "value": false,
-      "context": "PHYSICAL_EVIDENCE"
-    },
-    {
-      "name": "PHYSICAL_TF_PUBLICATION_READY",
-      "value": false,
-      "context": "PHYSICAL_EVIDENCE"
-    },
-    {
-      "name": "AUTHORITATIVE_SOURCE_CHANNEL",
-      "value": null,
-      "context": "PHYSICAL_EVIDENCE"
-    },
-    {
-      "name": "PREFERRED_ANALYSIS_CHANNEL",
-      "value": null,
-      "context": "PHYSICAL_EVIDENCE"
-    }
+    {"name": "P2A_CONTRACT_STRUCTURALLY_READY", "value": true, "context": "STRUCTURAL_ONLY"},
+    {"name": "MAPPING_MANIFEST_REFERENCE_STRUCTURALLY_VALID", "value": true, "context": "STRUCTURAL_ONLY"},
+    {"name": "MAPPING_INPUT_HASH_REFERENCES_WELL_FORMED", "value": true, "context": "STRUCTURAL_ONLY"},
+    {"name": "MAPPING_SELECTED_SOURCE_CONTENT_PARSED", "value": false, "context": "STRUCTURAL_ONLY"},
+    {"name": "MAPPING_FRAME_RELATIONS_DERIVED_FROM_CONTENT", "value": false, "context": "STRUCTURAL_ONLY"},
+    {"name": "MAPPING_VOCABULARY_DERIVED_FROM_MANIFEST", "value": true, "context": "STRUCTURAL_ONLY"},
+    {"name": "P1A_INPUT_REFERENCE_STRUCTURALLY_VALID", "value": true, "context": "STRUCTURAL_ONLY"},
+    {"name": "FRAME_VALIDATION_CONTEXT_TYPES_EXACT", "value": true, "context": "STRUCTURAL_ONLY"},
+    {"name": "CURRENT_COVARIANCE_VALUES_FINITE", "value": true, "context": "STRUCTURAL_ONLY"},
+    {"name": "MEASURED_ZERO_PRESERVED", "value": false, "context": "STRUCTURAL_ONLY"},
+    {"name": "CROSS_CHANNEL_EVIDENCE_SEPARATED", "value": true, "context": "STRUCTURAL_ONLY"},
+    {"name": "OFFLINE_REPLAY_POLICY_STRUCTURALLY_READY", "value": true, "context": "STRUCTURAL_ONLY"},
+    {"name": "OFFLINE_REPLAY_ADAPTER_READY", "value": false, "context": "STRUCTURAL_ONLY"},
+    {"name": "OFFLINE_REPLAY_EXECUTION_VALIDATED", "value": false, "context": "STRUCTURAL_ONLY"},
+    {"name": "SIMULATION_POLICY_STRUCTURALLY_READY", "value": true, "context": "STRUCTURAL_ONLY"},
+    {"name": "SIMULATION_MODEL_BOUND", "value": false, "context": "STRUCTURAL_ONLY"},
+    {"name": "SIMULATION_ADAPTER_IMPLEMENTED", "value": false, "context": "STRUCTURAL_ONLY"},
+    {"name": "SIMULATION_EXECUTION_READY", "value": false, "context": "STRUCTURAL_ONLY"},
+    {"name": "PHYSICAL_ODOM_PUBLICATION_READY", "value": false, "context": "PHYSICAL_EVIDENCE"},
+    {"name": "PHYSICAL_TF_PUBLICATION_READY", "value": false, "context": "PHYSICAL_EVIDENCE"},
+    {"name": "AUTHORITATIVE_SOURCE_CHANNEL", "value": null, "context": "PHYSICAL_EVIDENCE"},
+    {"name": "PREFERRED_ANALYSIS_CHANNEL", "value": null, "context": "PHYSICAL_EVIDENCE"}
   ],
   "limitations": [
     "SOURCE_FRAME_SEMANTICS_PARTIAL",

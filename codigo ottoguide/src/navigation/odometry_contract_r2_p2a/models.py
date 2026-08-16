@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
+from types import MappingProxyType
 from typing import Optional
 
 
@@ -93,10 +94,52 @@ class CovarianceDomain(str, Enum):
     CROSS_CHANNEL_RESIDUAL = "CROSS_CHANNEL_RESIDUAL"
 
 
+class CovarianceValueKind(str, Enum):
+    FINITE_NONNEGATIVE = "FINITE_NONNEGATIVE"
+    NONE = "NONE"
+
+
+@dataclass(frozen=True)
+class CovarianceShapePolicy:
+    dimension: int
+    source_values_kind: CovarianceValueKind
+    variance_candidates_kind: CovarianceValueKind
+
+
+COVARIANCE_DOMAIN_POLICY = MappingProxyType(
+    {
+        CovarianceDomain.POSE_POSITION_SOURCE_DISPERSION: CovarianceShapePolicy(
+            3, CovarianceValueKind.FINITE_NONNEGATIVE, CovarianceValueKind.FINITE_NONNEGATIVE
+        ),
+        CovarianceDomain.POSE_ORIENTATION_UNAVAILABLE: CovarianceShapePolicy(
+            3, CovarianceValueKind.NONE, CovarianceValueKind.NONE
+        ),
+        CovarianceDomain.TWIST_LINEAR_RESIDUAL: CovarianceShapePolicy(
+            1, CovarianceValueKind.FINITE_NONNEGATIVE, CovarianceValueKind.NONE
+        ),
+        CovarianceDomain.TWIST_ANGULAR_YAW_RATE_RESIDUAL: CovarianceShapePolicy(
+            1, CovarianceValueKind.FINITE_NONNEGATIVE, CovarianceValueKind.NONE
+        ),
+        CovarianceDomain.CROSS_CHANNEL_RESIDUAL: CovarianceShapePolicy(
+            1, CovarianceValueKind.FINITE_NONNEGATIVE, CovarianceValueKind.NONE
+        ),
+    }
+)
+
+
 class CovarianceEvidenceKind(str, Enum):
     MEASURED_SOURCE_STATISTIC = "MEASURED_SOURCE_STATISTIC"
     MEASURED_ZERO_SOURCE_VARIANCE = "MEASURED_ZERO_SOURCE_VARIANCE"
     UNAVAILABLE = "UNAVAILABLE"
+    CROSS_CHANNEL_DIAGNOSTIC = "CROSS_CHANNEL_DIAGNOSTIC"
+
+
+# F01: Closed covariance status enum for P2A contract outputs
+class CovarianceStatus(str, Enum):
+    MEASURED_ZERO_SOURCE_VARIANCE = "MEASURED_ZERO_SOURCE_VARIANCE"
+    PARTIAL_QUANTIFIED = "PARTIAL_QUANTIFIED"
+    POSE_ORIENTATION_UNAVAILABLE = "POSE_ORIENTATION_UNAVAILABLE"
+    SOURCE_RESIDUAL_DIAGNOSTIC = "SOURCE_RESIDUAL_DIAGNOSTIC"
     CROSS_CHANNEL_DIAGNOSTIC = "CROSS_CHANNEL_DIAGNOSTIC"
 
 
@@ -255,6 +298,12 @@ class FrameContract:
             raise ContractValidationError("classification enum bypass")
         if len(set(self.classifications)) != len(self.classifications):
             raise ContractValidationError("classifications must be unique")
+        expected_policy = FRAME_CONTEXT_POLICY.get(self.validation_context)
+        if expected_policy is None or any(
+            getattr(self, field) != getattr(expected_policy, field)
+            for field in FRAME_POLICY_FIELDS
+        ):
+            raise ContractValidationError("frame policy does not match validation context")
         if type(self.provenance) is not tuple or not self.provenance:
             raise ContractValidationError("frame contract requires provenance")
         if any(type(item) is not ProvenanceRef for item in self.provenance):
@@ -262,6 +311,40 @@ class FrameContract:
         if any(item.validation_context is not self.validation_context for item in self.provenance):
             raise ContractValidationError("frame provenance context mismatch")
         exact_string_tuple(self.blockers, "blockers")
+
+
+@dataclass(frozen=True)
+class FrameContextPolicy:
+    source_semantics: SemanticStatus
+    child_semantics: SemanticStatus
+    translation_scale: ScaleStatus
+    yaw_scale: ScaleStatus
+    translation_units: UnitStatus
+    yaw_units: UnitStatus
+    time_policy: TimeDomainPolicy
+    boot_policy: BootDomainPolicy
+    source_channel: SourceChannelStatus
+    classifications: tuple[FrameClassification, ...]
+
+
+FRAME_POLICY_FIELDS = (
+    "source_semantics",
+    "child_semantics",
+    "translation_scale",
+    "yaw_scale",
+    "translation_units",
+    "yaw_units",
+    "time_policy",
+    "boot_policy",
+    "source_channel",
+    "classifications",
+)
+
+FRAME_CONTEXT_POLICY = MappingProxyType({
+    ValidationContext.PHYSICAL_EVIDENCE: FrameContextPolicy(SemanticStatus.PARTIAL, SemanticStatus.UNRESOLVED, ScaleStatus.UNRESOLVED, ScaleStatus.UNRESOLVED, UnitStatus.SOURCE_UNITS_UNRESOLVED, UnitStatus.YAW_SPEED_RAD_S_ONLY, TimeDomainPolicy.UNRESOLVED_FOR_ROS_HEADER, BootDomainPolicy.PER_BOOT_NO_CROSS_BOOT_CONCATENATION, SourceChannelStatus.UNRESOLVED, (FrameClassification.OBSERVED_SOURCE_LABEL, FrameClassification.ROS_OUTPUT_CANDIDATE)),
+    ValidationContext.OFFLINE_REPLAY: FrameContextPolicy(SemanticStatus.REPLAY_POLICY_CANDIDATE, SemanticStatus.CONFIGURED_NAME_ONLY, ScaleStatus.SOURCE_UNITS_ONLY, ScaleStatus.SOURCE_UNITS_ONLY, UnitStatus.SOURCE_UNITS_UNRESOLVED, UnitStatus.YAW_SPEED_RAD_S_ONLY, TimeDomainPolicy.PRESERVE_RECORDED_ORDER_NO_ROS_STAMP, BootDomainPolicy.REPLAY_SESSION_ONLY, SourceChannelStatus.EXPLICIT_INPUT_REQUIRED, (FrameClassification.MAPPING_REFERENCE, FrameClassification.CONFIGURED_NAME)),
+    ValidationContext.SIMULATION_POLICY: FrameContextPolicy(SemanticStatus.SIMULATION_POLICY_CANDIDATE, SemanticStatus.MODEL_NOT_SELECTED, ScaleStatus.SCALE_DEFINED_BY_FUTURE_MODEL, ScaleStatus.SCALE_DEFINED_BY_FUTURE_MODEL, UnitStatus.UNITS_DEFINED_BY_FUTURE_MODEL, UnitStatus.UNITS_DEFINED_BY_FUTURE_MODEL, TimeDomainPolicy.CLOCK_DEFERRED_TO_P3, BootDomainPolicy.SIMULATION_EPISODE_ONLY, SourceChannelStatus.FUTURE_MODEL_SOURCE, (FrameClassification.ROS_OUTPUT_CANDIDATE,)),
+})
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -280,7 +363,7 @@ class CovarianceRecord:
     unsupported_axes: tuple[str, ...]
     source_values: tuple[Optional[float], ...]
     variance_candidates: tuple[Optional[float], ...]
-    status: str
+    status: CovarianceStatus  # F01: closed enum
     provenance: tuple[ProvenanceRef, ...]
     blockers: tuple[str, ...]
     publication_status: PublicationStatus
@@ -307,25 +390,51 @@ class CovarianceRecord:
             raise ContractValidationError("supported and unsupported axes overlap")
         if type(self.source_values) is not tuple or type(self.variance_candidates) is not tuple:
             raise ContractValidationError("covariance values must be exact tuples")
-        for label, values in (
-            ("source_values", self.source_values),
-            ("variance_candidates", self.variance_candidates),
+        # F03: lengths must match
+        if len(self.source_values) != len(self.variance_candidates):
+            raise ContractValidationError(
+                "source_values and variance_candidates length mismatch"
+            )
+        # F03: length must not be zero
+        if not self.source_values:
+            raise ContractValidationError("covariance value tuples must not be empty")
+        # F03: domain dimension must match
+        policy = COVARIANCE_DOMAIN_POLICY.get(self.domain)
+        if type(policy) is not CovarianceShapePolicy:
+            raise ContractValidationError("covariance domain policy is unavailable")
+        if len(self.source_values) != policy.dimension:
+            raise ContractValidationError(
+                f"covariance domain {self.domain.value} requires dimension {policy.dimension}"
+            )
+        for label, values, kind in (
+            ("source_values", self.source_values, policy.source_values_kind),
+            ("variance_candidates", self.variance_candidates, policy.variance_candidates_kind),
         ):
             for value in values:
-                if value is not None:
+                if kind is CovarianceValueKind.NONE:
+                    if value is not None:
+                        raise ContractValidationError(f"{label} must contain only None")
+                elif value is None:
+                    raise ContractValidationError(f"{label} must contain finite non-negative numbers")
+                else:
                     finite_number(value, label, nonnegative=True)
-        canonical_string(self.status, "status")
+        # F01: status must be exact CovarianceStatus enum
+        exact_enum(self.status, CovarianceStatus, "status")
         if type(self.provenance) is not tuple or not self.provenance:
             raise ContractValidationError("covariance record requires provenance")
         if any(type(item) is not ProvenanceRef for item in self.provenance):
             raise ContractValidationError("covariance provenance must be exact")
+        # F02: provenance context must match record context
+        for item in self.provenance:
+            if item.validation_context is not self.validation_context:
+                raise ContractValidationError("covariance provenance context mismatch")
         exact_string_tuple(self.blockers, "blockers")
         exact_enum(self.publication_status, PublicationStatus, "publication_status")
-        if self.validation_context is ValidationContext.PHYSICAL_EVIDENCE:
-            if self.ros_si_matrix is not None:
-                raise ContractValidationError("physical evidence cannot contain an SI matrix")
-            if self.publication_status is not PublicationStatus.NOT_PUBLICATION_READY:
-                raise ContractValidationError("physical evidence cannot be publication ready")
+        # F04: ros_si_matrix is always None in P2A — no context can produce a matrix
+        if self.ros_si_matrix is not None:
+            raise ContractValidationError("P2A covariance cannot contain a ROS SI matrix")
+        if self.publication_status is not PublicationStatus.NOT_PUBLICATION_READY:
+            raise ContractValidationError("P2A covariance cannot be publication ready")
 
 
 @dataclass(frozen=True, kw_only=True)

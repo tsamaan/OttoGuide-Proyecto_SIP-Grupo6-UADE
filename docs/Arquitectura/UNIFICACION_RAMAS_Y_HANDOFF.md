@@ -30,11 +30,12 @@ Reglas de lectura:
 - Repositorio mirror: `LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU`.
 - URL HTTPS del mirror: `https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git`.
 - El clon requiere autenticacion GitHub cuando el repositorio no sea accesible de forma anonima.
-- Remote autoritativo de desarrollo: `mirror`.
-- Remote de publicacion controlada: `canonical`.
+- Autoridad de integracion: `tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE` (`canonical`).
+- Mirror de staging y auditoria: `LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU` (`mirror`).
 - Politica de `canonical`: `PUBLICATION_ONLY_FAST_FORWARD`; solo se permite actualizar `review/orchestrator-unification` despues del mirror, nunca ramas default.
 - Rama autoritativa: `review/orchestrator-unification`.
 - `main` es un snapshot huerfano sin ancestro comun con la rama de integracion; no es base de continuidad ni de integracion.
+- `main` tiene politica `DO_NOT_MERGE_OR_REBASE` respecto de review.
 
 No registrar credenciales, tokens ni secretos en este documento.
 
@@ -52,6 +53,34 @@ GENERATION_BASE_MESSAGE = docs(unification): add portable branch handoff
 ```
 
 `GENERATION_BASE_HEAD` es el HEAD desde el cual se preparo esta correccion, no el SHA del commit que contiene la correccion. El HEAD actual y el checkpoint vigente se resuelven con Git; no se almacena dentro del archivo el SHA del commit que lo contiene.
+
+### Estado local ODOM/TF P2C
+
+```text
+CANONICAL_AUTHORITY = tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE
+MIRROR_STAGING = LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU
+INTEGRATION_BRANCH = review/orchestrator-unification
+REMOTE_INTEGRATION_HEAD = ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e
+CANONICAL_REVIEW_SHA = ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e
+MIRROR_REVIEW_SHA = ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e
+P2A_BASELINE_SHA = 76ecfd782af4a401936076939e0c9c0b55718b4e
+P2A_AUDIT_BRANCH = audit/odom-tf-r2-p2a-76ecfd78-prepublish-r1
+P2C_LOCAL_CANDIDATE_STATE = LOCAL_UNCOMMITTED_WORKTREE
+LOCAL_P2C_BRANCH = feature/odom-tf-r2-p2-frame-semantics-covariance-contract
+LOCAL_P2C_BASE_HEAD = 76ecfd782af4a401936076939e0c9c0b55718b4e
+P2C_BASE_SHA = 76ecfd782af4a401936076939e0c9c0b55718b4e
+P2C_COMMIT_SHA = null
+P2C_REMOTE_BRANCH = null
+P2C_PUBLISHED = false
+P2C_NEXT_CHECKPOINT = MVP-ODOM-TF-R2-P2C-CLAIMS-STATE-R2-INDEPENDENT-AUDIT-R1
+MAIN_SHA = 3a1f13574e4a27d9aff2bfd38b3659951e8cb264
+MAIN_RELATION_TO_REVIEW = NO_COMMON_ANCESTOR
+MAIN_POLICY = DO_NOT_MERGE_OR_REBASE
+```
+
+P2C no esta comprometido, publicado ni integrado en review o main. Claims/State
+R2 remedia localmente los defects de la auditoria R1, pero una nueva auditoria
+independiente sigue siendo obligatoria antes de cualquier commit o staging.
 
 ## 5. Invariantes arquitectonicos
 
@@ -115,7 +144,7 @@ Los conteos son un snapshot asociado a `RELATIONS_SNAPSHOT_AS_OF_HEAD`; deben re
 | `robot` | `f35ee544dac1afd64c04b949ed952fc6e6a9b6bc` | 40 | 9 | Robot/SITL/HIL | Parcialmente integrado | `U0_SELECTIVE_PORT_COMPLETE_RESIDUAL_DEFERRED` | Fundacion SITL, puertos y contratos relevantes | Validaciones fisicas reales diferidas | U5 |
 | `feature/erirobot` | `a93226b450bd384686dc9f009e96677910af936e` | 135 | 4 | QR/vision | Integracion selectiva QR completa | `U2_SELECTIVE_QR_PORT_COMPLETE_REJECTED_FSM_AND_MOTION_REMAIN_UNPORTED` | QR observacional y registro estricto | FSM y motion rechazados/no portados | U5 |
 | `InteraccionIA` | `bf2148d4ad6fc766694842573452b740e0886385` | 181 | 6 | Interaccion IA/audio | Fuente tecnica pendiente | `U3_SELECTIVE_TECHNICAL_SOURCE` | Ninguno aun en U3 | Worker supervisado, eventos, audio real | U3B |
-| `pilar-web` | `80051eed9dfab20c982147b8a1d8bb6bebac0982` | 64 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
+| `pilar-web` | `8a5803f5fd8f9bdb08faa5a8bc40a3a5dd709b73` | 64 | 1 | Frontend/web | Frontend adaptado, backend descartado | `FRONTEND_ALREADY_ADAPTED_BACKEND_DROPPED` | Adaptacion frontend ya absorbida | Backend no canonico descartado | U4 si aplica |
 | `teo` | `b67d16624f703885f604993fef0d2920227daeba` | 181 | 4 | Interaccion historica | Referencia historica | `HISTORICAL_INTERACTION_REFERENCE` | Ninguno directo | Ideas tecnicas ya superseded por U3 audit | U3B |
 | `echezuria` | `28c1220325ac94a342d55788eb0f02e40dece941` | 226 | 10 | Fisico/historico | Referencia fisica historica | `HISTORICAL_PHYSICAL_REFERENCE` | Ninguno directo | Evidencia historica no valida HIL actual | U5 |
 
@@ -160,7 +189,7 @@ U2 y U3 son dominios separados: U2 trata QR/vision observacional; U3 trata runti
 | `U3B` | `fc42fa5bd3d32c57766350b422745fced97dc69a` | `feat(orchestrator): wire supervised interaction lifecycle` (auditoria posterior: `REJECTED_PARTIAL_IMPLEMENTATION`) |
 | `U3BR1` | `664e0a3f8776a8861182bed364ae5be2a8a74e18` | `fix(orchestrator): serialize emergency and interaction shutdown` |
 | `U3BR2` | `728584290b9e19c8caf6a2c6f856c7f3eb20b7a3` | `fix(orchestrator): bound settlement and preserve emergency` (auditoria posterior: `REJECTED_PARTIAL_REMEDIATION`) |
-| `U3BR3` | `DYNAMIC_HANDOFF_CHECKPOINT` | `fix(orchestrator): avoid self-settlement and bound runtime stop` |
+| `U3BR3` | `HISTORICAL_PLACEHOLDER_NO_SHA` | `fix(orchestrator): avoid self-settlement and bound runtime stop` |
 | `U3AR10` | `PENDING_COMMIT` | `fix(interaction): settle async resources before loop teardown` |
 
 El checkpoint vigente del handoff se obtiene dinamicamente con `HANDOFF_CHECKPOINT_COMMAND`; no se agrega al ledger el SHA del commit que todavia contiene una correccion en preparacion.

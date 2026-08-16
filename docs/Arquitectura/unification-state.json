@@ -1,16 +1,28 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-07-23T12:00:00Z",
-  "repository": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
+  "updated_at": "2026-08-15T22:26:35Z",
+  "repository": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
   "mirror_url": "https://github.com/LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU.git",
-  "remote_authority": "mirror",
   "canonical_authority": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
   "mirror_staging": "LucasCap12/OttoGuide-Proyecto_SIP-Grupo6-G1-EDU",
+  "integration_branch": "review/orchestrator-unification",
+  "remote_integration_head": "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e",
   "canonical_review_sha": "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e",
   "mirror_review_sha": "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e",
-  "local_feature_sha": "8f3b02c5e66d13cd5a67107fb70875bf520c9df0",
+  "p2a_baseline_sha": "76ecfd782af4a401936076939e0c9c0b55718b4e",
+  "p2a_audit_branch": "audit/odom-tf-r2-p2a-76ecfd78-prepublish-r1",
+  "p2c_local_candidate_state": "LOCAL_UNCOMMITTED_WORKTREE",
+  "local_p2c_branch": "feature/odom-tf-r2-p2-frame-semantics-covariance-contract",
+  "local_p2c_base_head": "76ecfd782af4a401936076939e0c9c0b55718b4e",
+  "p2c_base_sha": "76ecfd782af4a401936076939e0c9c0b55718b4e",
+  "p2c_commit_sha": null,
+  "p2c_remote_branch": null,
+  "p2c_published": false,
+  "p2c_next_checkpoint": "MVP-ODOM-TF-R2-P2C-CLAIMS-STATE-R2-INDEPENDENT-AUDIT-R1",
   "main_sha": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
-  "authority_semantics": "canonical_authority is the authoritative repository; mirror_staging is staging only. The local feature SHA is not attributed to either remote.",
+  "main_relation_to_review": "NO_COMMON_ANCESTOR",
+  "main_policy": "DO_NOT_MERGE_OR_REBASE",
+  "authority_semantics": "canonical_authority is the integration authority; mirror_staging is staging and audit only. P2C is local uncommitted work and is not present on either remote.",
   "canonical_access": "publication_only",
   "canonical_repository": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE",
   "canonical_publish_branch": "review/orchestrator-unification",
@@ -33,17 +45,19 @@
     "head": "bf1829d8a7313ec3820f093f460a8b20a823f90a",
     "message": "docs(unification): add portable branch handoff"
   },
+  "source_heads_status": "LIVE_READ_ONLY_VERIFIED_2026-08-15",
   "source_heads": {
     "main": "3a1f13574e4a27d9aff2bfd38b3659951e8cb264",
     "desarrollo": "aafb7ad1565caced974b98bfdd6b5320901f49c8",
     "robot": "f35ee544dac1afd64c04b949ed952fc6e6a9b6bc",
     "feature/erirobot": "a93226b450bd384686dc9f009e96677910af936e",
     "InteraccionIA": "bf2148d4ad6fc766694842573452b740e0886385",
-    "pilar-web": "80051eed9dfab20c982147b8a1d8bb6bebac0982",
+    "pilar-web": "8a5803f5fd8f9bdb08faa5a8bc40a3a5dd709b73",
     "teo": "b67d16624f703885f604993fef0d2920227daeba",
     "echezuria": "28c1220325ac94a342d55788eb0f02e40dece941"
   },
   "branch_relations_snapshot": {
+    "historical_snapshot": true,
     "as_of_head": "fc42fa5bd3d32c57766350b422745fced97dc69a",
     "relations": {
       "main": {
@@ -188,7 +202,8 @@
       "audit": "REJECTED_PARTIAL_REMEDIATION"
     },
     "U3BR3": {
-      "commit": "DYNAMIC_HANDOFF_CHECKPOINT",
+      "commit": null,
+      "historical_placeholder": true,
       "message": "fix(orchestrator): avoid self-settlement and bound runtime stop"
     }
   },

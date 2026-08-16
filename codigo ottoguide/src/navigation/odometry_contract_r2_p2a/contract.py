@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -15,6 +16,7 @@ from .models import (
     CovarianceDomain,
     CovarianceEvidenceKind,
     CovarianceRecord,
+    CovarianceStatus,
     FrameClassification,
     FrameContract,
     PathKind,
@@ -206,9 +208,9 @@ def build_covariance_records(p1a: P1AValidation) -> tuple[CovarianceRecord, ...]
                 source_values=values,
                 variance_candidates=variances,
                 status=(
-                    "MEASURED_ZERO_SOURCE_VARIANCE"
+                    CovarianceStatus.MEASURED_ZERO_SOURCE_VARIANCE  # F01
                     if kind is CovarianceEvidenceKind.MEASURED_ZERO_SOURCE_VARIANCE
-                    else "PARTIAL_QUANTIFIED"
+                    else CovarianceStatus.PARTIAL_QUANTIFIED
                 ),
                 provenance=_record_provenance(p1a),
                 blockers=PHYSICAL_BLOCKERS,
@@ -231,7 +233,7 @@ def build_covariance_records(p1a: P1AValidation) -> tuple[CovarianceRecord, ...]
                 unsupported_axes=("roll", "pitch", "yaw"),
                 source_values=(None, None, None),
                 variance_candidates=(None, None, None),
-                status="POSE_ORIENTATION_UNAVAILABLE",
+                status=CovarianceStatus.POSE_ORIENTATION_UNAVAILABLE,  # F01
                 provenance=_record_provenance(p1a),
                 blockers=PHYSICAL_BLOCKERS,
                 publication_status=PublicationStatus.NOT_PUBLICATION_READY,
@@ -273,7 +275,11 @@ def build_covariance_records(p1a: P1AValidation) -> tuple[CovarianceRecord, ...]
                 unsupported_axes=("ros_covariance_diagonal",),
                 source_values=(value,),
                 variance_candidates=(None,),
-                status=item["status"],
+                status=(
+                    CovarianceStatus.CROSS_CHANNEL_DIAGNOSTIC  # F01: cross-channel
+                    if residual_type == "CROSS_CHANNEL"
+                    else CovarianceStatus.SOURCE_RESIDUAL_DIAGNOSTIC  # F01: linear residual
+                ),
                 provenance=_record_provenance(p1a),
                 blockers=PHYSICAL_BLOCKERS,
                 publication_status=PublicationStatus.NOT_PUBLICATION_READY,
@@ -307,7 +313,7 @@ def build_covariance_records(p1a: P1AValidation) -> tuple[CovarianceRecord, ...]
                 unsupported_axes=("pose_yaw", "ros_covariance_diagonal"),
                 source_values=(value,),
                 variance_candidates=(None,),
-                status=item["status"],
+                status=CovarianceStatus.CROSS_CHANNEL_DIAGNOSTIC,  # F01
                 provenance=_record_provenance(p1a),
                 blockers=PHYSICAL_BLOCKERS,
                 publication_status=PublicationStatus.NOT_PUBLICATION_READY,
@@ -338,6 +344,8 @@ class ContractEvidenceSet:
     frames: tuple[FrameContract, ...]
     covariance: tuple[CovarianceRecord, ...]
     claims: tuple[Claim, ...]
+    descriptor_input: ValidatedInput
+    p2_claims_input: ValidatedInput
     provenance_inputs: tuple[ValidatedInput, ...]
 
     def __post_init__(self) -> None:
@@ -363,62 +371,279 @@ class ContractEvidenceSet:
         domains = {item.domain for item in self.covariance}
         if domains != set(CovarianceDomain):
             raise ContractValidationError("P2A covariance domains are incomplete")
-        if type(self.claims) is not tuple or any(type(item) is not Claim for item in self.claims):
+        # F11: claims must be a non-empty tuple of exact Claim; each name unique
+        if type(self.claims) is not tuple or not self.claims:
             raise ContractValidationError("P2A claims are not exact")
+        if any(type(item) is not Claim for item in self.claims):
+            raise ContractValidationError("P2A claims are not exact")
+        claim_names = [item.name for item in self.claims]
+        if len(claim_names) != len(set(claim_names)):
+            raise ContractValidationError("P2A claim names must be unique")
+        # F12: provenance_inputs must be non-empty with unique source_ids
         if type(self.provenance_inputs) is not tuple or not self.provenance_inputs:
             raise ContractValidationError("P2A material provenance is empty")
         if any(type(item) is not ValidatedInput for item in self.provenance_inputs):
             raise ContractValidationError("P2A material provenance type mismatch")
+        if type(self.descriptor_input) is not ValidatedInput:
+            raise ContractValidationError("descriptor input type mismatch")
+        if type(self.p2_claims_input) is not ValidatedInput:
+            raise ContractValidationError("claims ledger input type mismatch")
+        if (
+            self.descriptor_input.source_id != "r2-p0a-evidence-descriptor"
+            or self.descriptor_input.validation_context
+            is not ValidationContext.PHYSICAL_EVIDENCE
+            or self.descriptor_input.claim_strength
+            is not ClaimStrength.PRESERVED_PHYSICAL_EVIDENCE
+        ):
+            raise ContractValidationError("descriptor input contract mismatch")
+        if (
+            self.p2_claims_input.source_id != "r2-p2a-claims-ledger"
+            or self.p2_claims_input.validation_context
+            is not ValidationContext.STRUCTURAL_ONLY
+            or self.p2_claims_input.claim_strength is not ClaimStrength.STRUCTURAL_POLICY
+        ):
+            raise ContractValidationError("claims ledger input contract mismatch")
+        source_ids = [item.source_id for item in self.provenance_inputs]
+        if len(source_ids) != len(set(source_ids)):
+            duplicates = tuple(sorted({item for item in source_ids if source_ids.count(item) > 1}))
+            raise ContractValidationError(
+                f"P2A provenance source_ids must be unique: duplicates={duplicates}"
+            )
+        expected_inputs = (
+            self.descriptor_input,
+            self.p1a.input_ref,
+            self.mapping.manifest_input,
+            self.p2_claims_input,
+        ) + self.mapping.selected_inputs
+        if any(type(item) is not ValidatedInput for item in expected_inputs):
+            raise ContractValidationError("P2A expected material provenance type mismatch")
+        expected_ids_sequence = [item.source_id for item in expected_inputs]
+        if len(expected_ids_sequence) != len(set(expected_ids_sequence)):
+            duplicates = tuple(
+                sorted({item for item in expected_ids_sequence if expected_ids_sequence.count(item) > 1})
+            )
+            raise ContractValidationError(
+                f"P2A expected provenance source_ids must be unique: duplicates={duplicates}"
+            )
+        expected_by_id = {item.source_id: item for item in expected_inputs}
+        actual_by_id = {item.source_id: item for item in self.provenance_inputs}
+        expected_ids = set(expected_by_id)
+        actual_ids = set(source_ids)
+        missing = tuple(sorted(expected_ids - actual_ids))
+        extra = tuple(sorted(actual_ids - expected_ids))
+        mismatched = tuple(
+            sorted(
+                source_id
+                for source_id in expected_ids & actual_ids
+                if actual_by_id[source_id] != expected_by_id[source_id]
+            )
+        )
+        if missing or extra or mismatched:
+            raise ContractValidationError(
+                "P2A provenance mismatch: "
+                f"missing={missing} extra={extra} mismatched={mismatched}"
+            )
 
 
-EXPECTED_CLAIMS: Mapping[str, object] = {
-    "P2A_CONTRACT_STRUCTURALLY_READY": True,
-    "MAPPING_PROVENANCE_BOUND": True,
-    "P1A_INPUT_VALIDATED": True,
-    "ENUM_BYPASS_CLOSED": True,
-    "NUMERIC_OVERFLOW_CLOSED": True,
-    "MEASURED_ZERO_PRESERVED": True,
-    "CROSS_CHANNEL_EVIDENCE_SEPARATED": True,
-    "OFFLINE_REPLAY_POLICY_STRUCTURALLY_READY": True,
-    "OFFLINE_REPLAY_ADAPTER_READY": False,
-    "OFFLINE_REPLAY_EXECUTION_VALIDATED": False,
-    "SIMULATION_POLICY_STRUCTURALLY_READY": True,
-    "SIMULATION_MODEL_BOUND": False,
-    "SIMULATION_ADAPTER_IMPLEMENTED": False,
-    "SIMULATION_EXECUTION_READY": False,
-    "PHYSICAL_ODOM_PUBLICATION_READY": False,
-    "PHYSICAL_TF_PUBLICATION_READY": False,
-    "AUTHORITATIVE_SOURCE_CHANNEL": None,
-    "PREFERRED_ANALYSIS_CHANNEL": None,
-}
+CONFIGURED_CONTRACT_FRAMES = ("map", "odom", "base_link")
 
 
-def build_claims() -> tuple[Claim, ...]:
+def build_mapping_vocabulary(mapping: MappingBinding) -> tuple[Mapping[str, str], ...]:
+    if type(mapping) is not MappingBinding:
+        raise ContractValidationError("mapping vocabulary requires a validated binding")
+    observed = mapping.observed_frame_ids
+    if type(observed) is not tuple or len(observed) != len(set(observed)):
+        raise ContractValidationError("mapping observed frame IDs must be unique")
+    if set(CONFIGURED_CONTRACT_FRAMES) & set(observed):
+        raise ContractValidationError("configured and observed frame vocabularies overlap")
+    configured_entries = tuple(
+        {
+            "frame_id": frame_id,
+            "provenance_kind": "CONFIGURED_CONTRACT_NAME",
+            "classification": (
+                FrameClassification.MAPPING_REFERENCE.value
+                if frame_id == "map"
+                else FrameClassification.CONFIGURED_NAME.value
+            ),
+            "physical_semantics": "UNRESOLVED",
+        }
+        for frame_id in CONFIGURED_CONTRACT_FRAMES
+    )
+    observed_entries = tuple(
+        {
+            "frame_id": frame_id,
+            "provenance_kind": "MANIFEST_OBSERVED_FRAME_ID",
+            "classification": FrameClassification.OBSERVED_SOURCE_LABEL.value,
+            "physical_semantics": "UNRESOLVED",
+        }
+        for frame_id in sorted(observed)
+    )
+    return configured_entries + observed_entries
+
+
+def measured_zero_source_variance_preserved(
+    covariance: tuple[CovarianceRecord, ...],
+) -> bool:
+    """Return whether source-dispersion evidence preserves a measured zero."""
+    if type(covariance) is not tuple or any(
+        type(record) is not CovarianceRecord for record in covariance
+    ):
+        raise ContractValidationError(
+            "measured-zero evaluation requires exact covariance records"
+        )
+    return any(
+        record.domain is CovarianceDomain.POSE_POSITION_SOURCE_DISPERSION
+        and record.evidence_kind
+        is CovarianceEvidenceKind.MEASURED_ZERO_SOURCE_VARIANCE
+        and any(
+            source_value == 0.0 and variance_candidate == 0.0
+            for source_value, variance_candidate in zip(
+                record.source_values,
+                record.variance_candidates,
+                strict=True,
+            )
+        )
+        for record in covariance
+    )
+
+
+def build_claims(
+    *,
+    p1a: P1AValidation,
+    mapping: MappingBinding,
+    frames: tuple[FrameContract, ...],
+    covariance: tuple[CovarianceRecord, ...],
+    mapping_vocabulary: tuple[Mapping[str, str], ...],
+) -> tuple[Claim, ...]:
+    if type(p1a) is not P1AValidation or type(mapping) is not MappingBinding:
+        raise ContractValidationError("claims require validated material inputs")
+    if type(frames) is not tuple or any(type(item) is not FrameContract for item in frames):
+        raise ContractValidationError("claims require exact frame contracts")
+    if type(covariance) is not tuple or any(
+        type(item) is not CovarianceRecord for item in covariance
+    ):
+        raise ContractValidationError("claims require exact covariance records")
+    if type(mapping_vocabulary) is not tuple or not mapping_vocabulary:
+        raise ContractValidationError("claims require a mapping vocabulary")
+    observed_vocabulary = tuple(
+        entry["frame_id"]
+        for entry in mapping_vocabulary
+        if entry.get("provenance_kind") == "MANIFEST_OBSERVED_FRAME_ID"
+    )
+    vocabulary_derived = observed_vocabulary == tuple(sorted(mapping.observed_frame_ids))
+    frame_contexts = {frame.validation_context for frame in frames}
+    replay_ready = ValidationContext.OFFLINE_REPLAY in frame_contexts
+    simulation_ready = ValidationContext.SIMULATION_POLICY in frame_contexts
+    mapping_manifest_reference_valid = (
+        mapping.manifest_input.source_id == "r2-p2a-mapping-evidence-manifest"
+        and bool(mapping.selected_inputs)
+    )
+    mapping_hash_references_well_formed = all(
+        type(item.sha256) is str and len(item.sha256) == 64
+        for item in (mapping.manifest_input,) + mapping.selected_inputs
+    )
+    numeric_values = tuple(
+        value
+        for record in covariance
+        for value in record.source_values + record.variance_candidates
+        if value is not None
+    )
+    current_covariance_values_finite = all(
+        type(value) in (int, float) and not isinstance(value, bool) and math.isfinite(value)
+        for value in numeric_values
+    )
+    measured_zero_preserved = measured_zero_source_variance_preserved(covariance)
+    cross_channel_separated = all(
+        record.channel == "CROSS_CHANNEL"
+        for record in covariance
+        if record.domain in (
+            CovarianceDomain.CROSS_CHANNEL_RESIDUAL,
+            CovarianceDomain.TWIST_ANGULAR_YAW_RATE_RESIDUAL,
+        )
+    )
+    structurally_ready = (
+        mapping_manifest_reference_valid
+        and mapping_hash_references_well_formed
+        and vocabulary_derived
+        and p1a.input_ref.source_id == "r2-p1a-result"
+        and frame_contexts
+        == {
+            ValidationContext.PHYSICAL_EVIDENCE,
+            ValidationContext.OFFLINE_REPLAY,
+            ValidationContext.SIMULATION_POLICY,
+        }
+        and bool(covariance)
+    )
+    values = (
+        ("P2A_CONTRACT_STRUCTURALLY_READY", structurally_ready),
+        (
+            "MAPPING_MANIFEST_REFERENCE_STRUCTURALLY_VALID",
+            mapping_manifest_reference_valid,
+        ),
+        (
+            "MAPPING_INPUT_HASH_REFERENCES_WELL_FORMED",
+            mapping_hash_references_well_formed,
+        ),
+        ("MAPPING_SELECTED_SOURCE_CONTENT_PARSED", False),
+        ("MAPPING_FRAME_RELATIONS_DERIVED_FROM_CONTENT", False),
+        ("MAPPING_VOCABULARY_DERIVED_FROM_MANIFEST", vocabulary_derived),
+        (
+            "P1A_INPUT_REFERENCE_STRUCTURALLY_VALID",
+            p1a.input_ref.source_id == "r2-p1a-result",
+        ),
+        (
+            "FRAME_VALIDATION_CONTEXT_TYPES_EXACT",
+            all(
+                type(frame.validation_context) is ValidationContext
+                for frame in frames
+            ),
+        ),
+        ("CURRENT_COVARIANCE_VALUES_FINITE", current_covariance_values_finite),
+        ("MEASURED_ZERO_PRESERVED", measured_zero_preserved),
+        ("CROSS_CHANNEL_EVIDENCE_SEPARATED", cross_channel_separated),
+        ("OFFLINE_REPLAY_POLICY_STRUCTURALLY_READY", replay_ready),
+        ("OFFLINE_REPLAY_ADAPTER_READY", False),
+        ("OFFLINE_REPLAY_EXECUTION_VALIDATED", False),
+        ("SIMULATION_POLICY_STRUCTURALLY_READY", simulation_ready),
+        ("SIMULATION_MODEL_BOUND", False),
+        ("SIMULATION_ADAPTER_IMPLEMENTED", False),
+        ("SIMULATION_EXECUTION_READY", False),
+        ("PHYSICAL_ODOM_PUBLICATION_READY", False),
+        ("PHYSICAL_TF_PUBLICATION_READY", False),
+        ("AUTHORITATIVE_SOURCE_CHANNEL", p1a.authoritative_source_channel),
+        ("PREFERRED_ANALYSIS_CHANNEL", p1a.preferred_analysis_channel),
+    )
+    physical_names = {
+        "PHYSICAL_ODOM_PUBLICATION_READY",
+        "PHYSICAL_TF_PUBLICATION_READY",
+        "AUTHORITATIVE_SOURCE_CHANNEL",
+        "PREFERRED_ANALYSIS_CHANNEL",
+    }
     return tuple(
         Claim(
             name=name,
             value=value,
             context=(
                 ValidationContext.PHYSICAL_EVIDENCE
-                if name
-                in {
-                    "PHYSICAL_ODOM_PUBLICATION_READY",
-                    "PHYSICAL_TF_PUBLICATION_READY",
-                    "AUTHORITATIVE_SOURCE_CHANNEL",
-                    "PREFERRED_ANALYSIS_CHANNEL",
-                }
+                if name in physical_names
                 else ValidationContext.STRUCTURAL_ONLY
             ),
         )
-        for name, value in EXPECTED_CLAIMS.items()
+        for name, value in values
     )
 
 
 def assess_readiness(evidence: ContractEvidenceSet) -> ReadinessContract:
     if type(evidence) is not ContractEvidenceSet:
         raise ContractValidationError("readiness requires a validated ContractEvidenceSet")
-    actual_claims = {claim.name: claim.value for claim in evidence.claims}
-    if actual_claims != dict(EXPECTED_CLAIMS):
+    expected_claims = build_claims(
+        p1a=evidence.p1a,
+        mapping=evidence.mapping,
+        frames=evidence.frames,
+        covariance=evidence.covariance,
+        mapping_vocabulary=build_mapping_vocabulary(evidence.mapping),
+    )
+    if evidence.claims != expected_claims:
         raise ContractValidationError("claims ledger is inconsistent")
     provenance_by_id = {item.source_id: item for item in evidence.provenance_inputs}
     p1a_provenance = provenance_by_id.get(evidence.p1a.input_ref.source_id)
@@ -428,17 +653,38 @@ def assess_readiness(evidence: ContractEvidenceSet) -> ReadinessContract:
         item.sha256 for item in evidence.provenance_inputs
     }:
         raise ContractValidationError("mapping provenance hash missing")
+    claim_values = {claim.name: claim.value for claim in evidence.claims}
     return ReadinessContract(
-        p2a_contract_structurally_ready=True,
-        offline_replay_policy_structurally_ready=True,
-        simulation_policy_structurally_ready=True,
-        physical_odom_publication_ready=False,
-        physical_tf_publication_ready=False,
-        offline_replay_adapter_ready=False,
-        offline_replay_execution_validated=False,
-        simulation_model_bound=False,
-        simulation_adapter_ready=False,
-        simulation_execution_ready=False,
+        p2a_contract_structurally_ready=(
+            claim_values["P2A_CONTRACT_STRUCTURALLY_READY"] is True
+        ),
+        offline_replay_policy_structurally_ready=(
+            claim_values["OFFLINE_REPLAY_POLICY_STRUCTURALLY_READY"] is True
+        ),
+        simulation_policy_structurally_ready=(
+            claim_values["SIMULATION_POLICY_STRUCTURALLY_READY"] is True
+        ),
+        physical_odom_publication_ready=(
+            claim_values["PHYSICAL_ODOM_PUBLICATION_READY"] is True
+        ),
+        physical_tf_publication_ready=(
+            claim_values["PHYSICAL_TF_PUBLICATION_READY"] is True
+        ),
+        offline_replay_adapter_ready=(
+            claim_values["OFFLINE_REPLAY_ADAPTER_READY"] is True
+        ),
+        offline_replay_execution_validated=(
+            claim_values["OFFLINE_REPLAY_EXECUTION_VALIDATED"] is True
+        ),
+        simulation_model_bound=(
+            claim_values["SIMULATION_MODEL_BOUND"] is True
+        ),
+        simulation_adapter_ready=(
+            claim_values["SIMULATION_ADAPTER_IMPLEMENTED"] is True
+        ),
+        simulation_execution_ready=(
+            claim_values["SIMULATION_EXECUTION_READY"] is True
+        ),
         nav2_simulation_ready=False,
         blockers=PHYSICAL_BLOCKERS + EXECUTION_BLOCKERS,
     )

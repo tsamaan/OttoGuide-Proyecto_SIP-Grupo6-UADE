@@ -24,7 +24,7 @@ tenían una frontera fail-closed uniforme.
 | H3–H5 | Manifest mapping sanitizado, validado y enlazado por SHA-256 |
 | H6 | Schema P1A y bundle embebido exigidos; findings H1–H10 exactos |
 | H7/H8 | Números finitos simples, límites representables y containers exactos |
-| H9 | `stddev=0.0` conserva candidato de varianza `0.0` |
+| H9 | Un cero se preserva solo si existe evidencia fuente measured-zero en el mismo eje; el material actual no la demuestra |
 | H10/H11 | Evidencia cross-channel y yaw-rate separada por dominio |
 | H12 | Simulación reducida a `SIMULATION_POLICY_CANDIDATE` |
 | H13 | Readiness derivada de un `ContractEvidenceSet` validado |
@@ -70,8 +70,9 @@ P2A separa:
 - `CROSS_CHANNEL_RESIDUAL`.
 
 Los residuos `BOTH` no se replican en primary/LF. Los residuos yaw-rate quedan
-como cross-channel en `rad/s`, nunca como pose-yaw. Cero medido se conserva como
-varianza fuente `0.0`; ausencia o invalidez queda en `null`.
+como cross-channel en `rad/s`, nunca como pose-yaw. Un cero se conserva como
+varianza fuente `0.0` solo bajo el predicado estricto de evidencia fuente; el
+material actual no contiene ese caso. Ausencia o invalidez queda en `null`.
 
 No existe conversión de posición a SI, matriz ROS, off-diagonals resueltas ni
 modelo publicable.
@@ -108,3 +109,28 @@ callers productivos que dependan de un retorno `true`.
 - matriz de covarianza ROS SI: `None`;
 - publicación ODOM/TF: `false`;
 - acceso futuro al robot: `NOT_EXPECTED`.
+
+## Candidato local P2C
+
+El hardening local P2C mantiene cerrados por implementacion y regresion los
+findings de modelos, inputs e I/O. Independent Audit R1 reabrio F19 y F20:
+`MEASURED_ZERO_PRESERVED` usaba ceros cross-channel como evidencia de varianza
+fuente y `source_heads.pilar-web` no coincidia con las refs remotas vivas.
+
+Claims/State R2 corrige el predicado measured-zero, conserva el claim en
+`false` para el material actual, estrecha las garantias de mapping, P1A, enums
+y numeros a propiedades estructurales demostrables, deriva las vistas desde un
+ledger canonico y reconcilia `pilar-web` con ambos remotos. Un caso unitario
+sintetico positivo prueba la logica measured-zero, pero no constituye evidencia
+fisica. La restriccion de overlap entre frames configurados y observados queda
+como limitacion baja aceptada, sin redisenar el mapping.
+
+Este estado es un candidato local sin commit y sin publicacion remota. No esta
+integrado en `review/orchestrator-unification`, no existe una rama P2C remota y
+la auditoria independiente R2 permanece pendiente. El siguiente gate es
+`MVP-ODOM-TF-R2-P2C-CLAIMS-STATE-R2-INDEPENDENT-AUDIT-R1`.
+
+Los limites funcionales no cambian: no se declara `/odom` fisico, TF fisico,
+Nav2, localizacion, mapa fisico, matriz de covarianza ROS/SI, replay ejecutado,
+simulacion ejecutada, canal autoritativo, preferencia LF autoritativa ni nueva
+evidencia fisica.

@@ -124,13 +124,67 @@ class MappingBinding:
     manifest_input: ValidatedInput
     selected_inputs: tuple[ValidatedInput, ...]
     source_ids: tuple[str, ...]
+    file_categories: tuple[str, ...]
+    selected_source_categories: tuple[tuple[str, str], ...]
     session_ids: tuple[str, ...]
     take_ids: tuple[str, ...]
     observed_frame_ids: tuple[str, ...]
     observed_topic_ids: tuple[str, ...]
     allowed_claims: tuple[str, ...]
     prohibited_claims: tuple[str, ...]
-    correlation_edges: tuple[str, ...]
+    structural_correlation_policy: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.manifest_input) is not ValidatedInput:
+            raise ContractValidationError("mapping manifest input type mismatch")
+        if (
+            self.manifest_input.source_id != "r2-p2a-mapping-evidence-manifest"
+            or self.manifest_input.validation_context is not ValidationContext.OFFLINE_REPLAY
+            or self.manifest_input.claim_strength
+            is not ClaimStrength.PRESERVED_MAPPING_REFERENCE
+        ):
+            raise ContractValidationError("mapping manifest input contract mismatch")
+        if type(self.selected_inputs) is not tuple or not self.selected_inputs:
+            raise ContractValidationError("selected_inputs must be a non-empty exact tuple")
+        if any(type(item) is not ValidatedInput for item in self.selected_inputs):
+            raise ContractValidationError("selected_inputs type mismatch")
+        if any(
+            item.validation_context is not ValidationContext.OFFLINE_REPLAY
+            or item.claim_strength not in (
+                ClaimStrength.PRESERVED_MAPPING_REFERENCE,
+                ClaimStrength.DERIVED_MAPPING_REFERENCE,
+            )
+            for item in self.selected_inputs
+        ):
+            raise ContractValidationError("selected input contract mismatch")
+        for name in (
+            "source_ids", "file_categories", "session_ids", "take_ids",
+            "observed_frame_ids", "observed_topic_ids", "allowed_claims",
+            "prohibited_claims", "structural_correlation_policy",
+        ):
+            value = getattr(self, name)
+            if type(value) is not tuple or not value:
+                raise ContractValidationError(f"{name} must be a non-empty unique exact tuple")
+            exact_string_tuple = _canonical_string_list(list(value), name)
+            if exact_string_tuple != value:
+                raise ContractValidationError(f"{name} must be a non-empty unique exact tuple")
+        selected_ids = tuple(item.source_id for item in self.selected_inputs)
+        if self.source_ids != selected_ids:
+            raise ContractValidationError("source_ids must match selected_inputs in order")
+        if type(self.selected_source_categories) is not tuple or not self.selected_source_categories:
+            raise ContractValidationError("selected_source_categories must be a non-empty exact tuple")
+        pairs: list[tuple[str, str]] = []
+        for pair in self.selected_source_categories:
+            if type(pair) is not tuple or len(pair) != 2:
+                raise ContractValidationError("selected source category pair must be an exact pair")
+            pairs.append((canonical_string(pair[0], "selected category source_id"), canonical_string(pair[1], "selected category")))
+        if tuple(source_id for source_id, _ in pairs) != self.source_ids:
+            raise ContractValidationError("selected source category IDs must match source_ids in order")
+        if any(category not in self.file_categories for _, category in pairs):
+            raise ContractValidationError("selected source category is not declared")
+        used_categories = {category for _, category in pairs}
+        if used_categories != set(self.file_categories):
+            raise ContractValidationError("every file category must have a selected source")
 
 
 def validate_mapping_manifest(
@@ -153,7 +207,7 @@ def validate_mapping_manifest(
     source_ids = _canonical_string_list(document.get("source_ids"), "source_ids")
     session_ids = _canonical_string_list(document.get("session_ids"), "session_ids")
     take_ids = _canonical_string_list(document.get("take_ids"), "take_ids")
-    _canonical_string_list(document.get("file_categories"), "file_categories")
+    file_categories = _canonical_string_list(document.get("file_categories"), "file_categories")
     frame_ids = _canonical_string_list(document.get("observed_frame_ids"), "observed_frame_ids")
     topic_ids = _canonical_string_list(document.get("observed_topic_ids"), "observed_topic_ids")
     allowed = _canonical_string_list(document.get("allowed_claims"), "allowed_claims")
@@ -171,18 +225,26 @@ def validate_mapping_manifest(
     if not root.is_dir():
         raise ContractValidationError("mapping root must be a directory")
     manifest_rows = _exact_list(document.get("input_manifests"), "input_manifests")
+    if not manifest_rows:
+        raise ContractValidationError("input_manifests must not be empty")
     verified_manifests: dict[str, dict[str, str]] = {}
     for row_value in manifest_rows:
         row = _exact_dict(row_value, "input_manifest")
         rel = logical_path(row.get("logical_path"), "input_manifest.logical_path")
+        if rel in verified_manifests:
+            raise ContractValidationError("input manifest logical paths must be unique")
         expected = sha256_string(row.get("sha256"), "input_manifest.sha256")
         source_path = _material_path(root, rel, "mapping input manifest")
         if sha256_file(source_path) != expected:
             raise ContractValidationError(f"mapping input manifest hash mismatch: {rel}")
         verified_manifests[rel] = _manifest_entries(source_path)
     source_rows = _exact_list(document.get("selected_sources"), "selected_sources")
+    if not source_rows:
+        raise ContractValidationError("selected_sources must not be empty")
     selected: list[ValidatedInput] = []
+    selected_categories: list[tuple[str, str]] = []
     seen_sources: set[str] = set()
+    seen_paths: set[str] = set()
     for row_value in source_rows:
         row = _exact_dict(row_value, "selected_source")
         source_id = canonical_string(row.get("source_id"), "selected_source.source_id")
@@ -190,6 +252,12 @@ def validate_mapping_manifest(
             raise ContractValidationError("selected source IDs must be unique")
         seen_sources.add(source_id)
         rel = logical_path(row.get("logical_path"), "selected_source.logical_path")
+        if rel in seen_paths:
+            raise ContractValidationError("selected source logical paths must be unique")
+        seen_paths.add(rel)
+        category = canonical_string(row.get("category"), "selected_source.category")
+        if category not in file_categories:
+            raise ContractValidationError("selected source category is not declared")
         expected = sha256_string(row.get("sha256"), "selected_source.sha256")
         manifest_rel = logical_path(row.get("manifest_path"), "selected_source.manifest_path")
         entry_rel = logical_path(
@@ -228,13 +296,22 @@ def validate_mapping_manifest(
                 ),
             )
         )
-    if set(source_ids) != seen_sources:
-        raise ContractValidationError("source_ids and selected_sources disagree")
+        selected_categories.append((source_id, category))
+    if source_ids != tuple(item.source_id for item in selected):
+        raise ContractValidationError("source_ids and selected_sources disagree in order")
+    if {category for _, category in selected_categories} != set(file_categories):
+        raise ContractValidationError("every file category must have a selected source")
     map_artifacts = _exact_list(document.get("map_artifacts"), "map_artifacts")
+    artifact_ids: set[str] = set()
     for artifact_value in map_artifacts:
         artifact = _exact_dict(artifact_value, "map_artifact")
-        canonical_string(artifact.get("artifact_id"), "map_artifact.artifact_id")
-        canonical_string(artifact.get("category"), "map_artifact.category")
+        artifact_id = canonical_string(artifact.get("artifact_id"), "map_artifact.artifact_id")
+        if artifact_id in artifact_ids:
+            raise ContractValidationError("map artifact IDs must be unique")
+        artifact_ids.add(artifact_id)
+        artifact_category = canonical_string(artifact.get("category"), "map_artifact.category")
+        if artifact_category not in file_categories:
+            raise ContractValidationError("map artifact category is not declared")
         if artifact.get("navigation_map") is not False:
             raise ContractValidationError("mapping artifact cannot claim navigation-map status")
         if artifact.get("physical_frame_authority") is not False:
@@ -264,30 +341,40 @@ def validate_mapping_manifest(
         manifest_input=manifest_input,
         selected_inputs=tuple(selected),
         source_ids=source_ids,
+        file_categories=file_categories,
+        selected_source_categories=tuple(selected_categories),
         session_ids=session_ids,
         take_ids=take_ids,
         observed_frame_ids=frame_ids,
         observed_topic_ids=topic_ids,
         allowed_claims=allowed,
         prohibited_claims=prohibited,
-        correlation_edges=correlation,
+        structural_correlation_policy=correlation,
     )
 
 
 @dataclass(frozen=True, kw_only=True)
 class P1AValidation:
     input_ref: ValidatedInput
-    document: dict[str, object]
+    document_json: bytes
     stationary_ids: tuple[str, ...]
     preference_quarantined: bool
     authoritative_source_channel: None
     preferred_analysis_channel: None
+
+    @property
+    def document(self) -> dict[str, object]:
+        value = json.loads(self.document_json.decode("utf-8"))
+        if type(value) is not dict:
+            raise ContractValidationError("P1A snapshot changed type")
+        return value
 
 
 def validate_p1a_document(
     document: Mapping[str, object],
     *,
     input_sha256: str,
+    _same_byte_binding: bool = False,
 ) -> P1AValidation:
     if type(document) is not dict:
         raise ContractValidationError("P1A input must be an exact object")
@@ -310,7 +397,7 @@ def validate_p1a_document(
     preference = arbitration.get("preferred_analysis_channel")
     quarantined = False
     if preference is not None:
-        if digest != KNOWN_P1A_SHA256 or preference != CHANNELS[1]:
+        if not _same_byte_binding or digest != KNOWN_P1A_SHA256 or preference != CHANNELS[1]:
             raise ContractValidationError("P1A preferred analysis channel must be null")
         quarantined = True
     stationary = _exact_list(p1_bundle.get("stationary"), "p1_bundle.stationary")
@@ -337,8 +424,13 @@ def validate_p1a_document(
     if len(set(stationary_ids)) != len(stationary_ids):
         raise ContractValidationError("stationary evidence IDs must be unique")
     residuals = _exact_list(p1_bundle.get("dynamic_residuals"), "dynamic_residuals")
+    residual_ids: list[str] = []
     for record_value in residuals:
         record = _exact_dict(record_value, "dynamic residual")
+        residual_ids.append(canonical_string(record.get("evidence_id"), "residual.evidence_id"))
+        canonical_string(record.get("session_id"), "residual.session_id")
+        canonical_string(record.get("segment_name"), "residual.segment_name")
+        canonical_string(record.get("status"), "residual.status")
         channel = canonical_string(record.get("channel"), "residual.channel")
         residual_type = canonical_string(record.get("residual_type"), "residual.residual_type")
         if channel not in CHANNELS + ("BOTH",):
@@ -348,15 +440,24 @@ def validate_p1a_document(
         positive_int(record.get("sample_count"), "residual.sample_count")
         finite_number(record.get("residual_value"), "residual.residual_value", nonnegative=True)
         canonical_string(record.get("unit"), "residual.unit")
+    if len(residual_ids) != len(set(residual_ids)):
+        raise ContractValidationError("dynamic residual evidence IDs must be unique")
     yaw_records = _exact_list(document.get("yaw_speed_residuals"), "yaw_speed_residuals")
+    yaw_ids: list[str] = []
     for record_value in yaw_records:
         record = _exact_dict(record_value, "yaw residual")
+        yaw_ids.append(canonical_string(record.get("evidence_id"), "yaw.evidence_id"))
+        canonical_string(record.get("session_id"), "yaw.session_id")
+        canonical_string(record.get("phase"), "yaw.phase")
+        canonical_string(record.get("status"), "yaw.status")
         positive_int(record.get("sample_count"), "yaw.sample_count")
         finite_number(
             record.get("yaw_speed_rmse_rad_s"),
             "yaw.yaw_speed_rmse_rad_s",
             nonnegative=True,
         )
+    if len(yaw_ids) != len(set(yaw_ids)):
+        raise ContractValidationError("yaw residual evidence IDs must be unique")
     boot_records = _exact_list(document.get("boot_relation_evidence"), "boot_relation_evidence")
     if not boot_records:
         raise ContractValidationError("P1A boot relation evidence is required")
@@ -382,11 +483,33 @@ def validate_p1a_document(
             "P1A does not resolve physical frame semantics or SI scale.",
         ),
     )
+    try:
+        document_json = (
+            json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+            + "\n"
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ContractValidationError("P1A document cannot be snapshotted canonically") from exc
     return P1AValidation(
         input_ref=input_ref,
-        document=dict(document),
+        document_json=document_json,
         stationary_ids=tuple(stationary_ids),
         preference_quarantined=quarantined,
         authoritative_source_channel=None,
         preferred_analysis_channel=None,
+    )
+
+
+def load_and_validate_p1a(path: Path) -> P1AValidation:
+    try:
+        payload = path.read_bytes()
+        document = json.loads(payload.decode("utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ContractValidationError("p1a-input is not valid JSON") from exc
+    if type(document) is not dict:
+        raise ContractValidationError("P1A input must be an exact object")
+    return validate_p1a_document(
+        document,
+        input_sha256=hashlib.sha256(payload).hexdigest(),
+        _same_byte_binding=True,
     )

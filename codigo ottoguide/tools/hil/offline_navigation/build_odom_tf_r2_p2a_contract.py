@@ -15,10 +15,10 @@ if str(CODIGO_ROOT) not in sys.path:
     sys.path.insert(0, str(CODIGO_ROOT))
 
 from src.navigation.odometry_contract_r2_p2a.inputs import (  # noqa: E402
+    load_and_validate_p1a,
     load_json_object,
     sha256_file,
     validate_mapping_manifest,
-    validate_p1a_document,
 )
 from src.navigation.odometry_contract_r2_p2a.models import (  # noqa: E402
     ClaimStrength,
@@ -146,11 +146,7 @@ def main() -> int:
                 "Descriptor verifies preserved files; it is not new physical evidence.",
             ),
         )
-        p1a_document = load_json_object(p1a_path, "p1a-input")
-        p1a = validate_p1a_document(
-            p1a_document,
-            input_sha256=sha256_file(p1a_path),
-        )
+        p1a = load_and_validate_p1a(p1a_path)
         mapping_document = load_json_object(
             args.mapping_evidence_manifest,
             "mapping-evidence-manifest",
@@ -192,6 +188,8 @@ def main() -> int:
         OSError,
         UnicodeError,
         ValueError,
+        KeyError,
+        TypeError,
     ) as exc:
         print(f"P2A_CONTRACT_BUILD_FAILED: {exc}", file=sys.stderr)
         return 2

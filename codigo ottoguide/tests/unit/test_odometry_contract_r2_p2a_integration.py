@@ -12,6 +12,7 @@ import pytest
 
 from src.navigation import odom_bridge_contract
 from src.navigation.odometry_contract_r2_p2a.inputs import (
+    load_and_validate_p1a,
     load_json_object,
     sha256_file,
     validate_mapping_manifest,
@@ -79,8 +80,7 @@ def _mapping(document, manifest_path, mapping_root):
 
 
 def _p1a(path):
-    document = load_json_object(path, "p1a")
-    return validate_p1a_document(document, input_sha256=sha256_file(path))
+    return load_and_validate_p1a(path)
 
 
 def _input(source_id, path, schema, context, strength):
@@ -128,6 +128,8 @@ def test_real_mapping_manifest_is_hash_bound(material_inputs):
     ).hexdigest()
     assert len(binding.selected_inputs) == 5
     assert all(item.sha256 for item in binding.selected_inputs)
+    assert tuple(source_id for source_id, _ in binding.selected_source_categories) == binding.source_ids
+    assert {category for _, category in binding.selected_source_categories} == set(binding.file_categories)
 
 
 def test_different_valid_mapping_manifest_changes_provenance_and_output(material_inputs):
@@ -155,14 +157,14 @@ def test_different_valid_mapping_manifest_changes_provenance_and_output(material
         )
         p1a = _p1a(material_inputs["p1a"])
         descriptor = _input(
-            "descriptor",
+            "r2-p0a-evidence-descriptor",
             material_inputs["descriptor"],
             "1.0.0-p0a",
             ValidationContext.PHYSICAL_EVIDENCE,
             ClaimStrength.PRESERVED_PHYSICAL_EVIDENCE,
         )
         p2_claims = _input(
-            "p2-claims",
+            "r2-p2a-claims-ledger",
             P2A_CLAIMS,
             "2.2.1-p2a",
             ValidationContext.STRUCTURAL_ONLY,
@@ -242,14 +244,14 @@ def test_generated_claims_and_provenance_are_consistent(material_inputs):
         p1a=_p1a(material_inputs["p1a"]),
         mapping=mapping,
         descriptor_input=_input(
-            "descriptor",
+            "r2-p0a-evidence-descriptor",
             material_inputs["descriptor"],
             "1.0.0-p0a",
             ValidationContext.PHYSICAL_EVIDENCE,
             ClaimStrength.PRESERVED_PHYSICAL_EVIDENCE,
         ),
         p2_claims_input=_input(
-            "p2-claims",
+            "r2-p2a-claims-ledger",
             P2A_CLAIMS,
             "2.2.1-p2a",
             ValidationContext.STRUCTURAL_ONLY,
@@ -262,6 +264,41 @@ def test_generated_claims_and_provenance_are_consistent(material_inputs):
         canonical_json(documents["R2_P2A_CLAIMS_LEDGER.json"])
     )
     assert generated_claims["claims"] == versioned_claims["claims"]
+    assert generated_claims == versioned_claims
+    claim_values = {
+        claim["name"]: claim["value"] for claim in generated_claims["claims"]
+    }
+    assert claim_values["MEASURED_ZERO_PRESERVED"] is False
+    assert claim_values["MAPPING_INPUT_HASH_REFERENCES_WELL_FORMED"] is True
+    assert "MAPPING_INPUTS_HASH_BOUND" not in claim_values
+    result = documents["R2_P2A_RESULT.json"]
+    publication = documents["R2_P2A_COVARIANCE_PUBLICATION_CONTRACT.json"]
+    assert result["mapping_input_hash_references_well_formed"] is claim_values[
+        "MAPPING_INPUT_HASH_REFERENCES_WELL_FORMED"
+    ]
+    assert publication["measured_zero_preserved"] is claim_values[
+        "MEASURED_ZERO_PRESERVED"
+    ]
+    correlation = documents["R2_P2A_MAPPING_FRAME_CORRELATION.json"]
+    assert correlation["policy_kind"] == "STRUCTURAL_POLICY_ONLY"
+    assert correlation["selected_source_content_parsed"] is False
+    assert correlation["frame_relations_derived_from_content"] is False
+    assert correlation["physical_frame_authority"] is False
+    vocabulary = documents["R2_P2A_FRAME_VOCABULARY.json"]
+    observed = {
+        entry["frame_id"]
+        for entry in vocabulary["entries"]
+        if entry["provenance_kind"] == "MANIFEST_OBSERVED_FRAME_ID"
+    }
+    assert observed == set(mapping.observed_frame_ids)
+    assert {"unitree_lowstate_imu", "unitree_secondary_imu"}.issubset(observed)
+    findings = documents["R2_P2A_AUDIT_FINDINGS.json"]["findings"]
+    h9 = next(item for item in findings if item["hypothesis_id"] == "H9")
+    assert h9["closed"] is False
+    assert h9["status"] == "OPEN"
+    h15 = next(item for item in findings if item["hypothesis_id"] == "H15")
+    assert h15["closed"] is None
+    assert h15["status"] == "NOT_EVALUATED"
     provenance = documents["R2_P2A_PROVENANCE.json"]
     assert provenance["personal_paths_included"] is False
     assert provenance["raw_outputs_included"] is False
@@ -339,9 +376,14 @@ def test_unification_state_has_explicit_authority_roles():
     assert document["mirror_review_sha"] == (
         "ca3e8bed6d89316d4b9c2e3aa6bd209f6db5359e"
     )
-    assert document["local_feature_sha"] == (
-        "8f3b02c5e66d13cd5a67107fb70875bf520c9df0"
+    assert document["p2a_baseline_sha"] == (
+        "76ecfd782af4a401936076939e0c9c0b55718b4e"
     )
+    assert document["p2c_local_candidate_state"] == "LOCAL_UNCOMMITTED_WORKTREE"
+    assert document["p2c_base_sha"] == document["p2a_baseline_sha"]
+    assert document["p2c_commit_sha"] is None
+    assert document["p2c_remote_branch"] is None
+    assert document["p2c_published"] is False
 
 
 def test_legacy_activation_remains_false_and_has_no_productive_true_callers():
