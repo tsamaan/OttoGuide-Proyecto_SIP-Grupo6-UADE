@@ -1,0 +1,85 @@
+
+# Python
+
+**pycache**/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Logs y ROS
+
+*.log
+*.bag
+*.db3
+*.db3-wal
+*.db3-shm
+*.mcap
+build/
+install/
+log/
+
+# Local HIL/GitOps session artifacts
+artifacts/*_current_path.txt
+artifacts/*.bundle
+artifacts/rosbags/
+artifacts/rosbag_extract_*/
+artifacts/handoff_offline_*/
+
+# Local Codex / SSH / robot access artifacts
+.codex_ssh/
+*.pem
+*.key
+id_ed25519*
+id_rsa*
+*.pub.local
+
+# Local AI/agent workspaces and hidden local tool directories
+/.*/
+!/.gitignore
+!/.github/
+!/.github/**
+
+# Local SSH/network diagnostics
+codigo ottoguide/tools/robot_ssh.py
+codigo ottoguide/tools/robot_ssh.local.py
+codigo ottoguide/tools/*ssh*.local.py
+ssh_key_acl_fix*.txt
+network_robot_before_*.txt
+network_robot_after_*.txt
+*ssh*diagnostic*.txt
+*ssh*test*.txt
+*network*robot*.txt
+*network*diagnostic*.txt
+*acl*fix*.txt
+
+# Local runtime/debug artifacts
+*.tmp
+*.bak
+*.orig
+*.rej
+
+artifacts/maps/
+*.pgm
+!codigo ottoguide/tests/fixtures/offline_navigation/*.pgm
+*.mp4
+artifacts/evidence/
+*.ply
+*.pcd
+artifacts/
+artifacts/physical_mapping_route_*/
+artifacts/_audit/
+artifacts/_quarantine/
+*.light.tar.gz
+*.tar.gz
+metadata.yaml
+
+# Mission audit logs (runtime-generated; never committed)
+# MissionAuditLogger (src/core/mission_audit.py) writes mission_<timestamp>.json
+# (single JSON file with an embedded events array) — NOT .jsonl. Both patterns are
+# kept: .json for the actual producer, .jsonl as a harmless safety net.
+codigo\ ottoguide/mission_logs/
+codigo\ ottoguide/logs/mission_*.json
+codigo\ ottoguide/logs/mission_*.jsonl
+mission_*.json
+mission_*.jsonl

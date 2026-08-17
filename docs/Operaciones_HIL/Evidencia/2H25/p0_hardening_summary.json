@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "phase": "2H.2.5",
+  "p0_schema_version": 2,
+  "collector_version": "2H.2.5",
+  "generated_at_utc": "2026-06-23T17:45:00Z",
+  "correction_note": "generated_at_utc updated in recovery session; adds wsl_contract_tests section. Core results unchanged.",
+  "integrity": {
+    "schema_v1_rejected": "PASS (test_schema_v1_bundle_rejected)",
+    "expected_head_required": "PASS (--expected-head is now required=True in validator argparse)",
+    "expected_head_malformed_rejected": "PASS (test_malformed_expected_head_rejected)",
+    "sidecar_atomic_write": "PASS (schema.atomic_write_bytes used for sidecar)",
+    "sidecar_absent_rejected": "PASS (test_sidecar_absent_fails_integrity)",
+    "sidecar_invalid_format_rejected": "PASS (test_sidecar_invalid_format_fails_integrity)",
+    "sidecar_hash_mismatch_rejected": "PASS (test_sidecar_hash_mismatch_fails_integrity)",
+    "manifest_duplicate_filename_rejected": "PASS (test_manifest_duplicate_filename_fails_integrity)",
+    "manifest_path_traversal_rejected": "PASS (test_manifest_path_traversal_fails_integrity)",
+    "manifest_extra_filename_rejected": "PASS (_check_manifest: MANIFEST_EXTRA_FILENAME)",
+    "output_dir_must_not_preexist": "PASS (create_new_output_dir raises OUTPUT_DIR_ALREADY_EXISTS)",
+    "permissions_checked_posix_only": "PASS (sys.platform != 'win32' guard, consistent with prior phase)",
+    "owner_checked_posix_only": "PASS (hasattr os.getuid guard)",
+    "nlink_checked": "PASS (FILE_UNEXPECTED_NLINK)"
+  },
+  "human_inputs": {
+    "explicit_not_inferred": "PASS -- v2 removes the v1 conservative inference (operator_present and area_cleared) for robot_physically_supervised; all flags now require explicit --robot-physically-supervised yes/no, --dual-control-prohibited-acknowledged yes/no, --hardstop-tested-before-session yes/no, --operator-role <text>, --hardstop-type <text>",
+    "dual_control_default_removed": "PASS -- v1 defaulted dual_control_prohibited_acknowledged=True; v2 has no default, missing value fails SAFETY_GATE_NOT_TRUE",
+    "hardstop_unknown_rejected_for_go": "PASS -- v1 treated 'unknown' as a warning only; v2: hardstop_tested is not True -> HARDSTOP_NOT_TESTED_BEFORE_SESSION (NO_GO, not a warning)",
+    "operator_role_required_for_go": "PASS (test_operator_role_missing_is_no_go)",
+    "hardstop_type_required_for_go": "PASS (test_hardstop_type_missing_is_no_go)"
+  },
+  "untracked_policy": {
+    "pattern": "^codigo ottoguide/logs/mission_[A-Za-z0-9_.-]+\\.json$",
+    "exact_match_not_prefix": "PASS (v1 used startswith prefix; v2 uses full regex match)",
+    "path_traversal_rejected": "PASS (_is_safe_untracked_path rejects '..' segments)",
+    "absolute_path_rejected": "PASS (_is_safe_untracked_path rejects leading '/')",
+    "separator_normalized": "PASS (_normalize_untracked_path converts backslash to forward slash before match)",
+    "test_coverage": ["test_untracked_exact_policy_accepts_mission_log", "test_untracked_exact_policy_rejects_non_log_path", "test_untracked_outside_allowlist_is_no_go"]
+  },
+  "command_log_audit": {
+    "label_allowlist": "PASS (_ALLOWED_LABEL_PATTERNS, regex-anchored)",
+    "forbidden_substrings_rejected": "PASS (_FORBIDDEN_COMMAND_SUBSTRINGS includes send_goal, topic pub, service call, lifecycle set, param set, launch, unitree, lowcmd, sport_mode, damp, stand, sit, walk, etc.)",
+    "argv_must_be_list_of_strings": "PASS (_argv_safe rejects non-list, empty, non-string elements)",
+    "read_only_classification_enforced": "PASS (COMMAND_LOG_NOT_READ_ONLY if read_only_classification != 'read_only')",
+    "distinguishes_layers": "PASS -- read_only_invariants (command log structure/allowlist) vs collection_completeness (strict command success) vs field_decision (GO/NO_GO) are three separate, never-mixed result fields",
+    "test_coverage": "test_command_log_forbidden_label_fails_read_only_invariants"
+  },
+  "collection_completeness": {
+    "layer_added": "PASS -- new 4th decision layer, independent from bundle_integrity/read_only_invariants/p0_field_decision",
+    "strict_commands_checked": ["git_branch", "git_head", "git_status", "git_remote_origin", "ros2_node_list", "ros2_topic_list", "ros2_service_list", "ros2_action_list"],
+    "bounded_commands_allow_timeout_with_evidence": "PASS (tf_static_echo_once / odom_echo_once: timeout only acceptable if stdout non-empty)",
+    "fail_forces_no_go_never_integrity": "PASS (test_collection_completeness_fail_forces_no_go)"
+  },
+  "functional_evidence_gates": {
+    "odom_type_and_sample_checked": "PASS (nav_msgs/msg/Odometry, single_sample_odom, frame_id, child_frame_id)",
+    "tf_edges_checked": "PASS (REQUIRED_TF_EDGES: map->odom, odom->base_link, base_link->utlidar_lidar, base_link->imu_link; TF_EDGE_NOT_OBSERVED test_tf_edge_missing_is_no_go)",
+    "scan_publisher_and_frequency_checked": "PASS (SCAN_NO_PUBLISHER, SCAN_FREQUENCY_ZERO_OR_NEGATIVE, SCAN_FREQUENCY_NOT_PARSEABLE)",
+    "map_and_map_metadata_type_checked": "PASS (required_topic_types dict)",
+    "cmd_vel_raw_and_safe_pub_sub_checked": "PASS (CMD_VEL_TOPIC_MISSING, CMD_VEL_NO_PUBLISHER, CMD_VEL_NO_SUBSCRIBER)",
+    "controller_server_and_collision_monitor_observed_checked": "PASS",
+    "unexpected_global_cmd_vel_forces_no_go": "PASS (UNEXPECTED_GLOBAL_CMD_VEL)",
+    "l2_l3_never_marked_ready": "PASS -- tf_loc only ever emits READINESS_CANDIDATE_OBSERVED or READINESS_NOT_READY, never a READY constant; no READY string exists in schema.py readiness constants"
+  },
+  "fixture_e2e": {
+    "file": "tests/unit/test_p0_readonly_pipeline_e2e.py",
+    "passed": 13,
+    "total": 13,
+    "cases_covered": [
+      "nominal", "missing_topic", "wrong_head", "human_no_go", "tampered_hash",
+      "command_timeout", "large_output", "movement_attempt", "dry_run_writes_nothing"
+    ],
+    "cases_not_separately_fixture_but_covered_by_contract_tests": [
+      "timeout_con_evidencia_parseable (BOUNDED_COMMAND_TIMEOUT_NO_EVIDENCE logic tested via check_collection_completeness unit path)",
+      "TF_faltante / odom_invalida / scan_publisher_0 / cmd_vel_incompleta / untracked_invalido (covered as TestV2FieldDecisionContract subtests, not separate fixture files)"
+    ],
+    "fixture_never_go_candidate": "PASS (test_fixture_bundle_never_go_candidate, test_clean_fixture_bundle_is_fixture_only_never_go)"
+  },
+  "real_execution_performed": false,
+  "real_execution_authorization_status": "NOT_EXECUTED -- --execute-read-only never invoked in this session, per task scope (no physical/network operations)",
+  "contract_tests": {
+    "file": "tests/unit/test_p0_readonly_evidence_contract.py",
+    "passed": 60,
+    "skipped": 1,
+    "subtests_passed": 47,
+    "skip_reason": "test_bash_syntax_valid is POSIX-only (bash -n), skipped on win32"
+  },
+  "static_verifier_text_match_caveat": "check_2h25_monotonic_lease_contract and check_2h25_p0_decision_v2_contract in verify_sandbox_isolation.py use plain substring/text search against source files, not AST parsing. This matches the pre-existing pattern of other checks in this verifier (e.g. check_2h24_toctou_fix_contract) and was not introduced as a new weaker pattern by this phase, but it does not meet the stricter 'prefer AST or structured parsing' guidance issued for 2H.2.5. Documented as a known limitation, not corrected in this recovery (would require touching verifier internals beyond the declared scope of the partial commit and risks scope creep without a failing test demonstrating a real false-negative).",
+  "wsl_contract_tests": {
+    "platform": "Ubuntu 24.04.4 LTS (WSL2)",
+    "sha": "d59376e6d1bebee0b211367b4ebca6c69477ef28",
+    "files": [
+      "tests/unit/test_main_runtime_timeout_cleanup.py",
+      "tests/unit/test_p0_readonly_evidence_contract.py"
+    ],
+    "passed": 139,
+    "failed": 0,
+    "exit_code": 0,
+    "defect_a_fix": "test_p0_readonly_evidence_contract.py: _write_good_bundle() now applies os.chmod(d, 0o700) and os.chmod(path, 0o600) after every write; _write_json_0600() helper added. All POSIX permission tests PASS on WSL.",
+    "defect_b_fix": "test_main_runtime_timeout_cleanup.py: InvalidLeaseTests::test_updated_before_created_rejected updated to assert wall-clock rollback alone does NOT produce LEASE_UPDATED_BEFORE_CREATED or LEASE_MONOTONIC_* errors. PASS on WSL."
+  },
+  "result": "HARDENED_OFFLINE_PENDING_FIELD_AUDIT"
+}

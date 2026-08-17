@@ -1,0 +1,18 @@
+{
+  "fixture_origin": "synthetic_contract",
+  "description": "Status payload contract: real (non-mock) interaction runtime, interlocked because a physical session is already active. Demonstrates the interlock never silently overrides an active session.",
+  "fsmState": "idle",
+  "interactionRuntime": {
+    "configured": true,
+    "ready": true,
+    "mock": false,
+    "physical": true,
+    "state": "active"
+  },
+  "interactionSession": {
+    "active": true,
+    "sessionId": "sess-contract-0001",
+    "state": "active",
+    "lastEvent": "capture_started"
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "note": "INVALID: operator-reported unintended additional movement; excluded from all computations.",
+  "primary": {
+    "analysis_eligible": false,
+    "delta_position": [
+      -0.15810000000000013,
+      -0.2120000000000002,
+      9.999999999998899e-05
+    ],
+    "dominant_position_axis": "y",
+    "duration_s": 119.089242427,
+    "first_position": [
+      2.3986,
+      2.059,
+      0.7089
+    ],
+    "ground_truth": "INVALID_UNINTENDED_ADDITIONAL_MOVEMENT",
+    "integrated_yaw_speed_deg": -20.516732774035766,
+    "integrated_yaw_speed_rad": -0.3580845386587539,
+    "last_position": [
+      2.2405,
+      1.847,
+      0.709
+    ],
+    "reported_translation_norm": 0.2644609990149779,
+    "sample_count": 4924,
+    "source_timestamp_status": "ABSENT",
+    "status": "PASS"
+  },
+  "secondary": {
+    "analysis_eligible": false,
+    "delta_position": [
+      -0.15810000000000013,
+      -0.21210000000000018,
+      9.999999999998899e-05
+    ],
+    "dominant_position_axis": "y",
+    "duration_s": 119.089380032,
+    "first_position": [
+      2.3986,
+      2.059,
+      0.7089
+    ],
+    "ground_truth": "INVALID_UNINTENDED_ADDITIONAL_MOVEMENT",
+    "integrated_yaw_speed_deg": -26.92610010887969,
+    "integrated_yaw_speed_rad": -0.46994910162155423,
+    "last_position": [
+      2.2405,
+      1.8469,
+      0.709
+    ],
+    "reported_translation_norm": 0.2645411688187684,
+    "sample_count": 2383,
+    "source_timestamp_status": "ABSENT",
+    "status": "PASS"
+  },
+  "segment": "left_90_return_invalidated",
+  "session_id": "gt-r4b-20260720T213222Z"
+}

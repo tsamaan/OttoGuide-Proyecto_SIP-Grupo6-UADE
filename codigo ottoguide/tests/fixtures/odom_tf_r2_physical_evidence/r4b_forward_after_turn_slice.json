@@ -1,0 +1,58 @@
+{
+  "primary": {
+    "analysis_eligible": true,
+    "delta_position": [
+      0.010499999999999954,
+      1.0359000000000003,
+      -0.00019999999999997797
+    ],
+    "dominant_position_axis": "y",
+    "duration_s": 41.030944318,
+    "first_position": [
+      2.2801,
+      1.1521,
+      0.7089
+    ],
+    "ground_truth": "attempted_approximately_1m_actual_unknown",
+    "integrated_yaw_speed_deg": -23.671445602539666,
+    "integrated_yaw_speed_rad": -0.4131446644710502,
+    "last_position": [
+      2.2906,
+      2.188,
+      0.7087
+    ],
+    "reported_translation_norm": 1.0359532325351375,
+    "sample_count": 1694,
+    "source_timestamp_status": "ABSENT",
+    "status": "PASS"
+  },
+  "secondary": {
+    "analysis_eligible": true,
+    "delta_position": [
+      0.010600000000000165,
+      1.0359000000000003,
+      -0.00019999999999997797
+    ],
+    "dominant_position_axis": "y",
+    "duration_s": 40.976850728,
+    "first_position": [
+      2.28,
+      1.1521,
+      0.7089
+    ],
+    "ground_truth": "attempted_approximately_1m_actual_unknown",
+    "integrated_yaw_speed_deg": -18.817396109915613,
+    "integrated_yaw_speed_rad": -0.3284255187700002,
+    "last_position": [
+      2.2906,
+      2.188,
+      0.7087
+    ],
+    "reported_translation_norm": 1.0359542509203774,
+    "sample_count": 821,
+    "source_timestamp_status": "ABSENT",
+    "status": "PASS"
+  },
+  "segment": "forward_y",
+  "session_id": "gt-r4b-20260720T213222Z"
+}

@@ -1,0 +1,27 @@
+{
+  "fixture_origin": "physical_evidence_harvested",
+  "source_archive": "FINAL_ROBOT_HARVEST_R1_PRIORITY_CORE.zip",
+  "source_archive_sha256": "2f94536be0a6e8bd1cd20f2d75d98044d0a132b8795cf691c8ba200b9c87f4b4",
+  "source_member": "lowstate_10hz.jsonl",
+  "record_count": 299,
+  "capture_span_seconds": 29.9838166,
+  "approx_frequency_hz": 9.93869472907595,
+  "motor_count_received": 35,
+  "motor_count_persisted": 29,
+  "fields_unavailable": ["power_v", "power_a", "bms_state", "foot_force"],
+  "limitations": [
+    "power_v, power_a, bms_state, and foot_force are not present in the Unitree hg LowState_ message on this G1 EDU unit; they are consistently null across all 299 records and were never fabricated as zero.",
+    "This fixture is a single ~30-second capture window (2026-07-14T20:49:26.562Z to 2026-07-14T20:49:56.546Z), not a continuous or long-duration recording.",
+    "The dataset was captured while the robot was in mode_machine=5; behavior at other machine modes is not represented in this fixture.",
+    "This is a fixture of received/observed telemetry values only; it does not represent commanded state and must never be used to synthesize or infer movement/locomotion behavior."
+  ],
+  "topic": "rt/lowstate",
+  "message_type": "unitree_hg.msg.dds_.LowState_",
+  "capture_metadata": {
+    "callbacks_total": 25952,
+    "native_hz_estimate": 864.2,
+    "capture_seconds": 30,
+    "samples_persisted_10hz": 299,
+    "status": "COMPLETE"
+  }
+}

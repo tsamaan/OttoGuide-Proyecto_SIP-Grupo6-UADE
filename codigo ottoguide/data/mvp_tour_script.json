@@ -1,0 +1,55 @@
+{
+  "version": "2.0.0",
+  "waypoints": [
+    {
+      "waypoint_id": "I",
+      "interaction_type": "scripted",
+      "script_text": "Inicio del recorrido OttoGuide. Mantenga distancia segura del robot y confirme que el entorno este libre para comenzar el desplazamiento.",
+      "pose_2d": {
+        "x": 0.0,
+        "y": 0.0,
+        "theta": 0.0
+      }
+    },
+    {
+      "waypoint_id": "1",
+      "interaction_type": "scripted",
+      "script_text": "Bienvenidos a UADE. En este punto se presenta la entrada principal y el circuito base de orientacion para visitantes de primer ingreso.",
+      "pose_2d": {
+        "x": 0.0,
+        "y": 0.0,
+        "theta": 0.0
+      }
+    },
+    {
+      "waypoint_id": "2",
+      "interaction_type": "scripted",
+      "script_text": "Este nodo corresponde al area de servicios academicos y estudiantiles. Se indican accesos de biblioteca, laboratorios y puntos de soporte.",
+      "pose_2d": {
+        "x": 0.0,
+        "y": 0.0,
+        "theta": 0.0
+      }
+    },
+    {
+      "waypoint_id": "3",
+      "interaction_type": "scripted",
+      "script_text": "Nodo de continuidad del recorrido. Se describe conectividad entre sectores y recomendaciones de circulacion segura dentro del campus.",
+      "pose_2d": {
+        "x": 0.0,
+        "y": 0.0,
+        "theta": 0.0
+      }
+    },
+    {
+      "waypoint_id": "F",
+      "interaction_type": "llm_qa",
+      "system_prompt": "Eres OttoGuide en modo cierre de recorrido. Responde en espanol tecnico y conciso sobre orientacion universitaria UADE. Si la pregunta no tiene evidencia confiable, indica limitacion y recomienda mesa de informes. No inventes datos.",
+      "pose_2d": {
+        "x": 0.0,
+        "y": 0.0,
+        "theta": 0.0
+      }
+    }
+  ]
+}

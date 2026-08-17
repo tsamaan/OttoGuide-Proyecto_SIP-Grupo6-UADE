@@ -1,0 +1,14 @@
+version: 1
+stations:
+  QR_MOLINETES:
+    station_id: "1"
+    name: "Molinetes"
+  QR_HALL_CENTRAL:
+    station_id: "2"
+    name: "Hall central"
+  QR_PASILLO_LIMA2:
+    station_id: "3"
+    name: "Pasillo hacia Lima 2"
+  QR_OFICINAS_GESTION:
+    station_id: "F"
+    name: "Oficinas de gestión"

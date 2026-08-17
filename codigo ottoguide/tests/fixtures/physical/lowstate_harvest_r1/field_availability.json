@@ -1,0 +1,17 @@
+{
+ "top_level_field_availability": {
+  "version": true,
+  "mode_pr": true,
+  "mode_machine": true,
+  "tick": true,
+  "imu_state": true,
+  "motor_state": true,
+  "wireless_remote": true,
+  "reserve": true,
+  "crc": true,
+  "power_v": false,
+  "power_a": false,
+  "bms_state": false,
+  "foot_force": false
+ }
+}

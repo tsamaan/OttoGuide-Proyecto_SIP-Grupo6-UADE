@@ -1,0 +1,15 @@
+{
+  "topic": "rt/lowstate",
+  "message_type": "unitree_hg.msg.dds_.LowState_",
+  "capture": {"callbacks_total": 25952, "native_hz_estimate": 864.2, "seconds": 30, "samples_persisted_10hz": 299, "status": "COMPLETE"},
+  "top_level_fields": {
+    "version": "uint32[2]", "mode_pr": "uint8", "mode_machine": "uint8", "tick": "uint32",
+    "imu_state": {"quaternion":"float[4]","gyroscope":"float[3]","accelerometer":"float[3]","rpy":"float[3]","temperature":"int16"},
+    "motor_state": "MotorState_[35] (array size 35; 29 named G1 joints, 30-34 reserve)",
+    "wireless_remote": "uint8[40]", "reserve": "uint32[4]", "crc": "uint32"
+  },
+  "motor_state_fields": {"mode":"uint8","q":"float","dq":"float","ddq":"float","tau_est":"float","temperature":"int16[2]","vol":"float","sensor":"uint32[2]","motorstate":"uint32","reserve":"uint32[4]"},
+  "ABSENT_top_level_fields": ["power_v","power_a","bms_state","foot_force"],
+  "note": "power_v/power_a/bms_state/foot_force are NOT present in the Ottoman hg LowState_ (availability=false), confirming the canonical backend's status-only telemetry contract. Never fabricated as zero.",
+  "mode_machine_observed": 5
+}

@@ -1,0 +1,21 @@
+{
+  "fixture_origin": "offline_test_pointer",
+  "description": "Claims about SIGTERM graceful-shutdown behavior, grounded in the assertions of tests/integration/test_sigterm_graceful_shutdown.py::test_sigterm_exits_without_sigkill_and_runs_stopmove_once. This fixture describes what the test asserts and its execution status on THIS checkpoint's host only -- it is not itself a claim about whether the behavior has ever been physically validated anywhere in the project. See physical_sigterm_p2_evidence.json in this same directory for the project-level physical evidence, which is separate and must not be mixed with this pointer.",
+  "source_test": "codigo ottoguide/tests/integration/test_sigterm_graceful_shutdown.py",
+  "claims": [
+    {
+      "claim": "On SIGTERM, StopMove is invoked exactly once (never zero, never more than once).",
+      "assertion_grounding": "output.count('StopMove ejecutado correctamente') == 1",
+      "status_on_this_host": "SKIPPED_PLATFORM_GATED",
+      "status_note": "This test is explicitly skipped on this Windows host ('SIGTERM subprocess contract is exercised on Linux/WSL'). It was not executed as part of this checkpoint's own test baseline (see TEST_BASELINE_RESULTS.json, where this same skip is recorded pre-existing and unattributed to any change made here)."
+    },
+    {
+      "claim": "The process exits gracefully on SIGTERM, without requiring SIGKILL.",
+      "assertion_grounding": "proc.send_signal(signal.SIGTERM); process expected to terminate on its own",
+      "status_on_this_host": "SKIPPED_PLATFORM_GATED",
+      "status_note": "Same skip condition as above."
+    }
+  ],
+  "classification_on_this_checkpoints_host": "NOT_EXECUTED_NO_ROBOT",
+  "note": "This fixture records what the existing test suite claims and its execution status on this specific host/checkpoint. It is not itself proof the behavior holds on this host, and it must not be read as the project's overall SIGTERM validation status -- that status is PHYSICALLY_VALIDATED per raw evidence found in prior checkpoints (a WSL execution of this exact test that PASSED, plus two independent raw process-exit logs, plus operator attestation); see docs/Operaciones_HIL/OTTOGUIDE_PHYSICAL_VALIDATION_MASTER_LEDGER.md and physical_sigterm_p2_evidence.json for that evidence. This file and physical_sigterm_p2_evidence.json describe two different things (an unexecuted-here test pointer vs. real prior physical evidence) and are intentionally kept as separate files so neither type of evidence is mixed with the other."
+}

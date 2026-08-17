@@ -1,0 +1,118 @@
+{
+  "description": "R4 postboot timebase handshake + cross-boot reset characterization excerpt.",
+  "odom_reset_characterization": {
+    "observation": "Both channels changed from approximately [0.4713, -1.2322, 0.1329] before shutdown to approximately [-0.0008, -0.0059, 0.4486] after boot.",
+    "posture_warning": "Pre-shutdown posture differs from post-boot seated posture; raw differences are reported without interpreting scale or the z component.",
+    "primary": {
+      "after": {
+        "mode": 0,
+        "position": [
+          -0.0008,
+          -0.0059,
+          0.4486
+        ],
+        "velocity": [
+          -0.0,
+          -0.0,
+          -0.0
+        ],
+        "yaw_speed": -0.0107
+      },
+      "after_receipt_monotonic_ns": 1805641682580,
+      "after_sequence": 2,
+      "before": {
+        "mode": 0,
+        "position": [
+          0.4713,
+          -1.2322,
+          0.1329
+        ],
+        "velocity": [
+          0.0,
+          0.0,
+          -0.0
+        ],
+        "yaw_speed": -0.0043
+      },
+      "before_receipt_monotonic_ns": 1459740208896,
+      "before_sequence": 129057,
+      "differences": {
+        "position": [
+          -0.4721,
+          1.2263,
+          0.3157
+        ],
+        "velocity": [
+          -0.0,
+          -0.0,
+          0.0
+        ],
+        "yaw_speed": -0.0064
+      }
+    },
+    "scale_interpretation_performed": false,
+    "secondary": {
+      "after": {
+        "mode": 0,
+        "position": [
+          -0.0008,
+          -0.0058,
+          0.4486
+        ],
+        "velocity": [
+          -0.0,
+          -0.0,
+          -0.0
+        ],
+        "yaw_speed": -0.0138
+      },
+      "after_receipt_monotonic_ns": 1805644501062,
+      "after_sequence": 3,
+      "before": {
+        "mode": 0,
+        "position": [
+          0.4713,
+          -1.2322,
+          0.1329
+        ],
+        "velocity": [
+          0.0,
+          -0.0,
+          -0.0
+        ],
+        "yaw_speed": -0.0149
+      },
+      "before_receipt_monotonic_ns": 1459258788992,
+      "before_sequence": 128996,
+      "differences": {
+        "position": [
+          -0.4721,
+          1.2264,
+          0.3157
+        ],
+        "velocity": [
+          -0.0,
+          0.0,
+          0.0
+        ],
+        "yaw_speed": 0.0011
+      }
+    },
+    "timing_limitation": "The first harvested post-boot samples were captured at about 1805.6 s remote monotonic uptime, not immediately after kernel boot; exact reset time remains unobserved."
+  },
+  "postboot_session_id": "finalharvest-seated-20260720T205406Z",
+  "robot_boot_id": "fa361379-5a30-4da7-bad7-415d6ddc24dd",
+  "timebase_estimate": {
+    "best_remote_minus_local_utc_midpoint_ns": -429643654,
+    "best_sample_index": 5,
+    "median_remote_minus_local_utc_midpoint_ns": -427799324,
+    "median_round_trip_ns": 251444200,
+    "method": "local UTC midpoint of SSH RTT; all samples preserved",
+    "minimum_round_trip_ns": 246261200,
+    "remote_boot_ids": [
+      "fa361379-5a30-4da7-bad7-415d6ddc24dd"
+    ],
+    "remote_clock_is_authoritative_utc": false,
+    "sample_count": 20
+  }
+}

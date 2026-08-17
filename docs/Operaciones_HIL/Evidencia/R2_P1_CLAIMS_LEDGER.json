@@ -1,0 +1,93 @@
+[
+  {
+    "claim_id": "CHANNEL_QUALITY",
+    "confidence": "HIGH",
+    "evidence_ids": [
+      "p1.channel_quality.hilroute-20260720T194910Z.rt_odommodestate",
+      "p1.channel_quality.hilroute-20260720T194910Z.rt_lf_odommodestate",
+      "p1.channel_quality.finalharvest-seated-20260720T205406Z.rt_odommodestate",
+      "p1.channel_quality.finalharvest-seated-20260720T205406Z.rt_lf_odommodestate",
+      "p1.channel_quality.gt-r4b-20260720T213222Z.rt_odommodestate",
+      "p1.channel_quality.gt-r4b-20260720T213222Z.rt_lf_odommodestate"
+    ],
+    "reason": "Sampling-rate/jitter/gap/dropout metrics computed directly from raw JSONL reparse for both channels across all three sessions.",
+    "status": "VERIFIED"
+  },
+  {
+    "claim_id": "PRIMARY_LF_ALIGNMENT",
+    "confidence": "MEDIUM",
+    "evidence_ids": [
+      "p1.alignment.hilroute-20260720T194910Z.PRE_ROUTE_STATIONARY",
+      "p1.alignment.hilroute-20260720T194910Z.ROUTE_ACTIVE",
+      "p1.alignment.hilroute-20260720T194910Z.POST_ROUTE_STATIONARY",
+      "p1.alignment.finalharvest-seated-20260720T205406Z.PRE_ROUTE_STATIONARY",
+      "p1.alignment.gt-r4b-20260720T213222Z.forward_x_setup_not_executed",
+      "p1.alignment.gt-r4b-20260720T213222Z.forward_x_valid_retry",
+      "p1.alignment.gt-r4b-20260720T213222Z.left_90_first",
+      "p1.alignment.gt-r4b-20260720T213222Z.forward_y",
+      "p1.alignment.gt-r4b-20260720T213222Z.left_180_operator_corrected",
+      "p1.alignment.gt-r4b-20260720T213222Z.left_90_return_invalidated",
+      "p1.alignment.gt-r4b-20260720T213222Z.left_90_valid_retry_local_baseline"
+    ],
+    "reason": "Nearest-neighbor monotonic alignment computed per phase/segment; coverage and lag candidates vary by session and are documented per-metric.",
+    "status": "PARTIAL"
+  },
+  {
+    "claim_id": "CHANNEL_ARBITRATION",
+    "confidence": "MEDIUM",
+    "evidence_ids": [
+      "p1.channel_arbitration_matrix"
+    ],
+    "reason": "Quantitative criteria matrix computed; no authoritative channel selected by design.",
+    "status": "PARTIAL"
+  },
+  {
+    "claim_id": "TRANSLATION_SCALE",
+    "confidence": "LOW",
+    "evidence_ids": [
+      "p1.nominal_scale.forward_x_valid_retry",
+      "p1.nominal_scale.forward_y"
+    ],
+    "reason": "Only best-effort operator-nominal-vs-observed ratios exist; no calibrated instrument was available.",
+    "status": "UNRESOLVED"
+  },
+  {
+    "claim_id": "YAW_SCALE",
+    "confidence": "LOW",
+    "evidence_ids": [
+      "p1.nominal_yaw_gain.left_90_first",
+      "p1.nominal_yaw_gain.left_180_operator_corrected",
+      "p1.nominal_yaw_gain.left_90_valid_retry_local_baseline"
+    ],
+    "reason": "Only best-effort operator-nominal-vs-observed yaw ratios exist; no calibrated instrument was available.",
+    "status": "UNRESOLVED"
+  },
+  {
+    "claim_id": "TIMEBASE_ORDERING",
+    "confidence": "MEDIUM",
+    "evidence_ids": [
+      "p1.timebase.hilroute-20260720T194910Z",
+      "p1.timebase.finalharvest-seated-20260720T205406Z",
+      "p1.timebase.gt-r4b-20260720T213222Z"
+    ],
+    "reason": "receipt_monotonic ordering verified per-session; ROS_HEADER_STAMP_POLICY remains UNRESOLVED throughout.",
+    "status": "PARTIAL"
+  },
+  {
+    "claim_id": "IMU_CROSSCHECK",
+    "confidence": "MEDIUM",
+    "evidence_ids": [
+      "p1.imu.hilroute-20260720T194910Z.route_active",
+      "p1.imu.finalharvest-seated-20260720T205406Z.postboot_stationary",
+      "p1.imu.gt-r4b-20260720T213222Z.forward_x_setup_not_executed",
+      "p1.imu.gt-r4b-20260720T213222Z.forward_x_valid_retry",
+      "p1.imu.gt-r4b-20260720T213222Z.left_90_first",
+      "p1.imu.gt-r4b-20260720T213222Z.forward_y",
+      "p1.imu.gt-r4b-20260720T213222Z.left_180_operator_corrected",
+      "p1.imu.gt-r4b-20260720T213222Z.left_90_return_invalidated",
+      "p1.imu.gt-r4b-20260720T213222Z.left_90_valid_retry_local_baseline"
+    ],
+    "reason": "Sign-agreement between SportModeState yaw_speed and LowState gyroscope[2] quantified per available segment; gyroscope units remain unresolved so no magnitude/gain claim is made.",
+    "status": "PARTIAL_QUANTIFIED"
+  }
+]

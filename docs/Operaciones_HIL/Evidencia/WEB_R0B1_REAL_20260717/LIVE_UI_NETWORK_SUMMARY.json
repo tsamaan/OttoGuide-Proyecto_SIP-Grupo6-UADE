@@ -1,0 +1,12 @@
+{
+  "external_requests": 0,
+  "browser_posts": 0,
+  "endpoints_used": [
+    "/health",
+    "/status",
+    "/telemetry/backfill",
+    "/ws/telemetry"
+  ],
+  "ws_handshake": "101 Switching Protocols",
+  "source_profile": "REAL"
+}

@@ -1,0 +1,158 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.wrap{padding:1.25rem}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:1.25rem}
+.leg-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)}
+.leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+
+.phase{margin-bottom:1rem;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden}
+.phase-header{display:flex;align-items:center;gap:10px;padding:10px 14px}
+.phase-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.phase-title{font-size:13px;font-weight:500;color:var(--color-text-primary);flex:1}
+.phase-weeks{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500;flex-shrink:0}
+.robot-badge{display:flex;align-items:center;gap:5px;font-size:11px;padding:3px 10px;border-radius:20px;font-weight:500;flex-shrink:0}
+
+.phase-items{padding:4px 14px 12px;display:flex;flex-direction:column;gap:5px}
+.phase-item{font-size:12px;color:var(--color-text-secondary);display:flex;align-items:flex-start;gap:8px;line-height:1.5}
+.item-dot{width:4px;height:4px;border-radius:50%;flex-shrink:0;margin-top:6px}
+.phase-owner{font-size:10px;padding:1px 6px;border-radius:10px;border:0.5px solid var(--color-border-tertiary);color:var(--color-text-tertiary);margin-left:auto;flex-shrink:0;white-space:nowrap}
+
+.note{font-size:11px;padding:8px 12px;border-radius:var(--border-radius-md);margin:6px 0 0;line-height:1.5}
+</style>
+
+<div class="wrap">
+  <div class="legend">
+    <div class="leg-item"><div class="leg-dot" style="background:#ef4444"></div>Robot imprescindible</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#f59e0b"></div>Robot necesario (parcial)</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#22c55e"></div>Sin robot</div>
+  </div>
+
+  <!-- FASE 1 -->
+  <div class="phase" style="border-color:#22c55e33">
+    <div class="phase-header" style="background:#ecfdf522">
+      <div class="phase-dot" style="background:#a855f7"></div>
+      <div class="phase-title">Fase 1 — Setup y diseño</div>
+      <div class="phase-weeks" style="background:#f3e8ff;color:#7e22ce">Semanas 1–2</div>
+      <div class="robot-badge" style="background:#ecfdf5;color:#065f46">
+        <div class="leg-dot" style="background:#22c55e"></div>Sin robot
+      </div>
+    </div>
+    <div class="phase-items">
+      <div class="phase-item"><div class="item-dot" style="background:var(--color-border-secondary)"></div>Configurar red WiFi y acceso UADE<span class="phase-owner">Teo</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:var(--color-border-secondary)"></div>Relevamiento físico del recorrido<span class="phase-owner">Jorge</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:var(--color-border-secondary)"></div>Diseño de protocolo de pruebas<span class="phase-owner">Jorge</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:var(--color-border-secondary)"></div>Redacción de guión y FAQ<span class="phase-owner">Erika</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:var(--color-border-secondary)"></div>Instrumentos de testing<span class="phase-owner">Martina + Jorge</span></div>
+    </div>
+    <div class="note" style="margin:0 14px 12px;background:#ecfdf5;color:#065f46">
+      Esta fase es 100% de planificación y configuración. No se necesita el robot físico.
+    </div>
+  </div>
+
+  <!-- FASE 2 -->
+  <div class="phase" style="border-color:#f59e0b44">
+    <div class="phase-header" style="background:#fffbeb33">
+      <div class="phase-dot" style="background:#3b82f6"></div>
+      <div class="phase-title">Fase 2 — Backend y comunicación</div>
+      <div class="phase-weeks" style="background:#eff6ff;color:#1d4ed8">Semanas 3–5</div>
+      <div class="robot-badge" style="background:#fffbeb;color:#b45309">
+        <div class="leg-dot" style="background:#f59e0b"></div>Parcial — desde semana 4
+      </div>
+    </div>
+    <div class="phase-items">
+      <div class="phase-item"><div class="item-dot" style="background:#22c55e"></div>Código del backend y API<span class="phase-owner">Lucas</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:#22c55e"></div>Integración LLM, TTS, STT<span class="phase-owner">Teo + Lucas</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:#22c55e"></div>Guión, tono y textos del robot<span class="phase-owner">Erika</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:#f59e0b"></div><span style="color:var(--color-text-primary)">Primera conexión DDS con el G1 para verificar comunicación</span><span class="phase-owner">Lucas</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:#f59e0b"></div><span style="color:var(--color-text-primary)">Prueba básica de SportClient: stand up, movimiento simple</span><span class="phase-owner">Lucas</span></div>
+    </div>
+    <div class="note" style="margin:0 14px 12px;background:#fffbeb;color:#92400e">
+      Las semanas 3–4 no requieren el robot: el backend y el código pueden desarrollarse y testearse sin él. Desde la semana 4–5 se necesita para validar que el cliente Python se comunica correctamente via DDS.
+    </div>
+  </div>
+
+  <!-- FASE 3 -->
+  <div class="phase" style="border-color:#ef444433">
+    <div class="phase-header" style="background:#fef2f222">
+      <div class="phase-dot" style="background:#f59e0b"></div>
+      <div class="phase-title">Fase 3 — Integración y pruebas internas</div>
+      <div class="phase-weeks" style="background:#fffbeb;color:#b45309">Semanas 6–7</div>
+      <div class="robot-badge" style="background:#fef2f2;color:#b91c1c">
+        <div class="leg-dot" style="background:#ef4444"></div>Robot imprescindible
+      </div>
+    </div>
+    <div class="phase-items">
+      <div class="phase-item"><div class="item-dot" style="background:#ef4444"></div><span style="color:var(--color-text-primary)">Integración completa: robot recibe guión y navega los 3 puntos</span><span class="phase-owner">Lucas + Teo</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:#ef4444"></div><span style="color:var(--color-text-primary)">Prueba del ciclo de conversación en tiempo real</span><span class="phase-owner">Lucas + Teo</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:#ef4444"></div><span style="color:var(--color-text-primary)">Pruebas de navegación, colisiones y obstacle avoidance</span><span class="phase-owner">Jorge</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:#ef4444"></div><span style="color:var(--color-text-primary)">Validar voz, tono e interacciones en el espacio real</span><span class="phase-owner">Erika</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:#ef4444"></div><span style="color:var(--color-text-primary)">Ajuste fino del comportamiento autónomo</span><span class="phase-owner">Lucas + Teo</span></div>
+    </div>
+    <div class="note" style="margin:0 14px 12px;background:#fef2f2;color:#991b1b">
+      Toda esta fase requiere el robot físico en el espacio real de UADE. Es el bloque de tiempo más crítico — necesitan acceso garantizado y continuo durante las semanas 6 y 7.
+    </div>
+  </div>
+
+  <!-- FASE 4 -->
+  <div class="phase" style="border-color:#ef444433">
+    <div class="phase-header" style="background:#fef2f222">
+      <div class="phase-dot" style="background:#ef4444"></div>
+      <div class="phase-title">Fase 4 — Piloto con usuarios</div>
+      <div class="phase-weeks" style="background:#fef2f2;color:#b91c1c">Semanas 8–9</div>
+      <div class="robot-badge" style="background:#fef2f2;color:#b91c1c">
+        <div class="leg-dot" style="background:#ef4444"></div>Robot imprescindible
+      </div>
+    </div>
+    <div class="phase-items">
+      <div class="phase-item"><div class="item-dot" style="background:#22c55e"></div>Grupo A: visita sin robot — no requiere G1<span class="phase-owner">Jorge</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:#ef4444"></div><span style="color:var(--color-text-primary)">Grupo B: visita con Ottoman — robot imprescindible</span><span class="phase-owner">Jorge + equipo</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:#22c55e"></div>Encuestas y entrevistas post-visita<span class="phase-owner">Martina</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:#22c55e"></div>Registro de observación<span class="phase-owner">Jorge</span></div>
+    </div>
+    <div class="note" style="margin:0 14px 12px;background:#fef2f2;color:#991b1b">
+      El Grupo A puede hacerse sin robot. Para el Grupo B necesitan el G1 operativo y conectado a la red de UADE en el espacio real del recorrido.
+    </div>
+  </div>
+
+  <!-- FASE 5 -->
+  <div class="phase" style="border-color:#22c55e33">
+    <div class="phase-header" style="background:#ecfdf522">
+      <div class="phase-dot" style="background:#10b981"></div>
+      <div class="phase-title">Fase 5 — Análisis y entrega</div>
+      <div class="phase-weeks" style="background:#ecfdf5;color:#065f46">Semana 10</div>
+      <div class="robot-badge" style="background:#ecfdf5;color:#065f46">
+        <div class="leg-dot" style="background:#22c55e"></div>Sin robot
+      </div>
+    </div>
+    <div class="phase-items">
+      <div class="phase-item"><div class="item-dot" style="background:var(--color-border-secondary)"></div>Análisis de resultados<span class="phase-owner">Martina + Jorge</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:var(--color-border-secondary)"></div>Documentación técnica y del proyecto<span class="phase-owner">Todo el equipo</span></div>
+      <div class="phase-item"><div class="item-dot" style="background:var(--color-border-secondary)"></div>Presentación final a stakeholders<span class="phase-owner">Teo</span></div>
+    </div>
+    <div class="note" style="margin:0 14px 12px;background:#ecfdf5;color:#065f46">
+      Fase de cierre, no requiere el robot.
+    </div>
+  </div>
+
+  <!-- RESUMEN TIMELINE -->
+  <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:12px 14px;margin-top:6px">
+    <div style="font-size:11px;font-weight:500;color:var(--color-text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em">Resumen — disponibilidad del G1 EDU 8</div>
+    <div style="display:flex;gap:3px;margin-bottom:10px">
+      <div style="flex:2;height:28px;background:#ecfdf5;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#065f46;font-weight:500">Sem 1–2</div>
+      <div style="flex:1;height:28px;background:#ecfdf5;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#065f46;font-weight:500">Sem 3</div>
+      <div style="flex:2;height:28px;background:#fffbeb;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#b45309;font-weight:500">Sem 4–5</div>
+      <div style="flex:2;height:28px;background:#fef2f2;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#b91c1c;font-weight:500">Sem 6–7</div>
+      <div style="flex:2;height:28px;background:#fef2f2;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#b91c1c;font-weight:500">Sem 8–9</div>
+      <div style="flex:1;height:28px;background:#ecfdf5;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#065f46;font-weight:500">Sem 10</div>
+    </div>
+    <div style="display:flex;gap:3px">
+      <div style="flex:2;font-size:10px;color:var(--color-text-tertiary);text-align:center">Sin robot</div>
+      <div style="flex:1;font-size:10px;color:var(--color-text-tertiary);text-align:center">Sin robot</div>
+      <div style="flex:2;font-size:10px;color:#b45309;text-align:center">Parcial</div>
+      <div style="flex:2;font-size:10px;color:#b91c1c;text-align:center;font-weight:500">Crítico</div>
+      <div style="flex:2;font-size:10px;color:#b91c1c;text-align:center;font-weight:500">Crítico</div>
+      <div style="flex:1;font-size:10px;color:var(--color-text-tertiary);text-align:center">Sin robot</div>
+    </div>
+  </div>
+</div>

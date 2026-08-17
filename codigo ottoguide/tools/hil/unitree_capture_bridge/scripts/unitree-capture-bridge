@@ -1,0 +1,425 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BRIDGE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+OTTOGUIDE_ROOT="${OTTOGUIDE_ROOT:-$(cd "$BRIDGE_ROOT/../../.." && pwd)}"
+ROS2_WS="$OTTOGUIDE_ROOT/ros2_ws"
+BUILD_SCRIPT="$BRIDGE_ROOT/native/build_on_robot.sh"
+TAP_BIN="${TAP_BIN:-/tmp/ottoguide_unitree_capture_tap}"
+NET_IFACE="${NET_IFACE:-eth0}"
+DDS_DOMAIN="${DDS_DOMAIN:-0}"
+ROS_FOXY_SETUP="${ROS_FOXY_SETUP:-/opt/ros/foxy/setup.bash}"
+ROS_QUERY_TIMEOUT="${ROS_QUERY_TIMEOUT:-8}"
+BRIDGE_EXECUTABLE="${BRIDGE_EXECUTABLE:-$ROS2_WS/install/ottoguide_unitree_capture_bridge/lib/ottoguide_unitree_capture_bridge/bridge_node}"
+
+# --- Tap runtime isolation -------------------------------------------------
+#
+# The native tap must resolve libddscxx/libddsc from the Unitree SDK
+# (RUNPATH), not whatever CycloneDDS build happens to be on
+# LD_LIBRARY_PATH. source_ros() exports a ROS-flavored LD_LIBRARY_PATH (and
+# CYCLONEDDS_URI / ROS_DOMAIN_ID / RMW_IMPLEMENTATION, which the tap's own
+# ChannelFactory::Init(domain, iface) call does not need and must not be
+# influenced by) into the *current shell*, which would otherwise leak into
+# any child launched with `&` directly. The tap is therefore always
+# launched through `env` with an explicit, minimal library path and those
+# ROS-only variables removed - regardless of whether source_ros() ran
+# first in this same shell.
+SDK_ROOT="${SDK_ROOT:-/home/unitree/unitree_sdk2}"
+TAP_LD_LIBRARY_PATH="${TAP_LD_LIBRARY_PATH:-$SDK_ROOT/lib/aarch64:$SDK_ROOT/thirdparty/lib/aarch64}"
+TAP_ISOLATION_UNSET_VARS=(CYCLONEDDS_URI ROS_DOMAIN_ID RMW_IMPLEMENTATION AMENT_PREFIX_PATH COLCON_PREFIX_PATH PYTHONPATH CMAKE_PREFIX_PATH)
+
+build_tap_env_args() {
+  TAP_ENV_ARGS=()
+  local v
+  for v in "${TAP_ISOLATION_UNSET_VARS[@]}"; do
+    TAP_ENV_ARGS+=(-u "$v")
+  done
+  TAP_ENV_ARGS+=("LD_LIBRARY_PATH=$TAP_LD_LIBRARY_PATH")
+}
+
+# Runs `ldd` against the tap binary inside the exact isolated environment
+# it will actually be launched with, and confirms libddscxx/libddsc resolve
+# from $SDK_ROOT specifically (not merely "somewhere", which could still be
+# an incompatible CycloneDDS build picked up from the default search path).
+validate_tap_runtime_libraries() {
+  build_tap_env_args
+  local ldd_out rc expected_sdk
+  ldd_out="$(env "${TAP_ENV_ARGS[@]}" ldd "$TAP_BIN" 2>&1)"
+  rc=$?
+  echo "$ldd_out"
+  [[ "$rc" -eq 0 ]] || return 1
+  grep -qi "not found" <<<"$ldd_out" && return 1
+  expected_sdk="$(readlink -f "$SDK_ROOT" 2>/dev/null || echo "$SDK_ROOT")"
+  grep -F "libddscxx.so.0 => $expected_sdk" <<<"$ldd_out" >/dev/null || return 1
+  grep -F "libddsc.so.0 => $expected_sdk" <<<"$ldd_out" >/dev/null || return 1
+  return 0
+}
+
+IPC_SOCK="${IPC_SOCK:-/tmp/ottoguide_unitree_capture.sock}"
+TAP_PID_FILE="${TAP_PID_FILE:-/tmp/ottoguide_unitree_capture_tap.pid}"
+BRIDGE_PID_FILE="${BRIDGE_PID_FILE:-/tmp/ottoguide_unitree_capture_bridge.pid}"
+TAP_LOG="${TAP_LOG:-/tmp/ottoguide_unitree_capture_tap.log}"
+BRIDGE_LOG="${BRIDGE_LOG:-/tmp/ottoguide_unitree_capture_bridge.log}"
+
+EXPECTED_TOPICS=(
+  /unitree/remote_joy
+  /unitree/lowstate_imu
+  /unitree/secondary_imu
+  /unitree/fsm_state
+  /unitree/lowstate_summary
+  /unitree/sdk_health
+)
+
+log() { echo "[capture-bridge] $*"; }
+# Exits immediately rather than returning a status. A plain `return 1` here
+# is silently neutralized whenever the caller (cmd_start, cmd_validate, ...)
+# is itself invoked from inside an `if`/`while`/`until` condition: bash
+# disables errexit for the whole dynamic scope of such a condition, so a
+# bare `assert_no_publishers /cmd_vel` statement would stop aborting the
+# moment some caller does `if unitree-capture-bridge start; then ...`. Every
+# call site here treats fail() as an unconditional hard stop, so exiting
+# directly removes the dependency on errexit semantics entirely.
+fail() { echo "[capture-bridge] ERROR: $*" >&2; exit 1; }
+
+# Sources the Foxy + workspace overlays without permanently weakening
+# `set -u`: the caller's nounset state is detected via `$-` and restored
+# exactly, so a setup.bash that references an unset variable (e.g.
+# COLCON_TRACE) cannot raise "unbound variable" while we are not the one
+# who decided nounset should be off. Errors from the `source` commands
+# themselves are never swallowed (errexit stays enabled throughout).
+source_ros() {
+  local had_nounset=0
+  case "$-" in *u*) had_nounset=1 ;; esac
+  set +u
+  : "${COLCON_TRACE:=}"
+  source "$ROS_FOXY_SETUP"
+  if [[ -f "$ROS2_WS/install/setup.bash" ]]; then
+    source "$ROS2_WS/install/setup.bash"
+  fi
+  if [[ "$had_nounset" == "1" ]]; then
+    set -u
+  fi
+  export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
+  export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+  local cyclone="$OTTOGUIDE_ROOT/config/cyclonedds.foxy.xml"
+  [[ -f "$cyclone" ]] && export CYCLONEDDS_URI="file://$cyclone"
+}
+
+read_live_pid() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  local pid
+  pid="$(cat "$file" 2>/dev/null || true)"
+  [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && echo "$pid"
+}
+
+# --- Process identity (Phase G) -------------------------------------------
+#
+# Identity is established via /proc, never via a broad `pgrep -f` substring
+# search: any process whose argv merely *mentions* the tap/bridge name as a
+# text argument (a `cat`, `tail -f`, editor, or this very audit tooling)
+# would otherwise match and be misclassified as a foreign bridge process.
+
+proc_exe_realpath() {
+  local pid="$1"
+  readlink -f "/proc/$pid/exe" 2>/dev/null || true
+}
+
+proc_cmdline_tokens() {
+  local pid="$1"
+  [[ -r "/proc/$pid/cmdline" ]] || return 1
+  tr '\0' '\n' < "/proc/$pid/cmdline"
+}
+
+is_tap_process() {
+  local pid="$1" exe expected
+  exe="$(proc_exe_realpath "$pid")"
+  [[ -n "$exe" ]] || return 1
+  expected="$(readlink -f "$TAP_BIN" 2>/dev/null || echo "$TAP_BIN")"
+  [[ "$exe" == "$expected" ]]
+}
+
+is_bridge_process() {
+  local pid="$1" token expected
+  expected="$(readlink -f "$BRIDGE_EXECUTABLE" 2>/dev/null || echo "$BRIDGE_EXECUTABLE")"
+  while IFS= read -r token; do
+    [[ "$token" == "$expected" ]] && return 0
+  done < <(proc_cmdline_tokens "$pid")
+  return 1
+}
+
+pid_matches_kind() {
+  local pid="$1" kind="$2"
+  case "$kind" in
+    tap) is_tap_process "$pid" ;;
+    bridge) is_bridge_process "$pid" ;;
+    *) return 1 ;;
+  esac
+}
+
+list_other_pids() {
+  local dir pid
+  for dir in /proc/[0-9]*; do
+    pid="${dir#/proc/}"
+    [[ "$pid" == "$$" ]] && continue
+    echo "$pid"
+  done
+}
+
+assert_no_foreign_bridge_processes() {
+  local tap_pid bridge_pid pid
+  tap_pid="$(read_live_pid "$TAP_PID_FILE")"
+  bridge_pid="$(read_live_pid "$BRIDGE_PID_FILE")"
+  for pid in $(list_other_pids); do
+    if is_tap_process "$pid" 2>/dev/null; then
+      [[ -n "$tap_pid" && "$pid" == "$tap_pid" ]] || fail "foreign tap process detected: pid=$pid"
+    fi
+    if is_bridge_process "$pid" 2>/dev/null; then
+      [[ -n "$bridge_pid" && "$pid" == "$bridge_pid" ]] || fail "foreign bridge process detected: pid=$pid"
+    fi
+  done
+}
+
+# --- ROS safety queries: fail-closed (Phase H) ----------------------------
+#
+# publisher_status never collapses "ros2 failed to answer" into "zero
+# publishers". It returns one of:
+#   SAFE_ZERO_PUBLISHERS           - topic genuinely has no publisher
+#   UNSAFE_ACTIVE_PUBLISHERS:<n>   - query succeeded, n>0 publishers exist
+#   UNKNOWN_ROS_QUERY_FAILED       - ros2 exited non-zero or timed out
+#   UNKNOWN_TOPIC_INFO_UNPARSEABLE - ros2 exited 0 but output had no usable count
+# Callers in build/start/validate must block on any UNKNOWN_* status;
+# `status` may surface it without blocking.
+#
+# Real ROS 2 Foxy reports a nonexistent topic as the single line
+# `Unknown topic '<topic>'` on EXIT CODE 1, not 0 (confirmed against the
+# robot's actual ros2 CLI - the offline fixture originally modeled this
+# case as exit 0, which is why this went unnoticed until a real physical
+# session). That exact line, and only that exact line (trimmed, with no
+# extra warnings/errors around it), on rc 0 or 1, is treated as a genuine
+# absence of any publisher - never a generic substring match, which could
+# otherwise misclassify an unrelated error that merely mentions the phrase.
+
+publisher_status() {
+  local topic="$1" info rc count trimmed expected_unknown
+  info="$(timeout "$ROS_QUERY_TIMEOUT" ros2 topic info "$topic" -v 2>&1)"
+  rc=$?
+  info="${info//$'\r'/}"
+  trimmed="$(printf '%s' "$info" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  expected_unknown="Unknown topic '$topic'"
+  if [[ ( "$rc" == "0" || "$rc" == "1" ) && "$trimmed" == "$expected_unknown" ]]; then
+    echo "SAFE_ZERO_PUBLISHERS"
+    return 0
+  fi
+  if [[ "$rc" -ne 0 ]]; then
+    echo "UNKNOWN_ROS_QUERY_FAILED"
+    return 0
+  fi
+  count="$(sed -nE 's/^[[:space:]]*Publisher count:[[:space:]]*([0-9]+).*/\1/p' <<<"$info" | head -1)"
+  if [[ -z "$count" ]]; then
+    echo "UNKNOWN_TOPIC_INFO_UNPARSEABLE"
+    return 0
+  fi
+  if [[ "$count" == "0" ]]; then
+    echo "SAFE_ZERO_PUBLISHERS"
+  else
+    echo "UNSAFE_ACTIVE_PUBLISHERS:$count"
+  fi
+}
+
+assert_no_publishers() {
+  local topic="$1" status
+  status="$(publisher_status "$topic")"
+  case "$status" in
+    SAFE_ZERO_PUBLISHERS) return 0 ;;
+    UNSAFE_ACTIVE_PUBLISHERS:*)
+      fail "$topic has ${status#UNSAFE_ACTIVE_PUBLISHERS:} publisher(s)" ;;
+    UNKNOWN_ROS_QUERY_FAILED)
+      fail "$topic publisher query failed (ros2 unavailable/timeout) - treated as unsafe" ;;
+    UNKNOWN_TOPIC_INFO_UNPARSEABLE)
+      fail "$topic publisher query returned unparseable output - treated as unsafe" ;;
+    *) fail "$topic publisher query returned unexpected status: $status" ;;
+  esac
+}
+
+assert_no_navigation() {
+  if pgrep -af 'nav2|bt_navigator|controller_server|planner_server|slam_toolbox' >/dev/null; then
+    fail "Nav2 or SLAM process detected"
+  fi
+}
+
+stop_owned_process() {
+  local file="$1" kind="$2" label="$3"
+  local pid
+  pid="$(read_live_pid "$file")"
+  if [[ -z "$pid" ]]; then
+    [[ -f "$file" ]] && rm -f "$file"
+    log "$label already stopped"
+    return 0
+  fi
+  pid_matches_kind "$pid" "$kind" || fail "$label PID $pid identity mismatch"
+  kill -INT "$pid"
+  for _ in {1..50}; do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    pid_matches_kind "$pid" "$kind" || fail "$label identity changed before SIGTERM"
+    kill -TERM "$pid"
+    for _ in {1..30}; do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
+  fi
+  kill -0 "$pid" 2>/dev/null && fail "$label did not stop"
+  rm -f "$file"
+  log "$label stopped"
+}
+
+cmd_plan() {
+  cat <<EOF
+=== UNITREE CAPTURE BRIDGE PLAN ===
+No process will be started.
+Native DDS: interface=$NET_IFACE domain=$DDS_DOMAIN
+Required receive channels:
+  rt/lowstate
+  rt/secondary_imu
+  rt/sportmodestate
+Optional diagnostic channel:
+  rt/lf/lowstate
+Human intent source:
+  wireless_remote from rt/lowstate only
+IPC:
+  AF_UNIX SOCK_DGRAM $IPC_SOCK
+ROS allowlist:
+$(printf '  %s\n' "${EXPECTED_TOPICS[@]}")
+EOF
+}
+
+cmd_build() {
+  [[ "$DDS_DOMAIN" == "0" ]] || fail "DDS_DOMAIN must remain 0"
+  OUT="$TAP_BIN" bash "$BUILD_SCRIPT"
+  source_ros
+  cd "$ROS2_WS"
+  colcon build --packages-select ottoguide_unitree_capture_bridge --symlink-install
+  set +u
+  source "$ROS2_WS/install/setup.bash"
+  set -u
+  ros2 pkg executables ottoguide_unitree_capture_bridge
+}
+
+cmd_start() {
+  [[ "$DDS_DOMAIN" == "0" ]] || fail "DDS_DOMAIN must remain 0"
+  ip link show "$NET_IFACE" >/dev/null 2>&1 || fail "interface $NET_IFACE missing"
+  [[ -x "$TAP_BIN" ]] || fail "native tap missing; run build"
+  [[ -x "$BRIDGE_EXECUTABLE" ]] || fail "bridge executable missing or not executable: $BRIDGE_EXECUTABLE"
+  validate_tap_runtime_libraries || fail "tap DDS libraries do not resolve to \$SDK_ROOT ($SDK_ROOT) in isolation"
+  [[ -z "$(read_live_pid "$TAP_PID_FILE")" ]] || fail "tap already running"
+  [[ -z "$(read_live_pid "$BRIDGE_PID_FILE")" ]] || fail "bridge already running"
+  assert_no_foreign_bridge_processes
+  source_ros
+  assert_no_publishers /cmd_vel
+  assert_no_publishers /odom
+  assert_no_navigation
+
+  "$BRIDGE_EXECUTABLE" >"$BRIDGE_LOG" 2>&1 &
+  local bridge_pid=$!
+  for _ in {1..100}; do
+    [[ -S "$IPC_SOCK" ]] && break
+    kill -0 "$bridge_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if [[ ! -S "$IPC_SOCK" ]] || ! kill -0 "$bridge_pid" 2>/dev/null; then
+    kill -TERM "$bridge_pid" 2>/dev/null || true
+    fail "bridge did not create IPC socket"
+  fi
+  if ! pid_matches_kind "$bridge_pid" bridge; then
+    kill -TERM "$bridge_pid" 2>/dev/null || true
+    fail "bridge process identity verification failed for pid=$bridge_pid"
+  fi
+  echo "$bridge_pid" >"$BRIDGE_PID_FILE"
+
+  build_tap_env_args
+  env "${TAP_ENV_ARGS[@]}" "$TAP_BIN" "$NET_IFACE" "$DDS_DOMAIN" >"$TAP_LOG" 2>&1 &
+  local tap_pid=$! tap_fail_log
+  sleep 2
+  if ! kill -0 "$tap_pid" 2>/dev/null; then
+    tap_fail_log="$(tail -5 "$TAP_LOG" 2>/dev/null || true)"
+    stop_owned_process "$BRIDGE_PID_FILE" bridge bridge || true
+    fail "native tap exited during startup: ${tap_fail_log:-no tap log captured}"
+  fi
+  if ! pid_matches_kind "$tap_pid" tap; then
+    kill -TERM "$tap_pid" 2>/dev/null || true
+    stop_owned_process "$BRIDGE_PID_FILE" bridge bridge || true
+    fail "tap process identity verification failed for pid=$tap_pid"
+  fi
+  echo "$tap_pid" >"$TAP_PID_FILE"
+  log "started bridge=$bridge_pid tap=$tap_pid"
+}
+
+cmd_status() {
+  source_ros 2>/dev/null || true
+  echo "TAP_PID=$(read_live_pid "$TAP_PID_FILE")"
+  echo "BRIDGE_PID=$(read_live_pid "$BRIDGE_PID_FILE")"
+  echo "IPC_SOCKET=$([[ -S "$IPC_SOCK" ]] && echo READY || echo ABSENT)"
+  ros2 topic list 2>/dev/null | grep '^/unitree/' || true
+  echo "CMD_VEL_STATUS=$(publisher_status /cmd_vel)"
+  echo "ODOM_STATUS=$(publisher_status /odom)"
+}
+
+cmd_validate() {
+  source_ros
+  local tap_pid bridge_pid topic missing=0
+  tap_pid="$(read_live_pid "$TAP_PID_FILE")"
+  bridge_pid="$(read_live_pid "$BRIDGE_PID_FILE")"
+  [[ -n "$tap_pid" ]] && pid_matches_kind "$tap_pid" tap || fail "tap process invalid"
+  [[ -n "$bridge_pid" ]] && pid_matches_kind "$bridge_pid" bridge || fail "bridge process invalid"
+  [[ -S "$IPC_SOCK" ]] || fail "IPC socket missing"
+  assert_no_foreign_bridge_processes
+  assert_no_publishers /cmd_vel
+  assert_no_publishers /odom
+  assert_no_navigation
+  local topics rc
+  topics="$(timeout "$ROS_QUERY_TIMEOUT" ros2 topic list 2>&1)"
+  rc=$?
+  [[ "$rc" -eq 0 ]] || fail "ros2 topic list query failed (rc=$rc) - cannot validate topic allowlist"
+  for topic in "${EXPECTED_TOPICS[@]}"; do
+    if ! grep -Fxq "$topic" <<<"$topics"; then
+      echo "MISSING_TOPIC=$topic" >&2
+      missing=1
+    fi
+  done
+  [[ "$missing" == "0" ]] || fail "topic allowlist incomplete"
+  local unexpected
+  unexpected="$(grep '^/unitree/' <<<"$topics" | grep -Fvx -f <(printf '%s\n' "${EXPECTED_TOPICS[@]}") || true)"
+  [[ -z "$unexpected" ]] || fail "unexpected /unitree topics: $unexpected"
+  echo "CAPTURE_BRIDGE_VALIDATE_PASS"
+}
+
+cmd_stop() {
+  stop_owned_process "$TAP_PID_FILE" tap tap
+  stop_owned_process "$BRIDGE_PID_FILE" bridge bridge
+  [[ -S "$IPC_SOCK" ]] && rm -f "$IPC_SOCK"
+  [[ ! -S "$IPC_SOCK" ]] || fail "IPC socket remains"
+}
+
+cmd_help() {
+  echo "Usage: $(basename "$0") {plan|build|start|status|stop|validate|help}"
+}
+
+# Only dispatch a command when executed directly. When sourced (as the test
+# suites in test/ do, to exercise the functions above in isolation with fake
+# ros2/pgrep/ip binaries on PATH) no command runs automatically.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  case "${1:-help}" in
+    plan) cmd_plan ;;
+    build) cmd_build ;;
+    start) cmd_start ;;
+    status) cmd_status ;;
+    stop) cmd_stop ;;
+    validate) cmd_validate ;;
+    help|-h|--help) cmd_help ;;
+    *) cmd_help; exit 2 ;;
+  esac
+fi

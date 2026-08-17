@@ -1,0 +1,4 @@
+018a2d9458e243e4dea509beb29ad7ff840ca475438ce81a858effbfea59dbfa  README.md  size=2658
+60ecb09019bf96850984d80c6baa4af5ecb0c8be4f075488327cfb39ea5b5bd0  ottoguide-i01-stage-b-tts-contract-plan.md  size=57808
+5c46bcae5990037824356f04be3b789e82dac92101f0114a4e537eeee0f4a398  ottoguide-i01-stage-b-tts-contract-self-review-report.md  size=17202
+752746b755825e79f87fa07f2c3c0ad82778a8a4e6668e0e02f7c40c4ccb6e69  ottoguide-i01-stage-b-tts-contract-v2-correction-report.md  size=11903

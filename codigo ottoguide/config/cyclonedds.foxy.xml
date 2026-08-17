@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CycloneDDS xmlns="https://cdds.io/config">
+  <!--
+    Candidate CycloneDDS config for ROS 2 Foxy on the Unitree G1 companion PC.
+
+    Evidence source:
+    - artifacts/robot_final_session_20260603_175751
+    - ros-foxy-cyclonedds 0.7.0 / rmw-cyclonedds-cpp 0.7.11
+    - config/cyclonedds.xml failed with:
+      //CycloneDDS/Domain/General: Interfaces: unknown element
+
+    This file intentionally uses the legacy NetworkInterfaceAddress element
+    instead of the newer Interfaces/NetworkInterface block.
+
+    Validate physically before replacing config/cyclonedds.xml:
+      bash codigo\ ottoguide/scripts/validate_cyclonedds_config.sh \
+        "/home/unitree/Desktop/Ottoguide/OttoGuide-Proyecto_SIP-Grupo6-UADE/codigo ottoguide/config/cyclonedds.foxy.xml"
+  -->
+  <Domain id="0">
+    <General>
+      <NetworkInterfaceAddress>eth0</NetworkInterfaceAddress>
+      <AllowMulticast>false</AllowMulticast>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <Peers>
+        <Peer address="192.168.123.161"/>
+        <Peer address="192.168.123.164"/>
+        <!-- Historical peer observed in current config; review before re-enabling. -->
+        <!-- <Peer address="192.168.123.100"/> -->
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

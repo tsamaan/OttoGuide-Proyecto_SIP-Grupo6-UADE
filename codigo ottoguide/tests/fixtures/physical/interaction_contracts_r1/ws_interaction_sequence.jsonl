@@ -1,0 +1,8 @@
+{"fixture_origin": "synthetic_contract", "type": "interaction_event", "sequence_index": 0, "session_id": "sess-contract-0002", "event": "ready", "state": "ready"}
+{"fixture_origin": "synthetic_contract", "type": "interaction_event", "sequence_index": 1, "session_id": "sess-contract-0002", "event": "command_accepted", "state": "starting"}
+{"fixture_origin": "synthetic_contract", "type": "interaction_event", "sequence_index": 2, "session_id": "sess-contract-0002", "event": "wake_word_confirmed", "state": "active"}
+{"fixture_origin": "synthetic_contract", "type": "interaction_event", "sequence_index": 3, "session_id": "sess-contract-0002", "event": "capture_started", "state": "active"}
+{"fixture_origin": "synthetic_contract", "type": "interaction_event", "sequence_index": 4, "session_id": "sess-contract-0002", "event": "transcript_ready", "state": "active"}
+{"fixture_origin": "synthetic_contract", "type": "interaction_event", "sequence_index": 5, "session_id": "sess-contract-0002", "event": "response_ready", "state": "active"}
+{"fixture_origin": "synthetic_contract", "type": "interaction_event", "sequence_index": 6, "session_id": "sess-contract-0002", "event": "playback_started", "state": "active"}
+{"fixture_origin": "synthetic_contract", "type": "interaction_event", "sequence_index": 7, "session_id": "sess-contract-0002", "event": "playback_completed", "state": "ready"}

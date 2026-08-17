@@ -1,0 +1,82 @@
+{
+  "audit_date": "2026-06-23",
+  "audit_phase": "2H.2.5R",
+  "physical_deployed_head": "23d9d9cd1aee2f4507dadfaee17e188d0d37135b",
+  "published_head": "80417b727c1ac7324447ac8745652b29062a9a2e",
+  "commits_ahead_of_physical": 38,
+  "platform": {
+    "hostname": "ubuntu",
+    "os": "Ubuntu 20.04.6 LTS",
+    "kernel": "5.10.104-tegra",
+    "arch": "aarch64"
+  },
+  "network": {
+    "interface": "eth0",
+    "eth0_ipv4": "192.168.123.164/24"
+  },
+  "ros": {
+    "distro": "foxy",
+    "domain_id": 0,
+    "rmw_implementation": "rmw_cyclonedds_cpp",
+    "cyclonedds_uri": "file:///home/unitree/Desktop/Ottoguide/OttoGuide-Proyecto_SIP-Grupo6-UADE/codigo ottoguide/config/cyclonedds.foxy.xml"
+  },
+  "git": {
+    "branch": "robot",
+    "head": "23d9d9cd1aee2f4507dadfaee17e188d0d37135b",
+    "tracked_critical_changes": "none",
+    "untracked_diagnostics_under_logs": true
+  },
+  "verified_script_hashes": {
+    "tools/hil/ottoguide-map": "3c4a2ee32b1287ac6ca17a5c3c06f27cfc02cf90",
+    "tools/hil/unitree_capture_bridge/scripts/unitree-capture-bridge": "6762e5e2f5d419bc4dbddd34fe5128118935ec7c"
+  },
+  "ros_graph_observed": {
+    "sensor_stack_init": [
+      "bash ./tools/hil/ottoguide-map prep",
+      "ros2 launch ottoguide_livox_sdk_bridge scan_gate.launch.py"
+    ],
+    "nodes": [
+      "/livox_sdk_bridge_node",
+      "/pointcloud_to_laserscan"
+    ],
+    "topics": [
+      "/utlidar/cloud (sensor_msgs/msg/PointCloud2)",
+      "/livox/imu (sensor_msgs/msg/Imu)",
+      "/scan (sensor_msgs/msg/LaserScan)"
+    ],
+    "actions": [],
+    "absent": [
+      "/tf", "/tf_static", "/odom", "/map", "/map_metadata",
+      "/cmd_vel", "/cmd_vel_raw", "/cmd_vel_safe",
+      "Nav2", "SLAM", "AMCL", "controller_server", "collision_monitor"
+    ]
+  },
+  "unitree_capture_bridge": {
+    "status": "built_started_validated_then_stopped",
+    "topics_observed": [
+      "/unitree/remote_joy (sensor_msgs/msg/Joy)",
+      "/unitree/lowstate_imu (sensor_msgs/msg/Imu)",
+      "/unitree/secondary_imu (sensor_msgs/msg/Imu)",
+      "/unitree/fsm_state (std_msgs/msg/UInt32)",
+      "/unitree/lowstate_summary (std_msgs/msg/String)",
+      "/unitree/sdk_health (diagnostic_msgs/msg/DiagnosticArray)"
+    ],
+    "state_after_close": {
+      "tap_pid": "empty",
+      "bridge_pid": "empty",
+      "ipc_socket": "ABSENT"
+    },
+    "note": "Absence of /unitree/* during R0 audit is coherent with bridge stopped; not a regression"
+  },
+  "python_runtime": {
+    "observed_path": "/home/unitree/.local/lib/python3.8/site-packages",
+    "project_requires_python": ">=3.10",
+    "compatibility_status": "UNRESOLVED_HIGH_RISK"
+  },
+  "wall_clock": {
+    "robot_wall_clock_invalid": true,
+    "robot_timestamps_approx": "May 1970",
+    "actual_session_date": "2026-06-23",
+    "note": "RUN_ID 19700526_* are technical identifiers; monotonic duration and message counts are reliable"
+  }
+}

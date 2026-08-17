@@ -1,0 +1,54 @@
+# Manifest for the offline SITL runtime on WSL2 Ubuntu x86_64.
+#
+# Scope:
+# - Used by scripts/bootstrap_sitl_wsl.sh.
+# - Supports the FastAPI panel launched as `uvicorn main:create_app --factory`.
+# - Exclusive to WSL2 x86_64 development/validation hosts.
+# - Not a physical robot manifest. Jetson/AArch64/ROS 2 Foxy compatibility is
+#   not evaluated and must not be inferred from this file.
+# - This is not proof that full SITL works. It only captures the dependency
+#   foundation needed by the factory path and the ROBOT_MODE=sim lifespan layer.
+#
+# Layers:
+#
+# FACTORY_MINIMAL
+#   Required for importing main.py and constructing create_app() without running
+#   the lifespan.
+#
+# LIFESPAN_SIM
+#   Required by the sim lifespan path up to the Unitree SDK import boundary.
+#   Full external runtime needs MuJoCo/ROS/DDS processes and is intentionally
+#   outside this manifest.
+#
+# The critical pins below are synchronized with requirements_prod.txt:
+# fastapi, uvicorn, pydantic, pydantic_core, pydantic-settings,
+# python-statemachine, httpx, numpy, opencv-python-headless.
+#
+# `uvicorn[standard]` is normalized to `uvicorn` for comparison with
+# requirements_prod.txt.
+#
+# unitree_sdk2py is not listed here because pip cannot resolve an editable
+# relative checkout from this requirements file in all intended contexts. The
+# bootstrap script installs the vendored SDK with --no-deps after resolving:
+#   1. UNITREE_SDK_DIR, if provided;
+#   2. libs/unitree_sdk2_python;
+#   3. libs/unitree_sdk2_python-master.
+#
+# cyclonedds==0.10.2 is pinned here because it is declared by the vendored SDK
+# setup.py. numpy and opencv-python-headless remain pinned to the productive
+# versions, while the SDK is installed with --no-deps to avoid pulling the GUI
+# opencv-python package.
+
+# --- FACTORY_MINIMAL ---
+fastapi==0.118.2
+python-statemachine==3.0.0
+pydantic==2.12.0
+pydantic_core==2.41.1
+uvicorn[standard]==0.37.0
+
+# --- LIFESPAN_SIM ---
+pydantic-settings==2.13.1
+httpx==0.28.1
+cyclonedds==0.10.2
+numpy==2.3.3
+opencv-python-headless==4.13.0.92

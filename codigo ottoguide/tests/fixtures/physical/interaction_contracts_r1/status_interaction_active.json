@@ -1,0 +1,18 @@
+{
+  "fixture_origin": "synthetic_contract",
+  "description": "Status payload contract: interaction session mid-flight (capture/transcript/response cycle), before playback completion.",
+  "fsmState": "idle",
+  "interactionRuntime": {
+    "configured": true,
+    "ready": true,
+    "mock": false,
+    "physical": true,
+    "state": "active"
+  },
+  "interactionSession": {
+    "active": true,
+    "sessionId": "sess-contract-0002",
+    "state": "active",
+    "lastEvent": "response_ready"
+  }
+}

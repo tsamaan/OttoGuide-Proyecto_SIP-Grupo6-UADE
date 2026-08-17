@@ -1,0 +1,77 @@
+{
+  "schema_version": 5,
+  "kind": "CURRENT_FINAL_RELEASE_TREE_STATE",
+  "program_objective": "OTTOGUIDE_FINAL_PROJECT_CLOSURE",
+  "tree_content_status": "FINAL_RELEASE_TREE",
+  "project_phase": "FINAL_PROJECT_CLOSED",
+  "release_status": "FINAL_RELEASE_TREE",
+  "branch_reconciliation": "CLOSED",
+  "productive_development": "FROZEN",
+  "current_release_action": "NO_FURTHER_TREE_MUTATION",
+  "next_action": "NO_FURTHER_PRODUCTIVE_DEVELOPMENT",
+  "next_action_semantics": "FINAL_RELEASE_INVARIANT",
+  "publication_state_semantics": "DYNAMIC_CANONICAL_REMOTE_STATE_NOT_EMBEDDED",
+  "current_release_authority": "docs/Arquitectura/CIERRE_FINAL_MVP.md",
+  "content_release_blockers": 0,
+  "current_external_mirror_dependency": "NONE",
+  "current_publication_model_requires_external_mirror": false,
+  "historical_provenance_external_reference_allowed": true,
+  "repositories": {
+    "canonical_authority": "tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE"
+  },
+  "branch_roles": {
+    "integration_history": "review/orchestrator-unification",
+    "final_delivery": "main",
+    "wholesale_branch_merge": "PROHIBITED"
+  },
+  "final_tree": {
+    "sha_embedding_policy": "DO_NOT_EMBED_SELF_SHA",
+    "resolution": "resolve exact commit/tree from the canonical repository during external audit",
+    "sealed_tree_evidence_location": "versioned canonical documentation and independent audit evidence"
+  },
+  "review_history": {
+    "branch": "review/orchestrator-unification",
+    "preservation": "PRESERVE_FULL_HISTORY",
+    "mutation": "PROHIBITED"
+  },
+  "main_release": {
+    "model": "SINGLE_ROOT_FINAL_RELEASE",
+    "required_parent_count": 0,
+    "required_commit_count": 1,
+    "tree_must_equal_final_canonical_delivery_tree": true,
+    "merge_or_rebase_with_review": "PROHIBITED",
+    "blind_force": "PROHIBITED",
+    "replacement": "CANONICAL_LEASE_OR_COMPARE_AND_SWAP_GUARDED_ROOT_CURATION",
+    "fresh_explicit_authorization_required": true
+  },
+  "evidence_semantics": {
+    "offline_validation_is_physical_validation": false,
+    "historical_physical_evidence_recertifies_final_tree": false,
+    "robot_action_required_for_repository_closeout": false,
+    "physical_claims_require_separate_fresh_evidence": true
+  },
+  "academic_scope": {
+    "original_pilot": "UADE Monserrat, Lima 3/Lima 2, five predefined dialogue stops",
+    "explicit_exclusions": [
+      "other floors or campuses",
+      "unlimited open-ended AI during the structured route",
+      "integration with UADE internal systems",
+      "multilingual support"
+    ],
+    "scope_is_current_physical_validation": false
+  },
+  "historical_state_archive": {
+    "meaning": "BYTE_PRESERVED_U_SERIES_PREDECESSORS_SUPERSEDED_AS_ACTIVE_AUTHORITY",
+    "handoff_path": "docs/Historico/Final_Closure_Predecessors/UNIFICACION_RAMAS_Y_HANDOFF_U_SERIES_SUPERSEDED.md",
+    "handoff_blob_sha": "20ff7d627ba8738b1b94c966f506b72ac79d1b6d",
+    "state_path": "docs/Historico/Final_Closure_Predecessors/unification-state-u-series-superseded.json",
+    "state_blob_sha": "e27527bad7960ed12db380fa05d02484e739e4a0"
+  },
+  "claims_not_made": [
+    "CURRENT_PHYSICAL_ODOM_OR_TF_VALIDATED",
+    "CURRENT_NAV2_AUTONOMY_VALIDATED",
+    "CURRENT_SLAM_MAP_OR_COMPLETE_TOUR_VALIDATED",
+    "CURRENT_AUDIO_CAMERA_OR_LIVE_DDS_ROS_VALIDATED",
+    "CURRENT_EXACT_TREE_HARDWARE_DEPLOYMENT_VALIDATED"
+  ]
+}

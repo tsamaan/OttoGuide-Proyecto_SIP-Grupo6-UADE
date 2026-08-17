@@ -1,0 +1,61 @@
+{
+  "description": "Same segment (left_180_operator_corrected) observed on both channels nearly identically -- illustrates why no authoritative channel is selected.",
+  "primary": {
+    "analysis_eligible": true,
+    "delta_position": [
+      0.1091000000000002,
+      -0.12919999999999998,
+      0.0
+    ],
+    "dominant_position_axis": "y",
+    "duration_s": 38.467200197,
+    "first_position": [
+      2.2897,
+      2.1879,
+      0.7089
+    ],
+    "ground_truth": "label_CW_invalid_operator_says_left_180_actual_unknown",
+    "integrated_yaw_speed_deg": 165.34408774077107,
+    "integrated_yaw_speed_rad": 2.885798729782848,
+    "last_position": [
+      2.3988,
+      2.0587,
+      0.7089
+    ],
+    "reported_translation_norm": 0.16910189236078949,
+    "sample_count": 1583,
+    "source_timestamp_status": "ABSENT",
+    "status": "PASS"
+  },
+  "primary_sample_count": 72456,
+  "secondary": {
+    "analysis_eligible": true,
+    "delta_position": [
+      0.10890000000000022,
+      -0.12950000000000017,
+      0.0
+    ],
+    "dominant_position_axis": "y",
+    "duration_s": 38.44545854,
+    "first_position": [
+      2.2899,
+      2.1882,
+      0.7089
+    ],
+    "ground_truth": "label_CW_invalid_operator_says_left_180_actual_unknown",
+    "integrated_yaw_speed_deg": 159.80977516569249,
+    "integrated_yaw_speed_rad": 2.7892067535132004,
+    "last_position": [
+      2.3988,
+      2.0587,
+      0.7089
+    ],
+    "reported_translation_norm": 0.16920242315049774,
+    "sample_count": 770,
+    "source_timestamp_status": "ABSENT",
+    "status": "PASS"
+  },
+  "secondary_sample_count": 35214,
+  "segment": "left_180_operator_corrected",
+  "session_id": "gt-r4b-20260720T213222Z"
+}

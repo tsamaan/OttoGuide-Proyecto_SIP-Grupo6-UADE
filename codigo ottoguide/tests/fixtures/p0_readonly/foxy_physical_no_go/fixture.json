@@ -1,0 +1,94 @@
+{
+  "_fixture_provenance": {
+    "source": "physical_audit_20260623",
+    "physical_deployed_head": "23d9d9cd1aee2f4507dadfaee17e188d0d37135b",
+    "expected_decision": "NO_GO",
+    "no_go_reasons": [
+      "HEAD_MISMATCH: physical 23d9d9c vs published 80417b7 (38 commits behind)",
+      "UNTRACKED_FILES_OUTSIDE_ALLOWLIST: diagnostics under logs/ not in current P0 allowlist",
+      "ODOM_MISSING: /odom not observed",
+      "TF_MISSING: /tf not observed",
+      "TF_STATIC_MISSING: /tf_static not observed",
+      "MAP_MISSING: /map not observed",
+      "MAP_METADATA_MISSING: /map_metadata not observed",
+      "CMD_VEL_RAW_MISSING: /cmd_vel_raw not observed",
+      "CMD_VEL_SAFE_MISSING: /cmd_vel_safe not observed",
+      "CONTROLLER_SERVER_ABSENT",
+      "COLLISION_MONITOR_ABSENT"
+    ],
+    "no_go_note": "L0/L1 sensor presence does not eliminate these NO_GO conditions",
+    "wall_clock_trusted": false,
+    "wall_clock_note": "Robot RTC invalid (~May 1970); collected_at_utc values are unreliable"
+  },
+  "environment": {
+    "ros_distro": "foxy",
+    "rmw_implementation": "rmw_cyclonedds_cpp",
+    "cyclonedds_uri": "file:///home/unitree/Desktop/Ottoguide/OttoGuide-Proyecto_SIP-Grupo6-UADE/codigo ottoguide/config/cyclonedds.foxy.xml",
+    "hostname": "ubuntu",
+    "arch": "aarch64",
+    "os": "Ubuntu 20.04.6 LTS",
+    "kernel": "5.10.104-tegra"
+  },
+  "topic_list": [
+    "/utlidar/cloud",
+    "/livox/imu",
+    "/scan",
+    "/unitree/remote_joy",
+    "/unitree/lowstate_imu",
+    "/unitree/secondary_imu",
+    "/unitree/fsm_state",
+    "/unitree/lowstate_summary",
+    "/unitree/sdk_health"
+  ],
+  "commands": {
+    "git_branch": {"stdout": "robot\n", "exit_code": 0},
+    "git_head": {"stdout": "23d9d9cd1aee2f4507dadfaee17e188d0d37135b\n", "exit_code": 0},
+    "git_status": {
+      "stdout": "## robot\n?? \"codigo ottoguide/logs/mission_20260622T091904695910Z.json\"\n?? \"codigo ottoguide/logs/mission_20260622T091904951751Z.json\"\n",
+      "exit_code": 0
+    },
+    "git_remote_origin": {"stdout": "https://github.com/tsamaan/OttoGuide-Proyecto_SIP-Grupo6-UADE.git\n", "exit_code": 0},
+    "ros2_node_list": {
+      "stdout": "/livox_sdk_bridge_node\n/pointcloud_to_laserscan\n",
+      "exit_code": 0
+    },
+    "ros2_topic_list": {
+      "stdout": "/utlidar/cloud [sensor_msgs/msg/PointCloud2]\n/livox/imu [sensor_msgs/msg/Imu]\n/scan [sensor_msgs/msg/LaserScan]\n",
+      "exit_code": 0
+    },
+    "ros2_service_list": {"stdout": "", "exit_code": 0},
+    "ros2_action_list": {"stdout": "", "exit_code": 0},
+    "tf_static_echo_once": {"stdout": "", "exit_code": 1, "note": "no tf_static publisher"},
+    "odom_echo_once": {"stdout": "", "exit_code": 1, "note": "no odom publisher"},
+    "topic_info_scan": {
+      "stdout": "Type: sensor_msgs/msg/LaserScan\nPublisher count: 1\nSubscription count: 0\n",
+      "exit_code": 0
+    },
+    "topic_hz_scan": {"stdout": "average rate: 10.0\n", "exit_code": 0},
+    "topic_info_utlidar_cloud": {
+      "stdout": "Type: sensor_msgs/msg/PointCloud2\nPublisher count: 1\nSubscription count: 0\n",
+      "exit_code": 0
+    },
+    "topic_info_livox_imu": {
+      "stdout": "Type: sensor_msgs/msg/Imu\nPublisher count: 1\n",
+      "exit_code": 0
+    },
+    "topic_hz_livox_imu": {"stdout": "average rate: 200.0\n", "exit_code": 0},
+    "topic_info_camera_color_image_raw": {"stdout": "", "exit_code": 1, "note": "camera not active"},
+    "topic_info_camera_depth_image_rect_raw": {"stdout": "", "exit_code": 1, "note": "camera not active"},
+    "cmd_vel_info_cmd_vel_raw": {"stdout": "", "exit_code": 1, "note": "/cmd_vel_raw absent"},
+    "cmd_vel_info_cmd_vel_safe": {"stdout": "", "exit_code": 1, "note": "/cmd_vel_safe absent"}
+  },
+  "safety_human_checklist": {
+    "operator_present": true,
+    "operator_identity_or_role": "physical-audit-observer",
+    "hardstop_present": true,
+    "hardstop_type": "unitree-L1+A-remote",
+    "hardstop_tested_before_session": true,
+    "area_cleared": true,
+    "robot_physically_supervised": true,
+    "dual_control_prohibited_acknowledged": true,
+    "movement_not_authorized_acknowledged": true,
+    "notes": "foxy_physical_no_go fixture: reflects actual robot state 2026-06-23 with sensor stack active but Nav2/odom/TF absent"
+  }
+}

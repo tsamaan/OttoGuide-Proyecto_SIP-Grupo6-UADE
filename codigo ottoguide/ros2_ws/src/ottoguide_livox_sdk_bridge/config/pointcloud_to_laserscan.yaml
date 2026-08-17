@@ -1,0 +1,12 @@
+pointcloud_to_laserscan:
+  ros__parameters:
+    transform_tolerance: 0.05
+    min_height: -3.00
+    max_height: 3.00
+    angle_min: -3.14159
+    angle_max: 3.14159
+    angle_increment: 0.0087
+    scan_time: 0.1
+    range_min: 0.15
+    range_max: 10.0
+    use_inf: true

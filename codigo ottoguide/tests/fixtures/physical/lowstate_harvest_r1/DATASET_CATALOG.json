@@ -1,0 +1,20 @@
+{
+  "checkpoint": "FINAL-ROBOT-HARVEST-R1 (emergency closeout)",
+  "closeout_local_time": "~17:52",
+  "datasets": [
+    {"name": "git_preservation", "path": "00_git_preservation/", "status": "COMPLETE", "verified": true},
+    {"name": "system_inventory", "path": "01_system_inventory/", "status": "COMPLETE"},
+    {"name": "lowstate_contract", "path": "02_lowstate/", "status": "COMPLETE", "samples": 299, "native_hz": 864.2, "motor_array": 35},
+    {"name": "electrosim_provenance", "path": "ELECTROSIM_PROVENANCE.md", "status": "COMPLETE"},
+    {"name": "joint_map_g1", "path": "02_lowstate/joint_map_g1.json", "status": "COMPLETE"},
+    {"name": "ai_config_uade_context", "path": "04_audio_ai/", "status": "COMPLETE", "includes": ["ollama_modelfile_otto (full system prompt)","ollama_list","ollama_parameters","model_digest","mvp_tour_script.json"]},
+    {"name": "sdk_schema_headers", "path": "01_system_inventory/sdk_ref/", "status": "COMPLETE"},
+    {"name": "worker_binary_aarch64", "path": "01_system_inventory/otto_jsonl_physical_worker_aarch64", "status": "COMPLETE"},
+    {"name": "odometry", "path": "03_odometry/", "status": "SKIPPED_TIME_LIMIT"},
+    {"name": "audio_fixture", "path": "04_audio_ai/", "status": "SKIPPED_TIME_LIMIT"},
+    {"name": "front_video", "path": "05_vision/", "status": "SKIPPED_TIME_LIMIT"},
+    {"name": "livox", "path": "06_livox/", "status": "SKIPPED_TIME_LIMIT"},
+    {"name": "api_contracts", "path": "07_contracts/", "status": "SKIPPED_TIME_LIMIT_BUILDABLE_OFFLINE"},
+    {"name": "offline_replay_tools", "path": "08_offline_replay/", "status": "SKIPPED_TIME_LIMIT_BUILDABLE_OFFLINE"}
+  ]
+}

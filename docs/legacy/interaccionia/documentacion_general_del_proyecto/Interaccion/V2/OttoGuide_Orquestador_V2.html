@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OttoGuide — Orquestador V2 · main_v2.py</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:     #0a0c10;
+    --bg2:    #111318;
+    --bg3:    #181c24;
+    --border: rgba(255,255,255,0.07);
+    --text:   #e8eaf0;
+    --muted:  #8890a4;
+    --green:  #38d9a9;
+    --blue:   #5b8af5;
+    --purple: #a78bfa;
+    --orange: #f5a623;
+    --red:    #e05c7a;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  /* NAV */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(10,12,16,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.75rem 2rem;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-logo { font-family: 'DM Mono', monospace; font-size: 0.8rem; color: var(--muted); }
+  .nav-logo span { color: var(--green); }
+  .nav-pills { display: flex; gap: 0.5rem; }
+  .nav-pill {
+    font-family: 'DM Mono', monospace; font-size: 0.6rem;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 0.25rem 0.75rem; border-radius: 2rem;
+    border: 1px solid var(--border); color: var(--muted);
+    text-decoration: none; transition: all 0.2s;
+  }
+  .nav-pill:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+  .nav-pill.active { background: rgba(56,217,169,0.1); border-color: rgba(56,217,169,0.3); color: var(--green); }
+
+  /* HERO */
+  .hero {
+    padding: 5rem 2rem 3rem;
+    max-width: 900px; margin: 0 auto;
+    border-bottom: 1px solid var(--border);
+  }
+  .hero-tag {
+    font-family: 'DM Mono', monospace; font-size: 0.6rem;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--green); margin-bottom: 1.25rem;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .hero-tag::before { content: ''; display: block; width: 2rem; height: 1px; background: var(--green); }
+  .hero h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: clamp(2rem, 5vw, 3.25rem);
+    line-height: 1.1; color: #fff;
+    margin-bottom: 1.25rem;
+  }
+  .hero h1 em { font-style: italic; color: var(--green); }
+  .hero-sub {
+    font-size: 1rem; color: var(--muted); max-width: 600px;
+    margin-bottom: 2rem; line-height: 1.75;
+  }
+  .hero-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .badge {
+    font-family: 'DM Mono', monospace; font-size: 0.65rem;
+    padding: 0.3rem 0.85rem; border-radius: 2rem;
+    border: 1px solid; letter-spacing: 0.05em;
+  }
+  .badge-green { background: rgba(56,217,169,0.08); border-color: rgba(56,217,169,0.25); color: var(--green); }
+  .badge-blue  { background: rgba(91,138,245,0.08);  border-color: rgba(91,138,245,0.25);  color: var(--blue); }
+  .badge-orange{ background: rgba(245,166,35,0.08);  border-color: rgba(245,166,35,0.25);  color: var(--orange); }
+  .badge-purple{ background: rgba(167,139,250,0.08); border-color: rgba(167,139,250,0.25); color: var(--purple); }
+
+  /* LAYOUT */
+  .container { max-width: 900px; margin: 0 auto; padding: 0 2rem; }
+  section { padding: 3.5rem 0; border-bottom: 1px solid var(--border); }
+  .section-label {
+    font-family: 'DM Mono', monospace; font-size: 0.6rem;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 0.75rem;
+  }
+  .section-title {
+    font-family: 'DM Serif Display', serif; font-size: 1.75rem;
+    color: #fff; margin-bottom: 1rem;
+  }
+  .section-intro { color: var(--muted); max-width: 650px; margin-bottom: 2rem; }
+
+  /* CODE BLOCKS */
+  .code-block {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden; margin-bottom: 1.25rem;
+  }
+  .code-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.65rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg3);
+  }
+  .code-lang {
+    font-family: 'DM Mono', monospace; font-size: 0.6rem;
+    letter-spacing: 0.15em; text-transform: uppercase; color: var(--green);
+  }
+  .code-file { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--muted); }
+  .code-body {
+    padding: 1.25rem 1.5rem;
+    font-family: 'DM Mono', monospace; font-size: 0.75rem;
+    line-height: 1.85; color: #b8c4e0;
+    overflow-x: auto; white-space: pre;
+  }
+  .code-body .comment { color: #4a5568; }
+  .code-body .kw { color: #a78bfa; }
+  .code-body .fn { color: #5b8af5; }
+  .code-body .str { color: #38d9a9; }
+  .code-body .num { color: #f5a623; }
+
+  /* DIFF TABLE */
+  .diff-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+  .diff-table th {
+    font-family: 'DM Mono', monospace; font-size: 0.6rem;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--muted); padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border); text-align: left;
+  }
+  .diff-table td {
+    padding: 0.65rem 1rem; font-size: 0.84rem;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    vertical-align: top;
+  }
+  .diff-table td code {
+    font-family: 'DM Mono', monospace; font-size: 0.72rem;
+    background: rgba(255,255,255,0.06); padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+  }
+  .diff-old { color: var(--red); }
+  .diff-new { color: var(--green); }
+
+  /* FUNCTION CARDS */
+  .fn-grid { display: flex; flex-direction: column; gap: 0.75rem; }
+  .fn-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 1.25rem 1.5rem;
+    border-left: 3px solid transparent;
+  }
+  .fn-card.green  { border-left-color: var(--green); }
+  .fn-card.blue   { border-left-color: var(--blue); }
+  .fn-card.purple { border-left-color: var(--purple); }
+  .fn-card.orange { border-left-color: var(--orange); }
+  .fn-card.red    { border-left-color: var(--red); }
+  .fn-name {
+    font-family: 'DM Mono', monospace; font-size: 0.82rem;
+    color: #fff; margin-bottom: 0.4rem;
+  }
+  .fn-sig { color: var(--muted); font-size: 0.78rem; margin-bottom: 0.5rem; }
+  .fn-desc { color: var(--muted); font-size: 0.84rem; line-height: 1.6; }
+  .fn-tag {
+    display: inline-block; font-family: 'DM Mono', monospace;
+    font-size: 0.58rem; letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 0.15rem 0.6rem; border-radius: 2rem; border: 1px solid;
+    margin-right: 0.4rem; margin-bottom: 0.5rem;
+  }
+
+  /* OTTO_ENV BLOCK */
+  .env-block {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden; margin-bottom: 1.5rem;
+  }
+  .env-header {
+    display: grid; grid-template-columns: 1fr 1fr;
+  }
+  .env-col {
+    padding: 1.5rem;
+  }
+  .env-col:first-child { border-right: 1px solid var(--border); }
+  .env-col-title {
+    font-family: 'DM Mono', monospace; font-size: 0.62rem;
+    letter-spacing: 0.15em; text-transform: uppercase;
+    margin-bottom: 0.75rem;
+  }
+  .env-col-title.green { color: var(--green); }
+  .env-col-title.orange { color: var(--orange); }
+  .env-col-desc { color: var(--muted); font-size: 0.84rem; line-height: 1.6; }
+
+  /* FLOW VERTICAL */
+  .flow-v { display: flex; flex-direction: column; gap: 0; max-width: 480px; }
+  .flow-v-step {
+    display: flex; gap: 1rem; align-items: flex-start;
+    padding: 0.75rem 1rem;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+    margin-bottom: 0;
+  }
+  .flow-v-arrow {
+    text-align: center; color: var(--border);
+    font-family: 'DM Mono', monospace; font-size: 0.75rem;
+    padding: 0.2rem 0;
+  }
+  .flow-v-num {
+    width: 1.75rem; height: 1.75rem; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Mono', monospace; font-size: 0.7rem;
+    font-weight: 600; flex-shrink: 0;
+  }
+  .flow-v-content { flex: 1; }
+  .flow-v-title { font-size: 0.88rem; font-weight: 600; color: #fff; }
+  .flow-v-note  { font-size: 0.78rem; color: var(--muted); margin-top: 0.15rem; font-family: 'DM Mono', monospace; }
+
+  /* NOTE */
+  .note {
+    display: flex; gap: 0.75rem; align-items: flex-start;
+    padding: 0.875rem 1.25rem; border-radius: 10px;
+    font-size: 0.84rem; margin-bottom: 1rem;
+  }
+  .note-warn  { background: rgba(245,166,35,0.06); border: 1px solid rgba(245,166,35,0.2); color: var(--muted); }
+  .note-info  { background: rgba(91,138,245,0.06);  border: 1px solid rgba(91,138,245,0.2);  color: var(--muted); }
+  .note-ok    { background: rgba(56,217,169,0.06);  border: 1px solid rgba(56,217,169,0.2);  color: var(--muted); }
+  .note code  {
+    font-family: 'DM Mono', monospace; font-size: 0.72rem;
+    background: rgba(255,255,255,0.08); padding: 0.1rem 0.4rem;
+    border-radius: 4px; color: var(--text);
+  }
+
+  /* FOOTER */
+  footer {
+    padding: 2rem; text-align: center;
+    font-family: 'DM Mono', monospace; font-size: 0.65rem;
+    color: var(--muted); border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 0.5rem;
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">otto<span>guide</span> / orquestador-v2</div>
+  <div class="nav-pills">
+    <a href="#diferencias" class="nav-pill active">V1 → V2</a>
+    <a href="#funciones" class="nav-pill">Funciones</a>
+    <a href="#env" class="nav-pill">OTTO_ENV</a>
+    <a href="#uso" class="nav-pill">Uso</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-tag">Documentación técnica</div>
+  <h1><em>main_v2.py</em><br>Orquestador async</h1>
+  <p class="hero-sub">
+    Reescritura asíncrona del orquestador de conversación de Ottoman. Arquitectura <code>asyncio</code> pura con <code>aiohttp</code> para HTTP y <code>asyncio.create_subprocess_exec</code> para procesos. Preparado para integración con el SDK nativo de Unitree.
+  </p>
+  <div class="hero-badges">
+    <span class="badge badge-green">asyncio + aiohttp</span>
+    <span class="badge badge-blue">Whisper Docker</span>
+    <span class="badge badge-purple">Gemma4 otto</span>
+    <span class="badge badge-orange">OTTO_ENV dual-mode TTS</span>
+  </div>
+</div>
+
+<!-- DIFERENCIAS V1 → V2 -->
+<section id="diferencias">
+  <div class="container">
+    <div class="section-label">Evolución</div>
+    <h2 class="section-title">V1 → V2 · Qué cambió</h2>
+    <p class="section-intro">
+      <code>main_v2.py</code> mantiene el mismo pipeline y lógica conversacional de V1 pero reescrito en async puro. No modifica ni rompe <code>main.py</code> que sigue funcionando en paralelo.
+    </p>
+
+    <table class="diff-table">
+      <thead>
+        <tr>
+          <th>Componente</th>
+          <th>V1 — main.py</th>
+          <th>V2 — main_v2.py</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Modelo de ejecución</td>
+          <td class="diff-old">Síncrono — llamadas bloqueantes</td>
+          <td class="diff-new">Async — <code>asyncio.run(main())</code></td>
+        </tr>
+        <tr>
+          <td>HTTP (Whisper + Ollama)</td>
+          <td class="diff-old"><code>requests.post()</code> bloqueante</td>
+          <td class="diff-new"><code>aiohttp.ClientSession</code> compartida async</td>
+        </tr>
+        <tr>
+          <td>Subprocesos (arecord, docker, paplay)</td>
+          <td class="diff-old"><code>subprocess.run()</code> bloqueante</td>
+          <td class="diff-new"><code>asyncio.create_subprocess_exec()</code> async</td>
+        </tr>
+        <tr>
+          <td>Backend TTS</td>
+          <td class="diff-old">Siempre Piper Docker</td>
+          <td class="diff-new">Dual-mode via <code>OTTO_ENV</code>: Docker (notebook) / SDK (robot)</td>
+        </tr>
+        <tr>
+          <td>Detección fin de audio</td>
+          <td class="diff-old"><code>esperar_fin_audio()</code> síncrona con <code>time.sleep()</code></td>
+          <td class="diff-new"><code>esperar_fin_audio()</code> async con <code>asyncio.sleep()</code></td>
+        </tr>
+        <tr>
+          <td>Sesión HTTP</td>
+          <td class="diff-old">Nueva conexión por cada request</td>
+          <td class="diff-new">Sesión <code>aiohttp</code> compartida para toda la ejecución</td>
+        </tr>
+        <tr>
+          <td>SDK Unitree</td>
+          <td class="diff-old">No contemplado</td>
+          <td class="diff-new"><code>hablar_sdk()</code> preparado — fallback a Docker hasta validar</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="note note-ok">
+      <span>✓</span>
+      <span><strong>Compatibilidad total.</strong> <code>main_v2.py</code> y <code>main.py</code> pueden coexistir en <code>services/core/</code> sin interferirse. No comparten estado ni archivos de lock.</span>
+    </div>
+  </div>
+</section>
+
+<!-- FUNCIONES -->
+<section id="funciones">
+  <div class="container">
+    <div class="section-label">API interna</div>
+    <h2 class="section-title">Funciones del orquestador</h2>
+    <p class="section-intro">Todas las funciones son <code>async</code>. Se organizan en capas: utilidades, audio, STT, LLM y TTS.</p>
+
+    <div class="fn-grid">
+
+      <div class="fn-card green">
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+          <span class="fn-tag" style="color:var(--muted);border-color:var(--border);">utilidades</span>
+        </div>
+        <div class="fn-name">limpiar(texto) · formatear_para_tts(texto) · similar_a_uade(palabra)</div>
+        <div class="fn-sig">corregir_transcripcion(texto) · calcular_timeout(pregunta)</div>
+        <div class="fn-desc">Funciones síncronas de procesamiento de texto. Idénticas a V1 — eliminan emojis, agregan pausas naturales, corrigen variaciones fonéticas de UADE via Levenshtein y calculan timeout HTTP según longitud de pregunta.</div>
+      </div>
+
+      <div class="fn-card blue">
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+          <span class="fn-tag" style="color:var(--blue);border-color:rgba(91,138,245,0.3);">audio</span>
+        </div>
+        <div class="fn-name">async grabar(duracion, path)</div>
+        <div class="fn-sig">asyncio.create_subprocess_exec("arecord", ...)</div>
+        <div class="fn-desc">Graba N segundos de audio del micrófono de forma no bloqueante. <code>await proc.wait()</code> espera el fin de la grabación sin bloquear el event loop. Usa <code>MIC_DEVICE</code> y <code>MIC_CHANNELS</code> configurados arriba.</div>
+      </div>
+
+      <div class="fn-card blue">
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+          <span class="fn-tag" style="color:var(--blue);border-color:rgba(91,138,245,0.3);">STT</span>
+        </div>
+        <div class="fn-name">async transcribir(path, session)</div>
+        <div class="fn-sig">aiohttp.FormData + session.post(STT_URL)</div>
+        <div class="fn-desc">Verifica amplitud del WAV, manda a Whisper HTTP via <code>aiohttp</code>, filtra falsos positivos de Whisper y corrige UADE con Levenshtein. La <code>session</code> se reutiliza entre llamadas para eficiencia de conexión.</div>
+      </div>
+
+      <div class="fn-card purple">
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+          <span class="fn-tag" style="color:var(--purple);border-color:rgba(167,139,250,0.3);">LLM</span>
+        </div>
+        <div class="fn-name">async preguntar_llm(pregunta, session)</div>
+        <div class="fn-sig">session.post(LLM_URL, json={model: "otto", ...})</div>
+        <div class="fn-desc">Envía la pregunta al modelo <code>otto</code> en Ollama via <code>aiohttp</code>. Sin <code>num_predict</code> — el Modelfile controla la longitud. Timeout dinámico calculado por <code>calcular_timeout()</code>. Retorna la respuesta formateada para TTS.</div>
+      </div>
+
+      <div class="fn-card orange">
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+          <span class="fn-tag" style="color:var(--orange);border-color:rgba(245,166,35,0.3);">TTS</span>
+        </div>
+        <div class="fn-name">async hablar_docker(texto)</div>
+        <div class="fn-sig">docker cp + docker exec piper + paplay · Popen async</div>
+        <div class="fn-desc">Escribe el texto a <code>/tmp/otto_texto.txt</code> (UTF-8 para preservar acentos), copia al contenedor <code>ottoguide-tts</code>, genera WAV con Piper, copia de vuelta y reproduce con <code>paplay</code>. Usa <code>esperar_fin_audio()</code> async para detectar fin real del audio antes de activar el micrófono.</div>
+      </div>
+
+      <div class="fn-card orange">
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+          <span class="fn-tag" style="color:var(--orange);border-color:rgba(245,166,35,0.3);">TTS · SDK</span>
+          <span class="fn-tag" style="color:var(--red);border-color:rgba(224,92,122,0.3);">TODO</span>
+        </div>
+        <div class="fn-name">async hablar_sdk(texto)</div>
+        <div class="fn-sig">AudioClient.TtsMaker(texto, speaker_id=0)</div>
+        <div class="fn-desc">TTS via SDK nativo de Unitree. Activo cuando <code>OTTO_ENV=robot</code>. Actualmente con fallback a <code>hablar_docker()</code> hasta validar soporte de español, latencia y calidad en el robot físico. Completar con la implementación del SDK cuando se confirme en hardware.</div>
+      </div>
+
+      <div class="fn-card green">
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+          <span class="fn-tag" style="color:var(--green);border-color:rgba(56,217,169,0.3);">orquestador</span>
+        </div>
+        <div class="fn-name">async main()</div>
+        <div class="fn-sig">asyncio.run(main())</div>
+        <div class="fn-desc">Loop principal. Crea una <code>aiohttp.ClientSession</code> compartida para toda la ejecución. Loop externo de hibernación (wake word en ciclos de 3s). Loop interno de conversación (preguntas hasta despedida). <code>asyncio.run(main())</code> como entry point con <code>KeyboardInterrupt</code> para salida limpia.</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- OTTO_ENV -->
+<section id="env">
+  <div class="container">
+    <div class="section-label">Configuración</div>
+    <h2 class="section-title">Variable OTTO_ENV</h2>
+    <p class="section-intro">
+      Controla qué backend TTS usa el orquestador. Sin cambiar código, solo cambiando la variable de entorno.
+    </p>
+
+    <div class="env-block">
+      <div class="env-header">
+        <div class="env-col">
+          <div class="env-col-title green">OTTO_ENV=notebook (default)</div>
+          <div class="env-col-desc">
+            Usa <code>hablar_docker()</code> — TTS via contenedor <code>ottoguide-tts</code> con Piper. Requiere Docker corriendo con <code>docker compose up -d</code>.<br><br>
+            Voz activa: <code>es_MX-gevy-high.onnx</code><br>
+            Audio: <code>paplay</code> + PipeWire
+          </div>
+        </div>
+        <div class="env-col">
+          <div class="env-col-title orange">OTTO_ENV=robot</div>
+          <div class="env-col-desc">
+            Usa <code>hablar_sdk()</code> — TTS via SDK Unitree <code>AudioClient.TtsMaker()</code>. Actualmente fallback a Docker hasta validar en hardware real.<br><br>
+            Requiere: SDK instalado, CycloneDDS, firmware v1.3.0<br>
+            Pendiente: validar español, latencia, volumen
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-lang">bash</span>
+        <span class="code-file">Cómo ejecutar</span>
+      </div>
+      <div class="code-body"><span class="comment"># Notebook (desarrollo) — usa Docker TTS</span>
+python3 services/core/main_v2.py
+
+<span class="comment"># Robot Jetson — usa SDK AudioClient (con fallback a Docker)</span>
+OTTO_ENV=robot python3 services/core/main_v2.py</div>
+    </div>
+  </div>
+</section>
+
+<!-- USO -->
+<section id="uso">
+  <div class="container">
+    <div class="section-label">Operación</div>
+    <h2 class="section-title">Cómo levantar y usar</h2>
+
+    <div class="note note-info">
+      <span>ℹ</span>
+      <span>Requiere <code>aiohttp</code> instalado: <code>pip install aiohttp --break-system-packages</code></span>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-lang">bash</span>
+        <span class="code-file">Arranque completo en notebook</span>
+      </div>
+      <div class="code-body"><span class="comment"># 1. Instalar dependencia nueva</span>
+pip install aiohttp --break-system-packages
+
+<span class="comment"># 2. Levantar contenedores Docker desde OttoGuide IA/</span>
+docker compose up -d
+
+<span class="comment"># 3. Ejecutar el orquestador V2</span>
+python3 services/core/main_v2.py</div>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-lang">bash</span>
+        <span class="code-file">Estados en terminal</span>
+      </div>
+      <div class="code-body">[HIBERNACION] Esperando 'Hola Otto'...    <span class="comment"># modo espera</span>
+[WAKE] Escuche: 'hola otto'               <span class="comment"># wake word detectado</span>
+[WAKE] Hola Otto detectado!
+[MIC] ON  — habla ahora                  <span class="comment"># listo para escuchar pregunta</span>
+[MIC] OFF — procesando...
+[STT] Pregunta: 'cuantos pisos tiene...'
+[LLM] Procesando...
+[LLM] Respuesta: 'El edificio principal...'
+[LOOP] Esperando otra pregunta o despedida...
+[HIBERNACION] Esperando 'Hola Otto'...    <span class="comment"># volvió a modo espera</span></div>
+    </div>
+
+    <div class="note note-warn">
+      <span>⚠</span>
+      <span><strong>Próximo paso:</strong> implementar <code>hablar_sdk()</code> completamente. Validar en el robot con <code>OTTO_ENV=robot python3 services/core/main_v2.py</code> y confirmar soporte de español en <code>AudioClient.TtsMaker()</code>.</span>
+    </div>
+
+    <div style="margin-top:1.5rem;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:1.5rem;">
+      <div style="font-family:'DM Mono',monospace;font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted);margin-bottom:1rem;">Archivos relacionados</div>
+      <div style="display:flex;flex-direction:column;gap:0.5rem;font-family:'DM Mono',monospace;font-size:0.75rem;color:var(--muted);">
+        <div><span style="color:var(--green);">→</span> <span style="color:var(--text);">services/core/main.py</span> — orquestador V1 (síncrono, funcionando)</div>
+        <div><span style="color:var(--green);">→</span> <span style="color:var(--text);">services/core/main_v2.py</span> — orquestador V2 (async, este archivo)</div>
+        <div><span style="color:var(--green);">→</span> <span style="color:var(--text);">services/llm/Modelfile</span> — personalidad del modelo otto</div>
+        <div><span style="color:var(--green);">→</span> <span style="color:var(--text);">docker-compose.yml</span> — stack de contenedores</div>
+        <div><span style="color:var(--green);">→</span> <span style="color:var(--text);">codigo ottoguide/src/interaction/</span> — SDK oficial Unitree (referencia)</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div>OttoGuide · Orquestador V2 · main_v2.py · Async</div>
+  <div>UADE · Campus Monserrat · 2026</div>
+</footer>
+
+</body>
+</html>

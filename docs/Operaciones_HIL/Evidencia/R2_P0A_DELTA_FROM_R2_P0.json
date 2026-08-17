@@ -1,0 +1,86 @@
+{
+  "schema_version": "2.0.1-p0a",
+  "base_commit": "d1beef0fc3b4ddc1ccf17f67848d0dad96a3cfcb",
+  "deltas": [
+    {
+      "finding": "F1",
+      "reproduced": true,
+      "fix": "_parse_channel_jsonl_dir rewritten fail-closed (strict UTF-8, typed aggregate errors, terminal-NUL-only exception); JsonlParseReport model added",
+      "tests": ["test_odometry_evidence_r2_ingest.py::TestParseChannelJsonlDirUnit (14 tests)"],
+      "claim_impact": "none (parser behavior only; real harvest data was already clean)",
+      "remaining_limitation": "none"
+    },
+    {
+      "finding": "F2",
+      "reproduced": true,
+      "fix": "__post_init__ validation added to every evidence dataclass in models.py",
+      "tests": ["test_odometry_evidence_r2_models.py (23 tests)"],
+      "claim_impact": "none",
+      "remaining_limitation": "none"
+    },
+    {
+      "finding": "F3",
+      "reproduced": true,
+      "fix": "R3C now has an explicit SessionTimeDomain; PhysicalEvidenceBundleR2 structurally requires one time domain per session",
+      "tests": ["test_every_session_has_a_time_domain"],
+      "claim_impact": "MESSAGE_TIMESTAMP claim now also cites r3c.time_domain",
+      "remaining_limitation": "R3C has no RTT/UTC handshake of its own; mapping_status=UNRESOLVED"
+    },
+    {
+      "finding": "F4",
+      "reproduced": "partial (omission, not a false claim)",
+      "fix": "R4B_BOOT_RELATION_TO_R4=UNRESOLVED stated explicitly; _odom_field_for_topic raises on any unrecognized topic instead of defaulting to lf_odom",
+      "tests": ["test_r4b_boot_relation_stated_as_unresolved_not_asserted", "test_unknown_topic_raises (x2)"],
+      "claim_impact": "none",
+      "remaining_limitation": "R4B's boot identity is genuinely unknown; no evidence exists to resolve it either way"
+    },
+    {
+      "finding": "F5",
+      "reproduced": true,
+      "fix": "New source_manifest.py module; descriptor schema now requires manifest_sha256 + expected_source_sha256 per file; CLI verifies before ingest",
+      "tests": ["test_odometry_evidence_r2_source_manifest.py (15 tests)", "test_tampered_source_file_fails_closed (CLI-level)"],
+      "claim_impact": "none",
+      "remaining_limitation": "raw per-channel JSONL chunks (208 files) are not individually manifest-verified here; their integrity is covered by the harvest's own GLOBAL_LOCAL_MANIFEST_VERIFICATION.json (3418/3418 PASS)"
+    },
+    {
+      "finding": "F6",
+      "reproduced": true,
+      "fix": "RESET_AND_DISCONTINUITY split into CROSS_BOOT_DISCONTINUITY_OBSERVED (VERIFIED), RESET_BEHAVIOR_CHARACTERIZED (PARTIAL), EXACT_RESET_INSTANT (UNRESOLVED)",
+      "tests": ["test_reset_claims_are_split_not_aggregated"],
+      "claim_impact": "claim_count 11 -> 13 (net +2: -1 removed, +3 added)",
+      "remaining_limitation": "none"
+    },
+    {
+      "finding": "F7",
+      "reproduced": true,
+      "fix": "Every R4B EvidenceProvenance record carries an explicit DERIVATION_PROVENANCE=PARTIAL limitation",
+      "tests": ["covered via existing R4B session ingestion path; no dedicated new test beyond the limitation string being present"],
+      "claim_impact": "none",
+      "remaining_limitation": "raw R4B per-sample JSONL, derivation script, and its arguments were not preserved as first-class provenance inputs"
+    },
+    {
+      "finding": "F8",
+      "reproduced": true,
+      "fix": "StationaryNoiseStatistics.mean replaced by observed_mean + centered_mean (fixed at (0,0,0) by construction, validated) + reference_origin_policy",
+      "tests": ["StationaryNoiseStatistics construction is exercised by the harvest-integration path; validation enforced in __post_init__"],
+      "claim_impact": "none",
+      "remaining_limitation": "observed_mean is populated from the derived report's position_range span, not an independently recomputed sample mean"
+    },
+    {
+      "finding": "F9",
+      "reproduced": true,
+      "fix": "Hardcoded IdeaPad path replaced with OTTOGUIDE_R2_HARVEST_ROOT in both affected test files; harvest-integration tests fail (not skip) if the variable is set but wrong",
+      "tests": ["test_no_hardcoded_personal_path_in_test_suite", "test_no_hardcoded_personal_path_in_package_or_cli"],
+      "claim_impact": "none",
+      "remaining_limitation": "none"
+    },
+    {
+      "finding": "F10",
+      "reproduced": true,
+      "fix": "Not a code fix -- confirmed inherent to git worktrees; addressed via a standalone git bundle for portable continuity (section 15), not by altering the worktree .git pointer files",
+      "tests": ["git bundle verify + restore-to-temp-dir test, see R2_P0A_RESULT / continuity outputs"],
+      "claim_impact": "none",
+      "remaining_limitation": "the notebook's own worktrees remain non-portable folders; only the bundle is portable"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+#!/bin/bash
+set -eo pipefail
+export AMENT_TRACE_SETUP_FILES=""
+export AMENT_PYTHON_EXECUTABLE="$(which python3)"
+source /opt/ros/foxy/setup.bash
+
+: <<'DOC'
+@TASK: Grabar rosbag2 pasivo de alta densidad para mapeo HIL sin ejecutar navegacion.
+@INPUT: ROS 2 activo, topicos LiDAR/IMU/camara/tf/odom disponibles, directorio de salida opcional.
+@OUTPUT: Bag rosbag2 almacenado con topicos crudos para postproceso de mapeo.
+@CONTEXT: Captura de datos HIL previa a calibracion AMCL/Nav2 en Companion PC.
+@SECURITY: Solo suscripcion pasiva de topicos; no publica comandos ni muta estado de navegacion.
+STEP [1]: Cargar entorno ROS 2 y preparar directorio de salida.
+STEP [2]: Iniciar ros2 bag record sobre topicos de alta densidad requeridos.
+DOC
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+OUT_DIR="${1:-${PROJECT_ROOT}/logs/bags}"
+STAMP="$(date +%Y%m%d_%H%M%S)"
+BAG_PATH="${HIL_BAG_PATH:-${OUT_DIR}/hil_mapping_${STAMP}}"
+
+if [ -f "${PROJECT_ROOT}/ros2_ws/install/setup.bash" ]; then
+  source "${PROJECT_ROOT}/ros2_ws/install/setup.bash"
+fi
+
+mkdir -p "${OUT_DIR}" "$(dirname "${BAG_PATH}")"
+
+exec ros2 bag record \
+  --storage mcap \
+  --output "${BAG_PATH}" \
+  --max-cache-size 0 \
+  /scan \
+  /utlidar/cloud \
+  /livox/imu \
+  /camera/color/image_raw \
+  /camera/depth/image_rect_raw \
+  /tf \
+  /tf_static \
+  /map \
+  /robot_state/odom

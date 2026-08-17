@@ -1,0 +1,1649 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OttoGuide — Planificación del Proyecto</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --azul:       #1D4ED8;
+  --azul2:      #3B82F6;
+  --azul-light: #EFF6FF;
+  --azul-mid:   #BFDBFE;
+  --verde:      #065F46;
+  --verde-light:#ECFDF5;
+  --verde-mid:  #6EE7B7;
+  --violeta:    #6D28D9;
+  --violeta-light:#F5F3FF;
+  --naranja:    #C2410C;
+  --naranja-light:#FFF7ED;
+  --rojo:       #B91C1C;
+  --rojo-light: #FEF2F2;
+  --amarillo:   #B45309;
+  --amarillo-light:#FFFBEB;
+  --ink:        #0F172A;
+  --ink2:       #334155;
+  --ink3:       #64748B;
+  --paper:      #F8F7F4;
+  --white:      #FFFFFF;
+  --border:     #E2E8F0;
+  --mono: 'DM Mono', monospace;
+  --serif: 'DM Serif Display', serif;
+  --sans: 'Outfit', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--sans);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.7;
+  overflow-x: hidden;
+}
+
+/* ── SIDEBAR NAV ─────────────────────────────────── */
+.sidebar {
+  position: fixed;
+  left: 0; top: 0;
+  width: 220px;
+  height: 100vh;
+  background: var(--ink);
+  color: var(--white);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.sidebar-logo {
+  padding: 28px 24px 20px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+
+.sidebar-logo .name {
+  font-family: var(--serif);
+  font-size: 22px;
+  color: var(--white);
+  letter-spacing: -.3px;
+}
+
+.sidebar-logo .name span { color: #60A5FA; }
+
+.sidebar-logo .sub {
+  font-size: 11px;
+  color: rgba(255,255,255,.4);
+  font-family: var(--mono);
+  letter-spacing: .04em;
+  margin-top: 2px;
+}
+
+.nav-section {
+  font-size: 10px;
+  letter-spacing: .12em;
+  color: rgba(255,255,255,.3);
+  font-family: var(--mono);
+  padding: 18px 24px 6px;
+  text-transform: uppercase;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 24px;
+  color: rgba(255,255,255,.55);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 400;
+  transition: all .15s;
+  border-left: 2px solid transparent;
+}
+
+.nav-item:hover, .nav-item.active {
+  color: var(--white);
+  background: rgba(255,255,255,.06);
+  border-left-color: #60A5FA;
+}
+
+.nav-item .num {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: rgba(255,255,255,.25);
+  min-width: 16px;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(255,255,255,.08);
+  font-size: 11px;
+  color: rgba(255,255,255,.25);
+  font-family: var(--mono);
+}
+
+/* ── MAIN ─────────────────────────────────────────── */
+.main {
+  margin-left: 220px;
+  min-height: 100vh;
+}
+
+/* ── HERO ─────────────────────────────────────────── */
+.hero {
+  background: var(--ink);
+  color: var(--white);
+  padding: 72px 64px 64px;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -80px; right: -80px;
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(59,130,246,.15) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: -60px; left: 40%;
+  width: 300px; height: 300px;
+  background: radial-gradient(circle, rgba(110,231,183,.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #60A5FA;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+
+.hero-tag::before {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #34D399;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .5; transform: scale(1.3); }
+}
+
+.hero h1 {
+  font-family: var(--serif);
+  font-size: 72px;
+  line-height: 1;
+  letter-spacing: -1.5px;
+  color: var(--white);
+  margin-bottom: 8px;
+}
+
+.hero h1 em {
+  font-style: italic;
+  color: #60A5FA;
+}
+
+.hero-sub {
+  font-size: 18px;
+  color: rgba(255,255,255,.5);
+  margin-bottom: 40px;
+  max-width: 560px;
+  font-weight: 300;
+}
+
+.hero-meta {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.hero-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hero-meta-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: rgba(255,255,255,.3);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.hero-meta-value {
+  font-size: 14px;
+  color: rgba(255,255,255,.8);
+  font-weight: 500;
+}
+
+/* ── SECTIONS ─────────────────────────────────────── */
+.section {
+  padding: 64px;
+  border-bottom: 1px solid var(--border);
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity .5s ease, transform .5s ease;
+}
+
+.section.visible { opacity: 1; transform: translateY(0); }
+
+.section-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 40px;
+}
+
+.section-num {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--azul2);
+  padding-bottom: 4px;
+}
+
+.section h2 {
+  font-family: var(--serif);
+  font-size: 42px;
+  line-height: 1;
+  letter-spacing: -.8px;
+  color: var(--ink);
+  flex: 1;
+}
+
+.section-line {
+  height: 1px;
+  background: linear-gradient(90deg, var(--azul2) 0%, transparent 100%);
+  margin-bottom: 40px;
+}
+
+/* ── RESUMEN ──────────────────────────────────────── */
+.resumen-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  background: var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 32px;
+}
+
+.resumen-card {
+  background: var(--white);
+  padding: 28px 32px;
+}
+
+.resumen-card h3 {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--azul2);
+  margin-bottom: 12px;
+}
+
+.resumen-card p { color: var(--ink2); font-size: 14px; line-height: 1.65; }
+
+.resumen-card ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.resumen-card ul li {
+  font-size: 14px;
+  color: var(--ink2);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.resumen-card ul li::before {
+  content: '→';
+  color: var(--azul2);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.resumen-card.full { grid-column: 1 / -1; background: var(--azul-light); }
+.resumen-card.full h3 { color: var(--azul); }
+.resumen-card.full p { color: var(--azul); font-size: 15px; }
+
+/* ── EQUIPO ───────────────────────────────────────── */
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.member {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px 16px;
+  transition: transform .2s, box-shadow .2s;
+  cursor: default;
+}
+
+.member:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 32px rgba(0,0,0,.08);
+}
+
+.member-avatar {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 12px;
+  font-family: var(--mono);
+}
+
+.member-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+
+.member-role {
+  font-size: 12px;
+  color: var(--ink3);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.member-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tag {
+  font-size: 10px;
+  font-family: var(--mono);
+  padding: 2px 7px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  color: var(--ink3);
+}
+
+.collab-note {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.collab-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+
+.collab-note p { font-size: 13px; color: var(--ink2); line-height: 1.5; }
+.collab-note strong { color: var(--ink); }
+
+/* ── ARQUITECTURA ─────────────────────────────────── */
+.flow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px 28px;
+  margin-bottom: 32px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+
+.flow-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.flow-icon {
+  width: 48px; height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  margin-bottom: 4px;
+}
+
+.flow-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: center;
+  line-height: 1.3;
+}
+
+.flow-sub {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--ink3);
+  text-align: center;
+}
+
+.flow-arrow {
+  font-size: 18px;
+  color: var(--border);
+  flex-shrink: 0;
+  padding: 0 4px;
+  margin-bottom: 28px;
+}
+
+.arch-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 6px;
+  margin-bottom: 32px;
+}
+
+.arch-table th {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink3);
+  padding: 0 16px 8px;
+  text-align: left;
+  font-weight: 500;
+}
+
+.arch-table td {
+  background: var(--white);
+  padding: 14px 16px;
+  font-size: 13px;
+  vertical-align: top;
+}
+
+.arch-table tr td:first-child {
+  border-radius: 10px 0 0 10px;
+  font-weight: 600;
+  color: var(--ink);
+  border-left: 3px solid var(--azul2);
+}
+
+.arch-table tr td:last-child { border-radius: 0 10px 10px 0; }
+
+.arch-table tr:nth-child(even) td { background: #FAFAF9; }
+
+.sdk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.sdk-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+.sdk-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--azul);
+  margin-bottom: 6px;
+  font-family: var(--mono);
+}
+
+.sdk-card-body { font-size: 12px; color: var(--ink2); line-height: 1.5; }
+
+/* ── ROADMAP ──────────────────────────────────────── */
+.timeline { position: relative; }
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 100px;
+  top: 0; bottom: 0;
+  width: 2px;
+  background: var(--border);
+}
+
+.phase-block {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 0 32px;
+  margin-bottom: 4px;
+  position: relative;
+}
+
+.phase-weeks {
+  text-align: right;
+  padding: 24px 32px 24px 0;
+  position: relative;
+}
+
+.phase-weeks-text {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink3);
+  white-space: nowrap;
+}
+
+.phase-dot-timeline {
+  position: absolute;
+  right: -7px;
+  top: 30px;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--white);
+  z-index: 1;
+}
+
+.phase-content {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  margin: 12px 0;
+  overflow: hidden;
+  transition: box-shadow .2s;
+}
+
+.phase-content:hover { box-shadow: 0 4px 20px rgba(0,0,0,.06); }
+
+.phase-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.phase-color-bar {
+  width: 4px;
+  height: 36px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.phase-head-title { font-size: 15px; font-weight: 600; color: var(--ink); flex: 1; }
+
+.phase-robot-badge {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  font-family: var(--mono);
+  font-weight: 500;
+}
+
+.phase-toggle {
+  font-size: 18px;
+  color: var(--ink3);
+  transition: transform .2s;
+  width: 24px;
+  text-align: center;
+}
+
+.phase-toggle.open { transform: rotate(180deg); }
+
+.phase-items-list {
+  border-top: 1px solid var(--border);
+  padding: 0 20px;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height .35s ease, padding .35s ease;
+}
+
+.phase-items-list.open {
+  max-height: 800px;
+  padding: 12px 20px 16px;
+}
+
+.phase-item-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid #F1F5F9;
+  font-size: 13px;
+  color: var(--ink2);
+}
+
+.phase-item-row:last-child { border-bottom: none; }
+
+.phase-item-who {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  font-weight: 500;
+}
+
+/* ── ACCESO AL ROBOT ──────────────────────────────── */
+.robot-timeline {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  height: 48px;
+}
+
+.robot-bar {
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 500;
+  cursor: default;
+  transition: transform .15s;
+}
+
+.robot-bar:hover { transform: scaleY(1.05); }
+
+.robot-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.robot-card {
+  display: grid;
+  grid-template-columns: 120px 120px 1fr 220px;
+  gap: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.robot-card-col {
+  padding: 14px 16px;
+  font-size: 13px;
+  background: var(--white);
+}
+
+.robot-card-col:first-child {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+}
+
+.robot-card-col:nth-child(2) {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+}
+
+.robot-card-col:last-child {
+  background: #FAFAF9;
+  font-size: 12px;
+  color: var(--ink3);
+  font-style: italic;
+}
+
+.alerta {
+  background: #FFF7ED;
+  border: 1px solid #FED7AA;
+  border-left: 4px solid var(--naranja);
+  border-radius: 12px;
+  padding: 20px 24px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.alerta-icon { font-size: 20px; flex-shrink: 0; }
+.alerta p { font-size: 14px; color: var(--naranja); line-height: 1.6; }
+.alerta strong { color: var(--ink); }
+
+/* ── BACKLOG ──────────────────────────────────────── */
+.backlog-nav {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.backlog-btn {
+  padding: 7px 16px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: var(--white);
+  font-size: 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+  transition: all .15s;
+  color: var(--ink2);
+}
+
+.backlog-btn:hover { border-color: var(--azul2); color: var(--azul); }
+
+.backlog-btn.active {
+  background: var(--ink);
+  color: var(--white);
+  border-color: var(--ink);
+}
+
+.backlog-person { display: none; }
+.backlog-person.visible { display: block; }
+
+.backlog-person-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.backlog-person-avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--mono);
+}
+
+.backlog-person-name { font-size: 16px; font-weight: 600; color: var(--ink); }
+.backlog-person-role { font-size: 12px; color: var(--ink3); }
+
+.task-list-items {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 28px;
+}
+
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background .1s;
+  user-select: none;
+}
+
+.task-row:hover { background: #FAFAF9; }
+
+.task-check {
+  width: 18px; height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--border);
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+  font-size: 10px;
+  color: var(--white);
+}
+
+.task-row.done .task-check {
+  background: var(--verde);
+  border-color: var(--verde);
+}
+
+.task-row.done .task-check::after { content: '✓'; }
+
+.task-row.done .task-text {
+  text-decoration: line-through;
+  color: var(--ink3);
+}
+
+.task-text { font-size: 13px; color: var(--ink2); flex: 1; }
+
+.prog-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--ink3);
+  margin-bottom: 6px;
+}
+
+.prog-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 32px;
+}
+
+.prog-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--azul2), var(--verde-mid));
+  border-radius: 2px;
+  transition: width .4s ease;
+}
+
+/* ── ALCANCE ──────────────────────────────────────── */
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 40px;
+}
+
+.metric-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  text-align: center;
+  transition: transform .2s;
+}
+
+.metric-card:hover { transform: translateY(-2px); }
+
+.metric-value {
+  font-family: var(--serif);
+  font-size: 52px;
+  color: var(--azul);
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.metric-label { font-size: 13px; color: var(--ink3); }
+.metric-how { font-size: 11px; font-family: var(--mono); color: var(--azul2); margin-top: 8px; }
+
+.scope-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 40px;
+}
+
+.scope-card {
+  border-radius: 14px;
+  padding: 24px;
+}
+
+.scope-card.in { background: var(--verde-light); border: 1px solid #A7F3D0; }
+.scope-card.out { background: var(--rojo-light); border: 1px solid #FECACA; }
+
+.scope-card h3 {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 14px;
+  font-family: var(--mono);
+  letter-spacing: .05em;
+}
+
+.scope-card.in h3 { color: var(--verde); }
+.scope-card.out h3 { color: var(--rojo); }
+
+.scope-card ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+
+.scope-card ul li {
+  font-size: 13px;
+  color: var(--ink2);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.scope-card.in li::before { content: '✓'; color: var(--verde); font-weight: 700; }
+.scope-card.out li::before { content: '✗'; color: var(--rojo); font-weight: 700; }
+
+.methods-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.method-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+}
+
+.method-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-family: var(--mono);
+  padding: 3px 9px;
+  border-radius: 100px;
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.method-title { font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+.method-desc { font-size: 12px; color: var(--ink2); line-height: 1.6; }
+
+/* ── RESPONSIVE ───────────────────────────────────── */
+@media (max-width: 1100px) {
+  .team-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 860px) {
+  .sidebar { display: none; }
+  .main { margin-left: 0; }
+  .hero { padding: 40px 24px 32px; }
+  .hero h1 { font-size: 48px; }
+  .section { padding: 40px 24px; }
+  .team-grid { grid-template-columns: repeat(2, 1fr); }
+  .metrics-row { grid-template-columns: 1fr; }
+  .scope-grid { grid-template-columns: 1fr; }
+  .methods-grid { grid-template-columns: 1fr; }
+  .robot-card { grid-template-columns: 1fr; }
+  .resumen-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── SIDEBAR ─────────────────────────────────────── -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="name">Otto<em style="color:#60A5FA;font-style:italic">Guide</em></div>
+    <div class="sub">MVP · UADE · 2026</div>
+  </div>
+  <div class="nav-section">Secciones</div>
+  <a class="nav-item active" href="#resumen"><span class="num">01</span>Resumen ejecutivo</a>
+  <a class="nav-item" href="#equipo"><span class="num">02</span>Equipo</a>
+  <a class="nav-item" href="#arquitectura"><span class="num">03</span>Arquitectura técnica</a>
+  <a class="nav-item" href="#roadmap"><span class="num">04</span>Roadmap</a>
+  <a class="nav-item" href="#robot"><span class="num">05</span>Acceso al robot</a>
+  <a class="nav-item" href="#backlog"><span class="num">06</span>Backlog</a>
+  <a class="nav-item" href="#alcance"><span class="num">07</span>Alcance & métricas</a>
+  <div class="sidebar-footer">OttoGuide · Planificación<br>Robot: Unitree G1 EDU 8</div>
+</nav>
+
+<div class="main">
+
+<!-- ── HERO ─────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-tag">Proyecto en planificación · MVP</div>
+  <h1>Otto<em>Guide</em></h1>
+  <p class="hero-sub">Robot humanoide como guía en visitas de la UADE — Unitree G1 EDU 8</p>
+  <div class="hero-meta">
+    <div class="hero-meta-item">
+      <span class="hero-meta-label">Institución</span>
+      <span class="hero-meta-value">UADE</span>
+    </div>
+    <div class="hero-meta-item">
+      <span class="hero-meta-label">Robot</span>
+      <span class="hero-meta-value">Unitree G1 EDU 8</span>
+    </div>
+    <div class="hero-meta-item">
+      <span class="hero-meta-label">Duración</span>
+      <span class="hero-meta-value">10 semanas</span>
+    </div>
+    <div class="hero-meta-item">
+      <span class="hero-meta-label">Líder</span>
+      <span class="hero-meta-value">Teo</span>
+    </div>
+    <div class="hero-meta-item">
+      <span class="hero-meta-label">SDK</span>
+      <span class="hero-meta-value">unitree_sdk2_python</span>
+    </div>
+    <div class="hero-meta-item">
+      <span class="hero-meta-label">Estado</span>
+      <span class="hero-meta-value" style="color:#34D399">● En planificación</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── 1. RESUMEN ──────────────────────────────────── -->
+<section class="section" id="resumen">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2>Resumen ejecutivo</h2>
+  </div>
+  <div class="section-line"></div>
+
+  <div class="resumen-grid">
+    <div class="resumen-card">
+      <h3>Problema</h3>
+      <ul>
+        <li>Las visitas dependen completamente de guías humanos</li>
+        <li>No se diferencian de otras universidades</li>
+        <li>No aprovechan el robot ya disponible en UADE</li>
+      </ul>
+    </div>
+    <div class="resumen-card">
+      <h3>Solución</h3>
+      <ul>
+        <li>Ottoman actúa como guía o co-guía en los recorridos</li>
+        <li>Conectado a la red WiFi de UADE, recibe info del backend</li>
+        <li>Responde preguntas en tiempo real con un LLM</li>
+      </ul>
+    </div>
+    <div class="resumen-card full">
+      <h3>Objetivo del MVP</h3>
+      <p>Validar en un entorno controlado — 3 zonas: entrada, planta baja y patio — que Ottoman puede ejecutar un recorrido guiado de forma autónoma, mejorar la percepción de innovación de UADE y reducir la dependencia de guías humanos. El robot siempre está conectado a la red institucional y trae toda su información desde un servidor centralizado.</p>
+    </div>
+    <div class="resumen-card">
+      <h3>Valor para UADE</h3>
+      <ul>
+        <li>Diferenciación frente a otras universidades</li>
+        <li>Mejor uso de una inversión existente</li>
+        <li>Posicionamiento como institución innovadora</li>
+      </ul>
+    </div>
+    <div class="resumen-card">
+      <h3>Usuarios del sistema</h3>
+      <ul>
+        <li>Estudiantes de secundaria (usuarios primarios)</li>
+        <li>Personal de admisiones (secundarios)</li>
+        <li>Guías actuales (secundarios)</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ── 2. EQUIPO ───────────────────────────────────── -->
+<section class="section" id="equipo">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2>Equipo</h2>
+  </div>
+  <div class="section-line"></div>
+
+  <div class="team-grid">
+    <div class="member">
+      <div class="member-avatar" style="background:#1D4ED8;color:#fff">TE</div>
+      <div class="member-name">Teo</div>
+      <div class="member-role">Líder + Conexiones e integraciones</div>
+      <div class="member-tags">
+        <span class="tag">WiFi / red</span>
+        <span class="tag">API keys</span>
+        <span class="tag">LLM</span>
+        <span class="tag">TTS/STT</span>
+        <span class="tag">Arquitectura</span>
+      </div>
+    </div>
+    <div class="member">
+      <div class="member-avatar" style="background:#EFF6FF;color:#1D4ED8">LU</div>
+      <div class="member-name">Lucas</div>
+      <div class="member-role">Desarrollo Python e integración SDK</div>
+      <div class="member-tags">
+        <span class="tag">Backend</span>
+        <span class="tag">SDK robot</span>
+        <span class="tag">DDS</span>
+        <span class="tag">Pipeline</span>
+        <span class="tag">SportClient</span>
+      </div>
+    </div>
+    <div class="member">
+      <div class="member-avatar" style="background:#FFF7ED;color:#C2410C">ER</div>
+      <div class="member-name">Erika</div>
+      <div class="member-role">Voz, texto e interacciones del robot</div>
+      <div class="member-tags">
+        <span class="tag">Guión</span>
+        <span class="tag">Tono</span>
+        <span class="tag">FAQ</span>
+        <span class="tag">Textos por zona</span>
+      </div>
+    </div>
+    <div class="member">
+      <div class="member-avatar" style="background:#ECFDF5;color:#065F46">JO</div>
+      <div class="member-name">Jorge</div>
+      <div class="member-role">Testing y relevamiento</div>
+      <div class="member-tags">
+        <span class="tag">Protocolo</span>
+        <span class="tag">Relevamiento</span>
+        <span class="tag">Observación</span>
+        <span class="tag">Piloto</span>
+      </div>
+    </div>
+    <div class="member">
+      <div class="member-avatar" style="background:#F5F3FF;color:#6D28D9">MA</div>
+      <div class="member-name">Martina</div>
+      <div class="member-role">Instrumentos de medición y análisis</div>
+      <div class="member-tags">
+        <span class="tag">Encuesta Likert</span>
+        <span class="tag">Entrevistas</span>
+        <span class="tag">Análisis</span>
+        <span class="tag">Docs</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="collab-note">
+    <div class="collab-dot" style="background:#3B82F6"></div>
+    <p><strong>Teo + Lucas</strong> — Colaboran en el desarrollo del pipeline técnico: Teo gestiona las conexiones y credenciales, Lucas escribe el código Python que las usa.</p>
+  </div>
+  <div class="collab-note">
+    <div class="collab-dot" style="background:#10B981"></div>
+    <p><strong>Jorge + Martina</strong> — Colaboran en todo el proceso de testing: Jorge ejecuta el relevamiento y el piloto, Martina diseña los instrumentos y analiza los resultados.</p>
+  </div>
+</section>
+
+<!-- ── 3. ARQUITECTURA ─────────────────────────────── -->
+<section class="section" id="arquitectura">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2>Arquitectura técnica</h2>
+  </div>
+  <div class="section-line"></div>
+
+  <p style="color:var(--ink2);margin-bottom:24px;max-width:680px;font-size:14px">El sistema funciona únicamente cuando el robot está conectado a la red WiFi interna de UADE. Toda la inteligencia reside en el backend — el robot es un cliente que recibe instrucciones y reproduce respuestas.</p>
+
+  <div class="flow">
+    <div class="flow-node">
+      <div class="flow-icon" style="background:#EFF6FF">🎙️</div>
+      <div class="flow-label">Micrófono<br>G1 EDU 8</div>
+      <div class="flow-sub">Visitante habla</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node">
+      <div class="flow-icon" style="background:#F5F3FF">🔊→📝</div>
+      <div class="flow-label">STT</div>
+      <div class="flow-sub">Audio a texto</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node">
+      <div class="flow-icon" style="background:#ECFDF5">🧠</div>
+      <div class="flow-label">LLM</div>
+      <div class="flow-sub">GPT / Claude</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node">
+      <div class="flow-icon" style="background:#FFF7ED">📝→🔊</div>
+      <div class="flow-label">TTS</div>
+      <div class="flow-sub">Texto a audio</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node">
+      <div class="flow-icon" style="background:#F1F5F9">📡</div>
+      <div class="flow-label">DDS</div>
+      <div class="flow-sub">CycloneDDS</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node">
+      <div class="flow-icon" style="background:#ECFDF5">🤖</div>
+      <div class="flow-label">Ottoman<br>G1 EDU 8</div>
+      <div class="flow-sub">Reproduce</div>
+    </div>
+  </div>
+
+  <table class="arch-table">
+    <thead>
+      <tr>
+        <th>Capa</th>
+        <th>Responsable</th>
+        <th>Descripción</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Red y conexiones</td><td style="color:var(--ink3);font-size:12px">Teo</td><td style="color:var(--ink2);font-size:13px">Acceso WiFi UADE, API keys del LLM, credenciales TTS/STT, configuración de red entre backend y robot.</td></tr>
+      <tr><td>Backend (servidor)</td><td style="color:var(--ink3);font-size:12px">Lucas</td><td style="color:var(--ink2);font-size:13px">API REST o WebSocket en FastAPI/Flask. Expone el guión, recibe preguntas del robot, las procesa con el LLM y devuelve audio.</td></tr>
+      <tr><td>LLM</td><td style="color:var(--ink3);font-size:12px">Teo (integ.) · Lucas (código)</td><td style="color:var(--ink2);font-size:13px">Modelo de lenguaje (GPT, Claude u otro) con información de UADE como contexto. Responde preguntas de los visitantes.</td></tr>
+      <tr><td>TTS / STT</td><td style="color:var(--ink3);font-size:12px">Teo (integ.) · Lucas (código)</td><td style="color:var(--ink2);font-size:13px">Text-to-Speech para que el robot hable (gTTS, ElevenLabs). Speech-to-Text para capturar las preguntas.</td></tr>
+      <tr><td>Robot (cliente)</td><td style="color:var(--ink3);font-size:12px">Lucas</td><td style="color:var(--ink2);font-size:13px">Script Python con unitree_sdk2py. Suscribe tópicos DDS del backend y ejecuta movimiento (SportClient) y audio (VuiClient).</td></tr>
+      <tr><td>Contenido</td><td style="color:var(--ink3);font-size:12px">Erika</td><td style="color:var(--ink2);font-size:13px">Guión cargado en el backend. Define qué dice el robot en cada zona y cómo responde las FAQ.</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size:16px;font-weight:600;margin-bottom:14px;color:var(--ink)">Capacidades del SDK <span style="font-family:var(--mono);font-size:12px;color:var(--azul2)">unitree_sdk2_python</span></h3>
+  <div class="sdk-grid">
+    <div class="sdk-card"><div class="sdk-card-title">SportClient</div><div class="sdk-card-body">StandUp, VelocityMove, TrajectoryFollow, SpecialMotions. Control de movimiento de alto nivel sin programar articulación por articulación.</div></div>
+    <div class="sdk-card"><div class="sdk-card-title">VuiClient</div><div class="sdk-card-body">Control de volumen y brillo de luces. Permite ajustar audio y dar feedback visual a los visitantes durante el recorrido.</div></div>
+    <div class="sdk-card"><div class="sdk-card-title">Cámara frontal</div><div class="sdk-card-body">Acceso vía OpenCV. Puede usarse para detección de personas o capturar contexto visual para el LLM.</div></div>
+    <div class="sdk-card"><div class="sdk-card-title">Obstacle avoidance</div><div class="sdk-card-body">Activa/desactiva detección de obstáculos por código. Recomendado mantenerla encendida durante todo el recorrido.</div></div>
+    <div class="sdk-card"><div class="sdk-card-title">DDS Publisher/Subscriber</div><div class="sdk-card-body">Comunicación en tiempo real entre backend y robot vía CycloneDDS. Canal principal para enviar guión, comandos y audio.</div></div>
+  </div>
+</section>
+
+<!-- ── 4. ROADMAP ──────────────────────────────────── -->
+<section class="section" id="roadmap">
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h2>Roadmap</h2>
+  </div>
+  <div class="section-line"></div>
+  <p style="color:var(--ink3);margin-bottom:32px;font-size:13px;font-family:var(--mono)">🔴 Robot imprescindible &nbsp;·&nbsp; 🟡 Robot parcial &nbsp;·&nbsp; 🟢 Sin robot &nbsp;·&nbsp; Clic en cada fase para expandir</p>
+
+  <div class="timeline" id="roadmap-timeline"></div>
+</section>
+
+<!-- ── 5. ACCESO AL ROBOT ──────────────────────────── -->
+<section class="section" id="robot">
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h2>Acceso físico al robot</h2>
+  </div>
+  <div class="section-line"></div>
+
+  <p style="color:var(--ink2);margin-bottom:24px;font-size:14px;max-width:640px">El G1 EDU 8 no es necesario durante todo el proyecto. Planificar su disponibilidad con anticipación es crítico para no bloquear las fases de integración y piloto.</p>
+
+  <div class="robot-timeline">
+    <div class="robot-bar" style="flex:3;background:#ECFDF5;color:#065F46">Sem 1–3 · Sin robot</div>
+    <div class="robot-bar" style="flex:2;background:#FFFBEB;color:#B45309">Sem 4–5 · Parcial</div>
+    <div class="robot-bar" style="flex:2;background:#FEF2F2;color:#B91C1C;font-weight:700">Sem 6–7 · Crítico 🔴</div>
+    <div class="robot-bar" style="flex:2;background:#FEF2F2;color:#B91C1C;font-weight:700">Sem 8–9 · Crítico 🔴</div>
+    <div class="robot-bar" style="flex:1;background:#ECFDF5;color:#065F46">Sem 10</div>
+  </div>
+
+  <div class="robot-cards">
+    <div class="robot-card">
+      <div class="robot-card-col" style="background:#ECFDF5;color:#065F46">Sem 1–3</div>
+      <div class="robot-card-col">🟢 Sin robot</div>
+      <div class="robot-card-col" style="font-size:13px;color:var(--ink2)">Todo es planificación, código y contenido. Lucas puede desarrollar y testear el backend sin el G1 conectado.</div>
+      <div class="robot-card-col">Desarrollo libre, sin dependencias del robot.</div>
+    </div>
+    <div class="robot-card">
+      <div class="robot-card-col" style="background:#FFFBEB;color:#B45309">Sem 4–5</div>
+      <div class="robot-card-col">🟡 Parcial</div>
+      <div class="robot-card-col" style="font-size:13px;color:var(--ink2)">Primera conexión DDS para verificar comunicación. Prueba básica de SportClient: stand up, movimiento simple.</div>
+      <div class="robot-card-col">Sesiones cortas de 2–3 hs. No se necesita todo el día.</div>
+    </div>
+    <div class="robot-card" style="border-color:#FECACA">
+      <div class="robot-card-col" style="background:#FEF2F2;color:#B91C1C">Sem 6–7</div>
+      <div class="robot-card-col">🔴 Crítico</div>
+      <div class="robot-card-col" style="font-size:13px;color:var(--ink2)">Integración completa en espacio físico. Robot navega los 3 puntos, prueba de conversación en tiempo real, ajuste de comportamiento.</div>
+      <div class="robot-card-col">Acceso continuo y garantizado en las 3 zonas. Bloque más crítico del proyecto.</div>
+    </div>
+    <div class="robot-card" style="border-color:#FECACA">
+      <div class="robot-card-col" style="background:#FEF2F2;color:#B91C1C">Sem 8–9</div>
+      <div class="robot-card-col">🔴 Crítico</div>
+      <div class="robot-card-col" style="font-size:13px;color:var(--ink2)">Piloto Grupo B con usuarios reales. Ottoman debe estar operativo y conectado a la red de UADE en el espacio del recorrido.</div>
+      <div class="robot-card-col">Grupo A no requiere robot. Coordinar día y horario con admisiones.</div>
+    </div>
+    <div class="robot-card">
+      <div class="robot-card-col" style="background:#ECFDF5;color:#065F46">Sem 10</div>
+      <div class="robot-card-col">🟢 Sin robot</div>
+      <div class="robot-card-col" style="font-size:13px;color:var(--ink2)">Fase de cierre: análisis de datos, documentación técnica y presentación final a stakeholders.</div>
+      <div class="robot-card-col">No se necesita el robot.</div>
+    </div>
+  </div>
+
+  <div class="alerta">
+    <div class="alerta-icon">⚠️</div>
+    <p><strong>Recomendación crítica (Teo):</strong> Gestionar cuanto antes la reserva formal del G1 EDU 8 y el acceso al espacio físico de UADE para las <strong>semanas 6 a 9</strong>. Si en esas semanas el robot no está disponible, no hay forma de recuperar el tiempo. Es el cuello de botella con mayor riesgo del proyecto.</p>
+  </div>
+</section>
+
+<!-- ── 6. BACKLOG ──────────────────────────────────── -->
+<section class="section" id="backlog">
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h2>Backlog</h2>
+  </div>
+  <div class="section-line"></div>
+
+  <div class="prog-header">
+    <span>Progreso general del MVP</span>
+    <span id="prog-label">0 / 35 tareas completadas</span>
+  </div>
+  <div class="prog-track"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
+
+  <div class="backlog-nav" id="backlog-nav"></div>
+  <div id="backlog-content"></div>
+</section>
+
+<!-- ── 7. ALCANCE ──────────────────────────────────── -->
+<section class="section" id="alcance">
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h2>Alcance & métricas</h2>
+  </div>
+  <div class="section-line"></div>
+
+  <div class="metrics-row">
+    <div class="metric-card">
+      <div class="metric-value">≥80%</div>
+      <div class="metric-label">Percepción de innovación</div>
+      <div class="metric-how">Encuesta Likert · Grupo B</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">≥70%</div>
+      <div class="metric-label">Satisfacción del usuario</div>
+      <div class="metric-how">Encuesta Likert · Ambos grupos</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">≥90%</div>
+      <div class="metric-label">Ejecución autónoma</div>
+      <div class="metric-how">Observación estructurada</div>
+    </div>
+  </div>
+
+  <h3 style="font-size:16px;font-weight:600;color:var(--ink);margin-bottom:16px">Límites del MVP</h3>
+  <div class="scope-grid" style="margin-bottom:40px">
+    <div class="scope-card in">
+      <h3>✓ INCLUYE</h3>
+      <ul>
+        <li>Guión predefinido con síntesis de voz (TTS)</li>
+        <li>Navegación autónoma entre 3 puntos del campus</li>
+        <li>Respuestas en tiempo real vía LLM conectado</li>
+        <li>Conversación por voz completa (STT → LLM → TTS)</li>
+        <li>Testing comparativo con y sin robot</li>
+        <li>Encuesta Likert + entrevistas + observación</li>
+      </ul>
+    </div>
+    <div class="scope-card out">
+      <h3>✗ NO INCLUYE</h3>
+      <ul>
+        <li>Recorrido completo del campus</li>
+        <li>Personalización de visitas por estudiante</li>
+        <li>Soporte en múltiples idiomas</li>
+        <li>Integración con sistemas internos de UADE</li>
+        <li>Funcionamiento offline (sin conexión)</li>
+        <li>IA avanzada o respuestas de múltiples pasos</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="font-size:16px;font-weight:600;color:var(--ink);margin-bottom:16px">Métodos de recopilación de experiencias</h3>
+  <div class="methods-grid">
+    <div class="method-card">
+      <span class="method-badge" style="background:#EFF6FF;color:#1D4ED8">Cuantitativo</span>
+      <div class="method-title">Encuesta Likert post-visita</div>
+      <div class="method-desc">Aplicada a todos los participantes al finalizar el recorrido. Mide percepción de innovación, satisfacción, claridad e intención de recomendar UADE. Permite comparación estadística entre grupos.</div>
+    </div>
+    <div class="method-card">
+      <span class="method-badge" style="background:#F5F3FF;color:#6D28D9">Cualitativo</span>
+      <div class="method-title">Entrevistas breves</div>
+      <div class="method-desc">3 a 5 preguntas abiertas a 5–8 personas por grupo. Captura percepciones y emociones que la encuesta no puede medir. Especialmente útil para entender la reacción ante el robot.</div>
+    </div>
+    <div class="method-card">
+      <span class="method-badge" style="background:#ECFDF5;color:#065F46">Observacional</span>
+      <div class="method-title">Observación estructurada</div>
+      <div class="method-desc">Jorge registra en tiempo real: tiempos de atención, interacciones espontáneas con OttoGuide, momentos de confusión y comportamiento del robot ante situaciones imprevistas.</div>
+    </div>
+  </div>
+</section>
+
+</div><!-- /main -->
+
+<script>
+// ── DATOS ──────────────────────────────────────────
+const phases = [
+  {
+    sem:"Sem 1–2", title:"Fase 1 — Setup y diseño",
+    color:"#A855F7", fill:"#F5F3FF", robot:"🟢 Sin robot",
+    robotFill:"#ECFDF5", robotColor:"#065F46",
+    items:[
+      {task:"Configurar red WiFi de UADE y acceso para el robot", who:"Teo", wc:"#1D4ED8", wb:"#EFF6FF"},
+      {task:"Definir arquitectura y stack tecnológico (LLM, TTS, STT)", who:"Teo", wc:"#1D4ED8", wb:"#EFF6FF"},
+      {task:"Instalar unitree_sdk2_python y CycloneDDS", who:"Lucas", wc:"#1D4ED8", wb:"#DBEAFE"},
+      {task:"Relevamiento físico del recorrido: entrada, planta baja, patio", who:"Jorge", wc:"#065F46", wb:"#D1FAE5"},
+      {task:"Diseñar protocolo de pruebas con y sin robot", who:"Jorge", wc:"#065F46", wb:"#D1FAE5"},
+      {task:"Redactar guión predefinido del recorrido", who:"Erika", wc:"#C2410C", wb:"#FED7AA"},
+      {task:"Mapeo y redacción de FAQ de UADE", who:"Erika", wc:"#C2410C", wb:"#FED7AA"},
+      {task:"Elaborar instrumentos de testing", who:"Martina + Jorge", wc:"#6D28D9", wb:"#DDD6FE"},
+    ]
+  },
+  {
+    sem:"Sem 3–5", title:"Fase 2 — Backend y comunicación",
+    color:"#3B82F6", fill:"#EFF6FF", robot:"🟡 Parcial (desde sem. 4)",
+    robotFill:"#FFFBEB", robotColor:"#B45309",
+    items:[
+      {task:"Código del backend: API REST/WebSocket, rutas y lógica", who:"Lucas", wc:"#1D4ED8", wb:"#DBEAFE"},
+      {task:"Código del cliente Python en el robot (DDS subscriber)", who:"Lucas", wc:"#1D4ED8", wb:"#DBEAFE"},
+      {task:"Pipeline completo: STT → LLM → TTS → robot", who:"Lucas + Teo", wc:"#1D4ED8", wb:"#DBEAFE"},
+      {task:"Configurar API keys del LLM e integrarlo al backend", who:"Teo", wc:"#1D4ED8", wb:"#EFF6FF"},
+      {task:"Configurar TTS/STT y validar conectividad backend↔robot", who:"Teo", wc:"#1D4ED8", wb:"#EFF6FF"},
+      {task:"Textos, tono y personalidad del robot para secundaria", who:"Erika", wc:"#C2410C", wb:"#FED7AA"},
+      {task:"Guión completo: bienvenida, zonas, preguntas, despedida", who:"Erika", wc:"#C2410C", wb:"#FED7AA"},
+      {task:"Diseñar encuesta Likert y guía de entrevista", who:"Martina + Jorge", wc:"#6D28D9", wb:"#DDD6FE"},
+      {task:"⚠ Primera conexión DDS con el G1 (desde sem. 4)", who:"Lucas", wc:"#1D4ED8", wb:"#DBEAFE"},
+      {task:"⚠ Prueba básica de SportClient: stand up, movimiento simple", who:"Lucas", wc:"#1D4ED8", wb:"#DBEAFE"},
+    ]
+  },
+  {
+    sem:"Sem 6–7", title:"Fase 3 — Integración y pruebas internas",
+    color:"#F59E0B", fill:"#FFFBEB", robot:"🔴 Robot imprescindible",
+    robotFill:"#FEF2F2", robotColor:"#B91C1C",
+    items:[
+      {task:"Integración completa: robot navega los 3 puntos con guión del backend", who:"Lucas + Teo", wc:"#1D4ED8", wb:"#DBEAFE"},
+      {task:"Prueba del ciclo de conversación en tiempo real", who:"Lucas + Teo", wc:"#1D4ED8", wb:"#DBEAFE"},
+      {task:"Pruebas de navegación, colisiones y obstacle avoidance", who:"Jorge", wc:"#065F46", wb:"#D1FAE5"},
+      {task:"Validar que tono, voz e interacciones sean adecuados", who:"Erika", wc:"#C2410C", wb:"#FED7AA"},
+      {task:"Ajuste fino del guión y comportamiento autónomo", who:"Erika + Lucas", wc:"#C2410C", wb:"#FED7AA"},
+      {task:"Preparar materiales y espacio para el piloto", who:"Martina + Jorge", wc:"#6D28D9", wb:"#DDD6FE"},
+    ]
+  },
+  {
+    sem:"Sem 8–9", title:"Fase 4 — Piloto con usuarios",
+    color:"#EF4444", fill:"#FEF2F2", robot:"🔴 Robot imprescindible (Grupo B)",
+    robotFill:"#FEF2F2", robotColor:"#B91C1C",
+    items:[
+      {task:"Ejecutar visita Grupo A: sin robot (línea base)", who:"Jorge", wc:"#065F46", wb:"#D1FAE5"},
+      {task:"Ejecutar visita Grupo B: con OttoGuide como co-guía", who:"Jorge + equipo", wc:"#065F46", wb:"#D1FAE5"},
+      {task:"Aplicar encuesta Likert post-visita a ambos grupos", who:"Martina", wc:"#6D28D9", wb:"#DDD6FE"},
+      {task:"Conducir entrevistas breves a participantes seleccionados", who:"Martina", wc:"#6D28D9", wb:"#DDD6FE"},
+      {task:"Registro de observación estructurada e incidencias", who:"Jorge", wc:"#065F46", wb:"#D1FAE5"},
+    ]
+  },
+  {
+    sem:"Sem 10", title:"Fase 5 — Análisis y entrega",
+    color:"#10B981", fill:"#ECFDF5", robot:"🟢 Sin robot",
+    robotFill:"#ECFDF5", robotColor:"#065F46",
+    items:[
+      {task:"Análisis comparativo de resultados con y sin robot", who:"Martina + Jorge", wc:"#6D28D9", wb:"#DDD6FE"},
+      {task:"Contraste contra criterios de éxito del MVP", who:"Teo", wc:"#1D4ED8", wb:"#EFF6FF"},
+      {task:"Documentación técnica y del proyecto", who:"Todo el equipo", wc:"#475569", wb:"#F1F5F9"},
+      {task:"Presentación final a stakeholders de UADE", who:"Teo", wc:"#1D4ED8", wb:"#EFF6FF"},
+    ]
+  }
+];
+
+const backlogData = [
+  { persona:"Teo", initials:"TE", ac:"#1D4ED8", ab:"#1D4ED8", afc:"#fff",
+    tareas:[
+      "Gestionar acceso WiFi de UADE para el robot",
+      "Configurar API keys y endpoints del LLM",
+      "Configurar integración TTS/STT con el backend",
+      "Validar conectividad backend ↔ robot en red UADE",
+      "Definir arquitectura general y stack tecnológico",
+      "Coordinar fechas del piloto con UADE",
+      "Reservar acceso físico al G1 para semanas 6–9",
+      "Presentación final a stakeholders",
+    ]},
+  { persona:"Lucas", initials:"LU", ac:"#1D4ED8", ab:"#EFF6FF", afc:"#1D4ED8",
+    tareas:[
+      "Instalar unitree_sdk2_python y CycloneDDS",
+      "Probar conexión DDS con G1 EDU 8 en red local",
+      "Implementar SportClient: stand, move, trajectory",
+      "Activar obstacle avoidance por código",
+      "Desarrollar backend (FastAPI/Flask): rutas y lógica",
+      "Desarrollar cliente Python en el robot (DDS subscriber)",
+      "Pipeline conversación: STT → LLM → TTS → robot",
+      "DDS Publisher: enviar comandos al robot desde backend",
+      "Pruebas de integración completa end-to-end",
+    ]},
+  { persona:"Erika", initials:"ER", ac:"#C2410C", ab:"#FFF7ED", afc:"#C2410C",
+    tareas:[
+      "Redactar guión predefinido del recorrido (3 zonas)",
+      "Definir tono y personalidad del robot para estudiantes de secundaria",
+      "Redactar textos de bienvenida, explicaciones por zona y despedida",
+      "Mapeo y redacción de FAQ de UADE",
+      "Validar que voz e interacciones sean adecuadas tras prueba interna",
+      "Ajuste del guión según feedback del piloto",
+    ]},
+  { persona:"Jorge", initials:"JO", ac:"#065F46", ab:"#ECFDF5", afc:"#065F46",
+    tareas:[
+      "Relevamiento físico del recorrido (entrada, planta baja, patio)",
+      "Diseñar protocolo de pruebas con y sin robot",
+      "Pruebas de navegación y colisiones en espacio real",
+      "Elaborar guía de observación estructurada",
+      "Ejecutar visita Grupo A: sin robot (línea base)",
+      "Ejecutar visita Grupo B: con OttoGuide como co-guía",
+      "Registro de observación e incidencias durante el piloto",
+    ]},
+  { persona:"Martina", initials:"MA", ac:"#6D28D9", ab:"#F5F3FF", afc:"#6D28D9",
+    tareas:[
+      "Diseñar encuesta post-visita (escala Likert)",
+      "Diseñar guía de entrevista breve (5–8 preguntas)",
+      "Aplicar encuesta Likert a ambos grupos post-piloto",
+      "Conducir entrevistas breves a participantes",
+      "Análisis comparativo de resultados con/sin robot",
+      "Documentación final del proyecto",
+    ]},
+];
+
+// ── RENDER ROADMAP ─────────────────────────────────
+const tlEl = document.getElementById('roadmap-timeline');
+phases.forEach((p, i) => {
+  const block = document.createElement('div');
+  block.className = 'phase-block';
+  block.innerHTML = `
+    <div class="phase-weeks">
+      <div class="phase-weeks-text">${p.sem}</div>
+      <div class="phase-dot-timeline" style="background:${p.color}"></div>
+    </div>
+    <div class="phase-content">
+      <div class="phase-head" onclick="togglePhase(${i})">
+        <div class="phase-color-bar" style="background:${p.color}"></div>
+        <div class="phase-head-title">${p.title}</div>
+        <div class="phase-robot-badge" style="background:${p.robotFill};color:${p.robotColor}">${p.robot}</div>
+        <div class="phase-toggle" id="toggle-${i}">▾</div>
+      </div>
+      <div class="phase-items-list" id="phase-items-${i}">
+        ${p.items.map(it => `
+          <div class="phase-item-row">
+            <span class="phase-item-who" style="background:${it.wb};color:${it.wc}">${it.who}</span>
+            <span>${it.task}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  tlEl.appendChild(block);
+});
+
+function togglePhase(i) {
+  const list = document.getElementById(`phase-items-${i}`);
+  const toggle = document.getElementById(`toggle-${i}`);
+  list.classList.toggle('open');
+  toggle.classList.toggle('open');
+}
+
+// ── RENDER BACKLOG ─────────────────────────────────
+const tasks = [];
+backlogData.forEach(p => p.tareas.forEach(t => tasks.push({ text:t, persona:p.persona, done:false })));
+
+const navEl = document.getElementById('backlog-nav');
+const contentEl = document.getElementById('backlog-content');
+
+// botón "Todos"
+const allBtn = document.createElement('button');
+allBtn.className = 'backlog-btn active';
+allBtn.textContent = 'Todos';
+allBtn.onclick = () => showPerson('todos', allBtn);
+navEl.appendChild(allBtn);
+
+backlogData.forEach(p => {
+  const btn = document.createElement('button');
+  btn.className = 'backlog-btn';
+  btn.textContent = p.persona;
+  btn.onclick = () => showPerson(p.persona, btn);
+  navEl.appendChild(btn);
+
+  const section = document.createElement('div');
+  section.className = 'backlog-person visible';
+  section.id = `bp-${p.persona}`;
+
+  const header = document.createElement('div');
+  header.className = 'backlog-person-header';
+  header.innerHTML = `
+    <div class="backlog-person-avatar" style="background:${p.ab};color:${p.afc}">${p.initials}</div>
+    <div><div class="backlog-person-name">${p.persona}</div></div>
+  `;
+  section.appendChild(header);
+
+  const list = document.createElement('div');
+  list.className = 'task-list-items';
+
+  p.tareas.forEach(t => {
+    const idx = tasks.findIndex(tk => tk.text === t && tk.persona === p.persona);
+    const row = document.createElement('div');
+    row.className = 'task-row';
+    row.id = `task-${idx}`;
+    row.innerHTML = `<div class="task-check"></div><div class="task-text">${t}</div>`;
+    row.onclick = () => toggleTask(idx);
+    list.appendChild(row);
+  });
+
+  section.appendChild(list);
+  contentEl.appendChild(section);
+});
+
+function showPerson(name, btn) {
+  document.querySelectorAll('.backlog-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.backlog-person').forEach(s => {
+    s.classList.toggle('visible', name === 'todos' || s.id === `bp-${name}`);
+  });
+}
+
+function toggleTask(idx) {
+  tasks[idx].done = !tasks[idx].done;
+  const row = document.getElementById(`task-${idx}`);
+  row.classList.toggle('done', tasks[idx].done);
+  updateProgress();
+}
+
+function updateProgress() {
+  const done = tasks.filter(t => t.done).length;
+  const total = tasks.length;
+  const pct = Math.round(done / total * 100);
+  document.getElementById('prog-fill').style.width = pct + '%';
+  document.getElementById('prog-label').textContent = `${done} / ${total} tareas completadas`;
+}
+
+// ── SCROLL NAV HIGHLIGHT ───────────────────────────
+const sections = document.querySelectorAll('.section');
+const navItems = document.querySelectorAll('.nav-item');
+
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navItems.forEach(n => n.classList.remove('active'));
+      const id = entry.target.id;
+      const active = document.querySelector(`.nav-item[href="#${id}"]`);
+      if (active) active.classList.add('active');
+    }
+  });
+}, { threshold: 0.3 });
+
+sections.forEach(s => observer.observe(s));
+
+// ── FADE IN ON SCROLL ──────────────────────────────
+const fadeObserver = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+}, { threshold: 0.05 });
+
+document.querySelectorAll('.section').forEach(s => fadeObserver.observe(s));
+document.querySelector('.hero').classList.add('visible');
+</script>
+</body>
+</html>

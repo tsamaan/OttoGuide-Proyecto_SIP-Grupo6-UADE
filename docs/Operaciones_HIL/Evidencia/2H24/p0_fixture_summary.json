@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "phase": "2H.2.4",
+  "generated_at_utc": "2026-06-22T23:55:00Z",
+  "pipeline": {
+    "collector": "tools/hil/physical_read_only/collect_p0_readonly_evidence.py",
+    "schema": "tools/hil/physical_read_only/p0_evidence_schema.py",
+    "wrapper": "tools/hil/physical_read_only/collect_p0_readonly_evidence.sh",
+    "validator": "tools/hil/physical_read_only/validate_p0_readonly_evidence.py"
+  },
+  "bundle_files_generated_per_run": [
+    "p0_session_meta.json", "p0_ros_graph.json", "p0_tf_and_localization.json",
+    "p0_sensors.json", "p0_cmd_vel_chain.json", "p0_safety_human_checklist.json",
+    "p0_command_log.json", "p0_hash_manifest.json", "p0_hash_manifest.sha256"
+  ],
+  "fixture_cases": [
+    {
+      "case": "nominal",
+      "fixture_dir": "tests/fixtures/p0_readonly/nominal",
+      "collector_exit_code": 0,
+      "validator_bundle_integrity": "PASS",
+      "validator_read_only_invariants": "PASS",
+      "validator_p0_field_decision": "FIXTURE_ONLY",
+      "validator_exit_code": 3
+    },
+    {
+      "case": "missing_topic",
+      "fixture_dir": "tests/fixtures/p0_readonly/missing_topic",
+      "collector_exit_code": 0,
+      "note": "/scan absent from topic_list; topic_hz_scan/topic_info_scan never invoked (verified via command_log labels)",
+      "validator_bundle_integrity": "PASS",
+      "validator_p0_field_decision": "NO_GO",
+      "validator_finding": "CRITICAL_TOPIC_MISSING:/scan",
+      "validator_exit_code": 2
+    },
+    {
+      "case": "wrong_head",
+      "fixture_dir": "tests/fixtures/p0_readonly/nominal (reused with --expected-head mismatched)",
+      "collector_exit_code": 0,
+      "validator_bundle_integrity": "PASS",
+      "validator_read_only_invariants": "PASS",
+      "validator_p0_field_decision": "NO_GO",
+      "validator_finding": "HEAD_MISMATCH",
+      "validator_exit_code": 2
+    },
+    {
+      "case": "human_no_go",
+      "fixture_dir": "tests/fixtures/p0_readonly/human_no_go",
+      "collector_exit_code": 0,
+      "note": "operator_present=false in fixture; bundle correctly reflects it",
+      "validator_bundle_integrity": "PASS",
+      "validator_read_only_invariants": "PASS",
+      "validator_p0_field_decision": "NO_GO",
+      "validator_note": "NO_GO, not FIXTURE_ONLY -- a fixture with real findings is never hidden behind fixture status",
+      "validator_exit_code": 2
+    },
+    {
+      "case": "tampered_hash",
+      "fixture_dir": "tests/fixtures/p0_readonly/nominal (bundle mutated post-collection)",
+      "collector_exit_code": 0,
+      "validator_bundle_integrity": "FAIL",
+      "validator_finding": "HASH_MISMATCH:p0_ros_graph.json",
+      "validator_p0_field_decision": "NOT_EVALUATED",
+      "validator_exit_code": 1
+    },
+    {
+      "case": "command_timeout",
+      "fixture_dir": "tests/fixtures/p0_readonly/command_timeout",
+      "collector_exit_code": 0,
+      "note": "odom_echo_once simulated as timed_out=true, exit_code=124; collector did not crash, command_log faithfully recorded it",
+      "validator_bundle_integrity": "PASS"
+    },
+    {
+      "case": "large_output",
+      "fixture_dir": "tests/fixtures/p0_readonly/large_output",
+      "collector_exit_code": 0,
+      "note": "tf_static_echo_once stdout = 10212 chars, truncated to 4000 (COMMAND_OUTPUT_TRUNCATE_CHARS), stdout_truncated=true recorded",
+      "validator_bundle_integrity": "PASS"
+    },
+    {
+      "case": "movement_attempt",
+      "fixture_dir": "tests/fixtures/p0_readonly/movement_attempt",
+      "collector_exit_code": 0,
+      "note": "fixture attempts to declare movement_command_sent=true etc via an ignored override key; all seven invariants remained the hardcoded False in the output bundle",
+      "validator_read_only_invariants": "PASS"
+    }
+  ],
+  "dry_run": {
+    "command": "collect_p0_readonly_evidence.py (no flags)",
+    "exit_code": 0,
+    "wrote_bundle": false,
+    "status": "NOT_EXECUTED"
+  },
+  "real_execution_performed": false,
+  "wrapper_verified_on_wsl": {
+    "bash_n_syntax": "PASS",
+    "help": "PASS",
+    "dry_run": "PASS",
+    "fixture_e2e_through_wrapper": "PASS (exit code 3, FIXTURE_ONLY)",
+    "file_permissions_observed": {"directory": "700", "files": "600"}
+  }
+}

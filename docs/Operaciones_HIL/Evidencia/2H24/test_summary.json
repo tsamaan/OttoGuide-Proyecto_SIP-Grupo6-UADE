@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "phase": "2H.2.4",
+  "generated_at_utc": "2026-06-22T23:55:00Z",
+  "windows": {
+    "targeted": {
+      "command": "pytest tests/unit/test_navigation_runtime_selection.py tests/unit/test_architecture_reconciliation_contract.py tests/unit/test_offline_navigation_sandbox_isolation.py tests/unit/test_main_runtime_timeout_cleanup.py tests/unit/test_2h23_evidence_matrix.py tests/unit/test_2h24_parent_cli_timeout.py tests/unit/test_p0_readonly_evidence_contract.py tests/unit/test_p0_readonly_pipeline_e2e.py",
+      "exit_code": 0,
+      "passed": 471,
+      "skipped": 109,
+      "failed": 0,
+      "subtests_passed": 42
+    },
+    "unit_suite": {
+      "command": "pytest tests/unit",
+      "exit_code": 0,
+      "passed": 596,
+      "skipped": 109,
+      "failed": 0
+    },
+    "full_repository_suite": {
+      "command": "pytest tests",
+      "exit_code": 1,
+      "passed": 615,
+      "skipped": 109,
+      "failed": 1,
+      "classification": "FAIL_PREEXISTING_PROVEN",
+      "failing_test": "tests/integration/test_tour_orchestrator.py::test_emergency_stop_triggers_damp",
+      "root_cause": "assert 'moving' == 'damped'",
+      "identical_to_baseline": "82d4942"
+    }
+  },
+  "wsl": {
+    "environment": {
+      "distro": "Ubuntu-24.04",
+      "python": "3.12.3",
+      "pytest": "7.4.4",
+      "pytest_asyncio": "absent"
+    },
+    "targeted": {
+      "command": "pytest (same 8 files as windows.targeted)",
+      "exit_code": 0,
+      "passed": 531,
+      "skipped": 25,
+      "failed": 0
+    },
+    "unit_suite": {
+      "command": "pytest tests/unit",
+      "exit_code": 1,
+      "passed": 634,
+      "skipped": 38,
+      "errors": 9,
+      "classification": "PREEXISTING_ENVIRONMENT_GAP_PROVEN",
+      "error_root_cause": "ModuleNotFoundError: No module named 'pytest_asyncio'",
+      "error_location": "tests/unit/test_content_interface.py (9 collection errors, file untouched by this phase)"
+    },
+    "full_repository_suite": {
+      "command": "pytest tests",
+      "exit_code": 2,
+      "classification": "BLOCKED_PREEXISTING_ENVIRONMENT_GAP",
+      "collection_errors": 3,
+      "error_root_cause": "ModuleNotFoundError: No module named 'pytest_asyncio'",
+      "error_locations": [
+        "tests/integration/test_api_server.py",
+        "tests/integration/test_hardware_api.py",
+        "tests/integration/test_tour_orchestrator.py"
+      ]
+    }
+  },
+  "static_verifier": {
+    "static_mode": {"command": "verify_sandbox_isolation.py", "exit_code": 0, "decision": "PASS"},
+    "runtime_mode": {
+      "command": "verify_sandbox_isolation.py --runtime",
+      "preconditions": "ROS_LOCALHOST_ONLY=1, ROS_DOMAIN_ID set",
+      "exit_code": 0,
+      "decision": "PASS"
+    }
+  },
+  "new_or_modified_test_files": [
+    "tests/unit/test_main_runtime_timeout_cleanup.py",
+    "tests/unit/test_2h24_parent_cli_timeout.py",
+    "tests/unit/test_p0_readonly_evidence_contract.py",
+    "tests/unit/test_p0_readonly_pipeline_e2e.py",
+    "tests/unit/test_offline_navigation_sandbox_isolation.py"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+ "callbacks_total": 25952,
+ "samples_persisted": 299,
+ "native_hz_estimate": 864.2,
+ "capture_seconds": 30.0,
+ "motor_array_size_received": 35,
+ "motor_persisted_cap": 29
+}

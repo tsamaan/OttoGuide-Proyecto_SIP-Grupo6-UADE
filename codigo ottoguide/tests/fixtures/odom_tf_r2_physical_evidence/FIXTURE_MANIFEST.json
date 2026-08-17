@@ -1,0 +1,137 @@
+{
+  "fixtures": [
+    {
+      "fixture_id": "r3c_stationary_slice",
+      "fixture_relative_path": "r3c_stationary_slice.json",
+      "fixture_sha256": "bd9e8542118dcabdf04911f70126fb22a791d098cc37bc1446c229649c3a348f",
+      "limitations": [
+        "This is a small illustrative slice, not the full session; do not use it to recompute session-level statistics that require the complete sample set."
+      ],
+      "record_count": 10,
+      "selection_rule": "first 5 records per channel with phase==PRE_ROUTE_STATIONARY, in recorder sequence order",
+      "sequence_note": "n/a (first-5 slice per channel)",
+      "source_package": "FINAL-R4-20260720T204735Z/01_route_raw/route_hilroute-20260720T194910Z.tar.gz",
+      "source_session": "hilroute-20260720T194910Z",
+      "transformations": [
+        "stream-parsed recorder_data/{odom,lf_odom}/*.jsonl",
+        "grouped by phase",
+        "sliced to first 5 per channel"
+      ]
+    },
+    {
+      "fixture_id": "r3c_dynamic_slice",
+      "fixture_relative_path": "r3c_dynamic_slice.json",
+      "fixture_sha256": "321b5963642fdbed2c295a486957d78b86f3fb60f8fad6b90d1c64315dbc2850",
+      "limitations": [
+        "This is a small illustrative slice, not the full session; do not use it to recompute session-level statistics that require the complete sample set."
+      ],
+      "record_count": 20,
+      "selection_rule": "first 5 and last 5 records per channel with phase==ROUTE_ACTIVE, in recorder sequence order",
+      "sequence_note": "91143 (route_active first observed)",
+      "source_package": "FINAL-R4-20260720T204735Z/01_route_raw/route_hilroute-20260720T194910Z.tar.gz",
+      "source_session": "hilroute-20260720T194910Z",
+      "transformations": [
+        "stream-parsed recorder_data/{odom,lf_odom}/*.jsonl",
+        "grouped by phase",
+        "sliced to first 5 + last 5 per channel"
+      ]
+    },
+    {
+      "fixture_id": "r4_postboot_slice",
+      "fixture_relative_path": "r4_postboot_slice.json",
+      "fixture_sha256": "ed3e08c1c93a569df224364e81ba0f50c209c55287f80312cd7e4645b017711f",
+      "limitations": [
+        "This is a small illustrative slice, not the full session; do not use it to recompute session-level statistics that require the complete sample set."
+      ],
+      "record_count": null,
+      "selection_rule": "verbatim copy of the derived timebase handshake + reset characterization reports",
+      "sequence_note": "n/a (already-derived summary report)",
+      "source_package": "FINAL-R4-20260720T204735Z/02_postboot_stationary/TIMEBASE_ESTIMATE.json + FINAL-R4-20260720T204735Z/09_analysis/ODOM_RESET_COMPARISON.json",
+      "source_session": "finalharvest-seated-20260720T205406Z",
+      "transformations": [
+        "verbatim JSON copy, no numeric transformation"
+      ]
+    },
+    {
+      "fixture_id": "r4b_forward_x_slice",
+      "fixture_relative_path": "r4b_forward_x_slice.json",
+      "fixture_sha256": "930604f0fba6a34f514e7f858598130559cb1b8a6243aa8631bb8c5253d9e7a6",
+      "limitations": [
+        "This is a small illustrative slice, not the full session; do not use it to recompute session-level statistics that require the complete sample set."
+      ],
+      "record_count": null,
+      "selection_rule": "forward_x_valid_retry segment excerpt for both channels",
+      "sequence_note": "n/a (already-derived segment)",
+      "source_package": "FINAL-R4-20260720T204735Z/10_r4b/R4B_CHANNEL_COMPARISON.json",
+      "source_session": "gt-r4b-20260720T213222Z",
+      "transformations": [
+        "verbatim JSON excerpt, no numeric transformation"
+      ]
+    },
+    {
+      "fixture_id": "r4b_turn_slice",
+      "fixture_relative_path": "r4b_turn_slice.json",
+      "fixture_sha256": "aeb3a1cc0a1428cd95235b97fdc4dc9e742b3768dc1e04679cc1f0c0351cd08f",
+      "limitations": [
+        "This is a small illustrative slice, not the full session; do not use it to recompute session-level statistics that require the complete sample set."
+      ],
+      "record_count": null,
+      "selection_rule": "left_90_first segment excerpt for both channels",
+      "sequence_note": "n/a (already-derived segment)",
+      "source_package": "FINAL-R4-20260720T204735Z/10_r4b/R4B_CHANNEL_COMPARISON.json",
+      "source_session": "gt-r4b-20260720T213222Z",
+      "transformations": [
+        "verbatim JSON excerpt, no numeric transformation"
+      ]
+    },
+    {
+      "fixture_id": "r4b_forward_after_turn_slice",
+      "fixture_relative_path": "r4b_forward_after_turn_slice.json",
+      "fixture_sha256": "1bcb2df79577906d3db8b40c5f1a5fb7e078641265fef75f53a7d41b2223d707",
+      "limitations": [
+        "This is a small illustrative slice, not the full session; do not use it to recompute session-level statistics that require the complete sample set."
+      ],
+      "record_count": null,
+      "selection_rule": "forward_y segment excerpt for both channels",
+      "sequence_note": "n/a (already-derived segment)",
+      "source_package": "FINAL-R4-20260720T204735Z/10_r4b/R4B_CHANNEL_COMPARISON.json",
+      "source_session": "gt-r4b-20260720T213222Z",
+      "transformations": [
+        "verbatim JSON excerpt, no numeric transformation"
+      ]
+    },
+    {
+      "fixture_id": "r4b_invalid_interval_slice",
+      "fixture_relative_path": "r4b_invalid_interval_slice.json",
+      "fixture_sha256": "59c355000e88ee86a4bbf4d8352973e6b83af7c863352333b346d696e5658499",
+      "limitations": [
+        "This is a small illustrative slice, not the full session; do not use it to recompute session-level statistics that require the complete sample set."
+      ],
+      "record_count": null,
+      "selection_rule": "left_90_return_invalidated segment excerpt for both channels (INVALID, analysis_eligible=false)",
+      "sequence_note": "n/a (already-derived segment)",
+      "source_package": "FINAL-R4-20260720T204735Z/10_r4b/R4B_CHANNEL_COMPARISON.json",
+      "source_session": "gt-r4b-20260720T213222Z",
+      "transformations": [
+        "verbatim JSON excerpt, no numeric transformation"
+      ]
+    },
+    {
+      "fixture_id": "primary_lf_aligned_slice",
+      "fixture_relative_path": "primary_lf_aligned_slice.json",
+      "fixture_sha256": "d603980815d88316d03c66343d68cbc18dd7403663e70fbaa76b9b04b2496bdc",
+      "limitations": [
+        "This is a small illustrative slice, not the full session; do not use it to recompute session-level statistics that require the complete sample set."
+      ],
+      "record_count": null,
+      "selection_rule": "left_180_operator_corrected segment excerpt for both channels, illustrating near-identical primary/LF agreement",
+      "sequence_note": "n/a (already-derived segment)",
+      "source_package": "FINAL-R4-20260720T204735Z/10_r4b/R4B_CHANNEL_COMPARISON.json",
+      "source_session": "gt-r4b-20260720T213222Z",
+      "transformations": [
+        "verbatim JSON excerpt, no numeric transformation"
+      ]
+    }
+  ],
+  "schema_version": "2.0.0-p0"
+}

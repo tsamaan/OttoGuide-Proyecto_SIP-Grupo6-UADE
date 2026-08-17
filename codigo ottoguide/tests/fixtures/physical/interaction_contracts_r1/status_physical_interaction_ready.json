@@ -1,0 +1,18 @@
+{
+  "fixture_origin": "synthetic_contract",
+  "description": "Status payload contract: physical runtime configured, ready, not mock, no active session -- the button-enabled state per interactionStartBlockReasons() (empty reasons list).",
+  "fsmState": "idle",
+  "interactionRuntime": {
+    "configured": true,
+    "ready": true,
+    "mock": false,
+    "physical": true,
+    "state": "ready"
+  },
+  "interactionSession": {
+    "active": false,
+    "sessionId": null,
+    "state": "idle",
+    "lastEvent": null
+  }
+}

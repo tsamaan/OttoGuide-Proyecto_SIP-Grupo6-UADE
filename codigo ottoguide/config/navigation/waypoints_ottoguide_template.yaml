@@ -1,0 +1,36 @@
+# TEMPLATE CONCEPTUAL - VALORES PENDIENTES
+# Estos waypoints no son definitivos porque provienen de una sesión
+# estacionaria y no de un mapa completo ni recorrido real.
+waypoints:
+  - id: start_reception
+    label: "Recepción / punto inicial"
+    frame: map
+    pose:
+      x: null
+      y: null
+      yaw: null
+    status: pending_measurement
+  - id: molinetes
+    label: "Molinetes"
+    frame: map
+    pose:
+      x: null
+      y: null
+      yaw: null
+    status: pending_measurement
+  - id: oficina_alumnos
+    label: "Oficina de Alumnos"
+    frame: map
+    pose:
+      x: null
+      y: null
+      yaw: null
+    status: pending_measurement
+  - id: cierre_tour
+    label: "Cierre del recorrido"
+    frame: map
+    pose:
+      x: null
+      y: null
+      yaw: null
+    status: pending_measurement

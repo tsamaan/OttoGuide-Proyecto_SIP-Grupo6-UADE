@@ -1,0 +1,22 @@
+{
+  "decision": "NO_GO",
+  "hardware_inventory_id": "HARDWARE_EXAMPLE_NOT_REVIEWED",
+  "hardware_inventory_revision": "1",
+  "hardware_inventory_sha256": "HASH_PLACEHOLDER",
+  "movement_authorization_reference": "AUTHORIZATION_PLACEHOLDER",
+  "notes": "Conservative example only; no human authorization has been issued.",
+  "origin_placement_status": "NOT_CHECKED",
+  "origin_position_error_m": null,
+  "origin_yaw_error_rad": null,
+  "review_id": "HUMAN_REVIEW_EXAMPLE_NO_GO",
+  "review_revision": "1",
+  "reviewed_at": "",
+  "reviewed_by_role": "REVIEWER_ROLE_PLACEHOLDER",
+  "route_id": "R3-EXAMPLE",
+  "route_revision": "1",
+  "route_spec_sha256": "ROUTE_HASH_PLACEHOLDER",
+  "safety_protocol_reviewed": false,
+  "schema_version": "1.0",
+  "session_id": "GT_EXAMPLE_001",
+  "sync_plan_reviewed": false
+}

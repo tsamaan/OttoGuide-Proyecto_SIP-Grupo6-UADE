@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "checkpoint": "NB-HIL-WEB-R0B1-PREDEPLOYMENT-INTEGRITY-REPAIR-AND-LIVE-WEB-START",
+  "phase": "FASE_B_REMOTE_HASH_AUTHORITY",
+  "created_utc": "2026-07-17T20:45:00Z",
+  "prior_state_observed": {
+    "hash_entries": 8,
+    "match": 2,
+    "mismatch": 6,
+    "postlaunch_gate_listed": false,
+    "mismatched_files": [
+      "ottoguide_bms_probe.py", "ottoguide_common.py", "ottoguide_readonly_bridge.py",
+      "ottoguide_remote_recorder.py", "static_gate.py", "finalize_remote_session.sh"
+    ],
+    "verified_independently": true
+  },
+  "allowlist_file_count": 9,
+  "allowlist": [
+    "ottoguide_bms_probe.py", "ottoguide_common.py", "ottoguide_observability_supervisor.py",
+    "ottoguide_readonly_bridge.py", "ottoguide_remote_recorder.py", "postlaunch_gate.py",
+    "static_gate.py", "finalize_remote_session.sh", "start_remote_supervisor.sh"
+  ],
+  "regenerated_from": "R0B1 remote_runtime (current)",
+  "hash_match": 9,
+  "hash_mismatch": 0,
+  "missing_listed_file": 0,
+  "unlisted_runtime_executable_file": 0,
+  "manifest_self_included": false,
+  "pycache_or_pyc_present": false,
+  "manifest_copied_to": "manifests/REMOTE_RUNTIME_SHA256SUMS.txt",
+  "manifest_copy_identical": true,
+  "passed": true
+}

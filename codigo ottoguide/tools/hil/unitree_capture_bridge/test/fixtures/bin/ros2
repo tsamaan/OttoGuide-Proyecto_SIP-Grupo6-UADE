@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Fake `ros2` CLI for offline wrapper tests. Never touches a real ROS graph.
+# Behavior is fully controlled by environment variables so each test case can
+# script the exact response it needs:
+#   FAKE_ROS2_PUB_CMD_VEL / FAKE_ROS2_PUB_ODOM
+#       zero|one|many|unknown|unknown-rc0|unknown-like|unknown-wrong-rc|
+#       fail|empty|garbage|timeout  (default: zero)
+#       - unknown:           real Foxy behavior - exact "Unknown topic"
+#                             line on exit code 1
+#       - unknown-rc0:       same exact line but on exit code 0 (legacy/
+#                             other-distro compatibility case)
+#       - unknown-like:      text that mentions "Unknown topic" but is not
+#                             the exact expected line - must NOT be treated
+#                             as safe
+#       - unknown-wrong-rc:  the exact expected line but on an exit code
+#                             other than 0/1 - must NOT be treated as safe
+#   FAKE_ROS2_TOPICS_STR        newline-separated topic list for `topic list`
+#   FAKE_ROS2_TOPIC_LIST_FAIL=1 makes `topic list` fail
+#
+# Note: cmd_start no longer calls `ros2 run` (see fixtures/fake_bridge_node.py
+# and BRIDGE_EXECUTABLE instead) - this fixture only ever needs to answer
+# `topic info` / `topic list`.
+set -u
+
+respond_publisher_info() {
+  local topic="$1" mode
+  case "$topic" in
+    /cmd_vel) mode="${FAKE_ROS2_PUB_CMD_VEL:-zero}" ;;
+    /odom) mode="${FAKE_ROS2_PUB_ODOM:-zero}" ;;
+    *) mode="zero" ;;
+  esac
+  case "$mode" in
+    zero)
+      echo "Type: std_msgs/msg/Empty"
+      echo "Publisher count: 0"
+      echo "Subscription count: 0"
+      ;;
+    one) echo "Publisher count: 1" ;;
+    many) echo "Publisher count: 3" ;;
+    unknown) echo "Unknown topic '$topic'"; exit 1 ;;
+    unknown-rc0) echo "Unknown topic '$topic'" ;;
+    unknown-like) echo "Unknown topic for '$topic' (extra context)"; exit 1 ;;
+    unknown-wrong-rc) echo "Unknown topic '$topic'"; exit 2 ;;
+    fail) echo "fake ros2: daemon unreachable" >&2; exit 1 ;;
+    empty) : ;;
+    garbage) echo "totally unexpected output format, no publisher count here" ;;
+    timeout) sleep 30 ;;
+    *) echo "Publisher count: 0" ;;
+  esac
+}
+
+case "${1:-}" in
+  topic)
+    case "${2:-}" in
+      info) respond_publisher_info "${3:-}" ;;
+      list)
+        if [[ "${FAKE_ROS2_TOPIC_LIST_FAIL:-0}" == "1" ]]; then
+          echo "fake ros2: topic list failed" >&2
+          exit 1
+        fi
+        if [[ -n "${FAKE_ROS2_TOPICS_STR:-}" ]]; then
+          printf '%s\n' "$FAKE_ROS2_TOPICS_STR"
+        fi
+        ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  *) exit 1 ;;
+esac

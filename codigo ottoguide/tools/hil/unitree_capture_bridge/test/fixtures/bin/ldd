@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Fake `ldd` for offline tests of validate_tap_runtime_libraries(). Never
+# inspects the real (possibly foreign-architecture) binary passed as $1 -
+# behavior is fully controlled by FAKE_LDD_MODE so the SDK-vs-ROS library
+# resolution logic can be tested deterministically on any dev machine.
+#   ok        - libddscxx/libddsc resolve under $FAKE_LDD_SDK_ROOT (default: /fake/sdk)
+#   missing   - one library reported "not found"
+#   wrong_sdk - libraries resolve from a ROS-looking path instead of the SDK
+#   fail      - ldd itself exits non-zero
+set -u
+sdk_root="${FAKE_LDD_SDK_ROOT:-/fake/sdk}"
+case "${FAKE_LDD_MODE:-ok}" in
+  ok)
+    echo "linux-vdso.so.1 (0x1)"
+    echo "libddscxx.so.0 => $sdk_root/thirdparty/lib/aarch64/libddscxx.so.0 (0x2)"
+    echo "libddsc.so.0 => $sdk_root/thirdparty/lib/aarch64/libddsc.so.0 (0x3)"
+    echo "libc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x4)"
+    ;;
+  missing)
+    echo "libddscxx.so.0 => not found"
+    echo "libddsc.so.0 => $sdk_root/thirdparty/lib/aarch64/libddsc.so.0 (0x3)"
+    ;;
+  wrong_sdk)
+    echo "libddscxx.so.0 => /opt/ros/foxy/lib/aarch64-linux-gnu/libddscxx.so.0 (0x2)"
+    echo "libddsc.so.0 => /opt/ros/foxy/lib/aarch64-linux-gnu/libddsc.so.0 (0x3)"
+    ;;
+  fail)
+    echo "fake ldd: error reading binary" >&2
+    exit 1
+    ;;
+esac

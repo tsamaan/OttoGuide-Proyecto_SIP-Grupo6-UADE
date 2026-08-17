@@ -1,0 +1,41 @@
+{
+  "run_id": "19700526_082014",
+  "label": "office_route_manual_control_raw_take01",
+  "audit_date": "2026-06-23",
+  "physical_deployed_head": "23d9d9cd1aee2f4507dadfaee17e188d0d37135b",
+  "wall_clock_trusted": false,
+  "wall_clock_note": "Robot RTC invalid (~May 1970). run_id is a technical identifier only.",
+  "bag_size_gib": 4.7,
+  "duration_authoritative_s": 362.464,
+  "duration_note": "362.464s is authoritative from ros2 bag info. Value 453.76s must not be used.",
+  "total_messages": 1430030,
+  "copy_status": "PASS",
+  "package_sha256": "0DDB1845683FFEE68F9B7653A21CCEA17C5F0C5E051565B9277556A27F493528",
+  "topic_types": {
+    "/utlidar/cloud": "sensor_msgs/msg/PointCloud2",
+    "/scan": "sensor_msgs/msg/LaserScan",
+    "/livox/imu": "sensor_msgs/msg/Imu",
+    "/unitree/fsm_state": "std_msgs/msg/UInt32",
+    "/unitree/secondary_imu": "sensor_msgs/msg/Imu",
+    "/unitree/lowstate_imu": "sensor_msgs/msg/Imu",
+    "/unitree/lowstate_summary": "std_msgs/msg/String",
+    "/unitree/remote_joy": "sensor_msgs/msg/Joy",
+    "/unitree/sdk_health": "diagnostic_msgs/msg/DiagnosticArray"
+  },
+  "message_counts": {
+    "/utlidar/cloud": 651527,
+    "/scan": 630915,
+    "/livox/imu": 90753,
+    "/unitree/fsm_state": 4289,
+    "/unitree/secondary_imu": 43364,
+    "/unitree/lowstate_imu": 22040,
+    "/unitree/lowstate_summary": 22040,
+    "/unitree/remote_joy": 22040,
+    "/unitree/sdk_health": 454
+  },
+  "topics_absent": ["/odom", "/tf", "/tf_static", "/map", "/cmd_vel", "/cmd_vel_raw", "/cmd_vel_safe"],
+  "movement_source": "manual_remote_control",
+  "autonomous_navigation": false,
+  "db3_versioned": false,
+  "db3_note": "Raw bag not versioned in repository. Only metadata, topic types, message counts and package hash are stored here."
+}

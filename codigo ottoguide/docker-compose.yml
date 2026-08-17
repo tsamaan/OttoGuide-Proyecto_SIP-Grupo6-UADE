@@ -1,0 +1,106 @@
+# docker-compose.yml — Stack unificado OttoGuide
+#
+# @TASK: Levantar todos los servicios del sistema OttoGuide en un solo comando
+# @INPUT: Variables de entorno en .env o shell (ROBOT_MODE, OLLAMA_MODEL, etc.)
+# @OUTPUT: Stack completo: ottoguide backend + Ollama LLM + Whisper STT + Piper TTS
+# @CONTEXT: Unifica el docker-compose.yml de codigo ottoguide/ y de OttoGuide IA/.
+#           En modo ROBOT_MODE=real el contenedor ottoguide usa network_mode=host para DDS.
+#           Los servicios LLM/STT/TTS corren siempre (independiente del ROBOT_MODE).
+# @SECURITY: Ningún secreto hardcodeado; todo via variables de entorno.
+# @AI_CONTEXT: Servicios auxiliares (llm, stt, tts) son opcionales para modo mock/CI.
+#              En CI se puede levantar solo el servicio ottoguide sin servicios de audio.
+
+version: "3.9"
+
+services:
+
+  # ────────────────────────────────────────────────────────────────────
+  # Backend principal OttoGuide (FastAPI + Uvicorn)
+  # ────────────────────────────────────────────────────────────────────
+  ottoguide:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ottoguide:latest
+    container_name: ottoguide-backend
+    network_mode: "host"  # @SECURITY: Requerido para DDS/CycloneDDS en modo real
+    environment:
+      ROBOT_MODE: ${ROBOT_MODE:-mock}
+      ROBOT_NETWORK_INTERFACE: ${ROBOT_NETWORK_INTERFACE:-}
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://127.0.0.1:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_OTTO_MODEL: ${OLLAMA_OTTO_MODEL:-otto}
+      WHISPER_STT_PORT: ${WHISPER_STT_PORT:-9001}
+      AUDIO_MIC_DEVICE: ${AUDIO_MIC_DEVICE:-plughw:1,0}
+      CYCLONEDDS_URI: ${CYCLONEDDS_URI:-}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}
+      UNITREE_FACTORY_DIAGNOSTICS_ENABLED: ${UNITREE_FACTORY_DIAGNOSTICS_ENABLED:-false}
+    stop_grace_period: 3s
+    restart: unless-stopped
+    command: ["python", "main.py"]
+    depends_on:
+      llm:
+        condition: service_healthy
+      stt:
+        condition: service_started
+      tts:
+        condition: service_started
+
+  # ────────────────────────────────────────────────────────────────────
+  # LLM — Ollama con modelo otto (qwen2.5:3b + Modelfile personalizado)
+  # @CONTEXT: ollama create otto -f data/llm/Modelfile (ejecutar post-deploy)
+  # @PERFORMANCE: Requiere GPU para latencia < 3s; CPU en Jetson es aceptable (~10s)
+  # ────────────────────────────────────────────────────────────────────
+  llm:
+    image: ollama/ollama:latest
+    container_name: ottoguide-llm
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ────────────────────────────────────────────────────────────────────
+  # STT — Whisper ASR Webservice (español, modelo medium)
+  # @CONTEXT: Puerto 9001 en notebook; puerto 9000 en robot (Portainer ocupa 9000)
+  # @PERFORMANCE: modelo medium = mejor balance velocidad/precisión para español rioplatense
+  # ────────────────────────────────────────────────────────────────────
+  stt:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    container_name: ottoguide-stt
+    ports:
+      - "${WHISPER_STT_PORT:-9001}:9000"
+    environment:
+      - ASR_MODEL=medium
+      - ASR_ENGINE=faster_whisper
+      - ASR_LANGUAGE=es
+    restart: unless-stopped
+
+  # ────────────────────────────────────────────────────────────────────
+  # TTS — Piper TTS con voz es_MX-gevy-high (masculina latinoamericana)
+  # @CONTEXT: Solo activo en modo desarrollo/notebook. En robot HIL se usa AudioClient.TtsMaker()
+  # @AI_CONTEXT: La voz es_MX-gevy-high fue seleccionada por Erika (equipo de contenido)
+  # ────────────────────────────────────────────────────────────────────
+  tts:
+    build: ./data/tts
+    container_name: ottoguide-tts
+    ports:
+      - "10200:10200"
+    volumes:
+      - ./data/tts/voices:/data/voices
+    restart: unless-stopped
+    command: >
+      --voice ${PIPER_TTS_VOICE:-es_MX-gevy-high}
+      --update-voices
+      --download-dir /data/voices
+
+volumes:
+  ollama_data:
